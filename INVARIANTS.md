@@ -51,7 +51,8 @@ App
   results         : set of Result               (the SQLite table)
 
 Game
-  seed, mode ∈ 0..4
+  seed            : integer                    (from the generator; no fixed range)
+  mode            ∈ 0..4
   solution[r][c]  ∈ 1..9                       for r, c ∈ 0..8
   given[r][c]     ∈ {true, false}
   value[r][c]     ∈ 0..9                       (0 = empty)
@@ -111,7 +112,7 @@ Terms:
 | BRD-3 | The value of an entry is 1–9. Only the eraser or undo can remove it. Writing does not replace it. | R§4.1, R§5.1 |
 | BRD-4 | A value changes from 0 to a digit only by a number from 1 to 9 that the app reads, by redo, or by the generator. | R§5.1, R§7 |
 | BRD-5 | An entry can be incorrect. `value ≠ solution` is a correct state and has no color, if there is no clash. | R§6.3 |
-| BRD-6 | Filled cells do not show the micro-cell grid or pencil marks. Empty cells always show the micro-cell grid. | R§4.1 |
+| BRD-6 | Filled cells do not show the micro-cell grid or pencil marks. Empty cells show the micro-cell grid. The only exception is an empty cell with a "?" (QST-1): it does not show the grid while the "?" shows. | R§4.1, R§5.1 |
 | BRD-7 | The background of a filled cell is the **first** of these: the clash color if clashing; the highlight color if `value = highlight`; the starting color if given; white. Empty cells are white. | R§4.2 |
 | BRD-8 | Starting digits are black. Entry digits are dark gray (`gray35`). | R§4.1, R§15 |
 
@@ -144,7 +145,7 @@ Terms:
 | HLT-1 | `highlight ≠ None ⇒` the game is not complete. | R§6.2, R§8.3 |
 | HLT-2 | `highlight ≠ None ⇒ highlight` is the value of the last number that you tapped, and that tap was the last action. Each other action sets `highlight = None` before the app does the action. Other actions are a pen tap or stroke, a finger touch, a menu or panel action, and a change of screen. | R§3.2, R§6.2 |
 | HLT-3 | A tap on a number with a value equal to `highlight` sets `highlight = None`. A tap on a number with a different value sets `highlight` to that value. | R§6.2 |
-| HLT-4 | `highlight ≠ None ⇒ menu = Closed and screen = Game`. When the menu opens or the screen changes, the app removes the highlight. | R§9, R§6.2 |
+| HLT-4 | `highlight ≠ None ⇒ screen = Game and panel = None`. When the menu opens or the screen changes, the app removes the highlight. While the menu is open and no panel is open, a pen tap on a number can make a new highlight. | R§9, R§6.2 |
 | HLT-5 | A highlight does not change `value`, `marks`, the undo and redo stacks, or `completed`. | R§7 |
 | QST-1 | `question ≠ None ⇒` the cell of the "?" is empty. The "?" shows for approximately one second. Then `question = None`. While the "?" shows, the marks of the cell are hidden. After the "?", the cell is the same as before. | R§5.1 |
 | QST-2 | The "?" does not change `value`, `marks` or the undo and redo stacks. | R§5.1, R§7 |
@@ -154,7 +155,7 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| INP-1 | Finger touches do not change the game state. The only exception is the removal of a highlight (HLT-2). In the manual and the games list, a horizontal finger swipe can change the page. | R§5.1, R§12, R§13.2 |
+| INP-1 | Finger touches on the board do not change the game state. The only exception is the removal of a highlight (HLT-2). A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs and the screen buttons. In the manual and the games list, a horizontal finger swipe can change the page. | R§5.1, R§12, R§13.2 |
 | INP-2 | A pen touch is a **tap** only if all of its movement stays in one micro-cell. All other pen touches are writing. Each pen touch is one of these: a tap, writing, or the eraser. | R§5.1 |
 | INP-3 | A tap on an empty cell adds or removes one mark: the digit of the micro-cell that you tapped. | R§5.1 |
 | INP-4 | A tap on a filled cell does not change the board. It changes only `highlight` (HLT-3). | R§5.1, R§6.2 |
@@ -214,6 +215,7 @@ Terms:
 | NAV-8 | The button of a panel is white on black only when that panel is open. The other buttons have their usual appearance. | R§9 |
 | NAV-9 | After Start new game, `menu = Closed` and `panel = None`. | R§11 |
 | NAV-10 | The closed menu never covers the board. The open toolbar (x ≥ 1508) never covers the board (x ≤ 1471). An open panel can cover a part of the board. | R§3.1 |
+| NAV-11 | When `panel ≠ None`, a tap outside the panel only sets `panel = None`. It does not change the game, also when the tap is on the board. When `menu = Open` and `panel = None`, the board operates as usual. | R§9 |
 
 ## 11. Difficulty
 
@@ -224,7 +226,7 @@ Terms:
 | DIF-3 | When the New game panel opens, `slider = last_mode`. | R§11 |
 | DIF-4 | When you move the slider, only `slider` changes. The game, `last_mode` and the meter do not change. If the panel closes before Start new game, the app does not keep `slider`. | R§11 |
 | DIF-5 | Start new game sets `last_mode = slider`. It makes a game with `mode = slider`, a new seed, `elapsed = 0`, empty stacks, `completed = false`, no entries and no marks. | R§11 |
-| DIF-6 | The meter below the board always shows `game.mode`. The player cannot change it. | R§11 |
+| DIF-6 | `¬completed ⇒` the meter below the board shows `game.mode`. When the game is complete, "Completed in …" replaces the meter (CMP-4). The player cannot change the meter. | R§3.1, R§8.3, R§11 |
 | DIF-7 | Start new game never asks for a confirmation. It never records the old game in `results` (CMP-5). | R§11 |
 
 ## 12. Cell colors
@@ -255,7 +257,7 @@ Terms:
 | ANA-2 | Only completion adds results (CMP-5). Only a confirmed Delete removes results. | R§14.1, R§13.2 |
 | ANA-3 | "Puzzles completed" on the summary is `|results|`. "Average time" is the average of `seconds` in `results`, or "–" if there are no results. | R§13.1 |
 | ANA-4 | For each mode m, completed is `|{r ∈ results : r.mode = m}|`. Average is the average of their `seconds`, or "–" if there are none. The sum of the quantities for all modes is equal to the total. | R§13.1 |
-| ANA-5 | The list shows only the results that agree with `filter` (all results for All). The newest `finished_at` is first. Each page has 12 results. | R§13.2 |
+| ANA-5 | The list shows only the results that agree with `filter` (all results for All). The newest `finished_at` is first. Each page has a maximum of 12 results. All pages before the last page have 12 results. If no results agree with `filter`, the list has no rows. | R§13.2 |
 | ANA-6 | `1 ≤ page ≤ max(1, ⌈matching / 12⌉)`. When the list opens, `filter = All` and `page = 1`. A change of filter sets `page = 1`. | R§13.2 |
 | ANA-7 | `confirm ≠ None ⇒` the dialog shows on the pale list, and the list accepts no other input. Cancel sets `confirm = None` and makes no change. Delete removes that one result and then sets `confirm = None`. | R§13.2 |
 | ANA-8 | After a deletion, the summary and the list show the change immediately (ANA-3 to ANA-5 are true). If the current page becomes empty, the list shows the page before it, but not below page 1. Then ANA-6 is true. | R§13.2 |

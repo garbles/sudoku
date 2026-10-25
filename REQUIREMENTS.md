@@ -139,8 +139,8 @@ Each cell is always one of these four types:
 
 | Type | Appearance | Changes |
 |---|---|---|
-| **Starting number** | Black digit on the starting-number color (default: gray). No micro-cells. | It does not change. Writing on it and the eraser have no effect. |
-| **Your number** | Dark gray digit on white. No micro-cells. The app keeps its pencil marks but does not show them. | Only the eraser or undo can remove it. Writing on it has no effect. |
+| **Starting number** | Black digit. No micro-cells. Background: refer to [§4.2](#42-cell-background-color). | It does not change. Writing on it and the eraser have no effect. |
+| **Your number** | Dark gray digit. No micro-cells. Background: refer to [§4.2](#42-cell-background-color). The app keeps its pencil marks but does not show them. | Only the eraser or undo can remove it. Writing on it has no effect. |
 | **Empty, no pencil marks** | The faint 3×3 grid of micro-cells. | Tap to add a pencil mark. Write to add a number. |
 | **Empty, with pencil marks** | The grid of micro-cells with small digits in their keypad positions. | Tap to add or remove a pencil mark. Write to add a number. |
 
@@ -193,8 +193,10 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
 
 ### 5.1 Rules
 
-- **Finger touches on the board have no effect.** Only the reMarkable pen operates the board. In the
-  manual and the games list, a finger swipe turns the page. Refer to [§12](#12-manual-help) and
+- **Finger touches on the board have no effect.** Only the reMarkable pen operates the board.
+- A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs
+  and the screen buttons (for example "< Back"). The pen can also operate these items.
+- In the manual and the games list, a finger swipe turns the page. Refer to [§12](#12-manual-help) and
   [§13](#13-analytics).
 - A **tap** is a pen touch that stays in one micro-cell from start to end. If the pen moves out of the
   micro-cell before it lifts, the touch is writing, not a tap.
@@ -413,6 +415,10 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
 | bottom 0 | New game | + | Opens the New game panel ([§11](#11-new-game-panel-and-difficulty)). |
 
 - When the menu opens, the app removes the highlight.
+- The board continues to operate while the menu is open. For example, you can write a number or
+  tap a number to make a highlight.
+- When a panel is open, a tap outside the panel only closes the panel. The tap has no other effect,
+  also when it is on the board.
 - When the menu is open, the **close button** shows at the top left. A tap on it closes the app. The
   app then shows the launcher ([§14.4](#144-launcher)).
 - When a panel is open, its button is white on a black square. The panel touches the button. The
