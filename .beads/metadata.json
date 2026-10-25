@@ -1,0 +1,7 @@
+{
+  "database": "dolt",
+  "backend": "dolt",
+  "dolt_mode": "embedded",
+  "dolt_database": "remarkable_sudoku",
+  "project_id": "01f841a9-fb80-4a87-ac4e-f9d4fddee5cc"
+}
