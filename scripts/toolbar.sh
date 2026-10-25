@@ -1,0 +1,133 @@
+#!/bin/sh
+# Makes the open menu (the toolbar on the right) and its panels in $1. The dimensions are the same as the
+# toolbar and the pop-up menus of the device (refer to ui-lib.sh):
+#   screen-toolbar.png        menu open on a new game: cell colors, undo and redo (not available), help, analytics, +
+#   new-game-menu.png         the + panel is open: the difficulty slider and "Start new game"
+#   color-menu.png            the Cell colors panel is open (starting, clashing, highlighted), on a game
+#   screen-completed-menu.png menu open on a complete (locked) puzzle: undo and redo not available
+# Top of the menu: menu button, cell colors, undo, redo. Bottom, from the bottom to the top: + (new game),
+# Analytics, Help.
+set -e
+. "$(dirname "$0")/ui-lib.sh"
+OUT=$1
+M=$(mktemp)
+
+# The cell background colors in the color panel. They are pale, so that the numbers are easy to read.
+COLORS="Gray:gray88 White:white Yellow:#FFF1A6 Blue:#CCD8F8 Red:#F6C4C4 Green:#D2EEC2 Cyan:#C8EDF5 Magenta:#EBD0F0 Orange:#FBDCBC"
+STARTING_BG=gray88; CLASH_BG='#F6C4C4'; HIGHLIGHT_BG='#D2EEC2'
+
+# active_slot K : a black square behind toolbar slot K (top slots; "bottom" for the + slot)
+active_slot() {
+  if [ "$1" = bottom ]; then y=$TB_BOTTOM_Y; else y=$((112*$1)); fi
+  echo "stroke none fill black rectangle $TB_X,$y 1620,$((y+111))" >> $M
+}
+
+# colors_icon ACTIVE : cell colors (slot 1). A paint bucket: a tilted bucket with a handle and a drop.
+colors_icon() {
+  cy=$(tb_cy 1); line=black; [ -n "$1" ] && line=white
+  echo "push graphic-context translate $TB_CX,$cy fill none stroke $line stroke-width 3 stroke-linecap round stroke-linejoin round" >> $M
+  echo "polygon -18,1 -3,-14 12,1 -3,16 line -18,1 12,1 path 'M -10,-7 L -15,-12 C -17,-14 -15,-18 -12,-17 L -5,-12'" >> $M
+  echo "stroke none fill $line path 'M 16,3 C 16,3 21,10 21,13 C 21,16 18.8,18 16,18 C 13.2,18 11,16 11,13 C 11,10 16,3 16,3 Z' pop graphic-context" >> $M
+}
+
+# undo_redo COLOR : undo (slot 2) and redo (slot 3). Black when they are available, gray when they are not.
+undo_redo() {
+  for k in 2 3; do
+    cy=$(tb_cy $k); sx=1; [ $k = 3 ] && sx=-1
+    echo "push graphic-context translate $TB_CX,$cy scale $sx,1 fill none stroke $1 stroke-width 3 stroke-linecap round stroke-linejoin round" >> $M
+    echo "path 'M -18,-4 L 3,-4 C 13,-4 19,4 19,15' polyline -10,-12 -18,-4 -10,4 pop graphic-context" >> $M
+  done
+}
+
+# plus_icon ACTIVE : + (new game) in the bottom toolbar slot. Analytics and Help are above it.
+plus_icon() {
+  cy=$((TB_BOTTOM_Y+56)); fg=black
+  [ -n "$1" ] && { active_slot bottom; fg=white; }
+  echo "fill none stroke $fg stroke-width 3 stroke-linecap round line 1545.5,$cy 1581.5,$cy line $TB_CX,$((cy-18)) $TB_CX,$((cy+18))" >> $M
+  # Analytics: a line graph on two axes
+  ay=$((TB_BOTTOM_Y-56))
+  echo "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round polyline 1545.5,$((ay-18)) 1545.5,$((ay+18)) 1581.5,$((ay+18))" >> $M
+  echo "polyline 1551.5,$((ay+8)) 1559.5,$((ay-2)) 1566.5,$((ay+4)) 1578.5,$((ay-12))" >> $M
+  # Help: ? in a circle
+  hy=$((TB_BOTTOM_Y-168))
+  echo "fill none stroke black stroke-width 3 circle $TB_CX,$hy $((1563+19)).5,$hy" >> $M
+  echo "stroke none fill black font '$UI_FONT' font-size 26 text-anchor middle text $TB_CX,$((hy+9)) '?'" >> $M
+}
+
+# toolbar UNDO ACTIVE : all menu buttons. UNDO is the color of undo and redo. ACTIVE is "colors", "plus" or "".
+toolbar() {
+  [ "$2" = colors ] && active_slot 1
+  colors_icon $([ "$2" = colors ] && echo active); undo_redo $1; plus_icon $([ "$2" = plus ] && echo active)
+}
+
+# panel TOP : an empty pop-up frame from TOP to BOTTOM (default: the screen edge). It touches the toolbar.
+PL=1108; PR=1507; TX=$((PL+33)); TR=$((PR-32))
+panel() {
+  top=$1; bot=${2:-2160}
+  echo "stroke none fill white rectangle $PL,$top $PR,$bot" >> $M
+  echo "fill black rectangle $PL,$top $PR,$((top+1)) rectangle $PL,$top $((PL+1)),$bot rectangle $((PR-1)),$top $PR,$bot" >> $M
+  [ $bot -lt 2160 ] && echo "rectangle $PL,$((bot-1)) $PR,$bot" >> $M
+  return 0
+}
+divider() { echo "stroke none fill black rectangle $PL,$1 $PR,$(($1+1))" >> $M; }
+label() { echo "stroke none fill ${4:-black} font '$UI_FONT' font-size $UI_SIZE text-anchor ${3:-start} text $1,$2 '$5'" >> $M; }
+
+# color_section TOP TITLE SELECTED TAKEN... : one 448 px section of the color panel, with the same design as
+# the pen-color menu of the device: a title and a 3x3 grid of 112 px cells. A black box shows the selected color.
+# The colors of the other two sections (TAKEN) are not available: gray ring, a line through the dot, gray name.
+# White is always available, so all sections can use it.
+color_section() {
+  top=$1; title=$2; sel=$3; shift 3; taken=" $* "
+  label $TX $((top+52)) start black "$title"
+  i=0
+  for c in $COLORS; do
+    name=${c%%:*}; col=${c#*:}
+    gx=$((PL+32+(i%3)*112)); gy=$((top+79+(i/3)*112)); fg=black; ring=black
+    cx=$((gx+56)); cy=$((gy+37))
+    if [ "$col" = "$sel" ]; then
+      echo "stroke none fill black rectangle $gx,$gy $((gx+111)),$((gy+111))" >> $M; fg=white; ring=white
+    elif [ "$col" != white ] && case "$taken" in *" $col "*) true;; *) false;; esac; then
+      fg=gray70; ring=gray70
+      echo "fill $col stroke $ring stroke-width 2 circle $cx,$cy $((cx+19)),$cy" >> $M
+      echo "fill none stroke gray50 stroke-width 2.5 stroke-linecap round line $((cx-17)),$((cy+17)) $((cx+17)),$((cy-17))" >> $M
+      label $cx $((gy+88)) middle $fg "$name"; i=$((i+1)); continue
+    fi
+    echo "fill $col stroke $ring stroke-width 2 circle $cx,$cy $((cx+19)),$cy" >> $M
+    label $cx $((gy+88)) middle $fg "$name"
+    i=$((i+1))
+  done
+}
+
+# compose BASE OUTFILE : draw the MVG on BASE
+# The menu button shows its open icon (both icons are copies from the device).
+# The close button shows at the top left (circle of 38 px, stroke of 3 px, measured on the device).
+CLOSE="fill none stroke black stroke-width 3 circle 55.5,55.5 73,55.5 stroke-linecap round line 50,50 61,61 line 61,50 50,61"
+compose() { magick "$OUT/$1" "$UI_DIR/icons/ic-toggle.png" -geometry +$TB_X+0 -composite -draw "$CLOSE" -draw @$M -units PixelsPerInch -density 229 "$OUT/$2"; : > $M; }
+
+# --- menu open on a new game
+toolbar gray70 ""
+compose screen.png screen-toolbar.png
+
+# --- the New game panel opens from the +. It is wider, so that its slider is the same as the meter below the board.
+PL=$NG_PL; TX=$((PL+33)); TR=$((TX+DIFF_W))
+# One row for the slider (at the last selected mode), then "Start new game" next to the +.
+panel $((TB_BOTTOM_Y-112)); divider $TB_BOTTOM_Y
+R2=$((TB_BOTTOM_Y-56)); R3=$((TB_BOTTOM_Y+56))
+labeled_slider $TX $TR $R2 $LEVEL >> $M; echo >> $M
+label $TX $((R3+9)) start black "Start new game"
+toolbar gray70 plus
+compose screen.png new-game-menu.png
+PL=1108; TX=$((PL+33)); TR=$((PR-32))
+
+# --- the Cell colors panel: three sections, on the game in progress (the menu removes the highlight)
+panel 112 $((112+3*448))
+color_section 112 "Starting numbers" $STARTING_BG "$CLASH_BG" "$HIGHLIGHT_BG"; divider 560
+color_section 560 "Clashing numbers" "$CLASH_BG" $STARTING_BG "$HIGHLIGHT_BG"; divider 1008
+color_section 1008 "Highlighted numbers" "$HIGHLIGHT_BG" $STARTING_BG "$CLASH_BG"
+toolbar black colors
+compose screen-in-progress.png color-menu.png
+
+# --- complete puzzle: the board is locked, so undo and redo are not available
+toolbar gray70 ""
+compose screen-completed.png screen-completed-menu.png
+rm -f $M
