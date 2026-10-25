@@ -1,0 +1,5 @@
+- Tablet has difficulty recognizing digits 4 and 9
+- Hand touch not opening with menu once engaging with the game
+- Activity table does not span full view in landscape mode
+- Add a way to disable highlighting, removal of pencil marks
+- Add a way to simulate movements on the tablet so that it can hillclimb on its own
