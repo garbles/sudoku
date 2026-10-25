@@ -50,12 +50,12 @@ out = []
 filled = [(r, c) for r in range(9) for c in range(9) if grid[r][c]]
 covered = filled + ([UNRECOGNIZED] if MODE == "unrecognized" else [])
 # remove the micro-cells below numbers, then draw the board lines again, as render.sh does.
-# Backgrounds: first the clash color (light red), then the highlight color (green), then the starting-number gray.
+# Backgrounds: first the clash color (red), then the highlight color (green), then the starting-number gray.
 highlighted = {(r, c) for r, c in filled if MODE == "highlight" and grid[r][c] == HIGHLIGHT}
 for r, c in covered:
     x, y = X0+c*C, Y0+r*C
-    bg = ("#F6C4C4" if (r, c) in conflicts else "#D2EEC2" if (r, c) in highlighted
-          else "gray88" if GIVENS[r][c] != "." else "white")
+    bg = ("#F0A3A3" if (r, c) in conflicts else "#B5DF9E" if (r, c) in highlighted
+          else "#C8C8C8" if GIVENS[r][c] != "." else "white")
     out.append(f"stroke none fill {bg} rectangle {x},{y} {x+C},{y+C}")
 thin = " ".join(f"line {X0+i*C},{Y0} {X0+i*C},{Y0+9*C} line {X0},{Y0+i*C} {X0+9*C},{Y0+i*C}" for i in range(10) if i % 3)
 thick = " ".join(f"line {X0+i*C},{Y0} {X0+i*C},{Y0+9*C} line {X0},{Y0+i*C} {X0+9*C},{Y0+i*C}" for i in range(0, 10, 3))

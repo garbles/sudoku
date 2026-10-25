@@ -17,5 +17,6 @@ sh toolbar.sh "$OUT"                         # screens with the menu open, and t
 python3 -I analytics.py "$OUT"               # analytics.png, analytics-games.png
 for page in how-to-play candidates pen pen-rules helpers mistakes menu new-game finished; do
   sh manual-$page.sh "$OUT"
+  sh manual-$page-landscape.sh "$OUT"          # the same page for the landscape orientation
 done
 echo "built $(ls "$OUT"/*.png | wc -l | tr -d ' ') images in $OUT"

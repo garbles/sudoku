@@ -1,4 +1,6 @@
 # MVG functions for the manual pages. The caller sets M (the MVG file). Cells use units of 140 px, with the scale K.
+# LANDSCAPE=1 makes a landscape page: layout units of 1872x1404 (the screen is 2160x1620), with the same scale.
+if [ "${LANDSCAPE:-0}" = 1 ]; then PW=1872; PH=1404; SW=2160; SH=1620; else PW=1404; PH=1872; SW=1620; SH=2160; fi
 FONT="$(cd "$(dirname "$0")" && pwd)/fonts/rmsans-400.ttf"        # reMarkable Sans Regular, the UI font of the tablet
 HEAD_FONT="$(cd "$(dirname "$0")" && pwd)/fonts/rmsans-500.ttf"   # Medium, for titles and headings
 K=1.75; CW=245   # scale, and the cell width after the scale
@@ -45,7 +47,7 @@ rub() {
 }
 
 # Board colors. They are the same as in screen-in-progress.png.
-GIVEN_BG=gray88; ENTRY_FG=gray35; CLASH_BG='#F6C4C4'; UNIT_BG='#DCE9F7'
+GIVEN_BG='#C8C8C8'; ENTRY_FG=gray35; CLASH_BG='#F0A3A3'; UNIT_BG='#DCE9F7'
 
 # minib X Y "r,c,bg ..." "r,c,digit,color ..." : a small 9x9 board (cells of 34 px) with colored cells and digits
 MC=34
@@ -67,9 +69,10 @@ X
 # pagenum N TOTAL : the page number with the previous and next arrows (gray at the first and last page),
 # and the "< Back" button that shows the game again (top left, at the same position as on the device)
 pagenum() {
-  text 702 1835 28 gray50 middle "$1 / $2"
+  cx=$((PW/2)); ny=$((PH-37))
+  text $cx $ny 28 gray50 middle "$1 / $2"
   prev=black; next=black; [ $1 -eq 1 ] && prev=gray80; [ $1 -eq $2 ] && next=gray80
-  echo "fill none stroke-width 3 stroke-linecap round stroke-linejoin round stroke $prev polyline 628,1815 618,1825 628,1835 stroke $next polyline 776,1815 786,1825 776,1835" >> $M
+  echo "fill none stroke-width 3 stroke-linecap round stroke-linejoin round stroke $prev polyline $((cx-74)),$((ny-20)) $((cx-84)),$((ny-10)) $((cx-74)),$ny stroke $next polyline $((cx+74)),$((ny-20)) $((cx+84)),$((ny-10)) $((cx+74)),$ny" >> $M
   echo "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round polyline 48,37 38,48 48,59" >> $M
   echo "stroke none fill black font '$HEAD_FONT' font-size 22 text-anchor start text 66,56 'Back'" >> $M
 }
@@ -91,8 +94,19 @@ picture() {
   echo "image over $1,$2 $(awk -v w=$w -v s=$SCALE 'BEGIN{printf "%.1f", w/s}'),$(awk -v h=$h -v s=$SCALE 'BEGIN{printf "%.1f", h/s}') '$3'" >> $M
 }
 
+# picture_w X Y W FILE : put an image with a width of W layout units (the height keeps the ratio)
+picture_w() {
+  w=$(magick identify -format %w "$4"); h=$(magick identify -format %h "$4")
+  echo "image over $1,$2 $3,$(awk -v w=$w -v h=$h -v W=$3 'BEGIN{printf "%.1f", W*h/w}') '$4'" >> $M
+}
+
+# varrow X Y1 Y2 : a vertical arrow from Y1 down to Y2
+varrow() {
+  echo "fill black stroke black stroke-width 6 line $1,$2 $1,$(($3-16)) stroke none polygon $(($1-16)),$(($3-22)) $1,$3 $(($1+16)),$(($3-22))" >> $M
+}
+
 # render OUTFILE
 # The layout uses units of 1404x1872. The scale changes it to the 1620x2160 screen of the Paper Pro.
 SCALE=1.153846
 wrap() { { printf "push graphic-context\nscale $SCALE,$SCALE\n"; cat $M; printf "pop graphic-context\n"; } > $M.s; mv $M.s $M; }
-render() { wrap; magick -size 1620x2160 xc:white -draw @$M -units PixelsPerInch -density 229 "$1"; rm -f $M; }
+render() { wrap; magick -size ${SW}x${SH} xc:white -draw @$M -units PixelsPerInch -density 229 "$1"; rm -f $M; }

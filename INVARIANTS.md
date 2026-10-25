@@ -150,6 +150,7 @@ Terms:
 | QST-1 | `question ≠ None ⇒` the cell of the "?" is empty. The "?" shows for approximately one second. Then `question = None`. While the "?" shows, the marks of the cell are hidden. After the "?", the cell is the same as before. | R§5.1 |
 | QST-2 | The "?" does not change `value`, `marks` or the undo and redo stacks. | R§5.1, R§7 |
 | QST-3 | `question ≠ None ⇒` the game is not complete. | R§3.2 |
+| QST-4 | Each press of the pen or a finger removes the "?" immediately. Thus a new number in that cell never shows under the "?" (QST-1). | R§5.1 (confirmed 2026-10-25) |
 
 ## 6. Input
 
@@ -165,6 +166,10 @@ Terms:
 | INP-8 | The eraser changes the board only on an entry. It makes the cell empty and shows its hidden marks again. On starting numbers and empty cells, it makes no change. | R§5.1 |
 | INP-9 | When `completed` is true, pen input does not change `value`, `marks`, `highlight` or the stacks. | R§8.3 |
 | INP-10 | Ink never stays on the board. After the app reads it, removes it or shows the "?", the board shows only typed numbers, marks and the grid. | R§5.1 |
+| INP-11 | While ink waits in a cell, each pen touch that starts in the same cell is writing. This is also true if the touch stays in one micro-cell. Thus a short stroke of a number (for example the bar of a 7) does not become a pencil mark. | R§5.1 (confirmed 2026-10-25) |
+| INP-12 | Writing belongs to the cell where the pen touch started. A pen touch that starts in a different cell, or a press on a different item, makes the app read the waiting ink immediately. | R§5.1 (confirmed 2026-10-25) |
+| INP-13 | The eraser removes all of your numbers that it touches in one stroke. Each removal is one change in the undo history. | R§5.1, UND-1 (confirmed 2026-10-25) |
+| INP-14 | A finger swipe is a horizontal movement of 120 px or more, with more horizontal than vertical movement. | R§12, R§13.2 (confirmed 2026-10-25) |
 
 ## 7. Undo and redo
 
@@ -200,6 +205,7 @@ Terms:
 | CLK-3 | `completed ⇒ elapsed` does not change. It is the final time and is equal to `seconds` in the saved result. | R§8.4, R§14.1 |
 | CLK-4 | The app does not show the clock during the game. It shows the time only in "Completed in …". | R§8.4 |
 | CLK-5 | The app does not count the time when the app is closed or suspended. When the app opens again, the clock continues from the saved `elapsed`. | R§8.4, R§14.3 |
+| CLK-6 | If the app gets no events and no clock ticks for more than 5 seconds, the clock does not count that time (the app was suspended). The app ticks at least one time each second while it operates. | R§8.4 (confirmed 2026-10-25) |
 
 ## 10. Screens, menu and panels
 
@@ -214,14 +220,16 @@ Terms:
 | NAV-7 | Icon of the menu button: the dot is at the bottom left only when `menu = Closed`. The dot is at the top left only when `menu = Open`. | R§3.1 |
 | NAV-8 | The button of a panel is white on black only when that panel is open. The other buttons have their usual appearance. | R§9 |
 | NAV-9 | After Start new game, `menu = Closed` and `panel = None`. | R§11 |
-| NAV-10 | The closed menu never covers the board. The open toolbar (x ≥ 1508) never covers the board (x ≤ 1471). An open panel can cover a part of the board. | R§3.1 |
+| NAV-10 | The closed menu never covers the board. The open toolbar (portrait x ≥ 1508, landscape x ≥ 2048) never covers the board (portrait x ≤ 1471, landscape x ≤ 1741). An open panel can cover a part of the board. | R§3.1, R§3.3 |
+| NAV-13 | A turn of the tablet does not change the game, the settings or the screen. It removes only the pending ink and the touches in progress. | R§3.3 (confirmed 2026-10-25) |
 | NAV-11 | When `panel ≠ None`, a tap outside the panel only sets `panel = None`. It does not change the game, also when the tap is on the board. When `menu = Open` and `panel = None`, the board operates as usual. | R§9 |
+| NAV-12 | When `panel ≠ None`, a tap on a toolbar button that is not the paint bucket or the + only closes the panel. This includes the menu button and the close button. | R§9 (confirmed 2026-10-25) |
 
 ## 11. Difficulty
 
 | ID | Rule | Source |
 |---|---|---|
-| DIF-1 | `game.mode`, `settings.last_mode` and `slider` are in `0..4`. There are five modes: 0 is Easy and 4 is Insane. | R§11 |
+| DIF-1 | `game.mode`, `settings.last_mode` and `slider` are in `0..4`. There are five modes: 0 is Easy and 4 is Hard. | R§11 |
 | DIF-2 | At the first start, before the player selects a mode, `last_mode = 2` and the first puzzle has mode 2. | R§11 |
 | DIF-3 | When the New game panel opens, `slider = last_mode`. | R§11 |
 | DIF-4 | When you move the slider, only `slider` changes. The game, `last_mode` and the meter do not change. If the panel closes before Start new game, the app does not keep `slider`. | R§11 |
@@ -263,6 +271,7 @@ Terms:
 | ANA-8 | After a deletion, the summary and the list show the change immediately (ANA-3 to ANA-5 are true). If the current page becomes empty, the list shows the page before it, but not below page 1. Then ANA-6 is true. | R§13.2 |
 | ANA-9 | Times always have the format `m:ss`, or `h:mm:ss` after one hour. | R§8.3, R§13.2 |
 | ANA-10 | Analytics does not change the game. The clock continues to operate. | R§8.4 |
+| ANA-11 | `finished_at` is Unix time in seconds (UTC). The app shows it in the local time of the device. | R§14.1 (confirmed 2026-10-25) |
 
 ## 15. Saved data
 
@@ -274,6 +283,7 @@ Terms:
 | PER-4 | `results` stays the same when the app closes and opens again. Only ANA-2 changes it. | R§14.1 |
 | PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. | — |
 | PER-6 | If the app closes during the recognition pause, the app removes the ink. The app never reads it later. | R§14.3 |
+| PER-7 | The app saves the game after each change to the board, the settings after each change, and the clock at least each 5 seconds. It also saves when it closes or gets SIGTERM, SIGINT or SIGHUP. A power loss can lose a maximum of 5 seconds of the clock. | R§14.3 (confirmed 2026-10-25) |
 
 ## 16. Rules to confirm
 

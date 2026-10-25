@@ -1,0 +1,44 @@
+[package]
+name = "rm-sudoku"
+version = "0.1.0"
+edition = "2021"
+description = "Sudoku for the reMarkable Paper Pro (AppLoad external app with qtfb)"
+license = "MIT"
+
+[lib]
+name = "sudoku"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sudoku"
+path = "src/bin/sudoku.rs"
+
+[[bin]]
+name = "snapshot"
+path = "src/bin/snapshot.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+rusqlite = { version = "0.37", features = ["bundled"] }
+tiny-skia = { version = "0.11", default-features = false, features = ["std", "simd"] }
+ttf-parser = "0.25"
+png = "0.17"
+wuff = "0.2"
+libc = "0.2"
+
+[dev-dependencies]
+proptest = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true
+
+[profile.dev]
+opt-level = 1
+
+[profile.test]
+opt-level = 2

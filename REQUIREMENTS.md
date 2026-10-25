@@ -39,7 +39,8 @@ document does not include unknown behavior.
 - The target device is the **reMarkable Paper Pro**. It has a color e-ink display of 1620×2160 px
   (portrait) at 229 DPI and a 64-bit ARM processor.
 - Build the executables in the Linux Dockerfile of the project. Refer to `AGENTS.md`.
-- The app uses portrait orientation only.
+- The app operates in portrait and in landscape (2160×1620). When the tablet turns, AppLoad tells the
+  app the rotation, and the app shows its landscape layout. Refer to [§3.3](#33-landscape).
 - [`images/template.png`](images/template.png) is the blank 1620×2160 frame for all screens.
 - The display can show color. All states must be clear if the e-ink display dithers the colors.
 - The UI font is **reMarkable Sans**, the font of the device. The app loads the font from the tablet
@@ -86,7 +87,7 @@ Image: [`images/screen.png`](images/screen.png) (empty board, menu closed).
 |---|---|---|
 | Board | 9×9 cells of **147 px**; x 148–1471, y 418–1741 (at the center of the screen) | Lines of 12 px are around the board and the 3×3 boxes. Lines of 3 px are between the cells. |
 | Micro-cells | Each cell has a faint 3×3 grid of **49 px** micro-cells (2 px lines, light gray) | Each micro-cell is for one digit. The positions are the same as a keypad: 1 2 3 / 4 5 6 / 7 8 9. |
-| Difficulty meter | Below the board, at the center, 50 px from the board | The player cannot change it. It shows "Easy", five stops and "Insane". The large knob shows the mode of the current puzzle. When the puzzle is complete, "Completed in …" replaces the meter. |
+| Difficulty meter | Below the board, at the center, 50 px from the board | The player cannot change it. It shows "Easy", five stops and "Hard". The large knob shows the mode of the current puzzle. When the puzzle is complete, "Completed in …" replaces the meter. |
 | Menu button | Top right, circle of 38 px, center at (1563.5, 55.5) | Closed icon: dot at the bottom left. Open icon: dot at the top left. Both icons are copies from the device. |
 | Close button | Top left, circle of 38 px with ×, center at (55.5, 55.5) | The close button shows **only when the menu is open**. The device does the same. |
 
@@ -130,6 +131,21 @@ stateDiagram-v2
 | No overlay | [`screen-in-progress.png`](images/screen-in-progress.png) |
 | Number highlighted | [`screen-highlight.png`](images/screen-highlight.png) |
 | "?" shown | [`screen-unrecognized.png`](images/screen-unrecognized.png) |
+
+### 3.3 Landscape
+
+The landscape layout has the same items, at the same sizes, as the portrait layout:
+
+| Item | Landscape position |
+|---|---|
+| Board | At the center: x 418–1741, y 148–1471. The difficulty meter is 50 px below the board. |
+| Menu | The toolbar is at the right edge (x 2048–2160). The bottom slot starts at y 1508. The panels touch the toolbar, as in portrait. |
+| Close button | Top left, as in portrait. |
+| Manual | Each page has a landscape version with two columns (`manual-*-landscape.png`, made by `scripts/manual-*-landscape.sh`). The text is the same as in portrait. |
+| Analytics | The same scale as in portrait, across the full width. The games list shows the 12 games of a page in two columns of 6. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, made by `scripts/analytics.py`). |
+
+When the tablet turns, the game does not change. Ink that waits for the recognition pause and touches
+in progress are removed, because their positions are not correct after the turn.
 
 ## 4. Cells
 
@@ -181,7 +197,7 @@ stateDiagram-v2
 
 The app uses the first rule that applies:
 
-1. **Clash.** The number clashes ([§6.3](#63-clashes)): clash color (default: light red).
+1. **Clash.** The number clashes ([§6.3](#63-clashes)): clash color (default: red).
 2. **Highlight.** The number is the highlighted digit ([§6.2](#62-highlights)): highlight color
    (default: green).
 3. **Starting number:** starting-number color (default: gray).
@@ -205,6 +221,10 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
   one stroke (for example 4, 5 or 7) is correct.
 - After the pause, the app reads all of the strokes as one item. Neat handwriting is not necessary.
   The app removes the ink and shows the typed number.
+- **Accuracy target** (confirmed 2026-10-25): for writers that are not in the examples of the
+  recognizer, the app reads 96 % or more of the digits correctly and reads 1.2 % or less as a
+  different digit. The other digits show the "?". The test `writer_independent_accuracy` examines this
+  target.
 - If the writing is **not a number from 1 to 9**, the app shows a gray **?** in the cell for
   **approximately one second**. Examples are a scribble, a letter, 0 or a number more than 9, such as
   12. After the "?", the cell is the same as before.
@@ -281,7 +301,7 @@ Images: [`screen-highlight.png`](images/screen-highlight.png),
 ### 6.3 Clashes
 
 Two numbers **clash** when the same digit is two times in a row, column or 3×3 box. All numbers in a
-clash get the clash color (default: light red). This applies to the two numbers of a pair, starting
+clash get the clash color (default: red). This applies to the two numbers of a pair, starting
 numbers and your numbers.
 
 - The app finds the clashes again after each new number, erasure, undo and redo.
@@ -465,7 +485,8 @@ Image: [`images/color-menu.png`](images/color-menu.png).
 - Each section has a title (reMarkable Sans Medium, 25 px) and a 3×3 grid of 112 px cells. Each cell
   has a color dot of 38 px and the name of the color below the dot.
 - A solid black box with white text shows the selected color.
-- The available colors are pale, so that the digits are easy to read: Gray, White, Yellow, Blue,
+- The available colors are medium-light, so that the digits are easy to read and the colors are clear on
+  the e-ink display: Gray, White, Yellow, Blue,
   Red, Green, Cyan, Magenta and Orange. Black is not available.
 - The default colors are: Starting numbers **Gray**, Clashing numbers **Red**, Highlighted numbers
   **Green**.
@@ -502,10 +523,10 @@ Images: [`images/new-game-menu.png`](images/new-game-menu.png),
 - The panel opens next to the + button (bottom slot). The + button becomes white on black.
 - The panel is 505 px wide. This is wider than the menus of the device, so that the slider is easy to
   use.
-- The panel has two rows. The first row has the **difficulty slider** ("Easy", five stops, "Insane").
+- The panel has two rows. The first row has the **difficulty slider** ("Easy", five stops, "Hard").
   A divider line follows. The second row has **Start new game**, next to the + button.
 - The slider has the same size and design as the meter below the board.
-- There are **five modes**, from 0 (Easy) to 4 (Insane). An easier mode starts with more numbers on the
+- There are **five modes**, from 0 (Easy) to 4 (Hard). An easier mode starts with more numbers on the
   board. The puzzle generator sets the quantity of starting numbers for each mode.
 - When the panel opens, the slider shows the **last mode that you selected**. At the first start, the
   slider shows the **middle mode** (2).
@@ -592,7 +613,7 @@ Image: [`images/analytics.png`](images/analytics.png).
 - **< Back** shows the game again, with the menu closed.
 - Two boxes show **Puzzles completed** (the quantity of saved results) and **Average time** (the
   average of their times).
-- The **By difficulty** table has one row for each mode, from Easy to Insane. Each row shows the
+- The **By difficulty** table has one row for each mode, from Easy to Hard. Each row shows the
   difficulty meter, the quantity of completed puzzles and the average time. If a mode has no results,
   its average is "–".
 - **All completed games ›** opens the list.
@@ -659,7 +680,7 @@ The database has one row for each completed puzzle:
 |---|---|
 | `id` | Primary key |
 | `finished_at` | Date and time of completion |
-| `mode` | Difficulty, from 0 (Easy) to 4 (Insane) |
+| `mode` | Difficulty, from 0 (Easy) to 4 (Hard) |
 | `givens` | Quantity of starting numbers |
 | `seconds` | Time that the player used (clock time, [§8.4](#84-the-clock)) |
 | `seed` | Random seed of the puzzle generator. With the seed, the generator can make the same puzzle again. |
@@ -693,14 +714,32 @@ pause, the app removes the ink and does not read it.
 The Paper Pro cannot start third-party apps without a launcher. The app uses **AppLoad**
 (asivery/rm-appload). AppLoad is the most frequently used launcher on the Paper Pro. AppLoad is a
 xovi extension. It operates apps in the reMarkable interface. To install it, use the community
-package manager **Vellum** (`vellum add launcherctl-appload`). The close button shows the reMarkable
-interface again.
+package manager **Vellum**:
+
+1. `vellum add appload`. This installs xovi, xovi-extensions, qt-resource-rebuilder and AppLoad. On
+   OS 3.29 the package `launcherctl-appload` does not install, because its dependency
+   `lockscreen_hook` supports only OS versions before 3.28.
+2. `/home/root/xovi/rebuild_hashtable`, then `/home/root/xovi/start`. After a restart of the tablet,
+   run `/home/root/xovi/start` again.
+3. Copy the folder `dist/sudoku` (from the Dockerfile) to `/home/root/xovi/exthome/appload/`.
+
+The close button shows the reMarkable interface again. AppLoad draws a black line of 2 px around the
+window of each app, also in full screen. The app cannot remove it. The app does not put content at
+the outer 2 px of the screen that is necessary to play.
 
 ### 14.5 Puzzle generation
 
 A generator with a seed makes each puzzle. Each puzzle must have **only one solution**. The generator
 makes the puzzle for the selected mode. The generator sets the quantity of starting numbers for each
-mode. The generator is not written yet.
+mode:
+
+| Mode | 0 (Easy) | 1 | 2 | 3 | 4 (Hard) |
+|---|---|---|---|---|---|
+| Starting numbers | 44 | 37 | 31 | 27 | 24 |
+
+The generator removes starting numbers in a random order while the puzzle has only one solution. It
+uses its own random number generator (SplitMix64). Thus a change of a library does not change the
+puzzle of a saved seed. The code is in `src/generator.rs`.
 
 ## 15. Visual specification
 
@@ -712,23 +751,31 @@ mode. The generator is not written yet.
 | Numbers | reMarkable Sans Regular 104 px; starting numbers black, your numbers `gray35` |
 | Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell |
 | "?" | reMarkable Sans Regular 104 px, `gray40` |
-| Default colors | Starting `#E0E0E0` (gray88), clash `#F6C4C4`, highlight `#D2EEC2` |
+| Default colors | Starting `#C8C8C8`, clash `#F0A3A3`, highlight `#B5DF9E` |
 | UI text | reMarkable Sans Medium 25 px (menus, meter labels, "Completed in …") |
 | Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |
 | Panels | 2 px black border, rows of 112 px, 2 px dividers, inner margin of 33 px |
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
-| Difficulty meter | "Easy" to "Insane" across 440 px; 5 stops; the current stop is a knob with a radius of 13 px |
+| Difficulty meter | "Easy" to "Hard" across 440 px; 5 stops; the current stop is a knob with a radius of 13 px |
 
 All dimensions are in [`scripts/ui-lib.sh`](scripts/ui-lib.sh).
 
 ## 16. Open questions
 
-1. **Recognition pause.** The start value is approximately 0.5 s. Adjust it on the device. Numbers
-   with two strokes must stay together, and single digits must show quickly.
-2. **Puzzle generator.** The generator is not written yet. It must use a seed, make puzzles with only
-   one solution, and set the starting numbers for each mode.
-3. **E-ink check.** Examine the faint micro-cell lines, the pale colors and the gray icons on the
-   device.
+1. **Handwriting recognition.** The recognizer (`src/recognizer.rs`) compares the ink with the
+   handwriting of 60 writers (UJI Pen Characters; refer to `assets/README.md`). For writers that are
+   not in its examples, it reads 96.7 % of the digits correctly, reads 0.8 % as a different digit and
+   rejects 90.3 % of the letters and symbols. Characters with the shape of a 1 (for example `l` and
+   `I`) are read as 1. On the device, the owner wrote six 4s: five were read as 4 and one as 9. If a
+   digit is often read incorrectly for a player, add examples for it.
+
+These items are closed:
+
+- **Recognition pause** (closed 2026-10-25). The owner examined 0.5 s on the device: numbers with two
+  strokes stay together, and single digits show quickly.
+- **E-ink check** (closed 2026-10-25). The owner examined the faint micro-cell lines, the pale colors
+  and the gray icons on the device. All are clear.
+- **Puzzle generator** (closed 2026-10-25). Refer to §14.5.
 
 ## 17. Image reference
 
@@ -760,3 +807,5 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`manual-menu.png`](images/manual-menu.png) | [§9](#9-the-menu), [§12](#12-manual-help) |
 | [`manual-new-game.png`](images/manual-new-game.png) | [§11](#11-new-game-panel-and-difficulty), [§12](#12-manual-help) |
 | [`manual-finished.png`](images/manual-finished.png) | [§8.3](#83-complete), [§12](#12-manual-help) |
+| `manual-*-landscape.png` (9 images) | [§3.3](#33-landscape), [§12](#12-manual-help) |
+| `analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png` | [§3.3](#33-landscape), [§13](#13-analytics) |

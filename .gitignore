@@ -6,3 +6,7 @@
 .beads-credential-key
 .beads/proxieddb/
 *.gate.lock*
+
+# Rust build output
+/target/
+/dist/

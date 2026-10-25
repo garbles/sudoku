@@ -45,6 +45,10 @@ open, the close button shows at the top left.
 
 ## Analytics
 
+`scripts/analytics.py` also makes the three screens for landscape (`analytics-landscape.png`,
+`analytics-games-landscape.png`, `analytics-delete-landscape.png`, 2160×1620). The games list then has
+two columns of 6 games.
+
 Analytics in the menu opens these screens. They have the same top and bottom items as the manual:
 "< Back" shows the game again. The two screens use one list of sample results. Thus their numbers
 agree.
@@ -64,6 +68,9 @@ agree.
 | `cell.png` | One cell with its micro-cells, with 20 px of space around it, at the same scale. |
 
 ## Manual
+
+Each page also has a landscape version (`manual-<page>-landscape.png`, 2160×1620) with the same text
+in two columns. `scripts/manual-<page>-landscape.sh` makes it.
 
 Help in the menu opens the manual. Each page has "< Back" at the top left. It shows the game again.
 The settings pages of the device have the same item. Each page also has arrows for the previous and
@@ -108,7 +115,7 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
   the same number again removes the highlight. All other actions also remove it, for example a tap
   on the menu button.
 - There are three cell colors: starting numbers (default: gray), clashing numbers (default: red) and
-  highlighted numbers (default: green). You select each color from nine pale colors in the Cell colors
+  highlighted numbers (default: green). You select each color from nine medium-light colors in the Cell colors
   panel. Black is not available.
 - The three colors must be different. White is the only exception: all three can be White. If a
   section uses a color, the other sections show a line through it.
@@ -131,18 +138,18 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 
 **Menu**
 - The close button shows only when the menu is open.
-- There are five difficulty modes, from Easy to Insane. The new-game slider opens at the last mode
+- There are five difficulty modes, from Easy to Hard. The new-game slider opens at the last mode
   that you selected. At the first start, it opens at the middle mode.
 - "Start new game" replaces the current puzzle immediately.
 - The difficulty meter below the board always shows the current puzzle. You cannot change it.
 
 ## Work to do
 
-- **Puzzle generator.** It must make puzzles with only one solution. It sets the quantity of starting
-  numbers for each mode.
-- **Recognition pause.** Adjust the pause of approximately 0.5 s on the device.
-- **E-ink check.** Examine these images on the tablet. The faint micro-cell lines, the pale cell
-  colors and the gray icons can dither or become invisible.
+- **Puzzle generator (done).** `src/generator.rs` makes puzzles with only one solution. It sets the
+  quantity of starting numbers for each mode (REQUIREMENTS.md §14.5).
+- **Recognition pause (done).** The owner examined 0.5 s on the device (REQUIREMENTS.md §16).
+- **E-ink check (done).** The owner examined the faint micro-cell lines, the pale cell colors and the
+  gray icons on the tablet. All are clear.
 - **Launcher (decided).** AppLoad (asivery/rm-appload), installed with Vellum. Refer to
   `REQUIREMENTS.md` §14.4.
 - **Font.** reMarkable Sans is the font of reMarkable. The app must load it from the tablet

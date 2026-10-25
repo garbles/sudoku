@@ -13,8 +13,8 @@ OUT=$1
 M=$(mktemp)
 
 # The cell background colors in the color panel. They are pale, so that the numbers are easy to read.
-COLORS="Gray:gray88 White:white Yellow:#FFF1A6 Blue:#CCD8F8 Red:#F6C4C4 Green:#D2EEC2 Cyan:#C8EDF5 Magenta:#EBD0F0 Orange:#FBDCBC"
-STARTING_BG=gray88; CLASH_BG='#F6C4C4'; HIGHLIGHT_BG='#D2EEC2'
+COLORS="Gray:#C8C8C8 White:white Yellow:#FFE680 Blue:#AFC4F5 Red:#F0A3A3 Green:#B5DF9E Cyan:#A6E0EE Magenta:#DCB3E6 Orange:#F7C594"
+STARTING_BG='#C8C8C8'; CLASH_BG='#F0A3A3'; HIGHLIGHT_BG='#B5DF9E'
 
 # active_slot K : a black square behind toolbar slot K (top slots; "bottom" for the + slot)
 active_slot() {

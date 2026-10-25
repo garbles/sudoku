@@ -13,6 +13,44 @@ These documents tell how the app must operate:
 
 If the two documents do not agree, REQUIREMENTS.md is correct. When the behavior changes, update the two documents.
 
+## Build & Test
+
+All tests run on the computer. The Linux Dockerfile runs them again on aarch64 Linux and makes the
+executable for the reMarkable Paper Pro.
+
+```bash
+cargo test                                   # all tests on the computer (macOS or Linux)
+cargo run --release --bin snapshot -- DIR    # draw the reference states and compare them with images/
+docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + static aarch64 build
+```
+
+`dist/sudoku/` is the AppLoad folder. Copy it to `/home/root/xovi/exthome/appload/` on the tablet.
+
+## Architecture Overview
+
+One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuffer.
+
+- `game.rs`: the board, the pencil marks, the undo and redo history, clashes and completion.
+- `generator.rs`: the puzzle generator with a seed (only one solution).
+- `recognizer.rs`: reads handwriting in a cell ($P point-cloud recognizer with templates).
+- `app.rs`: screens, menu, panels, overlays, pen and touch input, the clock. No input or output.
+- `invariants.rs`: checks of the rules in INVARIANTS.md. Debug builds check them after each input.
+- `layout.rs`, `render.rs`, `font.rs`: positions, drawing (tiny-skia) and the font of the tablet.
+- `store.rs`, `settings.rs`: the SQLite results, the settings and the saved game (JSON).
+- `platform/`: Linux only. The qtfb client, the eraser state (evdev) and the main loop.
+- `reference.rs`: the states of the images in `images/`, for the snapshot tool and `tests/render.rs`.
+
+## Conventions & Patterns
+
+- Write all text, comments and documents in ASD-STE100 Simplified Technical English.
+- Each behavior comes from REQUIREMENTS.md. Each state rule comes from INVARIANTS.md. Tests give the
+  rule IDs that they examine.
+- DECISIONS.md records how the app was examined (pixels, handwriting, device). If the code needs a
+  detail that the requirements do not give, ask the owner before you add it to REQUIREMENTS.md or
+  INVARIANTS.md.
+- `sudoku --self-test OUT.png SECONDS` examines a tablet without AppLoad (font, drawing, recognizer,
+  eraser).
+
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:1105d646 -->
 ## Beads Issue Tracker
 

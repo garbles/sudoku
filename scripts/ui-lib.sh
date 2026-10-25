@@ -16,7 +16,7 @@ C=147; X0=$(((1620-9*C)/2)); Y0=$(((2160-9*C)/2))
 STOPS=5
 LEVEL=2
 
-# Difficulty meter: "Easy" to "Insane" is DIFF_W px wide. It is the same in the New game panel and below the board.
+# Difficulty meter: "Easy" to "Hard" is DIFF_W px wide. It is the same in the New game panel and below the board.
 # Thus the New game panel is wider than 400 px (the width of the device menus). The color panel is 400 px wide.
 DIFF_W=440
 NG_PL=$((1507-DIFF_W-65))   # the left edge of the New game panel (inner margins of 33 px and 32 px)
@@ -34,10 +34,10 @@ slider() {
     printf "fill black stroke white stroke-width 3 circle %.1f,%d %.1f,%d", xk, y, xk+13, y }'
 }
 
-# labeled_slider XL XR Y LEVEL : "Easy" at XL, the slider, and "Insane" that ends at XR (baseline = Y+9, as on the device)
+# labeled_slider XL XR Y LEVEL : "Easy" at XL, the slider, and "Hard" that ends at XR (baseline = Y+9, as on the device)
 labeled_slider() {
-  we=$(tw Easy); wi=$(tw Insane)
+  we=$(tw Easy); wi=$(tw Hard)
   printf "stroke none fill black font '%s' font-size %s text-anchor start text %s,%s 'Easy' " "$UI_FONT" $UI_SIZE $1 $(($3+9))
-  printf "text-anchor end text %s,%s 'Insane' " $2 $(($3+9))
+  printf "text-anchor end text %s,%s 'Hard' " $2 $(($3+9))
   slider $(($1+we+24)) $(($2-wi-24)) $3 $4
 }
