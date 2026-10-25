@@ -764,10 +764,12 @@ All dimensions are in [`scripts/ui-lib.sh`](scripts/ui-lib.sh).
 
 1. **Handwriting recognition.** The recognizer (`src/recognizer.rs`) compares the ink with the
    handwriting of 60 writers (UJI Pen Characters; refer to `assets/README.md`). For writers that are
-   not in its examples, it reads 96.7 % of the digits correctly, reads 0.8 % as a different digit and
-   rejects 90.3 % of the letters and symbols. Characters with the shape of a 1 (for example `l` and
-   `I`) are read as 1. On the device, the owner wrote six 4s: five were read as 4 and one as 9. If a
-   digit is often read incorrectly for a player, add examples for it.
+   not in its examples, it reads 97.8 % of the digits correctly, reads 0.8 % as a different digit and
+   rejects 91.3 % of the letters and symbols. It also has examples of 4 and 9 with the shapes of the
+   typeface, and of 1 as a straight vertical line, in both directions of writing. Characters with the shape of a 1 (for example `l` and
+   `I`) are read as 1. On the device, the owner's 4s and 9s in the shape of the typeface (written
+   from the bottom up) were not read; the typeface examples correct this (`tests/fixtures/owner-ink.jsonl`).
+   If a digit is often read incorrectly for a player, add examples for it.
 
 These items are closed:
 

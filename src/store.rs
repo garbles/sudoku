@@ -20,6 +20,13 @@ pub struct ResultRow {
     pub seed: u64,
 }
 
+/// The file of the results database in the data folder (`data_dir`).
+pub const RESULTS_FILE: &str = "results.sqlite";
+
+/// The seeds of the test results (`ResultsDb::test_results`). The generator never makes them for a
+/// player, because a player's seed is a random 64-bit value.
+pub const TEST_SEEDS: std::ops::RangeInclusive<i64> = 9_000_000_001..=9_000_000_014;
+
 /// A result before the database gives it an id.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NewResult {
@@ -72,6 +79,31 @@ impl ResultsDb {
             seconds: r.seconds,
             seed: r.seed,
         })
+    }
+
+    /// Adds (true) or removes (false) the test results: 14 rows with the seeds TEST_SEEDS, in one
+    /// transaction. An add first removes the test results that are already there, so the database
+    /// never has two copies. Only an examination of the games list on a device uses them.
+    pub fn test_results(&mut self, add: bool) -> rusqlite::Result<usize> {
+        let tx = self.conn.transaction()?;
+        let removed =
+            tx.execute("DELETE FROM results WHERE seed BETWEEN ?1 AND ?2", params![TEST_SEEDS.start(), TEST_SEEDS.end()])?;
+        let n = if add {
+            for i in 1..=14i64 {
+                // The quantity of starting numbers of the puzzle of this seed and mode (PUZ-5, CMP-5).
+                let (seed, mode) = (TEST_SEEDS.start() + i - 1, (i % 5) as u8);
+                let givens = crate::generator::generate(seed as u64, mode).givens_count() as i64;
+                tx.execute(
+                    "INSERT INTO results (finished_at, mode, givens, seconds, seed) VALUES (?1, ?2, ?3, ?4, ?5)",
+                    params![1_792_800_000 - i * 86_400 - i * 1234, mode, givens, 300 + i * 97, seed],
+                )?;
+            }
+            14
+        } else {
+            removed
+        };
+        tx.commit()?;
+        Ok(n)
     }
 
     pub fn delete(&mut self, id: i64) -> rusqlite::Result<()> {
@@ -147,6 +179,17 @@ mod tests {
         assert_eq!(all[1].seed, u64::MAX);
         db.delete(b.id).unwrap();
         assert_eq!(db.all().unwrap(), vec![a]);
+    }
+
+    #[test]
+    fn test_results_are_added_and_removed_exactly() {
+        let mut db = ResultsDb::in_memory();
+        let mine = db.insert(&NewResult { finished_at: 5, mode: 2, givens: 31, seconds: 60, seed: 77 }).unwrap();
+        assert_eq!(db.test_results(true).unwrap(), 14);
+        assert_eq!(db.test_results(true).unwrap(), 14);
+        assert_eq!(db.all().unwrap().len(), 15, "a second add does not make copies");
+        assert_eq!(db.test_results(false).unwrap(), 14);
+        assert_eq!(db.all().unwrap(), vec![mine], "only the test rows go");
     }
 
     #[test]

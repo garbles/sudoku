@@ -8,8 +8,10 @@
 use std::io::Write;
 
 /// Characters with the same shape as a digit (1). The recognizer does not use them as "not 1-9"
-/// examples, because in a sudoku cell a vertical stroke is a 1.
-const DIGIT_LIKE: &[&str] = &["l", "I", "|", "'", ",", "!", "¡", "i", "í", "Í", "j"];
+/// examples, because in a sudoku cell a vertical stroke is a 1. The dots of `:` and `;` are in a
+/// vertical row: after the scale to the box, their pen path is the same as a vertical line. A `.` is
+/// one small dot: after the scale to the box, it is the same as a short stroke.
+const DIGIT_LIKE: &[&str] = &["l", "I", "|", "'", ",", "!", "¡", "i", "í", "Í", "j", ":", ";", "."];
 /// The maximum quantity of points of one sample.
 const POINTS: f32 = 40.0;
 

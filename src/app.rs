@@ -88,6 +88,10 @@ pub struct ListUi {
 /// Saves a game immediately; true if the save is done.
 pub type SaveGame = Box<dyn FnMut(&Game) -> bool>;
 
+/// Receives each reading of ink: the strokes and the result. Only an examination of the recognizer on
+/// a device uses it (`platform`, the file `log-ink` in the data folder).
+pub type InkLog = Box<dyn FnMut(&[Stroke], Option<u8>)>;
+
 /// Things that the platform gives to the app: the wall clock and new seeds.
 pub trait Env {
     /// Unix time in seconds.
@@ -160,6 +164,7 @@ pub struct App {
     /// Saves the game immediately. The app calls it when a puzzle becomes complete, before it adds the
     /// result: thus a power loss can never record the same game two times (CMP-5).
     pub save_game_now: Option<SaveGame>,
+    pub ink_log: Option<InkLog>,
     /// The screen can be different from the last full drawing. False if the only change is new points
     /// of `live_stroke`: then the platform draws only the new part of the ink, so that the ink follows
     /// the pen.
@@ -199,6 +204,7 @@ impl App {
             quit: false,
             redraw: true,
             save_game_now: None,
+            ink_log: None,
         }
     }
 
@@ -293,6 +299,11 @@ impl App {
                 if self.touch.is_none() {
                     let g = self.press(x, y, None, now);
                     self.touch = Some((id, g));
+                } else {
+                    // A second finger has no other effect. But it is an action: it removes the
+                    // highlight and the "?" (HLT-2, QST-4).
+                    self.ui.highlight = None;
+                    self.ui.question = None;
                 }
             }
             Input::TouchMove { id, x, y } => {
@@ -524,7 +535,12 @@ impl App {
         if self.game.completed || self.game.is_filled(ink.cell) {
             return;
         }
-        match recognizer::recognize(&ink.strokes) {
+        // INP-6: the result is a number from 1 to 9, or "not 1–9" (the "?").
+        let result = recognizer::recognize(&ink.strokes).filter(|d| (1..=9).contains(d));
+        if let Some(log) = self.ink_log.as_mut() {
+            log(&ink.strokes, result);
+        }
+        match result {
             Some(d) => {
                 let o = self.game.add_number(ink.cell, d);
                 self.after_game_change(o);
@@ -538,6 +554,11 @@ impl App {
             return;
         }
         self.game_dirty = true;
+        // Undo or redo can put a number in the cell of the "?". The "?" shows only on an empty cell
+        // (QST-1).
+        if self.ui.question.is_some_and(|(cell, _)| self.game.is_filled(cell)) {
+            self.ui.question = None;
+        }
         if o == Outcome::Completed {
             // §8.3: the board locks and the app saves the result.
             self.ui.highlight = None;

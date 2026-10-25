@@ -22,6 +22,8 @@ COPY scripts scripts
 RUN touch src/lib.rs src/bin/*.rs
 # All tests must pass on Linux. Then make the static executable.
 RUN cargo test --release --locked
+# The debug build checks all state rules of INVARIANTS.md after each input (invariants::check_app).
+RUN cargo test --locked
 RUN cargo build --release --locked --bin sudoku \
  && file_info="$(head -c 4 target/release/sudoku | od -An -c)" && echo "built: $file_info"
 COPY appload/sudoku /out/sudoku

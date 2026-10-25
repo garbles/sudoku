@@ -110,7 +110,7 @@ Terms:
 | BRD-1 | Each cell is always one of these types: starting number (`given`), your number (`entry`), empty with no marks, empty with marks. | R§4.1 |
 | BRD-2 | `given ⇒ filled`. The value of a starting number does not change. | R§4.1 |
 | BRD-3 | The value of an entry is 1–9. Only the eraser or undo can remove it. Writing does not replace it. | R§4.1, R§5.1 |
-| BRD-4 | A value changes from 0 to a digit only by a number from 1 to 9 that the app reads, by redo, or by the generator. | R§5.1, R§7 |
+| BRD-4 | A value changes from 0 to a digit only by a number from 1 to 9 that the app reads, by redo, by undo of an erasure, or by the generator. | R§5.1, R§7 |
 | BRD-5 | An entry can be incorrect. `value ≠ solution` is a correct state and has no color, if there is no clash. | R§6.3 |
 | BRD-6 | Filled cells do not show the micro-cell grid or pencil marks. Empty cells show the micro-cell grid. The only exception is an empty cell with a "?" (QST-1): it does not show the grid while the "?" shows. | R§4.1, R§5.1 |
 | BRD-7 | The background of a filled cell is the **first** of these: the clash color if clashing; the highlight color if `value = highlight`; the starting color if given; white. Empty cells are white. | R§4.2 |
@@ -262,7 +262,7 @@ Terms:
 | ID | Rule | Source |
 |---|---|---|
 | ANA-1 | Each result has `mode ∈ 0..4`, `seconds ≥ 0`, `givens ∈ 0..81`, a `seed`, a `finished_at` and a unique `id`. | R§14.1 |
-| ANA-2 | Only completion adds results (CMP-5). Only a confirmed Delete removes results. | R§14.1, R§13.2 |
+| ANA-2 | Only completion adds results (CMP-5). Only a confirmed Delete removes results. (The device test tool `sudoku --test-results` is not a part of the app; refer to DECISIONS.md.) | R§14.1, R§13.2 |
 | ANA-3 | "Puzzles completed" on the summary is `|results|`. "Average time" is the average of `seconds` in `results`, or "–" if there are no results. | R§13.1 |
 | ANA-4 | For each mode m, completed is `|{r ∈ results : r.mode = m}|`. Average is the average of their `seconds`, or "–" if there are none. The sum of the quantities for all modes is equal to the total. | R§13.1 |
 | ANA-5 | The list shows only the results that agree with `filter` (all results for All). The newest `finished_at` is first. Each page has a maximum of 12 results. All pages before the last page have 12 results. If no results agree with `filter`, the list has no rows. | R§13.2 |

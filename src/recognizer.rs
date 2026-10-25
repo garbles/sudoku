@@ -23,7 +23,7 @@ const MAX_DENSITY: f32 = 6.0;
 /// A digit is accepted if its distance is not more than ALPHA times the distance of the nearest
 /// example that is not a digit. A value more than 1 prefers digits: in a sudoku cell, a digit is
 /// more probable than a letter. The test `writer_independent_accuracy` sets this value.
-const ALPHA: f32 = 1.5;
+const ALPHA: f32 = 1.4;
 /// The quantity of nearest digit examples that vote.
 const K: usize = 3;
 
@@ -31,8 +31,20 @@ const GRID: usize = 8;
 const DIRS: usize = 8;
 const PATH_POINTS: usize = 24;
 const PATH_WEIGHT: f32 = 0.25;
-/// The slants of the copies of the digit examples (x changes by this part of the height).
-const SHEARS: [f32; 5] = [0.0, -0.12, 0.12, -0.25, 0.25];
+/// The copies of each digit example: (slant, rotation in degrees, width scale). Handwriting of different
+/// writers has a different slant, rotation and width. The slant is the change of x for each unit of
+/// height.
+const DIGIT_COPIES: [(f32, f32, f32); 9] = [
+    (0.0, 0.0, 1.0),
+    (-0.12, 0.0, 1.0),
+    (0.12, 0.0, 1.0),
+    (-0.25, 0.0, 1.0),
+    (0.25, 0.0, 1.0),
+    (0.0, -8.0, 1.0),
+    (0.0, 8.0, 1.0),
+    (0.0, 0.0, 0.8),
+    (0.0, 0.0, 1.2),
+];
 const DIM: usize = GRID * GRID * DIRS + 2 * PATH_POINTS;
 
 /// Reads the ink with the examples of all 60 writers.
@@ -40,7 +52,12 @@ pub fn recognize(strokes: &[Stroke]) -> Option<u8> {
     default().read(strokes)
 }
 
-/// Prepares the examples (approximately 10 000). The app calls this when it starts, so that the first
+/// The nearest examples of the ink (for an examination of the recognizer).
+pub fn matches(strokes: &[Stroke]) -> Option<Match> {
+    default().matches(strokes)
+}
+
+/// Prepares the examples (approximately 19 000). The app calls this when it starts, so that the first
 /// number does not wait for it.
 pub fn warm_up() {
     default();
@@ -48,7 +65,68 @@ pub fn warm_up() {
 
 fn default() -> &'static Recognizer {
     static R: OnceLock<Recognizer> = OnceLock::new();
-    R.get_or_init(|| Recognizer::new(samples().iter()))
+    R.get_or_init(|| Recognizer::new(samples().iter().chain(typeface_examples().iter())))
+}
+
+/// Examples with the shapes of the typeface of the screen: a closed 4, a 9 with a round loop and a
+/// straight tail, and a 1 as a straight line, each in both directions of writing. Few writers of the
+/// database write these shapes (or write them from the bottom up), but players copy the digits of the
+/// board. The writer is 0 (not a writer of the database).
+pub fn typeface_examples() -> &'static [Sample] {
+    static S: OnceLock<Vec<Sample>> = OnceLock::new();
+    S.get_or_init(|| {
+        // Strokes in a box of 100 x 140 (y down).
+        let line = |pts: &[(f32, f32)]| -> Stroke {
+            let mut out = Vec::new();
+            for w in pts.windows(2) {
+                let n = (dist(w[0], w[1]) / 4.0).ceil().max(1.0) as usize;
+                out.extend((0..n).map(|k| {
+                    let t = k as f32 / n as f32;
+                    (w[0].0 + t * (w[1].0 - w[0].0), w[0].1 + t * (w[1].1 - w[0].1))
+                }));
+            }
+            out.push(*pts.last().unwrap());
+            out
+        };
+        let arc = |cx: f32, cy: f32, rx: f32, ry: f32, a0: f32, a1: f32| -> Stroke {
+            let n = ((a1 - a0).abs() / 6.0).ceil() as usize;
+            (0..=n)
+                .map(|k| {
+                    let a = (a0 + (a1 - a0) * k as f32 / n as f32).to_radians();
+                    (cx + rx * a.cos(), cy + ry * a.sin())
+                })
+                .collect()
+        };
+        let join = |a: Stroke, b: Stroke| -> Stroke { a.into_iter().chain(b).collect() };
+        let shapes: Vec<(u8, Vec<Stroke>)> = vec![
+            // 1: a straight vertical line (written down or up).
+            (1, vec![line(&[(50.0, 0.0), (50.0, 140.0)])]),
+            // Closed 4 in one stroke: the vertical line, the diagonal and the bar.
+            (4, vec![line(&[(70.0, 140.0), (70.0, 0.0), (5.0, 95.0), (100.0, 95.0)])]),
+            // Closed 4 in two strokes: the diagonal and the bar, then the vertical line.
+            (4, vec![line(&[(70.0, 0.0), (5.0, 95.0), (100.0, 95.0)]), line(&[(70.0, 10.0), (70.0, 140.0)])]),
+            // 9: a round loop, then a straight tail (and the tail first, then the loop).
+            (9, vec![join(arc(45.0, 40.0, 40.0, 40.0, 0.0, -360.0), line(&[(85.0, 40.0), (82.0, 140.0)]))]),
+            (9, vec![join(arc(45.0, 40.0, 40.0, 40.0, 0.0, 360.0), line(&[(85.0, 40.0), (82.0, 140.0)]))]),
+            (9, vec![join(line(&[(78.0, 140.0), (85.0, 40.0)]), arc(45.0, 40.0, 40.0, 40.0, 0.0, -340.0))]),
+            (9, vec![join(line(&[(60.0, 125.0), (70.0, 140.0), (85.0, 110.0), (85.0, 40.0)]), arc(45.0, 40.0, 40.0, 40.0, 0.0, -340.0))]),
+        ];
+        shapes
+            .into_iter()
+            .flat_map(|(class, strokes)| {
+                // The same box of 0..255 as the database (the larger side is 255).
+                let (x0, y0, x1, y1) = bbox(strokes.iter().flatten());
+                let k = 255.0 / (x1 - x0).max(y1 - y0);
+                let strokes: Vec<Stroke> =
+                    strokes.iter().map(|st| st.iter().map(|&(x, y)| ((x - x0) * k, (y - y0) * k)).collect()).collect();
+                // Also in the opposite direction: some players write from the bottom up (for example
+                // the tail of a 9 first). The features use the direction of the pen. The examples of
+                // the database already have the directions of their writers.
+                let reversed = strokes.iter().rev().map(|st| st.iter().rev().copied().collect()).collect();
+                [Sample { class, writer: 0, strokes }, Sample { class, writer: 0, strokes: reversed }]
+            })
+            .collect()
+    })
 }
 
 /// One example of handwriting: the class (1 to 9, or 0 for "not 1–9"), the writer (1 to 60) and the
@@ -83,6 +161,8 @@ pub fn samples() -> &'static [Sample] {
                     .collect();
                 Sample { class, writer, strokes }
             })
+            // The class is 0 to 9 (INP-6). An example with a different class is not used.
+            .filter(|s| s.class <= 9)
             .collect()
     })
 }
@@ -110,11 +190,22 @@ impl Recognizer {
         let mut classes = Vec::new();
         let mut features = Vec::new();
         for s in samples {
-            // Digits also get copies with a different slant, because the slant of handwriting is
-            // different for each writer.
-            let shears: &[f32] = if s.class == 0 { &[0.0] } else { &SHEARS };
-            for &k in shears {
-                let strokes: Vec<Stroke> = s.strokes.iter().map(|st| st.iter().map(|&(x, y)| (x + k * (255.0 - y), y)).collect()).collect();
+            // Digits also get copies with a different slant, rotation and width (DIGIT_COPIES).
+            let copies: &[(f32, f32, f32)] = if s.class == 0 { &[(0.0, 0.0, 1.0)] } else { &DIGIT_COPIES };
+            for &(k, rot, sx) in copies {
+                let (sin, cos) = rot.to_radians().sin_cos();
+                let strokes: Vec<Stroke> = s
+                    .strokes
+                    .iter()
+                    .map(|st| {
+                        st.iter()
+                            .map(|&(x, y)| {
+                                let (x, y) = ((x + k * (255.0 - y) - 128.0) * sx, y - 128.0);
+                                (x * cos - y * sin + 128.0, x * sin + y * cos + 128.0)
+                            })
+                            .collect()
+                    })
+                    .collect();
                 if let Some(f) = features_of(&strokes) {
                     classes.push(s.class);
                     features.extend(f);
@@ -357,7 +448,7 @@ mod tests {
     /// The writers 41 to 60 are not in the examples of this test: the result shows the accuracy for a
     /// new writer.
     fn split() -> (Recognizer, Vec<&'static Sample>) {
-        let r = Recognizer::new(samples().iter().filter(|s| s.writer <= 40));
+        let r = Recognizer::new(samples().iter().filter(|s| s.writer <= 40).chain(typeface_examples().iter()));
         (r, samples().iter().filter(|s| s.writer > 40).collect())
     }
 
@@ -394,10 +485,30 @@ mod tests {
             wrong_rate * 100.0,
             rej * 100.0
         );
-        // Measured: 96.7% correct, 0.8% a wrong digit, 90.3% of other characters rejected.
-        assert!(acc >= 0.96, "digits read correctly: {:.1}%", acc * 100.0);
+        // Measured: 97.8% correct, 0.8% a wrong digit, 91.3% of other characters rejected. The
+        // target of REQUIREMENTS.md §5.1 is 96% correct and 1.2% wrong.
+        assert!(acc >= 0.975, "digits read correctly: {:.1}%", acc * 100.0);
         assert!(wrong_rate <= 0.012, "digits read as a different digit: {:.1}%", wrong_rate * 100.0);
-        assert!(rej >= 0.89, "other characters rejected: {:.1}%", rej * 100.0);
+        assert!(rej >= 0.905, "other characters rejected: {:.1}%", rej * 100.0);
+    }
+
+    #[test]
+    #[ignore]
+    fn per_digit() {
+        let (r, test) = split();
+        let mut table = [[0usize; 11]; 10];
+        for s in test.iter().filter(|s| s.class != 0) {
+            let got = r.read(&place(s)).map(|d| d as usize).unwrap_or(10);
+            table[s.class as usize][got] += 1;
+        }
+        for (d, row) in table.iter().enumerate().skip(1) {
+            let n: usize = row.iter().sum();
+            let misses: Vec<String> = (1..=10)
+                .filter(|&g| g != d && row[g] > 0)
+                .map(|g| format!("{}x{}", row[g], if g == 10 { "?".into() } else { g.to_string() }))
+                .collect();
+            println!("{d}: {}/{n} {}", row[d], misses.join(" "));
+        }
     }
 
     #[test]
@@ -461,6 +572,38 @@ mod tests {
                 assert_eq!(r.read(&ink), None, "writer {w}: 1{second}");
             }
         }
+    }
+
+    #[test]
+    fn handwriting_of_the_owner_is_read() {
+        // tests/fixtures/owner-ink.jsonl: the ink log of the owner on the device (2026-10-25): five
+        // 4s, six 9s and six 8s. The owner writes the 4 and the 9 like the typeface, from the bottom
+        // up. The typeface examples (`typeface_examples`) were made after an examination of this ink,
+        // thus this test is not independent; `writer_independent_accuracy` is.
+        let want = [4, 4, 4, 4, 4, 9, 9, 9, 9, 9, 9, 8, 8, 8, 8, 8, 8];
+        let log = include_str!("../tests/fixtures/owner-ink.jsonl");
+        for (i, (line, &d)) in log.lines().zip(want.iter()).enumerate() {
+            let v: serde_json::Value = serde_json::from_str(line).unwrap();
+            let strokes: Vec<Stroke> = serde_json::from_value(v["strokes"].clone()).unwrap();
+            assert_eq!(recognize(&strokes), Some(d), "sample {i}");
+        }
+    }
+
+    #[test]
+    fn a_straight_line_is_a_1_in_both_directions() {
+        // The owner's request (2026-10-25): a straight vertical line, written down or up, is a 1.
+        for (dx, up) in [(0.0, false), (0.0, true), (10.0, false), (-10.0, true), (6.0, true)] {
+            for len in [60.0, 100.0, 130.0] {
+                let mut s: Stroke = (0..=40).map(|i| (300.0 + dx * i as f32 / 40.0, 600.0 + len * i as f32 / 40.0)).collect();
+                if up {
+                    s.reverse();
+                }
+                assert_eq!(recognize(&[s]), Some(1), "length {len}, slant {dx}, up {up}");
+            }
+        }
+        // A horizontal line is not a number.
+        let s: Stroke = (0..=40).map(|i| (300.0 + 100.0 * i as f32 / 40.0, 600.0)).collect();
+        assert_eq!(recognize(&[s]), None);
     }
 
     #[test]

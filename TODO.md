@@ -3,3 +3,5 @@
 - Activity table does not span full view in landscape mode
 - Add a way to disable highlighting, removal of pencil marks
 - Add a way to simulate movements on the tablet so that it can hillclimb on its own
+- Explain that by having Claude always circle back to update screenshots when requirements change, the screenshots become the source of truth for how the UI should look. It's like a reverse visual snapshot test.
+- Need to be able to reset all stats

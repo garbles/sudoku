@@ -298,3 +298,220 @@ fn turning_the_tablet_keeps_the_game() {
     sudoku::invariants::check_app(&d.app).unwrap();
     layout::set_orientation(layout::Orientation::Portrait);
 }
+
+// ---- Tests from the audit of INVARIANTS.md (one test for each rule that had no real test).
+
+#[test]
+fn undo_and_redo_do_not_put_a_number_under_the_question_mark() {
+    // QST-1, QST-4: the press on Undo or Redo reads the waiting ink and can show the "?". If the undo or
+    // the redo then puts a number in that cell, the "?" must go.
+    let mut d = Driver::new(40);
+    let cell = empty_cell(&d);
+    d.button(Button::Menu);
+    d.write(cell, 7);
+    assert_eq!(d.app.game.value_at(cell), 7);
+    d.erase(cell);
+    // Undo of the erasure.
+    d.write_strokes(&scribble_ink(cell));
+    d.button(Button::Undo);
+    assert_eq!(d.app.game.value_at(cell), 7);
+    assert_eq!(d.app.ui.question, None, "QST-1 after undo");
+    sudoku::invariants::check_app(&d.app).unwrap();
+    // Redo of the number.
+    d.button(Button::Undo);
+    d.button(Button::Undo);
+    assert_eq!(d.app.game.value_at(cell), 0);
+    d.write_strokes(&scribble_ink(cell));
+    d.button(Button::Redo);
+    assert_eq!(d.app.game.value_at(cell), 7);
+    assert_eq!(d.app.ui.question, None, "QST-1 after redo");
+    sudoku::invariants::check_app(&d.app).unwrap();
+}
+
+#[test]
+fn a_second_finger_removes_the_highlight_and_the_question_mark() {
+    // HLT-2, QST-4: each finger touch is an action, also when a different finger (for example a palm)
+    // is already on the screen.
+    let mut d = Driver::new(41);
+    let palm = empty_cell(&d);
+    let (px, py) = micro_center(palm, 5);
+    d.send(Input::TouchDown { id: 5, x: px, y: py });
+    let given = cells().find(|&c| d.app.game.is_given(c)).unwrap();
+    d.tap_cell(given);
+    assert!(d.app.ui.highlight.is_some());
+    d.finger_tap(5.0, 1000.0);
+    assert_eq!(d.app.ui.highlight, None, "HLT-2");
+    let cell = cells().find(|&c| !d.app.game.is_filled(c) && c != palm).unwrap();
+    d.write_strokes(&scribble_ink(cell));
+    d.wait(d.app.pause_ms + 10);
+    assert!(d.app.ui.question.is_some());
+    d.finger_tap(5.0, 1000.0);
+    assert_eq!(d.app.ui.question, None, "QST-4");
+    d.send(Input::TouchUp { id: 5, x: px, y: py });
+}
+
+#[test]
+fn the_menu_button_and_the_close_button_only_close_a_panel() {
+    // NAV-12
+    let mut d = Driver::new(42);
+    d.button(Button::Menu);
+    for panel in [Button::Colors, Button::NewGame] {
+        d.button(panel);
+        assert_ne!(d.app.ui.panel, Panel::None);
+        d.button(Button::Menu);
+        assert_eq!(d.app.ui.panel, Panel::None);
+        assert!(d.app.ui.menu_open, "the menu stays open");
+        d.button(panel);
+        d.button(Button::Close);
+        assert_eq!(d.app.ui.panel, Panel::None);
+        assert!(d.app.ui.menu_open && !d.app.quit, "the app does not close");
+    }
+}
+
+#[test]
+fn a_number_removes_the_hidden_marks_of_filled_peers() {
+    // MRK-4: also the hidden marks of a peer with a number lose the digit.
+    let mut d = Driver::new(43);
+    let a = empty_cell(&d);
+    let p = peers(a).find(|&c| !d.app.game.is_filled(c)).unwrap();
+    d.tap_micro(p, 7);
+    d.tap_micro(p, 2);
+    d.write(p, 3);
+    assert_eq!(d.app.game.value_at(p), 3);
+    d.write(a, 7);
+    assert_eq!(d.app.game.value_at(a), 7);
+    assert!(peers(a).all(|c| d.app.game.marks_at(c) & mark_bit(7) == 0), "no peer has the mark 7");
+    // The erasure shows the hidden marks without the removed mark.
+    d.erase(p);
+    assert_eq!(d.app.game.marks_at(p), mark_bit(2));
+}
+
+#[test]
+fn a_press_on_a_button_reads_the_waiting_ink() {
+    // INP-12: a press on a different item reads the waiting ink immediately.
+    let mut d = Driver::new(44);
+    let cell = empty_cell(&d);
+    d.write_strokes(&digit_ink(cell, 6));
+    assert!(d.app.ui.pending_ink.is_some());
+    let (x, y) = button_center(Button::Menu);
+    d.send(Input::TouchDown { id: 1, x, y });
+    assert!(d.app.ui.pending_ink.is_none());
+    assert_eq!(d.app.game.value_at(cell), 6, "read at the press, before the pause");
+    d.send(Input::TouchUp { id: 1, x, y });
+    assert!(d.app.ui.menu_open);
+}
+
+#[test]
+fn the_meter_shows_the_mode_of_the_game() {
+    // DIF-6: the large knob of the meter is at the stop of `game.mode`.
+    let fonts = fonts();
+    let (we, wi) = (fonts.medium.width(25.0, "Easy"), fonts.medium.width(25.0, "Hard"));
+    let stops = layout::slider_stops(layout::meter_xl(), layout::meter_xr(), we, wi);
+    let y = layout::meter_y() - 8;
+    for mode in 0..5u8 {
+        let mut app = reference::app(&fonts);
+        app.game = sudoku::app::new_game(9, mode);
+        app.ui.slider = (mode + 2) % 5; // The slider of the panel does not change the meter.
+        let mut pm = tiny_skia::Pixmap::new(1620, 2160).unwrap();
+        sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &app);
+        for (i, &x) in stops.iter().enumerate() {
+            let dark = rgb_at(&pm, x.round() as i32, y)[0] < 100;
+            assert_eq!(dark, i == mode as usize, "mode {mode}, stop {i}");
+        }
+    }
+}
+
+#[test]
+fn colors_and_analytics_operate_on_a_complete_game() {
+    // CMP-6: only Start new game ends the complete state. The other menu items continue to operate.
+    let mut d = Driver::new(45);
+    solve(&mut d);
+    assert!(d.app.game.completed);
+    let g = d.app.game.clone();
+    d.button(Button::Menu);
+    d.button(Button::Colors);
+    assert_eq!(d.app.ui.panel, Panel::Colors);
+    let (gx, gy) = layout::color_cell(0, 3);
+    d.finger_tap(gx as f32 + 56.0, gy as f32 + 40.0);
+    assert_eq!(d.app.settings.color_starting, Color::Blue);
+    d.button(Button::Colors);
+    d.button(Button::Analytics);
+    assert_eq!(d.app.screen, Screen::Analytics);
+    d.finger_tap(40.0, 50.0);
+    assert_eq!(d.app.screen, Screen::Game);
+    assert_eq!(d.app.game, g, "the game stays complete and does not change");
+}
+
+#[test]
+fn the_manual_does_not_change_the_game() {
+    // MAN-4: pen, eraser and finger input on the manual do not change the game. The clock operates.
+    let mut d = Driver::new(46);
+    let cell = empty_cell(&d);
+    d.tap_micro(cell, 4);
+    d.write(cells().filter(|&c| !d.app.game.is_filled(c)).nth(1).unwrap(), 2);
+    let key = |d: &Driver| (d.app.game.value, d.app.game.marks, d.app.game.undo.clone(), d.app.game.redo.clone());
+    let before = key(&d);
+    let t = d.app.game.elapsed_ms;
+    d.button(Button::Menu);
+    d.button(Button::Help);
+    for c in [cell, (4, 4), (8, 8)] {
+        d.tap_micro(c, 4);
+        d.write_strokes(&digit_ink(c, 5));
+        d.wait(d.app.pause_ms + 10);
+        d.erase(c);
+        let (x, y) = micro_center(c, 5);
+        d.finger_tap(x, y);
+    }
+    d.swipe(true);
+    d.swipe(false);
+    d.finger_tap(40.0, 50.0);
+    assert_eq!(d.app.screen, Screen::Game);
+    assert_eq!(key(&d), before);
+    assert!(d.app.game.elapsed_ms > t);
+}
+
+#[test]
+fn black_is_not_in_the_palette() {
+    // COL-6, COL-1: nine different colors, none of them black.
+    let rgbs: Vec<[u8; 3]> = Color::ALL.iter().map(|c| c.rgb()).collect();
+    assert!(rgbs.iter().all(|&c| c != [0, 0, 0]));
+    assert!(rgbs.iter().enumerate().all(|(i, a)| rgbs[i + 1..].iter().all(|b| a != b)));
+    let names: Vec<&str> = Color::ALL.iter().map(|c| c.name()).collect();
+    assert_eq!(names, ["Gray", "White", "Yellow", "Blue", "Red", "Green", "Cyan", "Magenta", "Orange"]);
+}
+
+#[test]
+fn averages_of_the_summary() {
+    // ANA-3, ANA-4: the average of `seconds`, or none ("–") if there are no results. The quantities
+    // of all modes add up to the total.
+    use sudoku::app::average_seconds;
+    use sudoku::store::ResultRow;
+    let row = |id, mode, seconds| ResultRow { id, finished_at: id, mode, givens: 30, seconds, seed: 0 };
+    let rows = [row(1, 0, 100), row(2, 0, 200), row(3, 3, 61)];
+    assert_eq!(average_seconds([].iter()), None);
+    assert_eq!(average_seconds(rows.iter()), Some(120));
+    assert_eq!(average_seconds(rows.iter().filter(|r| r.mode == 0)), Some(150));
+    assert_eq!(average_seconds(rows.iter().filter(|r| r.mode == 1)), None);
+    let d = Driver::from(reference::app(&fonts()));
+    let per_mode: usize = (0..5u8).map(|m| d.app.results.iter().filter(|r| r.mode == m).count()).sum();
+    assert_eq!(per_mode, d.app.results.len());
+}
+
+#[test]
+fn the_clash_color_comes_before_the_highlight_color() {
+    // BRD-7: a clashing number that is also highlighted has the clash color.
+    let fonts = fonts();
+    let g = reference::sample_game();
+    let mut app = reference::app(&fonts);
+    app.game = g.clone();
+    app.ui.highlight = Some(9);
+    let mut pm = tiny_skia::Pixmap::new(1620, 2160).unwrap();
+    sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &app);
+    let nines: Vec<Cell> = cells().filter(|&c| g.value_at(c) == 9).collect();
+    assert!(nines.iter().any(|&c| g.is_clashing(c)) && nines.iter().any(|&c| !g.is_clashing(c)));
+    for c in nines {
+        let (x, y) = layout::cell_origin(c);
+        let want = if g.is_clashing(c) { Color::Red } else { Color::Green };
+        assert_eq!(rgb_at(&pm, x + 8, y + 140), want.rgb(), "cell {c:?}");
+    }
+}

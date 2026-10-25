@@ -14,7 +14,7 @@ Characters (Version 2)** database: 60 writers, 2 examples of each character for 
 - License: Creative Commons Attribution 4.0 International (CC BY 4.0).
 
 Changes to the data: the characters with the shape of a 1 (`l`, `I`, `|`, `'`, `,`, `!`, `¡`, `i`,
-`í`, `Í`, `j`) are removed. Each example is resampled to a maximum of approximately 40 points and
+`í`, `Í`, `j`, and `:`, `;`, `.`, whose dots are in a vertical row) are removed. Each example is resampled to a maximum of approximately 40 points and
 scaled to a box of 0 to 255. The digits 1 to 9 keep their class. All other characters have the class 0
 ("not 1–9").
 

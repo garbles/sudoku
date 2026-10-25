@@ -45,7 +45,7 @@ struct Paths {
 impl Paths {
     fn new() -> Paths {
         let dir = store::data_dir();
-        Paths { game: dir.join("game.json"), settings: dir.join("settings.json"), results: dir.join("results.sqlite") }
+        Paths { game: dir.join("game.json"), settings: dir.join("settings.json"), results: dir.join(store::RESULTS_FILE) }
     }
 }
 
@@ -175,6 +175,19 @@ pub fn run() -> Result<(), String> {
     let mut app = App::new(saved, settings, db, Box::new(SystemEnv::new()));
     app.ng_stops = render::ng_stops(&fonts);
     let game_path = paths.game.clone();
+    // If the file `log-ink` is in the data folder, each reading of ink goes to `ink-log.jsonl` (one JSON
+    // line: the strokes and the result). It is only for an examination of the recognizer.
+    let data_dir = store::data_dir();
+    if data_dir.join("log-ink").exists() {
+        let log_path = data_dir.join("ink-log.jsonl");
+        app.ink_log = Some(Box::new(move |strokes, result| {
+            let line = serde_json::json!({ "strokes": strokes, "result": result });
+            if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
+                use std::io::Write;
+                let _ = writeln!(f, "{line}");
+            }
+        }));
+    }
     app.save_game_now = Some(Box::new(move |g: &Game| match store::save_json(&game_path, g) {
         Ok(()) => true,
         Err(e) => {
