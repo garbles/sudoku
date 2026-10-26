@@ -74,6 +74,17 @@ To compare rendered states with the reference images in [`images/`](images/):
 cargo run --release --bin snapshot -- images/
 ```
 
+To make a demo video of the app (it needs `ffmpeg`):
+
+```bash
+cargo run --release --bin video -- video/demo.txt video/demo.mp4
+```
+
+The tool runs the real app with no screen. It sends the timed pen, eraser and finger events of the
+script in [`video/demo.txt`](video/demo.txt) and records the frames. Markers show where the pen, the
+eraser and the finger touch the screen. Each run gives the same video. An output file that ends with
+`.gif` gives a smaller GIF. `src/bin/video.rs` gives the commands of the script.
+
 ### Build for the reMarkable Paper Pro
 
 Use the Dockerfile of the project to compile the static binary for `aarch64` Linux:

@@ -1,0 +1,49 @@
+# Demo video of the Sudoku app. Make it with:
+#   cargo run --release --bin video -- video/demo.txt video/demo.mp4
+# Cells are rRcC, with rows and columns from 1 to 9. The commands are in src/bin/video.rs.
+
+fps 30
+puzzle seed 7 mode 0          # Easy. The same puzzle each time.
+
+wait 1.5                      # show the new board
+
+# 1. Pencil marks in the bottom-middle box (true candidates only).
+mark r7c4 1 8
+mark r8c5 2 9
+mark r9c4 1 4 8
+wait 1.0
+
+# 2. Two obvious numbers in the top-right box (3 and 9 are missing).
+write r1c8 3                  # 9 is already in column 8, thus r1c8 is 3
+write r2c9 9
+wait 1.0
+
+# 3. An incorrect number. r3c4 must be 5 (the last empty cell in row 3).
+write r3c4 9                  # clashes with r3c6 and r4c4: the cells are red
+wait 2.0
+
+# 4. Change the clash color.
+tap menu
+wait 0.8
+tap colors                    # opens the Cell colors panel
+wait 1.0
+tap color clashing orange     # the clashing cells change to orange
+wait 1.5
+tap colors                    # closes the panel
+wait 0.5
+tap menu                      # closes the menu
+wait 1.0
+
+# 5. Erase the incorrect number.
+erase r3c4
+wait 1.0
+
+# 6. More pencil marks in the middle-left box.
+mark r4c2 2 5
+mark r5c2 5
+mark r6c1 1
+wait 1.0
+
+# 7. The last obvious number: r5c2 can only be 5.
+write r5c2 5                  # automatic removal takes the 5 out of r4c2
+wait 2.5

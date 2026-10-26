@@ -21,6 +21,7 @@ executable for the reMarkable Paper Pro.
 ```bash
 cargo test                                   # all tests on the computer (macOS or Linux)
 cargo run --release --bin snapshot -- DIR    # draw the reference states and compare them with images/
+cargo run --release --bin video -- video/demo.txt video/demo.mp4   # demo video from an event script (ffmpeg)
 docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + static aarch64 build
 ```
 
@@ -40,6 +41,7 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `store.rs`, `settings.rs`: the SQLite results, the settings and the saved game (JSON).
 - `platform/`: Linux only. The qtfb client, the eraser state (evdev) and the main loop.
 - `reference.rs`: the states of the images in `images/`, for the snapshot tool and `tests/render.rs`.
+- `bin/video.rs`: runs the app with a script of timed events (`video/*.txt`) and records a video.
 
 ## Conventions & Patterns
 
