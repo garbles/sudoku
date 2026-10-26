@@ -106,6 +106,11 @@ impl ResultsDb {
         Ok(n)
     }
 
+    /// Removes all results ("Delete all games", ANA-12).
+    pub fn delete_all(&mut self) -> rusqlite::Result<usize> {
+        self.conn.execute("DELETE FROM results", [])
+    }
+
     pub fn delete(&mut self, id: i64) -> rusqlite::Result<()> {
         self.conn.execute("DELETE FROM results WHERE id = ?1", params![id])?;
         Ok(())

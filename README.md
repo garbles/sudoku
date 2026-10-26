@@ -23,7 +23,7 @@ Main features:
 - **Smart helpers**: Automatic pencil mark cleanup, duplicate number clash detection (red), and number highlight overlays (green).
 - **Undo and redo**: Full history support for all board moves.
 - **Built-in manual**: A 9-page guide that explains how to play and how to use the tablet controls.
-- **Analytics and statistics**: Tracks completed games, times, and difficulty metrics in a local SQLite database.
+- **Statistics**: Tracks completed games, times, and difficulty metrics in a local SQLite database.
 - **State persistence**: Saves the current game, elapsed time, and custom settings automatically when you pause or close the app.
 - **System font integration**: Loads and uses the native `reMarkable Sans` font directly from the tablet.
 

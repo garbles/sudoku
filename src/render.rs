@@ -271,7 +271,7 @@ pub fn draw(c: &mut Canvas, app: &App) {
             let page = manual_page(app.manual_page);
             c.image(page, 0, 0);
         }
-        Screen::Analytics => draw_summary(c, &app.results),
+        Screen::Statistics => draw_summary(c, &app.results, app.confirm_all),
         Screen::GamesList => draw_list(c, app),
     }
 }
@@ -406,10 +406,15 @@ fn draw_toolbar(c: &mut Canvas, app: &App) {
 
     // A panel button is white on black while its panel is open (NAV-8).
     let colors_active = panel == Panel::Colors;
+    let settings_active = panel == Panel::Settings;
     let plus_active = panel == Panel::NewGame;
     if colors_active {
         active_slot(c, TB_SLOT);
     }
+    if settings_active {
+        active_slot(c, 2 * TB_SLOT);
+    }
+    gear(c, tb_cx(), tb_cy(2), if settings_active { WHITE } else { BLACK });
     if plus_active {
         active_slot(c, tb_bottom_y());
     }
@@ -440,8 +445,8 @@ fn draw_toolbar(c: &mut Canvas, app: &App) {
     c.path_fill(pb, tf, line);
 
     // Undo and redo: black when available, gray when not (UND-7, UND-8).
-    for (k, available) in [(2, app.game.can_undo()), (3, app.game.can_redo())] {
-        let sx = if k == 3 { -1.0 } else { 1.0 };
+    for (k, available) in [(3, app.game.can_undo()), (4, app.game.can_redo())] {
+        let sx = if k == 4 { -1.0 } else { 1.0 };
         let tf = Transform::from_row(sx, 0.0, 0.0, 1.0, tb_cx(), tb_cy(k));
         let col = if available { BLACK } else { gray(70) };
         let mut pb = PathBuilder::new();
@@ -469,6 +474,7 @@ fn draw_toolbar(c: &mut Canvas, app: &App) {
 
     match panel {
         Panel::Colors => draw_colors_panel(c, &app.settings),
+        Panel::Settings => draw_settings_panel(c, &app.settings),
         Panel::NewGame => draw_new_game_panel(c, app.ui.slider),
         Panel::None => {}
     }
@@ -487,6 +493,62 @@ fn panel_frame(c: &mut Canvas, pl: i32, pr: i32, top: i32, bot: i32) {
     c.rect(pr - 1.0, top, pr, bot, BLACK);
     if bot < screen_h() as f32 {
         c.rect(pl, bot - 1.0, pr, bot, BLACK);
+    }
+}
+
+/// Settings (slot 2): a gear with eight teeth (scripts/toolbar.sh `gear_icon`).
+fn gear(c: &mut Canvas, cx: f32, cy: f32, col: Rgb) {
+    c.circle(cx, cy, 11.0, None, Some((col, 3.0)));
+    c.circle(cx, cy, 4.5, None, Some((col, 3.0)));
+    for k in 0..8 {
+        let a = (k as f32 * 45.0).to_radians();
+        let (s, co) = a.sin_cos();
+        c.line_butt(cx + 11.0 * co, cy + 11.0 * s, cx + 17.0 * co, cy + 17.0 * s, 6.0, col);
+    }
+}
+
+/// The Settings panel (REQUIREMENTS.md §9.1): two rows with a name and a switch.
+fn draw_settings_panel(c: &mut Canvas, settings: &Settings) {
+    let (pl, pr) = (colors_pl(), colors_pr());
+    let p = layout::settings_panel();
+    panel_frame(c, pl, pr, p.y0, p.y1 - 1);
+    let rows: [(&[&str], bool); 2] = [
+        (&["Highlight numbers"], settings.highlight_on),
+        (&["Remove pencil marks", "automatically"], settings.auto_remove_on),
+    ];
+    for (i, (name, on)) in rows.iter().enumerate() {
+        let r = layout::settings_row(i);
+        if i > 0 {
+            c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
+        }
+        let cy = (r.y0 + 56) as f32;
+        let first = if name.len() == 1 { cy + 9.0 } else { cy - 7.0 };
+        for (k, line) in name.iter().enumerate() {
+            c.text(true, 25.0, (pl + 33) as f32, first + 32.0 * k as f32, Anchor::Start, line, BLACK);
+        }
+        switch(c, (pr - 33) as f32, cy, *on);
+    }
+}
+
+/// A switch with its right end at x: a track of 72 x 36 px and a knob of 28 px.
+fn switch(c: &mut Canvas, x1: f32, cy: f32, on: bool) {
+    let (x0, r) = (x1 - 72.0, 18.0);
+    let mut pb = PathBuilder::new();
+    pb.move_to(x0 + r, cy - r);
+    pb.line_to(x1 - r, cy - r);
+    pb.cubic_to(x1 - r + 9.94, cy - r, x1, cy - 9.94, x1, cy);
+    pb.cubic_to(x1, cy + 9.94, x1 - r + 9.94, cy + r, x1 - r, cy + r);
+    pb.line_to(x0 + r, cy + r);
+    pb.cubic_to(x0 + r - 9.94, cy + r, x0, cy + 9.94, x0, cy);
+    pb.cubic_to(x0, cy - 9.94, x0 + r - 9.94, cy - r, x0 + r, cy - r);
+    pb.close();
+    let track = pb.clone();
+    c.path_fill(pb, Transform::identity(), if on { BLACK } else { WHITE });
+    c.path_stroke(track, Transform::identity(), 3.0, BLACK);
+    if on {
+        c.circle(x1 - r, cy, 14.0, Some(WHITE), None);
+    } else {
+        c.circle(x0 + r, cy, 14.0, Some(BLACK), None);
     }
 }
 
@@ -569,9 +631,9 @@ fn avg_text(rows: &[&ResultRow]) -> String {
     average_seconds(rows.iter().copied()).map(format_clock).unwrap_or_else(|| "–".to_string())
 }
 
-pub fn draw_summary(c: &mut Canvas, results: &[ResultRow]) {
+pub fn draw_summary(c: &mut Canvas, results: &[ResultRow], confirm_all: bool) {
     c.set_page_units(true);
-    chrome(c, "Analytics", None);
+    chrome(c, "Statistics", None);
     let all: Vec<&ResultRow> = results.iter().collect();
     // ANA-3
     let (bw, right, count_x) = (summary_box_w(), page_right(), summary_count_x());
@@ -603,11 +665,42 @@ pub fn draw_summary(c: &mut Canvas, results: &[ResultRow]) {
         hline(c, y, 72.0, right);
     }
     y += 70.0;
-    c.stroke_rect(72.0, y, right, y + ROW, 1.7, BLACK);
+    debug_assert_eq!(y, summary_buttons_y());
+    let all_right = right - DELETE_ALL_W - 28.0;
+    c.stroke_rect(72.0, y, all_right, y + ROW, 1.7, BLACK);
     let mid = y + (ROW / 2.0).floor();
     c.text(true, 34.0, 102.0, mid + 12.0, Anchor::Start, "All completed games", BLACK);
-    c.polyline(&[(right - 40.0, mid - 12.0), (right - 28.0, mid), (right - 40.0, mid + 12.0)], 3.0, BLACK, true);
+    c.polyline(&[(all_right - 40.0, mid - 12.0), (all_right - 28.0, mid), (all_right - 40.0, mid + 12.0)], 3.0, BLACK, true);
+    // "Delete all games": gray, with no effect, if there are no results (ANA-12).
+    let col = if results.is_empty() { gray(70) } else { BLACK };
+    let x0 = right - DELETE_ALL_W;
+    c.stroke_rect(x0, y, right, y + ROW, 1.7, col);
+    bin_colored(c, x0 + 50.0, mid, col);
+    c.text(true, 34.0, x0 + 90.0, mid + 12.0, Anchor::Start, "Delete all games", col);
+    if confirm_all {
+        let n = results.len();
+        let what = if n == 1 { "1 completed game is deleted.".to_string() } else { format!("All {n} completed games are deleted.") };
+        confirm_dialog(c, "Delete all games?", &what);
+    }
     c.set_page_units(false);
+}
+
+/// A confirmation dialog at the center of the page (analytics.py): a title, one line, "You cannot
+/// undo this action.", Cancel and Delete.
+fn confirm_dialog(c: &mut Canvas, title: &str, line: &str) {
+    c.veil(0.6);
+    let (dx0, dy0, dx1, dy1) = dialog();
+    c.rect(dx0, dy0, dx1, dy1, WHITE);
+    c.stroke_rect(dx0, dy0, dx1, dy1, 1.7, BLACK);
+    c.text(true, 44.0, dx0 + 40.0, dy0 + 75.0, Anchor::Start, title, BLACK);
+    c.text(false, 34.0, dx0 + 40.0, dy0 + 140.0, Anchor::Start, line, gray(25));
+    c.text(false, 34.0, dx0 + 40.0, dy0 + 190.0, Anchor::Start, "You cannot undo this action.", gray(25));
+    hline(c, dy1 - ROW, dx0, dx1);
+    let mid = ((dx0 + dx1) / 2.0).floor();
+    c.rect(mid, dy1 - ROW, dx1, dy1, BLACK);
+    let by = dy1 - (ROW / 2.0).floor() + 12.0;
+    c.text(true, 34.0, ((dx0 * 3.0 + dx1) / 4.0).floor(), by, Anchor::Middle, "Cancel", BLACK);
+    c.text(true, 34.0, ((dx0 + dx1 * 3.0) / 4.0).floor(), by, Anchor::Middle, "Delete", WHITE);
 }
 
 /// A date in local time, for example "22 Oct 2026, 20:22".
@@ -680,31 +773,23 @@ fn draw_list(c: &mut Canvas, app: &App) {
         hline(c, y + ROW, x, x + w);
     }
     if let Some(r) = &app.list.confirm {
-        c.veil(0.6);
-        let (dx0, dy0, dx1, dy1) = dialog();
-        c.rect(dx0, dy0, dx1, dy1, WHITE);
-        c.stroke_rect(dx0, dy0, dx1, dy1, 1.7, BLACK);
-        c.text(true, 44.0, dx0 + 40.0, dy0 + 75.0, Anchor::Start, "Delete this game?", BLACK);
         let when = format!("{}, completed in {}.", format_date(r.finished_at), format_clock(r.seconds));
-        c.text(false, 34.0, dx0 + 40.0, dy0 + 140.0, Anchor::Start, &when, gray(25));
-        c.text(false, 34.0, dx0 + 40.0, dy0 + 190.0, Anchor::Start, "You cannot undo this action.", gray(25));
-        hline(c, dy1 - ROW, dx0, dx1);
-        let mid = ((dx0 + dx1) / 2.0).floor();
-        c.rect(mid, dy1 - ROW, dx1, dy1, BLACK);
-        let by = dy1 - (ROW / 2.0).floor() + 12.0;
-        c.text(true, 34.0, ((dx0 * 3.0 + dx1) / 4.0).floor(), by, Anchor::Middle, "Cancel", BLACK);
-        c.text(true, 34.0, ((dx0 + dx1 * 3.0) / 4.0).floor(), by, Anchor::Middle, "Delete", WHITE);
+        confirm_dialog(c, "Delete this game?", &when);
     }
     c.set_page_units(false);
 }
 
 fn bin(c: &mut Canvas, bx: f32, cy: f32) {
+    bin_colored(c, bx, cy, BLACK);
+}
+
+fn bin_colored(c: &mut Canvas, bx: f32, cy: f32, col: Rgb) {
     let w = 2.6;
-    c.line(bx - 14.0, cy - 11.0, bx + 14.0, cy - 11.0, w, BLACK);
-    c.polyline(&[(bx - 5.0, cy - 11.0), (bx - 5.0, cy - 15.0), (bx + 5.0, cy - 15.0), (bx + 5.0, cy - 11.0)], w, BLACK, true);
-    c.polyline(&[(bx - 10.0, cy - 11.0), (bx - 8.0, cy + 15.0), (bx + 8.0, cy + 15.0), (bx + 10.0, cy - 11.0)], w, BLACK, true);
-    c.line(bx - 3.0, cy - 5.0, bx - 3.0, cy + 9.0, w, BLACK);
-    c.line(bx + 3.0, cy - 5.0, bx + 3.0, cy + 9.0, w, BLACK);
+    c.line(bx - 14.0, cy - 11.0, bx + 14.0, cy - 11.0, w, col);
+    c.polyline(&[(bx - 5.0, cy - 11.0), (bx - 5.0, cy - 15.0), (bx + 5.0, cy - 15.0), (bx + 5.0, cy - 11.0)], w, col, true);
+    c.polyline(&[(bx - 10.0, cy - 11.0), (bx - 8.0, cy + 15.0), (bx + 8.0, cy + 15.0), (bx + 10.0, cy - 11.0)], w, col, true);
+    c.line(bx - 3.0, cy - 5.0, bx - 3.0, cy + 9.0, w, col);
+    c.line(bx + 3.0, cy - 5.0, bx + 3.0, cy + 9.0, w, col);
 }
 
 /// The RGB value of one pixel of an opaque pixmap.

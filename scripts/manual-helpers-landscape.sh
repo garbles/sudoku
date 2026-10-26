@@ -29,5 +29,7 @@ text 972 455 38 gray25 start "the green, tap the number again or do a"
 text 972 505 38 gray25 start "different action. Green is the default color."
 picture_w 972 560 828 "$(shot "$UI/screen-highlight.png" 1336x894+142+412)"
 
+text 936 1290 32 gray40 middle "You can turn off each helper in the Settings panel (the gear in the menu)."
+
 pagenum 5 9
 render "$1/manual-helpers-landscape.png"

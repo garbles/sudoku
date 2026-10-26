@@ -256,8 +256,9 @@ pub fn run() -> Result<(), String> {
     // update that is still in progress. Thus, when the ink stops for INK_REPAIR_DELAY, the app sends
     // this area one more time, after the earlier updates are complete.
     let mut repair_box: Option<(i32, i32, i32, i32)> = None;
-    // SUDOKU_LOG_INPUT=1 writes each input message to the system log (for an examination on the device).
-    let log_input = std::env::var_os("SUDOKU_LOG_INPUT").is_some();
+    // SUDOKU_LOG_INPUT=1, or the file `log-input` in the data folder, writes each input message to the
+    // system log (for an examination on the device).
+    let log_input = std::env::var_os("SUDOKU_LOG_INPUT").is_some() || store::data_dir().join("log-input").exists();
 
     while !app.quit && !STOP.load(Ordering::SeqCst) {
         // Wait for input, a timer of the app, or the next clock save.

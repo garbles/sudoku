@@ -92,8 +92,9 @@ fn check_change_applies(g: &Game, change: &Change) -> Result<(), String> {
             }
             let expected: Vec<_> =
                 crate::game::peers(*cell).filter(|&p| g.marks_at(p) & crate::game::mark_bit(*digit) != 0).collect();
-            if *removed != expected {
-                return Err(format!("removed marks {removed:?} are not {expected:?} (MRK-4)"));
+            // MRK-4 (automatic removal on): all peers with the mark. MRK-9 (off): no cell.
+            if *removed != expected && !removed.is_empty() {
+                return Err(format!("removed marks {removed:?} are not {expected:?} (MRK-4, MRK-9)"));
             }
         }
         Change::Erase { cell, digit } => {
@@ -151,6 +152,12 @@ pub fn check_app(app: &App) -> Result<(), String> {
     let l = &app.list;
     ensure!(l.filter.map(|m| m < MODES).unwrap_or(true), "ANA-6", "filter {:?}", l.filter);
     ensure!(l.page >= 1 && l.page <= app.page_count(), "ANA-6", "page {} of {}", l.page, app.page_count());
+    if app.confirm_all {
+        ensure!(app.screen == Screen::Statistics, "ANA-12", "the delete-all dialog on screen {:?}", app.screen);
+    }
+    if !app.settings.highlight_on {
+        ensure!(app.ui.highlight.is_none(), "HLT-6", "a highlight while highlights are off");
+    }
     if l.confirm.is_some() {
         ensure!(app.screen == Screen::GamesList, "ANA-7", "the delete dialog on screen {:?}", app.screen);
     }

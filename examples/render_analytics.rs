@@ -15,7 +15,7 @@ fn main() {
     let fonts = sudoku::font::Fonts::from_files(&root.join("scripts/fonts/rmsans-400.ttf"), &root.join("scripts/fonts/rmsans-500.ttf")).unwrap();
     let db = sudoku::store::ResultsDb::open(Path::new(&a[1])).unwrap();
     let mut app = App::new(None, None, db, Box::new(E));
-    app.screen = if a[2] == "list" { Screen::GamesList } else { Screen::Analytics };
+    app.screen = if a[2] == "list" { Screen::GamesList } else { Screen::Statistics };
     let mut pm = tiny_skia::Pixmap::new(sudoku::layout::screen_w(), sudoku::layout::screen_h()).unwrap();
     sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &app);
     let rgb: Vec<u8> = pm.pixels().iter().flat_map(|p| [p.red(), p.green(), p.blue()]).collect();

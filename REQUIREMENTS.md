@@ -26,7 +26,7 @@ document does not include unknown behavior.
 10. [Cell colors panel](#10-cell-colors-panel)
 11. [New game panel and difficulty](#11-new-game-panel-and-difficulty)
 12. [Manual (Help)](#12-manual-help)
-13. [Analytics](#13-analytics)
+13. [Statistics](#13-statistics)
 14. [Data that the app keeps](#14-data-that-the-app-keeps)
 15. [Visual specification](#15-visual-specification)
 16. [Open questions](#16-open-questions)
@@ -49,7 +49,7 @@ document does not include unknown behavior.
 
 ## 2. Screens
 
-The app has four screens. The game screen also has a menu with two panels. Refer to
+The app has four screens. The game screen also has a menu with three panels. Refer to
 [§9](#9-the-menu).
 
 ```mermaid
@@ -58,15 +58,15 @@ stateDiagram-v2
     [*] --> Game: start the app
     state "Game" as Game
     state "Manual (9 pages)" as Manual
-    state "Analytics summary" as Analytics
+    state "Statistics summary" as Statistics
     state "Completed games list" as Games
 
     Game --> Manual: Help (menu)
     Manual --> Game: < Back
-    Game --> Analytics: Analytics (menu)
-    Analytics --> Game: < Back
-    Analytics --> Games: All completed games
-    Games --> Analytics: < Back
+    Game --> Statistics: Statistics (menu)
+    Statistics --> Game: < Back
+    Statistics --> Games: All completed games
+    Games --> Statistics: < Back
     Game --> [*]: close button (menu open)
 ```
 
@@ -74,7 +74,7 @@ stateDiagram-v2
 |---|---|
 | Game | [`screen.png`](images/screen.png), [`screen-in-progress.png`](images/screen-in-progress.png), [`screen-completed.png`](images/screen-completed.png) and the menu images in §9 |
 | Manual | [`manual-how-to-play.png`](images/manual-how-to-play.png) to [`manual-finished.png`](images/manual-finished.png) (§12) |
-| Analytics summary | [`analytics.png`](images/analytics.png) |
+| Statistics summary | [`analytics.png`](images/analytics.png) |
 | Completed games list | [`analytics-games.png`](images/analytics-games.png), [`analytics-delete.png`](images/analytics-delete.png) |
 
 ## 3. The game screen
@@ -139,10 +139,10 @@ The landscape layout has the same items, at the same sizes, as the portrait layo
 | Item | Landscape position |
 |---|---|
 | Board | At the center: x 418–1741, y 148–1471. The difficulty meter is 50 px below the board. |
-| Menu | The toolbar is at the right edge (x 2048–2160). The bottom slot starts at y 1508. The panels touch the toolbar, as in portrait. |
+| Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. |
 | Close button | Top left, as in portrait. |
 | Manual | Each page has a landscape version with two columns (`manual-*-landscape.png`, made by `scripts/manual-*-landscape.sh`). The text is the same as in portrait. |
-| Analytics | The same scale as in portrait, across the full width. The games list shows the 12 games of a page in two columns of 6. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, made by `scripts/analytics.py`). |
+| Statistics | The same scale as in portrait, across the full width. The games list shows the 12 games of a page in two columns of 6. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, made by `scripts/analytics.py`). |
 
 When the tablet turns, the game does not change. Ink that waits for the recognition pause and touches
 in progress are removed, because their positions are not correct after the turn.
@@ -177,8 +177,8 @@ stateDiagram-v2
     Empty --> Marked: tap a micro-cell (adds its digit)
     Marked --> Marked: tap a micro-cell (adds or removes its digit)
     Marked --> Empty: tap removes the last mark
-    Marked --> Marked: a number in a peer cell removes a mark
-    Marked --> Empty: a number in a peer cell removes the last mark
+    Marked --> Marked: a number in a peer cell removes a mark (if the switch is on)
+    Marked --> Empty: a number in a peer cell removes the last mark (if the switch is on)
 
     Empty --> Entry: write a number from 1 to 9
     Marked --> Entry: write a number from 1 to 9 (marks hidden)
@@ -213,7 +213,7 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
 - A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs
   and the screen buttons (for example "< Back"). The pen can also operate these items.
 - In the manual and the games list, a finger swipe turns the page. Refer to [§12](#12-manual-help) and
-  [§13](#13-analytics).
+  [§13](#13-statistics).
 - A **tap** is a pen touch that stays in one micro-cell from start to end. If the pen moves out of the
   micro-cell before it lifts, the touch is writing, not a tap.
 - **Writing** is a pen stroke that is not a tap. The app collects the strokes in one cell until the
@@ -233,7 +233,7 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
 - The **eraser** is the other end of the pen. When you rub it on your number, the app removes the
   number. The micro-cells and the pencil marks of that cell show again.
 - The eraser has no effect on other cells. It does not change starting numbers. It does not change
-  empty cells. Only a tap removes a pencil mark.
+  empty cells. Only a tap or a new number (automatic removal, §6.1) removes a pencil mark.
 - Pen input on a completed puzzle has no effect ([§8](#8-puzzle-states-and-the-clock)).
 
 Images: [`manual-candidates.png`](images/manual-candidates.png),
@@ -254,7 +254,9 @@ flowchart TD
     E -- no --> X3[No effect on starting numbers and empty cells]
     D -- no --> F{Did the touch stay in one micro-cell?}
     F -- yes, tap --> G{Does the cell have a number?}
-    G -- yes --> G0{Is that digit highlighted now?}
+    G -- yes --> GS{Is Highlight numbers on?}
+    GS -- no --> X5[No highlight]
+    GS -- yes --> G0{Is that digit highlighted now?}
     G0 -- yes --> G3[Remove the highlight]
     G0 -- no --> G1[Highlight all cells with that digit]
     G -- no --> G2[Add or remove the pencil mark of that micro-cell]
@@ -262,7 +264,7 @@ flowchart TD
     H -- yes --> X4[Remove the ink, no other effect]
     H -- no --> I[Collect the strokes until a short pause after the pen lifts, then read them]
     I --> J{Is it a number from 1 to 9?}
-    J -- yes --> K[Add the number, hide the marks of the cell, remove the digit from the marks of the peer cells, find clashes, find completion]
+    J -- yes --> K[Add the number, hide the marks of the cell, if Remove pencil marks automatically is on, remove the digit from the marks of the peer cells, find clashes, find completion]
     J -- no --> L[Show ? for approximately one second, then show the cell as before]
 ```
 
@@ -283,6 +285,8 @@ those marks back. Image: [`manual-helpers.png`](images/manual-helpers.png) (top)
   board. Only a tap removes such a mark.
 - **The eraser does not put marks back.** When you erase a number, the app shows only the hidden marks
   of that cell. Marks that the number removed from other cells come back only with undo.
+- The player can turn automatic removal off in the Settings panel ([§9.1](#91-settings-panel)). Then a
+  new number does not change the marks of other cells.
 
 ### 6.2 Highlights
 
@@ -294,6 +298,8 @@ Tap a number with the pen (a starting number or your number). The app then gives
 - **All other actions** remove the highlight: a pen tap or stroke, a finger touch, or a tap on the
   menu button.
 - A completed puzzle does not show highlights.
+- The player can turn highlights off in the Settings panel ([§9.1](#91-settings-panel)). Then a tap on
+  a number does not make a highlight.
 
 Images: [`screen-highlight.png`](images/screen-highlight.png),
 [`manual-helpers.png`](images/manual-helpers.png) (bottom).
@@ -331,7 +337,7 @@ stateDiagram-v2
   - Add a number. This change includes the pencil marks that the number removed.
   - Erase a number.
 - These actions are not changes to the board and are not a part of undo: highlights, the "?",
-  color changes, and the panels and screens that you open.
+  color changes, switch changes, and the panels and screens that you open.
 - A new change after an undo removes the redo history.
 - A new game removes the undo history and the redo history.
 - The buttons are **black** when an undo or redo is available. They are **gray** when it is not
@@ -391,7 +397,7 @@ A puzzle is **complete** when all cells have a number and there is no clash. The
 - The board **locks**. Writing, the eraser, pencil marks, highlights, undo and redo have no effect.
   The undo and redo buttons are gray.
 - The app saves the result in the database ([§14](#14-data-that-the-app-keeps)).
-- **+** and **Start new game** continue to operate.
+- **+** and **Start new game** continue to operate. The Settings panel continues to operate.
 
 Images: [`screen-completed.png`](images/screen-completed.png),
 [`screen-completed-menu.png`](images/screen-completed-menu.png),
@@ -416,7 +422,7 @@ stateDiagram-v2
     Pause --> [*]: Start new game
 ```
 
-The clock operates only when the app is open. This includes the time when the manual or the analytics
+The clock operates only when the app is open. This includes the time when the manual or the statistics
 screens are open.
 
 ## 9. The menu
@@ -428,10 +434,11 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
 |---|---|---|---|
 | top 0 | Menu | Circle with a dot (bottom left: closed, top left: open) | Opens and closes the menu. |
 | top 1 | Cell colors | Paint bucket | Opens the Cell colors panel ([§10](#10-cell-colors-panel)). |
-| top 2 | Undo | Arrow that turns to the left | [§7](#7-undo-and-redo) |
-| top 3 | Redo | Arrow that turns to the right | [§7](#7-undo-and-redo) |
+| top 2 | Settings | Gear | Opens the Settings panel ([§9.1](#91-settings-panel)). |
+| top 3 | Undo | Arrow that turns to the left | [§7](#7-undo-and-redo) |
+| top 4 | Redo | Arrow that turns to the right | [§7](#7-undo-and-redo) |
 | bottom 2 | Help | ? in a circle | Opens the manual ([§12](#12-manual-help)). |
-| bottom 1 | Analytics | Line graph on axes | Opens the analytics ([§13](#13-analytics)). |
+| bottom 1 | Statistics | Line graph on axes | Opens the statistics ([§13](#13-statistics)). |
 | bottom 0 | New game | + | Opens the New game panel ([§11](#11-new-game-panel-and-difficulty)). |
 
 - When the menu opens, the app removes the highlight.
@@ -443,6 +450,9 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
   app then shows the launcher ([§14.4](#144-launcher)).
 - When a panel is open, its button is white on a black square. The panel touches the button. The
   pop-up menus of the device do the same.
+- A finger operates the menu buttons, the panels, the dialogs and the screen buttons at all times
+  while the app is open. A touch for which the app does not get a release (for example a palm touch
+  that the system cancels) does not stop the next touches.
 
 ```mermaid
 stateDiagram-v2
@@ -450,6 +460,7 @@ stateDiagram-v2
     state "Menu closed" as Closed
     state "Menu open" as Open
     state "Cell colors panel" as Colors
+    state "Settings panel" as SettingsP
     state "New game panel" as NewGame
     [*] --> Closed
     Closed --> Open: tap the menu button
@@ -461,18 +472,51 @@ stateDiagram-v2
     NewGame --> Closed: Start new game
     Colors --> NewGame: tap +
     NewGame --> Colors: tap the paint bucket
+    Open --> SettingsP: tap the gear
+    SettingsP --> Open: tap the gear again or tap outside the panel
+    SettingsP --> Colors: tap the paint bucket
+    SettingsP --> NewGame: tap +
+    Colors --> SettingsP: tap the gear
+    NewGame --> SettingsP: tap the gear
     Open --> Manual: Help
-    Open --> Analytics: Analytics
+    Open --> Statistics: Statistics
     Open --> [*]: close button (close the app)
     state "Manual" as Manual
-    state "Analytics" as Analytics
+    state "Statistics" as Statistics
     Manual --> Closed: < Back
-    Analytics --> Closed: < Back
+    Statistics --> Closed: < Back
 ```
 
 Images: [`screen-toolbar.png`](images/screen-toolbar.png) (menu open, new game, undo and redo gray),
 [`screen-completed-menu.png`](images/screen-completed-menu.png) (menu open, complete puzzle, undo
 and redo gray), [`manual-menu.png`](images/manual-menu.png).
+
+### 9.1 Settings panel
+
+The gear (top slot 2) opens the Settings panel. The panel has the same design as the Cell colors panel:
+it is next to the gear, its top aligns with the button, it is 400 px wide and it has a 2 px border.
+It has two rows of 112 px with a 2 px line between them. Each row has a name (reMarkable Sans Medium,
+25 px) and a switch at the right.
+
+| Row | Default | When the switch is off |
+|---|---|---|
+| **Highlight numbers** | On | A tap on a number does not make a highlight ([§6.2](#62-highlights)). |
+| **Remove pencil marks automatically** | On | When you add a number, the app does not remove that digit from the pencil marks of the peers ([§6.1](#61-automatic-pencil-mark-removal)). |
+
+- A tap on a row changes its switch immediately. The panel stays open.
+- A change of a switch does not change the board and is not a part of undo. It has an effect only on
+  the next actions. Changes that are already in the undo history do not change.
+- The app keeps the switches when you close the app ([§14.2](#142-settings-kept-when-the-app-closes)).
+- A switch that is on is a black track with a white knob at the right. A switch that is off is a white
+  track with a black border and a black knob at the left. The track is 72×36 px with a 3 px border, and
+  the knob has a diameter of 28 px. The switch ends 33 px from the right edge of the panel.
+- While the panel is open, the gear is white on a black square (as the button of each panel).
+- The switches are in a panel, and the menu removes the highlight when it opens. Thus a change of a
+  switch never changes a highlight that shows. When automatic removal is turned on again, the app does
+  not remove marks that are already on the board.
+- The Highlighted numbers color stays available in the Cell colors panel when highlights are off.
+
+Image: [`settings-menu.png`](images/settings-menu.png).
 
 ## 10. Cell colors panel
 
@@ -573,9 +617,9 @@ stateDiagram-v2
 | 2 | [`manual-candidates.png`](images/manual-candidates.png) | Micro-cells and pencil marks: how to add and remove them. |
 | 3 | [`manual-pen.png`](images/manual-pen.png) | How to write and erase a number. |
 | 4 | [`manual-pen-rules.png`](images/manual-pen-rules.png) | Taps, finger touches, one number for each cell, writing with no effect, the "?". |
-| 5 | [`manual-helpers.png`](images/manual-helpers.png) | Automatic pencil mark removal and highlights. |
+| 5 | [`manual-helpers.png`](images/manual-helpers.png) | Automatic pencil mark removal and highlights. You can turn each helper off in the Settings panel. |
 | 6 | [`manual-mistakes.png`](images/manual-mistakes.png) | Clashes and how to correct them. |
-| 7 | [`manual-menu.png`](images/manual-menu.png) | All the menu buttons and how to select colors. |
+| 7 | [`manual-menu.png`](images/manual-menu.png) | All the menu buttons, how to select colors and the two settings. |
 | 8 | [`manual-new-game.png`](images/manual-new-game.png) | How to start a new game, and the meter of the current difficulty. |
 | 9 | [`manual-finished.png`](images/manual-finished.png) | Completion, the lock, the clock and the saved results. |
 
@@ -604,7 +648,7 @@ stateDiagram-v2
     note right of P1: < Back is on each page. It shows the game again.
 ```
 
-## 13. Analytics
+## 13. Statistics
 
 ### 13.1 Summary
 
@@ -617,6 +661,19 @@ Image: [`images/analytics.png`](images/analytics.png).
   difficulty meter, the quantity of completed puzzles and the average time. If a mode has no results,
   its average is "–".
 - **All completed games ›** opens the list.
+- **Delete all games** is a button with a bin icon at the right of "All completed games ›", in the same
+  row (in portrait and in landscape). A tap on it opens a **confirmation dialog** at the center of the
+  summary. The summary becomes pale. The dialog has the same design as the delete dialog of the list
+  and shows:
+  - "Delete all games?"
+  - "All N completed games are deleted." (N is the quantity of all saved results, with no filter.
+    If N is 1: "1 completed game is deleted.")
+  - "You cannot undo this action."
+  - **Cancel** and **Delete**. Delete is black.
+- **Delete** removes all results from the database and closes the dialog. The summary then shows 0 and
+  "–". **Cancel** closes the dialog and makes no change. While the dialog shows, the summary accepts no
+  other input. Image: [`analytics-delete-all.png`](images/analytics-delete-all.png).
+- If there are no results, "Delete all games" is gray and has no effect.
 - If there are no results, the two boxes show 0 and "–", and all rows show 0 and "–".
 
 ### 13.2 Completed games list
@@ -664,7 +721,11 @@ stateDiagram-v2
         Confirm --> Page: Cancel
         Confirm --> Page: Delete (result removed)
     }
-    [*] --> Sum: Analytics (menu)
+    [*] --> Sum: Statistics (menu)
+    state "Delete all dialog" as ConfirmAll
+    Sum --> ConfirmAll: Delete all games (if there are results)
+    ConfirmAll --> Sum: Cancel
+    ConfirmAll --> Sum: Delete (all results removed)
     Sum --> List: All completed games
     List --> Sum: < Back
     Sum --> [*]: < Back (to the game)
@@ -685,12 +746,14 @@ The database has one row for each completed puzzle:
 | `seconds` | Time that the player used (clock time, [§8.4](#84-the-clock)) |
 | `seed` | Random seed of the puzzle generator. With the seed, the generator can make the same puzzle again. |
 
-The app adds a row when a puzzle is complete. Only the bin in the games list removes a row.
+The app adds a row when a puzzle is complete. Only the bin in the games list and **Delete all games** on the summary remove rows.
 
 ### 14.2 Settings (kept when the app closes)
 
 - The starting-number color, the clash color and the highlight color.
 - The last selected difficulty mode (default: middle).
+- The two switches of the Settings panel: highlight numbers (default: on) and remove pencil marks
+  automatically (default: on).
 
 ### 14.3 Game in progress (kept when the app closes)
 
@@ -757,6 +820,7 @@ puzzle of a saved seed. The code is in `src/generator.rs`.
 | Panels | 2 px black border, rows of 112 px, 2 px dividers, inner margin of 33 px |
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
 | Difficulty meter | "Easy" to "Hard" across 440 px; 5 stops; the current stop is a knob with a radius of 13 px |
+| Switch (Settings panel) | Track 72×36 px, 3 px border; knob of 28 px; 33 px from the right edge of the panel |
 
 All dimensions are in [`scripts/ui-lib.sh`](scripts/ui-lib.sh).
 
@@ -810,4 +874,6 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`manual-new-game.png`](images/manual-new-game.png) | [§11](#11-new-game-panel-and-difficulty), [§12](#12-manual-help) |
 | [`manual-finished.png`](images/manual-finished.png) | [§8.3](#83-complete), [§12](#12-manual-help) |
 | `manual-*-landscape.png` (9 images) | [§3.3](#33-landscape), [§12](#12-manual-help) |
-| `analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png` | [§3.3](#33-landscape), [§13](#13-analytics) |
+| [`settings-menu.png`](images/settings-menu.png) | [§9.1](#91-settings-panel) |
+| [`analytics-delete-all.png`](images/analytics-delete-all.png) | [§13.1](#131-summary) |
+| `analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png` | [§3.3](#33-landscape), [§13](#13-statistics) |

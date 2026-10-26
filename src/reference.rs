@@ -134,7 +134,18 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             a.game = completed_game();
             a.ui.menu_open = true
         }),
-        ("analytics.png", |a| a.screen = Screen::Analytics),
+        ("settings-menu.png", |a| {
+            a.game = sample_game();
+            a.game.toggle_mark((8, 0), 1);
+            a.game.undo();
+            a.ui.menu_open = true;
+            a.ui.panel = Panel::Settings
+        }),
+        ("analytics.png", |a| a.screen = Screen::Statistics),
+        ("analytics-delete-all.png", |a| {
+            a.screen = Screen::Statistics;
+            a.confirm_all = true
+        }),
         ("analytics-games.png", |a| a.screen = Screen::GamesList),
         ("analytics-delete.png", |a| {
             a.screen = Screen::GamesList;

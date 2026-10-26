@@ -191,10 +191,11 @@ pub const CLOSE_CY: f32 = 55.5;
 pub enum Button {
     Menu,
     Colors,
+    Settings,
     Undo,
     Redo,
     Help,
-    Analytics,
+    Statistics,
     NewGame,
     Close,
 }
@@ -218,14 +219,15 @@ pub fn game_button(x: f32, y: f32, menu_open: bool) -> Option<Button> {
     }
     match top {
         1 => return Some(Button::Colors),
-        2 => return Some(Button::Undo),
-        3 => return Some(Button::Redo),
+        2 => return Some(Button::Settings),
+        3 => return Some(Button::Undo),
+        4 => return Some(Button::Redo),
         _ => {}
     }
     if y >= tb_bottom_y() {
         Some(Button::NewGame)
     } else if y >= tb_bottom_y() - TB_SLOT {
-        Some(Button::Analytics)
+        Some(Button::Statistics)
     } else if y >= tb_bottom_y() - 2 * TB_SLOT {
         Some(Button::Help)
     } else {
@@ -272,6 +274,27 @@ pub fn colors_panel() -> Rect {
 pub fn color_cell(section: usize, i: usize) -> (i32, i32) {
     let top = COLORS_TOP + section as i32 * COLOR_SECTION_H;
     (colors_pl() + 32 + (i as i32 % 3) * 112, top + 79 + (i as i32 / 3) * 112)
+}
+
+/// The Settings panel (REQUIREMENTS.md §9.1): two rows of 112 px from the top of the gear (y 224),
+/// with the width and the border of the Cell colors panel.
+pub const SETTINGS_TOP: i32 = 2 * TB_SLOT;
+pub const SETTINGS_ROWS: i32 = 2;
+
+pub fn settings_panel() -> Rect {
+    // 2 px border at the top and at the bottom, 2 px line between the rows.
+    Rect::new(colors_pl(), SETTINGS_TOP, colors_pr() + 1, SETTINGS_TOP + SETTINGS_ROWS * TB_SLOT + 6)
+}
+
+/// The row of a switch (0: highlight numbers, 1: remove pencil marks automatically).
+pub fn settings_row(i: usize) -> Rect {
+    let y = SETTINGS_TOP + 2 + i as i32 * (TB_SLOT + 2);
+    Rect::new(colors_pl(), y, colors_pr() + 1, y + TB_SLOT)
+}
+
+/// The switch at a point in the Settings panel.
+pub fn settings_at(x: f32, y: f32) -> Option<usize> {
+    (0..SETTINGS_ROWS as usize).find(|&i| settings_row(i).contains(x, y))
 }
 
 /// The section and the palette index at a point in the Cell colors panel.
@@ -405,9 +428,23 @@ pub fn next_arrow() -> Rect {
 pub const ROW: f32 = 97.0;
 pub const SUMMARY_TABLE_Y: f32 = 640.0;
 
+/// The top of the row of "All completed games" and "Delete all games".
+pub fn summary_buttons_y() -> f32 {
+    SUMMARY_TABLE_Y + 5.0 * ROW + 70.0
+}
+
+/// The width of "Delete all games" (layout units).
+pub const DELETE_ALL_W: f32 = 400.0;
+
 pub fn all_games_button() -> Rect {
-    let y = SUMMARY_TABLE_Y + 5.0 * ROW + 70.0;
-    page_rect(72.0, y, page_right(), y + ROW)
+    let y = summary_buttons_y();
+    page_rect(72.0, y, page_right() - DELETE_ALL_W - 28.0, y + ROW)
+}
+
+/// "Delete all games", at the right of "All completed games" (REQUIREMENTS.md §13.1).
+pub fn delete_all_button() -> Rect {
+    let y = summary_buttons_y();
+    page_rect(page_right() - DELETE_ALL_W, y, page_right(), y + ROW)
 }
 
 /// The width of each of the two boxes at the top of the summary (616 in portrait).
@@ -555,10 +592,11 @@ mod tests {
         assert_eq!(game_button(50.0, 50.0, false), None);
         assert_eq!(game_button(50.0, 50.0, true), Some(Button::Close));
         assert_eq!(game_button(1560.0, 160.0, true), Some(Button::Colors));
-        assert_eq!(game_button(1560.0, 280.0, true), Some(Button::Undo));
-        assert_eq!(game_button(1560.0, 390.0, true), Some(Button::Redo));
+        assert_eq!(game_button(1560.0, 280.0, true), Some(Button::Settings));
+        assert_eq!(game_button(1560.0, 390.0, true), Some(Button::Undo));
+        assert_eq!(game_button(1560.0, 500.0, true), Some(Button::Redo));
         assert_eq!(game_button(1560.0, 1880.0, true), Some(Button::Help));
-        assert_eq!(game_button(1560.0, 1992.0, true), Some(Button::Analytics));
+        assert_eq!(game_button(1560.0, 1992.0, true), Some(Button::Statistics));
         assert_eq!(game_button(1560.0, 2104.0, true), Some(Button::NewGame));
         assert_eq!(game_button(1560.0, 1000.0, true), None);
     }

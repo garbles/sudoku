@@ -33,7 +33,7 @@ dimensions of the toolbar, the panels and the fonts come from screenshots of a r
 
 The menu is a column of 112 px on the right. It has the same design as the toolbar of the device.
 From the top to the bottom, it has these buttons: the menu button (open icon: dot at the top left),
-cell colors, undo and redo. At the bottom, it has Help, Analytics and + (new game). When the menu is
+cell colors, settings (gear), undo and redo. At the bottom, it has Help, Statistics and + (new game). When the menu is
 open, the close button shows at the top left.
 
 | Image | Content | Purpose |
@@ -41,23 +41,25 @@ open, the close button shows at the top left.
 | `screen-toolbar.png` | The menu is open on a new game. Undo and redo are gray, because there is no change to undo. | Shows all menu buttons and their icons. |
 | `new-game-menu.png` | The + button is black, and its panel is open. The panel has the difficulty slider (five modes) and "Start new game". | How to start a new game. The panel is wider than the menus of the device, so that the slider is easy to use. The slider has the same size as the meter below the board. |
 | `color-menu.png` | The Cell colors panel is open on the game in progress. It has three sections: starting numbers (Gray), clashing numbers (Red) and highlighted numbers (Green). | The only place to change the cell colors. Each section has the same design as the pen-color menu of the device: a title, a 3×3 grid of 112 px cells and a black box around the selected color. |
+| `settings-menu.png` | The Settings panel is open on the game in progress (the gear is white on black). Two rows: "Highlight numbers" and "Remove pencil marks automatically", each with a switch (both on). | The only place to turn the two helpers off and on (REQUIREMENTS.md §9.1). |
 | `screen-completed-menu.png` | The menu is open on a complete puzzle. Undo and redo are gray. | Shows that a complete puzzle is locked. |
 
-## Analytics
+## Statistics
 
 `scripts/analytics.py` also makes the three screens for landscape (`analytics-landscape.png`,
-`analytics-games-landscape.png`, `analytics-delete-landscape.png`, 2160×1620). The games list then has
+`analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png`, 2160×1620). The games list then has
 two columns of 6 games.
 
-Analytics in the menu opens these screens. They have the same top and bottom items as the manual:
+Statistics in the menu opens these screens (the image files keep the name "analytics"). They have the same top and bottom items as the manual:
 "< Back" shows the game again. The two screens use one list of sample results. Thus their numbers
 agree.
 
 | Image | Content | Purpose |
 |---|---|---|
-| `analytics.png` | The quantity of completed puzzles and the average time for all puzzles. Below these is one row for each difficulty (meter, quantity, average time) and the "All completed games" button. | The summary of the results in the SQLite database. If a difficulty has no games, its average is "–". |
+| `analytics.png` | The quantity of completed puzzles and the average time for all puzzles. Below these is one row for each difficulty (meter, quantity, average time) and the "All completed games" button. | The summary of the results in the SQLite database, with "All completed games" and "Delete all games". If a difficulty has no games, its average is "–". |
 | `analytics-games.png` | All completed games, with the newest game first. Each row has the date and time of completion, the difficulty, the time used and a bin to delete the game. A filter row (All, or one difficulty) is above the list. Each page has 12 games, with page arrows. A swipe also turns the page. | How to see and delete results. |
 | `analytics-delete.png` | The list after a tap on a bin. A dialog shows "Delete this game?", the date and time of the game, and Cancel and Delete. | A deletion is permanent. Thus the app asks for a confirmation first. Delete removes the result, and the summary shows the change. |
+| `analytics-delete-all.png` | The summary after a tap on "Delete all games". A dialog shows "Delete all games?", the quantity of games, and Cancel and Delete. | Delete all removes all results. The app asks for a confirmation first. |
 
 ## Parts
 

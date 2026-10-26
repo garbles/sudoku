@@ -151,3 +151,23 @@ seed and mode (PUZ-5, CMP-5); the reversed typeface examples are made in `typefa
 file name of the database is in one place (`store::RESULTS_FILE`); examples with a class that is not
 0 to 9 are not used. The owner then wrote 4s, 9s and straight-line 1s (down and up) on the device with
 the final build: all were read correctly.
+
+### Owner requests: touch bug, Settings panel, Statistics, 2026-10-25
+
+The new text is in REQUIREMENTS.md (§9, §9.1, §6.1, §6.2, §13.1, §14.2, §15) and INVARIANTS.md
+(INP-15, MRK-9, HLT-6, NAV-14, ANA-12 and changes to MRK-4, HLT-3, NAV-12, UND-2, CMP-6, ANA-2,
+ANA-8, PER-3). A sub-agent examined the new text for contradictions; its 6 contradictions and 9
+missing items are corrected.
+
+- Touch bug (INP-15): the input log of the device showed a touch (id 1384) with a press and moves but
+  no release. The app followed that touch and ignored all next finger presses as a second finger. Now
+  the app forgets a touch when a new press has the same id or when that touch has had no event for
+  0.15 s. Test: `a_touch_without_a_release_does_not_stop_the_next_touches` (the events of the log).
+- Settings panel (gear, top slot 2; undo and redo are in slots 3 and 4): two switches, kept in
+  settings.json. Image: `settings-menu.png`.
+- Statistics: the new name in the app, the manual and the documents (the image files keep the name
+  "analytics"). "Delete all games" with a confirmation. Images: `analytics-delete-all.png` and its
+  landscape version.
+
+The owner examined all three on the device: finger taps on the menu keep working, the two switches
+operate, and "Delete all games" asks for a confirmation.

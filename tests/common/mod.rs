@@ -126,10 +126,11 @@ pub fn button_center(b: layout::Button) -> (f32, f32) {
     match b {
         Menu => (x, layout::tb_cy(0)),
         Colors => (x, layout::tb_cy(1)),
-        Undo => (x, layout::tb_cy(2)),
-        Redo => (x, layout::tb_cy(3)),
+        Settings => (x, layout::tb_cy(2)),
+        Undo => (x, layout::tb_cy(3)),
+        Redo => (x, layout::tb_cy(4)),
         Help => (x, (layout::tb_bottom_y() - 168) as f32),
-        Analytics => (x, (layout::tb_bottom_y() - 56) as f32),
+        Statistics => (x, (layout::tb_bottom_y() - 56) as f32),
         NewGame => (x, (layout::tb_bottom_y() + 56) as f32),
         Close => (layout::CLOSE_CX, layout::CLOSE_CY),
     }

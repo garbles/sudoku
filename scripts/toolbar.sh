@@ -30,10 +30,20 @@ colors_icon() {
   echo "stroke none fill $line path 'M 16,3 C 16,3 21,10 21,13 C 21,16 18.8,18 16,18 C 13.2,18 11,16 11,13 C 11,10 16,3 16,3 Z' pop graphic-context" >> $M
 }
 
-# undo_redo COLOR : undo (slot 2) and redo (slot 3). Black when they are available, gray when they are not.
+# gear_icon ACTIVE : settings (slot 2). A gear: a ring, a small center ring and eight teeth.
+gear_icon() {
+  cy=$(tb_cy 2); line=black; [ -n "$1" ] && line=white
+  echo "push graphic-context translate $TB_CX,$cy fill none stroke $line stroke-width 3 circle 0,0 11,0 circle 0,0 4.5,0 stroke-width 6 stroke-linecap butt" >> $M
+  for k in 0 1 2 3 4 5 6 7; do
+    awk -v k=$k 'BEGIN{ a=k*3.14159265/4; printf "line %.3f,%.3f %.3f,%.3f\n", 11*cos(a), 11*sin(a), 17*cos(a), 17*sin(a) }' >> $M
+  done
+  echo "pop graphic-context" >> $M
+}
+
+# undo_redo COLOR : undo (slot 3) and redo (slot 4). Black when they are available, gray when they are not.
 undo_redo() {
-  for k in 2 3; do
-    cy=$(tb_cy $k); sx=1; [ $k = 3 ] && sx=-1
+  for k in 3 4; do
+    cy=$(tb_cy $k); sx=1; [ $k = 4 ] && sx=-1
     echo "push graphic-context translate $TB_CX,$cy scale $sx,1 fill none stroke $1 stroke-width 3 stroke-linecap round stroke-linejoin round" >> $M
     echo "path 'M -18,-4 L 3,-4 C 13,-4 19,4 19,15' polyline -10,-12 -18,-4 -10,4 pop graphic-context" >> $M
   done
@@ -54,10 +64,23 @@ plus_icon() {
   echo "stroke none fill black font '$UI_FONT' font-size 26 text-anchor middle text $TB_CX,$((hy+9)) '?'" >> $M
 }
 
-# toolbar UNDO ACTIVE : all menu buttons. UNDO is the color of undo and redo. ACTIVE is "colors", "plus" or "".
+# toolbar UNDO ACTIVE : all menu buttons. UNDO is the color of undo and redo. ACTIVE is "colors", "settings",
+# "plus" or "".
 toolbar() {
   [ "$2" = colors ] && active_slot 1
-  colors_icon $([ "$2" = colors ] && echo active); undo_redo $1; plus_icon $([ "$2" = plus ] && echo active)
+  [ "$2" = settings ] && active_slot 2
+  colors_icon $([ "$2" = colors ] && echo active); gear_icon $([ "$2" = settings ] && echo active)
+  undo_redo $1; plus_icon $([ "$2" = plus ] && echo active)
+}
+
+# switch X1 CY ON : a switch of the Settings panel with its right end at X1 (track 72x36, knob of 28 px)
+switch() {
+  x0=$(($1-72)); y0=$(($2-18)); y1=$(($2+18))
+  if [ "$3" = on ]; then
+    echo "fill black stroke black stroke-width 3 roundrectangle $x0,$y0 $1,$y1 18,18 stroke none fill white circle $(($1-18)),$2 $(($1-4)),$2" >> $M
+  else
+    echo "fill white stroke black stroke-width 3 roundrectangle $x0,$y0 $1,$y1 18,18 stroke none fill black circle $((x0+18)),$2 $((x0+32)),$2" >> $M
+  fi
 }
 
 # panel TOP : an empty pop-up frame from TOP to BOTTOM (default: the screen edge). It touches the toolbar.
@@ -126,6 +149,13 @@ color_section 560 "Clashing numbers" "$CLASH_BG" $STARTING_BG "$HIGHLIGHT_BG"; d
 color_section 1008 "Highlighted numbers" "$HIGHLIGHT_BG" $STARTING_BG "$CLASH_BG"
 toolbar black colors
 compose screen-in-progress.png color-menu.png
+
+# --- the Settings panel: two rows (highlight numbers, remove pencil marks automatically), both on
+panel 224 453; divider 338
+label $TX $((226+65)) start black "Highlight numbers"; switch $((PR-33)) $((226+56)) on
+label $TX $((340+49)) start black "Remove pencil marks"; label $TX $((340+81)) start black "automatically"; switch $((PR-33)) $((340+56)) on
+toolbar black settings
+compose screen-in-progress.png settings-menu.png
 
 # --- complete puzzle: the board is locked, so undo and redo are not available
 toolbar gray70 ""

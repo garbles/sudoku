@@ -19,13 +19,15 @@ pub const QUESTION_MS: u64 = 1000;
 pub const MAX_CLOCK_GAP_MS: u64 = 5000;
 
 pub const MANUAL_PAGES: u8 = 9;
+/// A finger touch with no event for this time is forgotten when a new touch starts (INP-15).
+pub const STALE_TOUCH_MS: u64 = 150;
 pub const PER_PAGE: usize = 12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
     Game,
     Manual,
-    Analytics,
+    Statistics,
     GamesList,
 }
 
@@ -33,6 +35,7 @@ pub enum Screen {
 pub enum Panel {
     None,
     Colors,
+    Settings,
     NewGame,
 }
 
@@ -132,6 +135,11 @@ enum Target {
     Bin(usize),
     DialogCancel,
     DialogDelete,
+    /// A row of the Settings panel (0: highlight numbers, 1: remove pencil marks automatically).
+    Switch(usize),
+    DeleteAll,
+    AllCancel,
+    AllDelete,
 }
 
 pub struct App {
@@ -140,6 +148,8 @@ pub struct App {
     pub ui: GameUi,
     pub manual_page: u8,
     pub list: ListUi,
+    /// The "Delete all games" dialog shows on the summary (ANA-12).
+    pub confirm_all: bool,
     pub settings: Settings,
     pub results: Vec<ResultRow>,
     db: ResultsDb,
@@ -155,7 +165,8 @@ pub struct App {
     pub live_stroke_count: u64,
 
     pen: Option<Gesture>,
-    touch: Option<(i32, Gesture)>,
+    /// The finger touch that the app follows: its id, its gesture and the time of its last event.
+    touch: Option<(i32, Gesture, u64)>,
     last_clock: Option<u64>,
 
     pub game_dirty: bool,
@@ -188,6 +199,7 @@ impl App {
             ui: GameUi::closed(slider),
             manual_page: 1,
             list: ListUi { filter: None, page: 1, confirm: None },
+            confirm_all: false,
             settings,
             results,
             db,
@@ -296,9 +308,18 @@ impl App {
                 }
             }
             Input::TouchDown { id, x, y } => {
-                if self.touch.is_none() {
+                // INP-15: AppLoad sometimes does not send the release of a touch (for example a palm
+                // touch that the system cancels), and sometimes sends the press of a touch again. The
+                // app forgets the touch that it follows if the new press has the same id, or if that
+                // touch has had no event for STALE_TOUCH_MS. Thus a lost release never stops the next
+                // touches. A real second finger (an active touch) has no effect.
+                let stale = match self.touch {
+                    None => true,
+                    Some((tid, _, last)) => tid == id || now.saturating_sub(last) >= STALE_TOUCH_MS,
+                };
+                if stale {
                     let g = self.press(x, y, None, now);
-                    self.touch = Some((id, g));
+                    self.touch = Some((id, g, now));
                 } else {
                     // A second finger has no other effect. But it is an action: it removes the
                     // highlight and the "?" (HLT-2, QST-4).
@@ -307,13 +328,12 @@ impl App {
                 }
             }
             Input::TouchMove { id, x, y } => {
-                if let Some((tid, g)) = self.touch.take() {
-                    let g = if tid == id { self.finger_move(g, x, y) } else { g };
-                    self.touch = Some((tid, g));
+                if let Some((tid, g, last)) = self.touch.take() {
+                    self.touch = Some(if tid == id { (tid, self.finger_move(g, x, y), now) } else { (tid, g, last) });
                 }
             }
             Input::TouchUp { id, x, y } => match self.touch.take() {
-                Some((tid, g)) if tid == id => self.finger_up(g, x, y),
+                Some((tid, g, _)) if tid == id => self.finger_up(g, x, y),
                 other => self.touch = other,
             },
         }
@@ -354,9 +374,9 @@ impl App {
 
         match self.screen {
             Screen::Game => self.press_game(x, y, tool, prev_highlight),
-            Screen::Manual | Screen::Analytics | Screen::GamesList => {
+            Screen::Manual | Screen::Statistics | Screen::GamesList => {
                 let target = self.page_target(x, y);
-                if tool.is_none() && self.screen != Screen::Analytics {
+                if tool.is_none() && self.screen != Screen::Statistics {
                     Gesture::Swipe { x0: x, y0: y, target }
                 } else {
                     target.map(Gesture::Control).unwrap_or(Gesture::Ignored)
@@ -371,10 +391,13 @@ impl App {
         // A panel is open: a tap outside the panel only closes the panel (NAV-11). The paint bucket and
         // the + also change the panel (§9).
         if self.ui.panel != Panel::None {
-            if let Some(b @ (Button::Colors | Button::NewGame)) = button {
+            if let Some(b @ (Button::Colors | Button::Settings | Button::NewGame)) = button {
                 return Gesture::Control(Target::Game(b));
             }
             match self.ui.panel {
+                Panel::Settings if layout::settings_panel().contains(x, y) => {
+                    return layout::settings_at(x, y).map(|i| Gesture::Control(Target::Switch(i))).unwrap_or(Gesture::Ignored);
+                }
                 Panel::Colors if layout::colors_panel().contains(x, y) => {
                     return layout::color_at(x, y)
                         .map(|(s, i)| Gesture::Control(Target::Color(s, i)))
@@ -510,8 +533,9 @@ impl App {
         }
         let v = self.game.value_at(cell);
         if v != 0 {
-            // HLT-3: the same digit removes the highlight. A different digit moves it.
-            self.ui.highlight = if prev_highlight == Some(v) { None } else { Some(v) };
+            // HLT-3: the same digit removes the highlight. A different digit moves it. HLT-6: no
+            // highlight if the switch is off.
+            self.ui.highlight = if !self.settings.highlight_on || prev_highlight == Some(v) { None } else { Some(v) };
         } else {
             let o = self.game.toggle_mark(cell, digit);
             self.after_game_change(o);
@@ -542,7 +566,7 @@ impl App {
         }
         match result {
             Some(d) => {
-                let o = self.game.add_number(ink.cell, d);
+                let o = self.game.add_number_with(ink.cell, d, self.settings.auto_remove_on);
                 self.after_game_change(o);
             }
             None => self.ui.question = Some((ink.cell, now)),
@@ -607,11 +631,24 @@ impl App {
                     None
                 }
             }
-            Screen::Analytics => {
+            Screen::Statistics => {
+                // The "Delete all games" dialog accepts only its two buttons (ANA-12).
+                if self.confirm_all {
+                    return if hit(layout::dialog_cancel()) {
+                        Some(Target::AllCancel)
+                    } else if hit(layout::dialog_delete()) {
+                        Some(Target::AllDelete)
+                    } else {
+                        None
+                    };
+                }
                 if hit(layout::back_button()) {
                     Some(Target::Back)
                 } else if hit(layout::all_games_button()) {
                     Some(Target::AllGames)
+                } else if hit(layout::delete_all_button()) && !self.results.is_empty() {
+                    // Gray, with no effect, if there are no results.
+                    Some(Target::DeleteAll)
                 } else {
                     None
                 }
@@ -650,6 +687,7 @@ impl App {
             Target::Game(b) => layout::game_button(x, y, self.ui.menu_open) == Some(b),
             Target::Color(s, i) => layout::color_at(x, y) == Some((s, i)),
             Target::StartNewGame => layout::ng_start_row().contains(x, y),
+            Target::Switch(i) => layout::settings_at(x, y) == Some(i),
             _ => self.page_target(x, y) == Some(t),
         }
     }
@@ -667,7 +705,7 @@ impl App {
             }
             Target::StartNewGame => self.start_new_game(),
             Target::Back => match self.screen {
-                Screen::GamesList => self.screen = Screen::Analytics,
+                Screen::GamesList => self.screen = Screen::Statistics,
                 _ => self.show_game(),
             },
             Target::Prev => self.swipe(false),
@@ -675,6 +713,25 @@ impl App {
             Target::AllGames => {
                 self.screen = Screen::GamesList;
                 self.list = ListUi { filter: None, page: 1, confirm: None };
+            }
+            Target::Switch(i) => {
+                // NAV-14: only the switch changes; the game and the undo history do not.
+                if i == 0 {
+                    self.settings.highlight_on = !self.settings.highlight_on;
+                } else {
+                    self.settings.auto_remove_on = !self.settings.auto_remove_on;
+                }
+                self.settings_dirty = true;
+            }
+            Target::DeleteAll => self.confirm_all = true,
+            Target::AllCancel => self.confirm_all = false,
+            Target::AllDelete => {
+                if let Err(e) = self.db.delete_all() {
+                    eprintln!("sudoku: cannot delete the results: {e}");
+                }
+                self.refresh_results();
+                self.list = ListUi { filter: None, page: 1, confirm: None };
+                self.confirm_all = false;
             }
             Target::Filter(i) => {
                 self.list.filter = if i == 0 { None } else { Some(i as u8 - 1) };
@@ -705,8 +762,12 @@ impl App {
                 self.ui.menu_open = !self.ui.menu_open;
                 self.ui.panel = Panel::None;
             }
-            Button::Colors | Button::NewGame => {
-                let panel = if b == Button::Colors { Panel::Colors } else { Panel::NewGame };
+            Button::Colors | Button::Settings | Button::NewGame => {
+                let panel = match b {
+                    Button::Colors => Panel::Colors,
+                    Button::Settings => Panel::Settings,
+                    _ => Panel::NewGame,
+                };
                 let open = self.ui.panel != panel;
                 self.close_panel(); // DIF-3: the slider shows the last mode.
                 if open {
@@ -726,9 +787,10 @@ impl App {
                 self.screen = Screen::Manual;
                 self.manual_page = 1;
             }
-            Button::Analytics => {
+            Button::Statistics => {
                 self.leave_game();
-                self.screen = Screen::Analytics;
+                self.screen = Screen::Statistics;
+                self.confirm_all = false;
             }
             Button::Close => {
                 eprintln!("sudoku: the close button closes the app");
@@ -752,8 +814,8 @@ impl App {
             self.pen = Some(Gesture::Ignored);
             self.live_stroke = None;
         }
-        if let Some((id, _)) = self.touch {
-            self.touch = Some((id, Gesture::Ignored));
+        if let Some((id, _, last)) = self.touch {
+            self.touch = Some((id, Gesture::Ignored, last));
         }
     }
 
@@ -835,6 +897,7 @@ impl App {
         (pending + live).hash(&mut h);
         (self.manual_page, self.list.filter, self.list.page, self.list.confirm.as_ref().map(|r| r.id)).hash(&mut h);
         (self.settings.color_starting, self.settings.color_clash, self.settings.color_highlight).hash(&mut h);
+        (self.settings.highlight_on, self.settings.auto_remove_on, self.confirm_all).hash(&mut h);
         self.results.len().hash(&mut h);
         self.results.iter().for_each(|r| r.id.hash(&mut h));
         h.finish()

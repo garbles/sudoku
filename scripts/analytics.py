@@ -2,6 +2,7 @@
 #   analytics.png        summary: completed puzzles and average time, for all puzzles and for each difficulty
 #   analytics-games.png  table of completed games (with a difficulty filter). Each game has a delete button.
 #   analytics-delete.png the same list after a tap on a bin: a confirmation dialog
+#   analytics-delete-all.png the summary after a tap on "Delete all games": a confirmation dialog
 # and the same three screens for landscape (analytics-landscape.png, analytics-games-landscape.png,
 # analytics-delete-landscape.png): 1872x1404 units with the same scale, on 2160x1620. The positions
 # are the same as in src/layout.rs.
@@ -106,7 +107,7 @@ def bin_icon(out, bx, cy):
 def screens(P):
     # --- summary
     out = []
-    chrome(out, P, "Analytics")
+    chrome(out, P, "Statistics")
     total = len(games); avg = sum(g[2] for g in games) / total
     for x0, label, value in [(72, "Puzzles completed", str(total)), (n(100 + P.box_w), "Average time", clock(avg))]:
         out.append(f"fill none stroke black stroke-width 1.7 rectangle {x0},250 {n(x0+P.box_w)},440")
@@ -128,11 +129,21 @@ def screens(P):
         y += ROW; hline(out, y, 72, P.right)
 
     y += 70
-    out.append(f"fill none stroke black stroke-width 1.7 rectangle 72,{y} {n(P.right)},{y+ROW}")
+    all_right = P.right - DELETE_ALL_W - 28
+    out.append(f"fill none stroke black stroke-width 1.7 rectangle 72,{y} {n(all_right)},{y+ROW}")
     text(out, 102, y+ROW//2+12, 34, "black", "start", "All completed games", HEAD)
-    ax = n(P.right - 40)
+    ax = n(all_right - 40)
     out.append(f"fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round polyline {ax},{y+ROW//2-12} {n(ax+12)},{y+ROW//2} {ax},{y+ROW//2+12}")
-    render(out, P, "analytics.png")
+    # "Delete all games" at the right, in the same row (black: there are results)
+    x0 = n(P.right - DELETE_ALL_W)
+    out.append(f"fill none stroke black stroke-width 1.7 rectangle {x0},{y} {n(P.right)},{y+ROW}")
+    bin_icon(out, x0+50, y+ROW//2)
+    text(out, x0+90, y+ROW//2+12, 34, "black", "start", "Delete all games", HEAD)
+    render(list(out), P, "analytics.png")
+
+    # --- the "Delete all games" confirmation on the summary
+    dialog(out, P, "Delete all games?", f"All {len(games)} completed games are deleted.")
+    render(out, P, "analytics-delete-all.png")
 
     # --- table of completed games, filter "All", newest game first
     out = []
@@ -170,18 +181,24 @@ def screens(P):
 
     # --- delete confirmation for the second game in the list
     when, mode, secs = games[1]
+    dialog(out, P, "Delete this game?", f"{when.strftime('%-d %b %Y, %H:%M')}, completed in {clock(secs)}.")
+    render(out, P, "analytics-delete.png")
+
+DELETE_ALL_W = 400   # the width of "Delete all games" (src/layout.rs)
+
+def dialog(out, P, title, line):
+    """A confirmation dialog at the center of the page, on the pale screen."""
     out.append(f"stroke none fill rgba(255,255,255,0.6) rectangle 0,0 {P.w},{P.h}")
     dx0, dy0, dx1, dy1 = (n(v) for v in P.dialog)
     out.append(f"fill white stroke black stroke-width 1.7 rectangle {dx0},{dy0} {dx1},{dy1}")
-    text(out, dx0+40, dy0+75, 44, "black", "start", "Delete this game?", HEAD)
-    text(out, dx0+40, dy0+140, 34, "gray25", "start", f"{when.strftime('%-d %b %Y, %H:%M')}, completed in {clock(secs)}.")
+    text(out, dx0+40, dy0+75, 44, "black", "start", title, HEAD)
+    text(out, dx0+40, dy0+140, 34, "gray25", "start", line)
     text(out, dx0+40, dy0+190, 34, "gray25", "start", "You cannot undo this action.")
     hline(out, dy1-ROW, dx0, dx1)
     out.append(f"stroke none fill black rectangle {(dx0+dx1)//2},{dy1-ROW} {dx1},{dy1}")
     out.append(f"stroke none fill black rectangle {(dx0+dx1)//2},{dy1-ROW} {(dx0+dx1)//2+1.7},{dy1}")
     text(out, (dx0*3+dx1)//4, dy1-ROW//2+12, 34, "black", "middle", "Cancel", HEAD)
     text(out, (dx0+dx1*3)//4, dy1-ROW//2+12, 34, "white", "middle", "Delete", HEAD)
-    render(out, P, "analytics-delete.png")
 
 screens(Page(False))
 screens(Page(True))

@@ -154,12 +154,20 @@ impl Game {
 
     /// Writing that the app reads as `digit` on an empty cell.
     pub fn add_number(&mut self, cell: Cell, digit: u8) -> Outcome {
+        self.add_number_with(cell, digit, true)
+    }
+
+    /// Adds a number. If `auto_remove`, the change also removes the digit from the marks of the peers
+    /// (MRK-4); if not, it changes no other cell (MRK-9).
+    pub fn add_number_with(&mut self, cell: Cell, digit: u8, auto_remove: bool) -> Outcome {
         if self.completed || self.is_filled(cell) || !(1..=9).contains(&digit) {
             return Outcome::NoChange;
         }
-        let removed: Vec<Cell> = peers(cell)
-            .filter(|&p| self.marks_at(p) & mark_bit(digit) != 0)
-            .collect();
+        let removed: Vec<Cell> = if auto_remove {
+            peers(cell).filter(|&p| self.marks_at(p) & mark_bit(digit) != 0).collect()
+        } else {
+            Vec::new()
+        };
         self.record(Change::AddNumber { cell, digit, removed })
     }
 

@@ -34,6 +34,10 @@ enum Act {
     ListControl(u8),
     /// Goes to the games list, taps a bin and maybe confirms the dialog.
     DeleteFlow(u8, Option<bool>),
+    /// Opens the Settings panel and taps a switch.
+    Switch(u8),
+    /// Goes to the statistics, taps "Delete all games" and maybe confirms.
+    DeleteAllFlow(Option<bool>),
 }
 
 fn act() -> impl Strategy<Value = Act> {
@@ -56,11 +60,13 @@ fn act() -> impl Strategy<Value = Act> {
         2 => (0..3u8, 0..9u8).prop_map(|(s, i)| Act::PickColor(s, i)),
         4 => (0..22u8).prop_map(Act::ListControl),
         1 => (0..12u8, proptest::option::of(any::<bool>())).prop_map(|(i, c)| Act::DeleteFlow(i, c)),
+        2 => (0..2u8).prop_map(Act::Switch),
+        1 => proptest::option::of(any::<bool>()).prop_map(Act::DeleteAllFlow),
     ]
 }
 
 const BUTTONS: [Button; 8] =
-    [Button::Menu, Button::Colors, Button::Undo, Button::Redo, Button::Help, Button::Analytics, Button::NewGame, Button::Close];
+    [Button::Menu, Button::Colors, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::NewGame, Button::Close];
 
 /// The board state that only changes to the board can change: seed, values, marks, the lengths of the
 /// two stacks and the completion.
@@ -158,9 +164,9 @@ fn run(d: &mut Driver, a: &Act) {
                 if !d.app.ui.menu_open {
                     d.button(Button::Menu);
                 }
-                d.button(Button::Analytics);
+                d.button(Button::Statistics);
             }
-            if d.app.screen == Screen::Analytics {
+            if d.app.screen == Screen::Statistics {
                 let (x, y) = center(layout::all_games_button());
                 d.finger_tap(x, y);
             }
@@ -171,6 +177,39 @@ fn run(d: &mut Driver, a: &Act) {
             if let Some(c) = confirm {
                 let (x, y) = center(if c { layout::dialog_delete() } else { layout::dialog_cancel() });
                 d.finger_tap(x, y);
+            }
+        }
+        Act::Switch(i) => {
+            if d.app.screen != Screen::Game {
+                return;
+            }
+            if !d.app.ui.menu_open {
+                d.button(Button::Menu);
+            }
+            if d.app.ui.panel != Panel::Settings {
+                d.button(Button::Settings);
+            }
+            let r = layout::settings_row(i as usize);
+            d.finger_tap((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0);
+        }
+        Act::DeleteAllFlow(confirm) => {
+            let center = |r: layout::Rect| (((r.x0 + r.x1) / 2) as f32, ((r.y0 + r.y1) / 2) as f32);
+            if d.app.screen == Screen::Game {
+                if d.app.ui.panel != Panel::None {
+                    d.button(Button::Menu);
+                }
+                if !d.app.ui.menu_open {
+                    d.button(Button::Menu);
+                }
+                d.button(Button::Statistics);
+            }
+            if d.app.screen == Screen::Statistics {
+                let (x, y) = center(layout::delete_all_button());
+                d.finger_tap(x, y);
+                if let Some(c) = confirm {
+                    let (x, y) = center(if c { layout::dialog_delete() } else { layout::dialog_cancel() });
+                    d.finger_tap(x, y);
+                }
             }
         }
         Act::ListControl(k) => {
@@ -195,9 +234,10 @@ fn run(d: &mut Driver, a: &Act) {
 fn is_not_a_board_action(a: &Act, d: &Driver) -> bool {
     match a {
         Act::FingerBoard(..) | Act::Swipe(_) | Act::Suspend => true,
-        Act::Button(i) => matches!(BUTTONS[*i as usize], Button::Menu | Button::Colors | Button::Help | Button::Analytics | Button::Close)
+        Act::Button(i) => matches!(BUTTONS[*i as usize], Button::Menu | Button::Colors | Button::Help | Button::Statistics | Button::Close)
             || (BUTTONS[*i as usize] == Button::NewGame && d.app.ui.panel != Panel::NewGame),
-        Act::Wait(_) | Act::PickColor(..) => true,
+        Act::Wait(_) | Act::PickColor(..) | Act::Switch(_) => true,
+        Act::DeleteAllFlow(_) => d.app.screen != Screen::Game || d.app.ui.pending_ink.is_none(),
         Act::ListControl(_) => d.app.screen != Screen::Game,
         _ => false,
     }
@@ -214,6 +254,7 @@ proptest! {
             let before = d.app.game.clone();
             let results_before = d.app.results.clone();
             let screen_before = d.app.screen;
+            let confirm_all_before = d.app.confirm_all;
             let ink_before = d.app.ui.pending_ink.is_some();
             let not_board = is_not_a_board_action(a, &d) && !ink_before;
 
@@ -246,6 +287,8 @@ proptest! {
                 prop_assert_eq!(d.app.results.len(), results_before.len() + 1, "CMP-5");
                 let r = d.app.results.iter().find(|r| !results_before.contains(r)).unwrap();
                 prop_assert_eq!((r.mode, r.givens, r.seconds, r.seed), (g.mode, g.givens_count(), g.seconds(), g.seed));
+            } else if (matches!(a, Act::DeleteAllFlow(Some(true))) || confirm_all_before) && d.app.results.len() < results_before.len() {
+                prop_assert!(d.app.results.is_empty(), "ANA-12: Delete all removes all results");
             } else if (screen_before == Screen::GamesList || matches!(a, Act::DeleteFlow(..))) && d.app.results.len() < results_before.len() {
                 prop_assert_eq!(d.app.results.len() + 1, results_before.len(), "one delete");
             } else {
@@ -308,7 +351,7 @@ fn coverage_of_states() {
             mark("newgame", a.ui.panel == Panel::NewGame);
             mark("manual", a.screen == Screen::Manual);
             mark("manual>1", a.manual_page > 1);
-            mark("analytics", a.screen == Screen::Analytics);
+            mark("analytics", a.screen == Screen::Statistics);
             mark("list", a.screen == Screen::GamesList);
             mark("confirm", a.list.confirm.is_some());
             mark("results", !a.results.is_empty());

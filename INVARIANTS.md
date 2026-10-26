@@ -29,7 +29,7 @@ comes from (for example *R§4.1*). Rules that are not confirmed yet are in
 11. [Difficulty](#11-difficulty)
 12. [Cell colors](#12-cell-colors)
 13. [Manual](#13-manual)
-14. [Analytics and the results database](#14-analytics-and-the-results-database)
+14. [Statistics and the results database](#14-statistics-and-the-results-database)
 15. [Saved data](#15-saved-data)
 16. [Rules to confirm](#16-rules-to-confirm)
 
@@ -42,11 +42,12 @@ names if it has an equivalent state.
 
 ```
 App
-  screen          ∈ {Game, Manual, Analytics, GamesList}
+  screen          ∈ {Game, Manual, Statistics, GamesList}
   game            : Game
   ui              : GameUI
   manual_page     ∈ 1..9                       (used when screen = Manual)
   list            : ListUI                     (used when screen = GamesList)
+  confirm_all     ∈ {false, true}              (used when screen = Statistics: the "Delete all games" dialog)
   settings        : Settings
   results         : set of Result               (the SQLite table)
 
@@ -63,7 +64,7 @@ Game
 
 GameUI
   menu            ∈ {Closed, Open}
-  panel           ∈ {None, Colors, NewGame}
+  panel           ∈ {None, Colors, Settings, NewGame}
   highlight       ∈ {None} ∪ 1..9
   question        ∈ {None} ∪ (cell, shown_at)   (the temporary "?")
   pending_ink     ∈ {None} ∪ (cell, strokes, last_lift_at)
@@ -77,6 +78,8 @@ ListUI
 Settings
   color_starting, color_clash, color_highlight ∈ Palette
   last_mode       ∈ 0..4
+  highlight_on    : bool                       (Settings panel; default true)
+  auto_remove_on  : bool                       (Settings panel; default true)
 
 Palette = {Gray, White, Yellow, Blue, Red, Green, Cyan, Magenta, Orange}
 
@@ -123,11 +126,12 @@ Terms:
 | MRK-1 | `marks[r][c] ⊆ {1..9}`. Each mark is at its keypad position (1 at the top left, 9 at the bottom right). | R§3.1 |
 | MRK-2 | Marks **show only when the cell is empty**. A filled cell can have marks, but they are hidden. | R§4.1 |
 | MRK-3 | Starting numbers never have marks. You can add marks only to empty cells, and starting numbers are never empty. | R§4.1 |
-| MRK-4 | **Automatic removal:** after you add a number d at (r, c), no peer of (r, c) has d in its marks. This applies to visible marks (empty peers) and to hidden marks (filled peers). | R§6.1 |
+| MRK-4 | **Automatic removal:** if `auto_remove_on`, after you add a number d at (r, c), no peer of (r, c) has d in its marks. This applies to visible marks (empty peers) and to hidden marks (filled peers). | R§6.1 |
 | MRK-5 | Marks change only in these ways: a pen tap adds or removes one mark in an empty cell; a new number removes marks (MRK-4); undo and redo of these changes. The eraser never changes marks. | R§5.1, R§6.1, R§7 |
 | MRK-6 | When you erase or undo a number, the hidden marks of that cell show again with no change. | R§4.1 |
 | MRK-7 | A mark does not have to be a possible digit. You can add a mark for a digit that is already in a peer. The app removes marks only when you add a number. | R§6.1 |
 | MRK-8 | When you erase a number, the app does not put back the marks that the number removed from other cells. Only undo puts them back (UND-4). | R§6.1 |
+| MRK-9 | If `¬auto_remove_on`, a new number does not change the marks of any other cell. The change has no removed marks, and its undo and redo change only that cell. | R§6.1, R§9.1 |
 
 ## 4. Clashes
 
@@ -144,9 +148,10 @@ Terms:
 |---|---|---|
 | HLT-1 | `highlight ≠ None ⇒` the game is not complete. | R§6.2, R§8.3 |
 | HLT-2 | `highlight ≠ None ⇒ highlight` is the value of the last number that you tapped, and that tap was the last action. Each other action sets `highlight = None` before the app does the action. Other actions are a pen tap or stroke, a finger touch, a menu or panel action, and a change of screen. | R§3.2, R§6.2 |
-| HLT-3 | A tap on a number with a value equal to `highlight` sets `highlight = None`. A tap on a number with a different value sets `highlight` to that value. | R§6.2 |
+| HLT-3 | A tap on a number with a value equal to `highlight` sets `highlight = None`. If `highlight_on`, a tap on a number with a different value sets `highlight` to that value (HLT-6). | R§6.2 |
 | HLT-4 | `highlight ≠ None ⇒ screen = Game and panel = None`. When the menu opens or the screen changes, the app removes the highlight. While the menu is open and no panel is open, a pen tap on a number can make a new highlight. | R§9, R§6.2 |
 | HLT-5 | A highlight does not change `value`, `marks`, the undo and redo stacks, or `completed`. | R§7 |
+| HLT-6 | `¬highlight_on ⇒ highlight = None`. A tap on a number then changes nothing (it still removes a highlight and a "?" as each action does). | R§6.2, R§9.1 |
 | QST-1 | `question ≠ None ⇒` the cell of the "?" is empty. The "?" shows for approximately one second. Then `question = None`. While the "?" shows, the marks of the cell are hidden. After the "?", the cell is the same as before. | R§5.1 |
 | QST-2 | The "?" does not change `value`, `marks` or the undo and redo stacks. | R§5.1, R§7 |
 | QST-3 | `question ≠ None ⇒` the game is not complete. | R§3.2 |
@@ -159,7 +164,7 @@ Terms:
 | INP-1 | Finger touches on the board do not change the game state. The only exception is the removal of a highlight (HLT-2). A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs and the screen buttons. In the manual and the games list, a horizontal finger swipe can change the page. | R§5.1, R§12, R§13.2 |
 | INP-2 | A pen touch is a **tap** only if all of its movement stays in one micro-cell. All other pen touches are writing. Each pen touch is one of these: a tap, writing, or the eraser. | R§5.1 |
 | INP-3 | A tap on an empty cell adds or removes one mark: the digit of the micro-cell that you tapped. | R§5.1 |
-| INP-4 | A tap on a filled cell does not change the board. It changes only `highlight` (HLT-3). | R§5.1, R§6.2 |
+| INP-4 | A tap on a filled cell does not change the board. It changes only `highlight` (HLT-3, HLT-6). | R§5.1, R§6.2 |
 | INP-5 | `pending_ink ≠ None ⇒` its cell is empty and the game is not complete. The app collects the ink until the pen is lifted for the recognition pause (approximately 0.5 s). Then the app reads all the ink as one item and sets `pending_ink = None`. | R§5.1 |
 | INP-6 | The app reads the ink as one of these two results: a number from 1 to 9 (the app adds it), or "not 1–9" (scribble, letter, 0, 10 or more). For "not 1–9", the app shows the "?". There is no other result. | R§5.1 |
 | INP-7 | The app removes writing on a filled cell (starting number or entry). The writing makes no change. | R§5.1 |
@@ -170,13 +175,14 @@ Terms:
 | INP-12 | Writing belongs to the cell where the pen touch started. A pen touch that starts in a different cell, or a press on a different item, makes the app read the waiting ink immediately. | R§5.1 (confirmed 2026-10-25) |
 | INP-13 | The eraser removes all of your numbers that it touches in one stroke. Each removal is one change in the undo history. | R§5.1, UND-1 (confirmed 2026-10-25) |
 | INP-14 | A finger swipe is a horizontal movement of 120 px or more, with more horizontal than vertical movement. | R§12, R§13.2 (confirmed 2026-10-25) |
+| INP-15 | A finger press on an item that is not on the board (INP-1: menu buttons, panels, dialogs, screen buttons) operates it at all times while the app is open. If the app does not get the release of a touch, that touch does not stop other presses: the app forgets it when a new press with the same touch id starts, or when a new touch starts and that touch has had no event for 0.15 s. A second finger while the first finger moves or presses (an event less than 0.15 s before) has no effect. | R§9, R§5.1 |
 
 ## 7. Undo and redo
 
 | ID | Rule | Source |
 |---|---|---|
 | UND-1 | Each change to the board is one of these: add or remove a mark; add a number (with the marks that it removes, as one change); erase a number. Each change adds one item to `undo` and empties `redo`. | R§7 |
-| UND-2 | No other action adds to `undo`. Highlights, the "?", color changes, panels and screens never add to it. | R§7 |
+| UND-2 | No other action adds to `undo`. Highlights, the "?", color changes, switch changes, panels and screens never add to it. | R§7 |
 | UND-3 | Undo does the exact opposite of the top change and moves the change to `redo`. Redo does the change again and moves it back to `undo`. An undo and then a redo give the same board as before. A redo and then an undo also give the same board. | R§7 |
 | UND-4 | Undo of a number puts back all marks that the number removed (MRK-4). It also shows the hidden marks of that cell again. | R§6.1 |
 | UND-5 | After each undo or redo, CLS-1 is true. The app calculates the clashes again. | R§6.3 |
@@ -194,7 +200,7 @@ Terms:
 | CMP-3 | `completed ⇒` the board, the marks and the stacks do not change (INP-9, UND-8), and `highlight = None`, `question = None`, `pending_ink = None`. | R§8.3 |
 | CMP-4 | `completed ⇒` the text "Completed in" and `elapsed` replace the meter below the board. The format is `m:ss`, and `h:mm:ss` after one hour. `¬completed ⇒` the meter shows `mode`. The player cannot change the meter. | R§3.1, R§8.3 |
 | CMP-5 | Completion adds **one** row to `results`. The row has the `mode`, the quantity of starting numbers, the final `elapsed` and the `seed` of this game. The app never adds a row for a game that is not complete. | R§8.3, R§14.1 |
-| CMP-6 | Only Start new game ends the `completed` state. Help, Analytics, colors and the menu continue to operate. | R§8.3 |
+| CMP-6 | Only Start new game ends the `completed` state. Help, Statistics, colors, settings and the menu continue to operate. | R§8.3 |
 
 ## 9. Clock
 
@@ -211,9 +217,9 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| NAV-1 | The app shows one screen at a time: Game, Manual, Analytics or GamesList. The app starts on Game. | R§2 |
-| NAV-2 | Only the open menu opens Manual and Analytics. Only Analytics opens GamesList. "< Back" goes from Manual to Game, from Analytics to Game, and from GamesList to Analytics. | R§2 |
-| NAV-3 | When Manual or Analytics shows Game again, `menu = Closed` and `panel = None`. | R§12, R§13.1 |
+| NAV-1 | The app shows one screen at a time: Game, Manual, Statistics or GamesList. The app starts on Game. | R§2 |
+| NAV-2 | Only the open menu opens Manual and Statistics. Only Statistics opens GamesList. "< Back" goes from Manual to Game, from Statistics to Game, and from GamesList to Statistics. | R§2 |
+| NAV-3 | When Manual or Statistics shows Game again, `menu = Closed` and `panel = None`. | R§12, R§13.1 |
 | NAV-4 | `panel ≠ None ⇒ menu = Open`. Only one panel can be open at a time. | R§9 |
 | NAV-5 | `screen ≠ Game ⇒ menu = Closed, panel = None`. The menu is a part of the game screen. | R§9 |
 | NAV-6 | The close button shows only when `screen = Game` and `menu = Open`. A tap on it closes the app after the app saves the game (PER-1). | R§3.1, R§9 |
@@ -222,8 +228,9 @@ Terms:
 | NAV-9 | After Start new game, `menu = Closed` and `panel = None`. | R§11 |
 | NAV-10 | The closed menu never covers the board. The open toolbar (portrait x ≥ 1508, landscape x ≥ 2048) never covers the board (portrait x ≤ 1471, landscape x ≤ 1741). An open panel can cover a part of the board. | R§3.1, R§3.3 |
 | NAV-13 | A turn of the tablet does not change the game, the settings or the screen. It removes only the pending ink and the touches in progress. | R§3.3 (confirmed 2026-10-25) |
+| NAV-14 | The Settings panel opens from the gear (top slot 2). A tap on a row changes only its switch (`highlight_on` or `auto_remove_on`), immediately; the panel stays open. A change of a switch does not change the game or the undo and redo stacks, and it does not change the changes that are already in the stacks. | R§9.1 |
 | NAV-11 | When `panel ≠ None`, a tap outside the panel only sets `panel = None`. It does not change the game, also when the tap is on the board. When `menu = Open` and `panel = None`, the board operates as usual. | R§9 |
-| NAV-12 | When `panel ≠ None`, a tap on a toolbar button that is not the paint bucket or the + only closes the panel. This includes the menu button and the close button. | R§9 (confirmed 2026-10-25) |
+| NAV-12 | When `panel ≠ None`, a tap on a toolbar button that is not the paint bucket, the gear or the + only closes the panel. A tap on the button of a different panel opens that panel. This includes the menu button and the close button. | R§9 (confirmed 2026-10-25) |
 
 ## 11. Difficulty
 
@@ -257,20 +264,21 @@ Terms:
 | MAN-3 | "< Back" is on each page and shows Game again. | R§12 |
 | MAN-4 | The manual does not change the game. The clock continues to operate (CLK-1). | R§8.4 |
 
-## 14. Analytics and the results database
+## 14. Statistics and the results database
 
 | ID | Rule | Source |
 |---|---|---|
 | ANA-1 | Each result has `mode ∈ 0..4`, `seconds ≥ 0`, `givens ∈ 0..81`, a `seed`, a `finished_at` and a unique `id`. | R§14.1 |
-| ANA-2 | Only completion adds results (CMP-5). Only a confirmed Delete removes results. (The device test tool `sudoku --test-results` is not a part of the app; refer to DECISIONS.md.) | R§14.1, R§13.2 |
+| ANA-2 | Only completion adds results (CMP-5). Only a confirmed Delete (one game) or a confirmed Delete all games removes results. (The device test tool `sudoku --test-results` is not a part of the app; refer to DECISIONS.md.) | R§14.1, R§13.1, R§13.2 |
 | ANA-3 | "Puzzles completed" on the summary is `|results|`. "Average time" is the average of `seconds` in `results`, or "–" if there are no results. | R§13.1 |
 | ANA-4 | For each mode m, completed is `|{r ∈ results : r.mode = m}|`. Average is the average of their `seconds`, or "–" if there are none. The sum of the quantities for all modes is equal to the total. | R§13.1 |
 | ANA-5 | The list shows only the results that agree with `filter` (all results for All). The newest `finished_at` is first. Each page has a maximum of 12 results. All pages before the last page have 12 results. If no results agree with `filter`, the list has no rows. | R§13.2 |
 | ANA-6 | `1 ≤ page ≤ max(1, ⌈matching / 12⌉)`. When the list opens, `filter = All` and `page = 1`. A change of filter sets `page = 1`. | R§13.2 |
 | ANA-7 | `confirm ≠ None ⇒` the dialog shows on the pale list, and the list accepts no other input. Cancel sets `confirm = None` and makes no change. Delete removes that one result and then sets `confirm = None`. | R§13.2 |
-| ANA-8 | After a deletion, the summary and the list show the change immediately (ANA-3 to ANA-5 are true). If the current page becomes empty, the list shows the page before it, but not below page 1. Then ANA-6 is true. | R§13.2 |
+| ANA-8 | After a deletion (one game or all games), the summary and the list show the change immediately (ANA-3 to ANA-5 are true). If the current page becomes empty, the list shows the page before it, but not below page 1. Then ANA-6 is true. | R§13.2 |
 | ANA-9 | Times always have the format `m:ss`, or `h:mm:ss` after one hour. | R§8.3, R§13.2 |
-| ANA-10 | Analytics does not change the game. The clock continues to operate. | R§8.4 |
+| ANA-10 | Statistics does not change the game. The clock continues to operate. | R§8.4 |
+| ANA-12 | `confirm_all ⇒ screen = Statistics` and the summary accepts no other input. Cancel sets `confirm_all = false` and makes no change. Delete removes all results (`results = ∅`) and sets `confirm_all = false`. If `results = ∅`, "Delete all games" is gray and a tap on it has no effect. | R§13.1 |
 | ANA-11 | `finished_at` is Unix time in seconds (UTC). The app shows it in the local time of the device. | R§14.1 (confirmed 2026-10-25) |
 
 ## 15. Saved data
@@ -279,7 +287,7 @@ Terms:
 |---|---|---|
 | PER-1 | At each point where the app can close or be suspended, the saved game is equal to the game in memory: `seed`, `mode`, starting numbers, `value`, `marks`, the two stacks, `elapsed` and `completed`. | R§14.3 |
 | PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Closed`, `panel = None`, `highlight = None`, `question = None` and `pending_ink = None`. | R§14.3 |
-| PER-3 | The settings (`color_*` and `last_mode`) stay the same when the app closes and opens again. | R§14.2 |
+| PER-3 | The settings (`color_*`, `last_mode`, `highlight_on` and `auto_remove_on`) stay the same when the app closes and opens again. | R§14.2 |
 | PER-4 | `results` stays the same when the app closes and opens again. Only ANA-2 changes it. | R§14.1 |
 | PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. | — |
 | PER-6 | If the app closes during the recognition pause, the app removes the ink. The app never reads it later. | R§14.3 |

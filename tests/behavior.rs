@@ -465,8 +465,8 @@ fn analytics_and_list() {
     // ANA-3 to ANA-8, NAV-2
     let mut d = Driver::from(app_with_results(30));
     d.button(Button::Menu);
-    d.button(Button::Analytics);
-    assert_eq!(d.app.screen, Screen::Analytics);
+    d.button(Button::Statistics);
+    assert_eq!(d.app.screen, Screen::Statistics);
     let all = layout::all_games_button();
     d.finger_tap((all.x0 + 100) as f32, (all.y0 + 20) as f32);
     assert_eq!(d.app.screen, Screen::GamesList);
@@ -518,7 +518,7 @@ fn analytics_and_list() {
     assert_eq!(d.app.results.len(), 24);
     assert_eq!(d.app.list.page, 2);
     d.finger_tap(40.0, 50.0);
-    assert_eq!(d.app.screen, Screen::Analytics);
+    assert_eq!(d.app.screen, Screen::Statistics);
     d.finger_tap(40.0, 50.0);
     assert_eq!(d.app.screen, Screen::Game);
     assert!(!d.app.ui.menu_open);
@@ -529,7 +529,7 @@ fn empty_results() {
     // ANA-5, ANA-6
     let mut d = Driver::new(18);
     d.button(Button::Menu);
-    d.button(Button::Analytics);
+    d.button(Button::Statistics);
     let all = layout::all_games_button();
     d.finger_tap((all.x0 + 100) as f32, (all.y0 + 20) as f32);
     assert_eq!(d.app.page_count(), 1);

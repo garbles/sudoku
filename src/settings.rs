@@ -88,6 +88,16 @@ pub struct Settings {
     pub color_clash: Color,
     pub color_highlight: Color,
     pub last_mode: u8,
+    /// The switches of the Settings panel (REQUIREMENTS.md §9.1). A settings file of an earlier version
+    /// does not have them: then they are on.
+    #[serde(default = "on")]
+    pub highlight_on: bool,
+    #[serde(default = "on")]
+    pub auto_remove_on: bool,
+}
+
+fn on() -> bool {
+    true
 }
 
 impl Default for Settings {
@@ -97,6 +107,8 @@ impl Default for Settings {
             color_clash: Color::Red,
             color_highlight: Color::Green,
             last_mode: MIDDLE_MODE,
+            highlight_on: true,
+            auto_remove_on: true,
         }
     }
 }
@@ -147,6 +159,15 @@ mod tests {
         assert_eq!((s.color_starting, s.color_clash, s.color_highlight), (Color::Gray, Color::Red, Color::Green));
         assert_eq!(s.last_mode, 2);
         assert!(s.is_valid());
+    }
+
+    #[test]
+    fn a_settings_file_without_the_switches_has_them_on() {
+        // PER-3 for the settings files of an earlier version.
+        let s: Settings =
+            serde_json::from_str(r#"{"color_starting":"Gray","color_clash":"Red","color_highlight":"Green","last_mode":3}"#).unwrap();
+        assert!(s.highlight_on && s.auto_remove_on);
+        assert_eq!(s.last_mode, 3);
     }
 
     #[test]

@@ -189,7 +189,7 @@ fn analytics_does_not_change_the_game_and_the_clock_continues() {
     let before = (d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len());
     let t = d.app.game.elapsed_ms;
     d.button(Button::Menu);
-    d.button(Button::Analytics);
+    d.button(Button::Statistics);
     let all = layout::all_games_button();
     d.finger_tap((all.x0 + 50) as f32, (all.y0 + 20) as f32);
     d.wait(3000);
@@ -262,10 +262,10 @@ fn the_landscape_layout_operates() {
     d.finger_tap(((n.x0 + n.x1) / 2) as f32, ((n.y0 + n.y1) / 2) as f32);
     assert_eq!(d.app.manual_page, 2);
     d.finger_tap(40.0, 50.0);
-    // Analytics and the list in two columns.
+    // Statistics and the list in two columns.
     solve(&mut d);
     d.button(Button::Menu);
-    d.button(Button::Analytics);
+    d.button(Button::Statistics);
     let all = layout::all_games_button();
     d.finger_tap((all.x1 - 30) as f32, (all.y0 + 20) as f32);
     assert_eq!(d.app.screen, Screen::GamesList);
@@ -435,8 +435,8 @@ fn colors_and_analytics_operate_on_a_complete_game() {
     d.finger_tap(gx as f32 + 56.0, gy as f32 + 40.0);
     assert_eq!(d.app.settings.color_starting, Color::Blue);
     d.button(Button::Colors);
-    d.button(Button::Analytics);
-    assert_eq!(d.app.screen, Screen::Analytics);
+    d.button(Button::Statistics);
+    assert_eq!(d.app.screen, Screen::Statistics);
     d.finger_tap(40.0, 50.0);
     assert_eq!(d.app.screen, Screen::Game);
     assert_eq!(d.app.game, g, "the game stays complete and does not change");
@@ -514,4 +514,179 @@ fn the_clash_color_comes_before_the_highlight_color() {
         let want = if g.is_clashing(c) { Color::Red } else { Color::Green };
         assert_eq!(rgb_at(&pm, x + 8, y + 140), want.rgb(), "cell {c:?}");
     }
+}
+
+#[test]
+fn a_touch_without_a_release_does_not_stop_the_next_touches() {
+    // INP-15: on the device, AppLoad did not send the release of touch 1384; then all finger presses
+    // had no effect. The log of the device: a press and four moves of 1384, no release, then new
+    // touches.
+    let mut d = Driver::new(40);
+    d.send(Input::TouchDown { id: 1384, x: 800.0, y: 1900.0 });
+    for k in 0..4 {
+        d.send(Input::TouchMove { id: 1384, x: 800.0 + k as f32, y: 1900.0 });
+    }
+    // No release of 1384. After a short time, a finger taps the menu button.
+    d.wait(300);
+    let (x, y) = button_center(Button::Menu);
+    d.send(Input::TouchDown { id: 1387, x, y });
+    d.send(Input::TouchUp { id: 1387, x, y });
+    assert!(d.app.ui.menu_open, "the tap operates");
+    // AppLoad also sends the press of the same touch again: the touch starts again.
+    d.send(Input::TouchDown { id: 1390, x, y });
+    d.send(Input::TouchDown { id: 1390, x, y });
+    d.send(Input::TouchUp { id: 1390, x, y });
+    assert!(!d.app.ui.menu_open, "one tap, not two");
+}
+
+fn switch_point(i: usize) -> (f32, f32) {
+    let r = layout::settings_row(i);
+    ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0)
+}
+
+fn open_settings(d: &mut Driver) {
+    if !d.app.ui.menu_open {
+        d.button(Button::Menu);
+    }
+    d.button(Button::Settings);
+    assert_eq!(d.app.ui.panel, Panel::Settings);
+}
+
+#[test]
+fn switches_change_only_the_settings() {
+    // NAV-14, UND-2, PER-3: a switch changes its setting immediately; the panel stays open; the game
+    // and the undo history do not change; the setting is kept for the next start.
+    let mut d = Driver::new(41);
+    d.tap_micro(empty_cell(&d), 2);
+    let before = (d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len());
+    open_settings(&mut d);
+    let (x, y) = switch_point(0);
+    d.finger_tap(x, y);
+    assert!(!d.app.settings.highlight_on && d.app.settings.auto_remove_on);
+    let (x, y) = switch_point(1);
+    d.pen_tap(x, y);
+    assert!(!d.app.settings.auto_remove_on);
+    assert_eq!(d.app.ui.panel, Panel::Settings, "the panel stays open");
+    assert!(d.app.settings_dirty);
+    assert_eq!((d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len()), before);
+    let saved: sudoku::settings::Settings = serde_json::from_str(&serde_json::to_string(&d.app.settings).unwrap()).unwrap();
+    assert_eq!(saved, d.app.settings);
+    // The gear and the other panel buttons change the panel (NAV-12).
+    d.button(Button::Colors);
+    assert_eq!(d.app.ui.panel, Panel::Colors);
+    d.button(Button::Settings);
+    assert_eq!(d.app.ui.panel, Panel::Settings);
+    d.button(Button::Settings);
+    assert_eq!(d.app.ui.panel, Panel::None);
+}
+
+#[test]
+fn no_highlight_when_highlights_are_off() {
+    // HLT-6
+    let mut d = Driver::new(42);
+    open_settings(&mut d);
+    let (x, y) = switch_point(0);
+    d.finger_tap(x, y);
+    d.button(Button::Settings);
+    let given = cells().find(|&c| d.app.game.is_given(c)).unwrap();
+    d.tap_cell(given);
+    assert_eq!(d.app.ui.highlight, None);
+    // The tap still is an action: it removes a "?" (QST-4).
+    let cell = empty_cell(&d);
+    d.write_strokes(&scribble_ink(cell));
+    d.wait(d.app.pause_ms + 10);
+    assert!(d.app.ui.question.is_some());
+    d.tap_cell(given);
+    assert!(d.app.ui.question.is_none() && d.app.ui.highlight.is_none());
+}
+
+#[test]
+fn no_automatic_removal_when_it_is_off() {
+    // MRK-9, UND-4: with the switch off, a new number changes no other cell; undo and redo change only
+    // that cell. With the switch on again, the next number removes marks (MRK-4).
+    let mut d = Driver::new(43);
+    let cell = empty_cell(&d);
+    let v = d.app.game.solution[cell.0 as usize][cell.1 as usize];
+    let peer = peers(cell).find(|&p| !d.app.game.is_filled(p)).unwrap();
+    d.tap_micro(peer, v);
+    open_settings(&mut d);
+    let (x, y) = switch_point(1);
+    d.finger_tap(x, y);
+    d.button(Button::Settings);
+    let marks = d.app.game.marks;
+    d.write(cell, v);
+    assert_eq!(d.app.game.value_at(cell), v);
+    let mut want = marks;
+    want[cell.0 as usize][cell.1 as usize] = d.app.game.marks_at(cell);
+    assert_eq!(d.app.game.marks, want, "no other cell changes");
+    d.button(Button::Undo);
+    d.button(Button::Redo);
+    assert_eq!(d.app.game.marks, want);
+    sudoku::invariants::check_app(&d.app).unwrap();
+    // On again: the next number removes the mark of a peer.
+    d.button(Button::Undo);
+    d.button(Button::Settings);
+    let (x, y) = switch_point(1);
+    d.finger_tap(x, y);
+    d.button(Button::Settings);
+    d.write(cell, v);
+    assert_eq!(d.app.game.marks_at(peer) & mark_bit(v), 0, "MRK-4 when the switch is on");
+}
+
+#[test]
+fn delete_all_games() {
+    // ANA-12, ANA-2, ANA-8
+    let mut d = Driver::new(44);
+    solve(&mut d);
+    d.button(Button::Menu);
+    d.button(Button::NewGame);
+    d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_start_y() as f32);
+    solve(&mut d);
+    assert_eq!(d.app.results.len(), 2);
+    d.button(Button::Menu);
+    d.button(Button::Statistics);
+    let b = layout::delete_all_button();
+    let center = |r: layout::Rect| ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0);
+    let (x, y) = center(b);
+    d.finger_tap(x, y);
+    assert!(d.app.confirm_all);
+    // The dialog accepts only its buttons.
+    d.finger_tap(40.0, 50.0);
+    assert_eq!(d.app.screen, Screen::Statistics);
+    let (cx, cy) = center(layout::dialog_cancel());
+    d.finger_tap(cx, cy);
+    assert!(!d.app.confirm_all);
+    assert_eq!(d.app.results.len(), 2, "Cancel makes no change");
+    d.finger_tap(x, y);
+    let (dx, dy) = center(layout::dialog_delete());
+    d.finger_tap(dx, dy);
+    assert!(!d.app.confirm_all && d.app.results.is_empty());
+    // With no results, the button has no effect.
+    d.finger_tap(x, y);
+    assert!(!d.app.confirm_all);
+    // The list opens empty on page 1.
+    let (ax, ay) = center(layout::all_games_button());
+    d.finger_tap(ax, ay);
+    assert_eq!((d.app.screen, d.app.list.page, d.app.page_rows().len()), (Screen::GamesList, 1, 0));
+}
+
+#[test]
+fn delete_all_dialog_text() {
+    // REQUIREMENTS.md §13.1: "1 completed game is deleted." for one result.
+    let fonts = fonts();
+    let mut one = reference::app(&fonts);
+    while one.results.len() > 1 {
+        let id = one.results[0].id;
+        one.results.retain(|r| r.id != id);
+    }
+    one.screen = Screen::Statistics;
+    one.confirm_all = true;
+    let mut pm = tiny_skia::Pixmap::new(1620, 2160).unwrap();
+    sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &one);
+    let mut two = reference::app(&fonts);
+    two.screen = Screen::Statistics;
+    two.confirm_all = true;
+    let mut pm2 = tiny_skia::Pixmap::new(1620, 2160).unwrap();
+    sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm2, &fonts), &two);
+    assert!(pm.data() != pm2.data(), "the text depends on the quantity");
 }

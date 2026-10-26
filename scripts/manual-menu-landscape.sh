@@ -16,13 +16,14 @@ row() {
 }
 slot() { shot "$UI/screen-toolbar.png" 112x112+1508+$1; }
 slot_on() { shot "$UI/color-menu.png" 112x112+1508+$1; }
-row 300  "$(slot 0)"    "Menu"                   "Opens and closes the menu."
-row 425  "$(slot 112)"  "Cell colors"           "Sets the colors for starting, clashing and highlighted numbers."
-row 550  "$(slot_on 224)"  "Undo"                 "Cancels your last change to the board."
-row 675  "$(slot_on 336)"  "Redo"                 "Makes the last canceled change again."
-row 800  "$(slot 1824)" "Help"                   "Opens this manual."
-row 925  "$(slot 1936)" "Analytics"              "Shows your completed puzzles and their times."
-row 1050 "$(slot 2048)" "New game"               "Starts a new puzzle. Refer to page 8."
+row 300  "$(slot 0)" "Menu"                   "Opens and closes the menu."
+row 420  "$(slot 112)" "Cell colors"            "Sets the colors for starting, clashing and highlighted numbers."
+row 540  "$(slot 224)" "Settings"               "Turns highlights and automatic pencil mark removal on or off."
+row 660  "$(slot_on 336)" "Undo"                   "Cancels your last change to the board."
+row 780  "$(slot_on 448)" "Redo"                   "Makes the last canceled change again."
+row 900  "$(slot 1824)" "Help"                   "Opens this manual."
+row 1020 "$(slot 1936)" "Statistics"             "Shows your completed puzzles and their times."
+row 1140 "$(slot 2048)" "New game"               "Starts a new puzzle. Refer to page 8."
 
 text 1330 340 50 black start "Select colors"
 text 1330 405 38 gray25 start "Tap Cell colors to open the"

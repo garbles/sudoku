@@ -6,3 +6,4 @@
 # everyone who runs the test benefits from these saved cases.
 cc 45e6fff98efd7a8d17c07212a89ef105d4aae3c9b3ec487f6635f5450831f752 # shrinks to seed = 0, acts = [NewGame(0, false), PickColor(0, 0)]
 cc 4b351b2d3cc3e7edd756b837c10a51c44b049824e4b5429fde834b3f32435a9f # shrinks to seed = 0, acts = [Solve, DeleteFlow(0, Some(true))]
+cc 5e570421c7c2a57e4dad0af7df9dad3da8510e01c6fecba3d6982a5af55894ff # shrinks to seed = 0, acts = [Solve, DeleteAllFlow(None), TapMicro(5, 4, 3)]
