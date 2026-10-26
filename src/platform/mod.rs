@@ -167,6 +167,11 @@ pub fn run() -> Result<(), String> {
     // The recognizer prepares its examples while the app starts.
     std::thread::spawn(crate::recognizer::warm_up);
     let fonts = Fonts::load()?;
+    // The toolbar is at the side of the hand that does not write (REQUIREMENTS.md §3.1).
+    // SUDOKU_XOCHITL_CONF replaces the path of the file (for the tests).
+    let conf_path = std::env::var("SUDOKU_XOCHITL_CONF").unwrap_or_else(|_| crate::system::XOCHITL_CONF.to_string());
+    let conf = std::fs::read_to_string(conf_path).unwrap_or_default();
+    crate::layout::set_right_handed(crate::system::conf_right_handed(&conf));
     let paths = Paths::new();
     std::fs::create_dir_all(paths.results.parent().unwrap()).map_err(|e| format!("cannot make the data folder: {e}"))?;
     let db = ResultsDb::open(&paths.results).map_err(|e| format!("cannot open the results database: {e}"))?;

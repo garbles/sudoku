@@ -308,6 +308,13 @@ fn panels_never_cover_the_toolbar_and_the_toolbar_never_covers_the_board() {
     // NAV-10
     for o in [layout::Orientation::Portrait, layout::Orientation::Landscape] {
         layout::set_orientation(o);
+        // NAV-15: for a right-handed player, the mirror image.
+        layout::set_right_handed(true);
+        assert_eq!(layout::tb_x(), 0, "{o:?}");
+        assert_eq!(layout::colors_panel().x0, layout::TB_SLOT, "{o:?}");
+        assert_eq!(layout::ng_panel().x0, layout::TB_SLOT, "{o:?}");
+        assert!(layout::TB_SLOT < layout::board_x(), "{o:?}");
+        layout::set_right_handed(false);
         assert!(layout::colors_panel().x1 <= layout::tb_x(), "{o:?}");
         assert!(layout::ng_panel().x1 <= layout::tb_x(), "{o:?}");
         assert!(layout::board_x() + layout::BOARD_SIZE < layout::tb_x(), "{o:?}");

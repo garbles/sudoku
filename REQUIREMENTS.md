@@ -94,6 +94,18 @@ Image: [`images/screen.png`](images/screen.png) (empty board, menu closed).
 The open menu starts at x 1508. The board ends at x 1471. Thus the open menu does not cover the board
 (gap of 37 px).
 
+The positions above are for a **left-handed** player. The app reads the handedness of the device
+(`RightHanded` in `[General]` of `/home/root/.config/remarkable/xochitl.conf`) when it starts. For a
+**right-handed** player (`RightHanded=true`, or no value), the menu is at the other side:
+
+- The toolbar is at the left edge (x 0–112). The menu button is at the top left, center (55.5, 55.5).
+  Its icon is a mirror image (the dot is at the right).
+- The close button is at the top right, center (1563.5, 55.5).
+- The panels touch the toolbar at its right side (for example, Cell colors at x 112–511).
+- The other icons and the contents of the panels do not change.
+
+The board, the meter, the manual and the statistics do not change.
+
 [`images/box.png`](images/box.png) shows one 3×3 box. [`images/cell.png`](images/cell.png) shows one
 cell with its micro-cells. Both images use the scale of the board and have 20 px of space around them.
 
@@ -140,7 +152,7 @@ The landscape layout has the same items, at the same sizes, as the portrait layo
 |---|---|
 | Board | At the center: x 418–1741, y 148–1471. The difficulty meter is 50 px below the board. |
 | Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. |
-| Close button | Top left, as in portrait. |
+| Close button | Top left, as in portrait. For a right-handed player, the toolbar is at the left edge (x 0–112) and the close button is at the top right (§3.1). |
 | Manual | Each page has a landscape version with two columns (`manual-*-landscape.png`, made by `scripts/manual-*-landscape.sh`). The text is the same as in portrait. |
 | Statistics | The same scale as in portrait, across the full width. The games list is one table across the full width. Each page shows 6 games, because the height is too small for 12. When the tablet turns, the list shows the page with the first game of the page before the turn. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, made by `scripts/analytics.py`). |
 
@@ -428,6 +440,8 @@ screens are open.
 ## 9. The menu
 
 The menu is a toolbar of the reMarkable type. It is a column of 112 px at the right edge (x 1508–1620).
+For a right-handed player, it is at the left edge (x 0–112) and the close button is at the top right
+([§3.1](#31-layout)).
 Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strokes.
 
 | Slot | Button | Icon | Action |

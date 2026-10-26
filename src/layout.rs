@@ -30,6 +30,24 @@ pub const ROTATION_TOP_RIGHT: Rotation = 2;
 
 thread_local! {
     static ROTATION: StdCell<Rotation> = const { StdCell::new(0) };
+    static RIGHT_HANDED: StdCell<bool> = const { StdCell::new(false) };
+}
+
+/// The handedness of the player (REQUIREMENTS.md §3.1). For a left-handed player (the images), the
+/// toolbar is at the right edge and the close button is at the top left. For a right-handed player,
+/// the game screen shows them as a mirror image: the toolbar is at the left edge and the close button
+/// is at the top right. The platform reads the handedness of the device.
+pub fn right_handed() -> bool {
+    RIGHT_HANDED.with(|r| r.get())
+}
+
+pub fn set_right_handed(on: bool) {
+    RIGHT_HANDED.with(|r| r.set(on));
+}
+
+/// The x of the mirror image of x (a pixel center), if the player is right-handed.
+fn mirror_x(x: f32) -> f32 {
+    if right_handed() { screen_w() as f32 - 1.0 - x } else { x }
 }
 
 /// The orientation of the layout. The platform sets the rotation when the tablet turns.
@@ -163,10 +181,16 @@ pub fn meter_xr() -> i32 {
 }
 
 /// The toolbar (the open menu) at the right edge: x 1508 and the bottom slot at y 2048 in portrait.
+/// For a right-handed player it is at the left edge (x 0).
 pub const TB_SLOT: i32 = 112;
 
 pub fn tb_x() -> i32 {
-    screen_w() as i32 - TB_SLOT
+    if right_handed() { 0 } else { screen_w() as i32 - TB_SLOT }
+}
+
+/// The x of the toolbar edge that the panels touch.
+fn tb_inner_x() -> i32 {
+    if right_handed() { TB_SLOT } else { tb_x() }
 }
 
 pub fn tb_cx() -> f32 {
@@ -182,8 +206,11 @@ pub fn tb_cy(k: i32) -> f32 {
     55.5 + (k * TB_SLOT) as f32
 }
 
-/// The close button (top left). Hit area: one toolbar slot.
-pub const CLOSE_CX: f32 = 55.5;
+/// The close button (top left, or top right for a right-handed player). Hit area: one toolbar slot.
+pub fn close_cx() -> f32 {
+    mirror_x(55.5)
+}
+
 pub const CLOSE_CY: f32 = 55.5;
 
 /// The buttons of the game screen.
@@ -203,11 +230,11 @@ pub enum Button {
 /// The game-screen button at a point. Only the menu button and the close button show when the menu
 /// is closed. The close button shows only when the menu is open.
 pub fn game_button(x: f32, y: f32, menu_open: bool) -> Option<Button> {
-    let (x, y) = (x as i32, y as i32);
+    let (x, y) = (mirror_x(x) as i32, y as i32);
     if x < TB_SLOT && y < TB_SLOT {
         return menu_open.then_some(Button::Close);
     }
-    if x < tb_x() {
+    if x < screen_w() as i32 - TB_SLOT {
         return None;
     }
     let top = y / TB_SLOT;
@@ -258,12 +285,17 @@ impl Rect {
 pub const COLORS_TOP: i32 = 112;
 pub const COLOR_SECTION_H: i32 = 448;
 
+/// The left and the right x of a panel of width w (pixels pl..=pr) that touches the toolbar.
+fn panel_x(w: i32) -> (i32, i32) {
+    if right_handed() { (tb_inner_x(), tb_inner_x() + w - 1) } else { (tb_inner_x() - w, tb_inner_x() - 1) }
+}
+
 pub fn colors_pl() -> i32 {
-    tb_x() - 400 // 1108 in portrait
+    panel_x(400).0 // 1108 in portrait
 }
 
 pub fn colors_pr() -> i32 {
-    tb_x() - 1 // 1507 in portrait
+    panel_x(400).1 // 1507 in portrait
 }
 
 pub fn colors_panel() -> Rect {
@@ -312,11 +344,11 @@ pub fn color_at(x: f32, y: f32) -> Option<(usize, usize)> {
 
 /// The New game panel (toolbar.sh): from the slot above the + to the bottom of the screen.
 pub fn ng_pl() -> i32 {
-    tb_x() - 1 - DIFF_W - 65 // 1002 in portrait
+    panel_x(DIFF_W + 66).0 // 1002 in portrait
 }
 
 pub fn ng_pr() -> i32 {
-    tb_x() - 1
+    panel_x(DIFF_W + 66).1
 }
 
 pub fn ng_top() -> i32 {
@@ -606,5 +638,21 @@ mod tests {
         assert_eq!(game_button(1560.0, 1992.0, true), Some(Button::Statistics));
         assert_eq!(game_button(1560.0, 2104.0, true), Some(Button::NewGame));
         assert_eq!(game_button(1560.0, 1000.0, true), None);
+    }
+
+    #[test]
+    fn right_handed_toolbar_buttons() {
+        // NAV-15: the toolbar is at the left edge and the close button at the top right.
+        set_right_handed(true);
+        assert_eq!(game_button(60.0, 50.0, false), Some(Button::Menu));
+        assert_eq!(game_button(1560.0, 50.0, false), None);
+        assert_eq!(game_button(1560.0, 50.0, true), Some(Button::Close));
+        assert_eq!(close_cx(), 1563.5);
+        assert_eq!(game_button(60.0, 160.0, true), Some(Button::Colors));
+        assert_eq!(game_button(60.0, 2104.0, true), Some(Button::NewGame));
+        assert_eq!(game_button(200.0, 160.0, true), None);
+        assert_eq!((colors_pl(), colors_pr(), ng_pl(), ng_pr()), (112, 511, 112, 617));
+        set_right_handed(false);
+        assert_eq!((colors_pl(), colors_pr(), ng_pl(), ng_pr()), (1108, 1507, 1002, 1507));
     }
 }

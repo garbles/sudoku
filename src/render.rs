@@ -177,8 +177,10 @@ impl<'a> Canvas<'a> {
     }
 
     /// Puts an image with its top left at a screen pixel.
-    pub fn image(&mut self, img: &Pixmap, x: i32, y: i32) {
-        self.pm.draw_pixmap(x, y, img.as_ref(), &PixmapPaint::default(), Transform::identity(), None);
+    /// Draws img with its top left at (x, y). `mirror` draws its mirror image (left to right).
+    pub fn image(&mut self, img: &Pixmap, x: i32, y: i32, mirror: bool) {
+        let tf = if mirror { Transform::from_row(-1.0, 0.0, 0.0, 1.0, (2 * x + img.width() as i32) as f32, 0.0) } else { Transform::identity() };
+        self.pm.draw_pixmap(x, y, img.as_ref(), &PixmapPaint::default(), tf, None);
     }
 }
 
@@ -269,7 +271,7 @@ pub fn draw(c: &mut Canvas, app: &App) {
         Screen::Game => draw_game(c, app),
         Screen::Manual => {
             let page = manual_page(app.manual_page);
-            c.image(page, 0, 0);
+            c.image(page, 0, 0, false);
         }
         Screen::Statistics => draw_summary(c, &app.results, app.confirm_all),
         Screen::GamesList => draw_list(c, app),
@@ -304,8 +306,9 @@ fn draw_game(c: &mut Canvas, app: &App) {
         labeled_slider(c, meter_xl(), meter_xr(), meter_y(), g.mode);
     }
 
-    // The menu button. Its icon shows the menu state (NAV-7).
-    c.image(toggle_icon(app.ui.menu_open), tb_x(), 0);
+    // The menu button. Its icon shows the menu state (NAV-7). The toolbar of a right-handed player
+    // shows the mirror image of the icon.
+    c.image(toggle_icon(app.ui.menu_open), tb_x(), 0, layout::right_handed());
     if app.ui.menu_open {
         draw_toolbar(c, app);
     }
@@ -399,10 +402,11 @@ fn slider(c: &mut Canvas, stops: &[f32; STOPS as usize], y: f32, level: u8) {
 /// The open menu (toolbar.sh).
 fn draw_toolbar(c: &mut Canvas, app: &App) {
     let panel = app.ui.panel;
-    // The close button (top left).
-    c.circle(CLOSE_CX, CLOSE_CY, 17.5, None, Some((BLACK, 3.0)));
-    c.line(50.0, 50.0, 61.0, 61.0, 3.0, BLACK);
-    c.line(61.0, 50.0, 50.0, 61.0, 3.0, BLACK);
+    // The close button (top left, or top right for a right-handed player).
+    let (cx, cy) = (close_cx(), CLOSE_CY);
+    c.circle(cx, cy, 17.5, None, Some((BLACK, 3.0)));
+    c.line(cx - 5.5, cy - 5.5, cx + 5.5, cy + 5.5, 3.0, BLACK);
+    c.line(cx + 5.5, cy - 5.5, cx - 5.5, cy + 5.5, 3.0, BLACK);
 
     // A panel button is white on black while its panel is open (NAV-8).
     let colors_active = panel == Panel::Colors;
@@ -481,7 +485,7 @@ fn draw_toolbar(c: &mut Canvas, app: &App) {
 }
 
 fn active_slot(c: &mut Canvas, y: i32) {
-    c.rect(tb_x() as f32, y as f32, screen_w() as f32, (y + 111) as f32, BLACK);
+    c.rect(tb_x() as f32, y as f32, (tb_x() + TB_SLOT) as f32, (y + 111) as f32, BLACK);
 }
 
 /// A pop-up frame that touches the toolbar (toolbar.sh `panel`).

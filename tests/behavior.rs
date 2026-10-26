@@ -353,7 +353,7 @@ fn menu_and_panels() {
     d.button(Button::Menu);
     assert!(!d.app.ui.menu_open);
     // The close button shows only with the open menu (NAV-6).
-    d.finger_tap(layout::CLOSE_CX, layout::CLOSE_CY);
+    d.finger_tap(layout::close_cx(), layout::CLOSE_CY);
     assert!(!d.app.quit);
     d.button(Button::Menu);
     d.button(Button::Close);

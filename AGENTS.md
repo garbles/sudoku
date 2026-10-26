@@ -51,6 +51,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   INVARIANTS.md.
 - `sudoku --self-test OUT.png SECONDS` examines a tablet without AppLoad (font, drawing, recognizer,
   eraser).
+- README.md must agree with the current state of the app (features, build, installation, data
+  files). When a change makes README.md incorrect, update README.md in the same change.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:1105d646 -->
 ## Beads Issue Tracker

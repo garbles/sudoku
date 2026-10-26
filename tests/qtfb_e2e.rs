@@ -142,6 +142,7 @@ fn the_executable_operates_through_qtfb() {
         .env("SUDOKU_DATA_DIR", &data)
         .env("SUDOKU_FONT", format!("{root}/scripts/fonts/rmsans-400.ttf"))
         .env("SUDOKU_FONT_MEDIUM", format!("{root}/scripts/fonts/rmsans-500.ttf"))
+        .env("SUDOKU_XOCHITL_CONF", format!("{root}/tests/fixtures/xochitl-left-handed.conf"))
         .stderr(Stdio::inherit())
         .spawn()
         .expect("start the app");
@@ -189,6 +190,7 @@ fn the_executable_operates_through_qtfb() {
         .env("SUDOKU_DATA_DIR", &data)
         .env("SUDOKU_FONT", format!("{root}/scripts/fonts/rmsans-400.ttf"))
         .env("SUDOKU_FONT_MEDIUM", format!("{root}/scripts/fonts/rmsans-500.ttf"))
+        .env("SUDOKU_XOCHITL_CONF", format!("{root}/tests/fixtures/xochitl-left-handed.conf"))
         .spawn()
         .unwrap();
     server2.accept();
@@ -211,6 +213,7 @@ fn start(data: &Path) -> (Server, Child) {
         .env("SUDOKU_DATA_DIR", data)
         .env("SUDOKU_FONT", format!("{root}/scripts/fonts/rmsans-400.ttf"))
         .env("SUDOKU_FONT_MEDIUM", format!("{root}/scripts/fonts/rmsans-500.ttf"))
+        .env("SUDOKU_XOCHITL_CONF", format!("{root}/tests/fixtures/xochitl-left-handed.conf"))
         .stderr(Stdio::inherit())
         .spawn()
         .expect("start the app");

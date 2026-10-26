@@ -207,3 +207,17 @@ Examination:
 - The reference images were made again with `scripts/build.sh`. Changed: the images with a meter or a
   slider, the analytics images and the "New game" manual page ("Easy needs only simple logic. Hard
   needs advanced logic.").
+
+### Owner request: the toolbar follows the handedness, 2026-10-26
+
+The owner configured the device for a left-handed user. For a right-handed user, the menu must be at
+the left edge and the close button at the right (REQUIREMENTS.md §3.1, NAV-15).
+
+- xochitl keeps the handedness in `/home/root/.config/remarkable/xochitl.conf`, section `[General]`.
+  On the device of the owner the value is `RightHanded=false` (examined through SSH). If the value is
+  not there, the app uses right-handed, as the device does by default.
+- The app reads the value only when it starts. A change in the settings of the device shows when the
+  app starts again.
+- The menu icon is a mirror image for a right-handed user (owner decision). The other icons do not
+  change, for example the undo arrow still turns to the left.
+- The reference images in `images/` stay left-handed.

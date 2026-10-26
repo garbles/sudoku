@@ -399,6 +399,65 @@ fn only_the_button_of_the_open_panel_is_white_on_black() {
     }
 }
 
+// ---- NAV-15: the handedness.
+
+/// The screen of an app for a player of one handedness.
+fn draw_handed(app: &App, fonts: &Fonts, right_handed: bool) -> Pixmap {
+    layout::set_right_handed(right_handed);
+    let pm = draw_app(app, fonts);
+    layout::set_right_handed(false);
+    pm
+}
+
+#[test]
+fn a_right_handed_player_has_the_toolbar_at_the_left() {
+    // NAV-15: for a right-handed player the toolbar and its panels are at the left edge, with the same
+    // icons, and the menu button and the close button are mirror images.
+    let fonts = fonts();
+    let mut d = Driver::new(79);
+    for o in [layout::Orientation::Portrait, layout::Orientation::Landscape] {
+        layout::set_orientation(o);
+        let w = layout::screen_w() as i32;
+        let shift = w - layout::TB_SLOT;
+        for (button, panel) in [(Some(Button::Menu), Panel::None), (Some(Button::Colors), Panel::Colors), (Some(Button::Settings), Panel::Settings), (Some(Button::NewGame), Panel::NewGame)] {
+            if let Some(b) = button {
+                d.button(b);
+            }
+            assert_eq!(d.app.ui.panel, panel);
+            let (left, right) = (draw_handed(&d.app, &fonts, false), draw_handed(&d.app, &fonts, true));
+            let mirror = |x0: i32, y0: i32, x1: i32, y1: i32| (y0..y1).flat_map(move |y| (x0..x1).map(move |x| (x, y)));
+            // The menu button and the close button: mirror images. The antialiasing of a curve is not
+            // exactly symmetric, thus the edge pixels can be a small amount different.
+            for (x, y) in mirror(0, 0, w, layout::TB_SLOT).filter(|&(x, _)| x < layout::TB_SLOT || x >= shift) {
+                let (a, b) = (rgb_at(&right, x, y)[0], rgb_at(&left, w - 1 - x, y)[0]);
+                assert!(a.abs_diff(b) <= 32, "{o:?} {panel:?}: top row at ({x}, {y}): {a} and {b}");
+            }
+            // The other toolbar slots: the same icons at the other edge.
+            for (x, y) in mirror(0, layout::TB_SLOT, layout::TB_SLOT, layout::screen_h() as i32) {
+                assert_eq!(rgb_at(&right, x, y), rgb_at(&left, x + shift, y), "{o:?} {panel:?}: toolbar at ({x}, {y})");
+            }
+            // The panel touches the toolbar and has the same contents.
+            let p = match panel {
+                Panel::Colors => Some(layout::colors_panel()),
+                Panel::Settings => Some(layout::settings_panel()),
+                Panel::NewGame => Some(layout::ng_panel()),
+                Panel::None => None,
+            };
+            if let Some(p) = p {
+                let pw = p.x1 - p.x0;
+                for (x, y) in mirror(layout::TB_SLOT, p.y0, layout::TB_SLOT + pw, p.y1.min(layout::screen_h() as i32)) {
+                    assert_eq!(rgb_at(&right, x, y), rgb_at(&left, x - layout::TB_SLOT + p.x0, y), "{o:?} {panel:?}: panel at ({x}, {y})");
+                }
+            }
+        }
+        // The first tap only closes the panel (NAV-12).
+        d.button(Button::Menu);
+        d.button(Button::Menu);
+        assert!(!d.app.ui.menu_open);
+    }
+    layout::set_orientation(layout::Orientation::Portrait);
+}
+
 // ---- COL-5: the colors that another section uses.
 
 #[test]
