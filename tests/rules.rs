@@ -690,3 +690,186 @@ fn delete_all_dialog_text() {
     sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm2, &fonts), &two);
     assert!(pm.data() != pm2.data(), "the text depends on the quantity");
 }
+
+// ---- Tests from the final audit (Settings panel, Statistics, INP-15).
+
+/// The screen of an app.
+fn draw_app(app: &sudoku::app::App, fonts: &Fonts) -> tiny_skia::Pixmap {
+    let mut pm = tiny_skia::Pixmap::new(1620, 2160).unwrap();
+    sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, fonts), app);
+    pm
+}
+
+#[test]
+fn a_control_released_after_a_pen_tap_removes_the_highlight() {
+    // HLT-2, HLT-4: a finger holds the menu button and the pen taps a number. When the finger lifts,
+    // the menu opens. The menu also removes this highlight.
+    let mut d = Driver::new(50);
+    let (x, y) = button_center(Button::Menu);
+    d.send(Input::TouchDown { id: 1, x, y });
+    let given = cells().find(|&c| d.app.game.is_given(c)).unwrap();
+    d.tap_cell(given);
+    assert!(d.app.ui.highlight.is_some());
+    d.send(Input::TouchUp { id: 1, x, y });
+    assert!(d.app.ui.menu_open);
+    assert_eq!(d.app.ui.highlight, None, "HLT-4: the menu opened with a highlight");
+}
+
+#[test]
+fn undo_with_a_finger_while_the_pen_writes_keeps_no_ink_on_a_number() {
+    // INP-5: a finger holds Undo and the pen writes in a cell. The undo puts a number back in that cell.
+    // Then no ink can wait in the cell.
+    let mut d = Driver::new(51);
+    let cell = empty_cell(&d);
+    d.button(Button::Menu);
+    d.write(cell, 7);
+    assert_eq!(d.app.game.value_at(cell), 7);
+    d.erase(cell);
+    let (x, y) = button_center(Button::Undo);
+    d.send(Input::TouchDown { id: 1, x, y });
+    d.write_strokes(&digit_ink(cell, 3));
+    assert!(d.app.ui.pending_ink.is_some());
+    d.send(Input::TouchUp { id: 1, x, y });
+    sudoku::invariants::check_app(&d.app).unwrap();
+    assert!(d.app.ui.pending_ink.is_none());
+}
+
+#[test]
+fn a_panel_does_not_open_over_waiting_ink() {
+    // NAV-11, INP-12: a finger holds the paint bucket and the pen writes. The release of the finger
+    // reads the ink, as a press does. Then a tap outside the panel only closes the panel.
+    let mut d = Driver::new(52);
+    d.button(Button::Menu);
+    let left = |d: &Driver| cells().filter(|&c| !d.app.game.is_filled(c) && c.1 < 4).collect::<Vec<_>>();
+    let (cell, other) = (left(&d)[0], left(&d)[1]);
+    let (x, y) = button_center(Button::Colors);
+    d.send(Input::TouchDown { id: 1, x, y });
+    d.write_strokes(&digit_ink(cell, 6));
+    d.send(Input::TouchUp { id: 1, x, y });
+    assert_eq!(d.app.ui.panel, Panel::Colors);
+    assert!(d.app.ui.pending_ink.is_none(), "the release reads the ink");
+    let g = d.app.game.clone();
+    d.tap_micro(other, 1);
+    assert_eq!((d.app.ui.panel, d.app.ui.menu_open), (Panel::None, true));
+    assert_eq!((d.app.game.value, d.app.game.marks, d.app.game.undo.len()), (g.value, g.marks, g.undo.len()));
+}
+
+#[test]
+fn a_pen_touch_is_a_tap_only_if_it_stays_in_one_micro_cell() {
+    // INP-2: a movement in the micro-cell is a tap. A movement out of it and back is writing.
+    let mut d = Driver::new(53);
+    let cell = empty_cell(&d);
+    let (x, y) = micro_center(cell, 5);
+    d.send(Input::PenDown { x, y, tool: Tool::Pen });
+    d.send(Input::PenMove { x: x + 10.0, y: y - 10.0 });
+    d.send(Input::PenUp { x: x - 10.0, y: y + 10.0 });
+    assert_eq!(d.app.game.marks_at(cell), mark_bit(5), "a tap");
+    d.send(Input::PenDown { x, y, tool: Tool::Pen });
+    d.send(Input::PenMove { x: x + 40.0, y });
+    d.send(Input::PenUp { x, y });
+    assert_eq!(d.app.game.marks_at(cell), mark_bit(5), "writing, not a tap");
+    assert!(d.app.ui.pending_ink.is_some());
+}
+
+#[test]
+fn the_settings_panel_closes_as_the_other_panels() {
+    // NAV-11, NAV-12 for the Settings panel: the menu button, the close button and the other toolbar
+    // buttons only close it. A tap on the board only closes it.
+    let mut d = Driver::new(54);
+    d.button(Button::Menu);
+    for b in [Button::Menu, Button::Close, Button::Undo, Button::Help, Button::Statistics] {
+        d.button(Button::Settings);
+        assert_eq!(d.app.ui.panel, Panel::Settings);
+        d.button(b);
+        assert_eq!(d.app.ui.panel, Panel::None, "{b:?}");
+        assert!(d.app.ui.menu_open && !d.app.quit && d.app.screen == Screen::Game, "{b:?}");
+    }
+    d.button(Button::Settings);
+    let cell = cells().find(|&c| !d.app.game.is_filled(c) && c.1 < 4).unwrap();
+    let before = (d.app.game.marks, d.app.game.undo.len(), d.app.settings.clone());
+    d.tap_micro(cell, 1);
+    assert_eq!((d.app.ui.panel, d.app.ui.menu_open), (Panel::None, true));
+    assert_eq!((d.app.game.marks, d.app.game.undo.len(), d.app.settings.clone()), before);
+}
+
+#[test]
+fn a_switch_does_not_change_the_changes_in_the_history() {
+    // NAV-14, UND-4: a number that removed marks while the switch was on keeps them in its change.
+    // When the switch is off, undo puts the marks back and redo removes them again.
+    let mut d = Driver::new(55);
+    let cell = empty_cell(&d);
+    let v = d.app.game.solution[cell.0 as usize][cell.1 as usize];
+    let peer = peers(cell).find(|&p| !d.app.game.is_filled(p)).unwrap();
+    d.tap_micro(peer, v);
+    d.write(cell, v);
+    assert_eq!(d.app.game.marks_at(peer) & mark_bit(v), 0);
+    let history = (d.app.game.undo.clone(), d.app.game.redo.clone());
+    open_settings(&mut d);
+    for i in [1, 0] {
+        let (x, y) = switch_point(i);
+        d.finger_tap(x, y);
+    }
+    assert!(!d.app.settings.highlight_on && !d.app.settings.auto_remove_on);
+    assert_eq!((d.app.game.undo.clone(), d.app.game.redo.clone()), history);
+    d.button(Button::Settings);
+    d.button(Button::Undo);
+    assert_ne!(d.app.game.marks_at(peer) & mark_bit(v), 0, "undo puts the mark back");
+    d.button(Button::Redo);
+    assert_eq!(d.app.game.marks_at(peer) & mark_bit(v), 0, "redo removes it again");
+}
+
+#[test]
+fn the_switches_are_kept_when_the_app_opens_again() {
+    // PER-3: the two switches go through the settings file.
+    let mut d = Driver::new(56);
+    open_settings(&mut d);
+    for i in [0, 1] {
+        let (x, y) = switch_point(i);
+        d.finger_tap(x, y);
+    }
+    let dir = std::env::temp_dir().join(format!("sudoku-switches-{}", std::process::id()));
+    let path = dir.join("settings.json");
+    sudoku::store::save_json(&path, &d.app.settings).unwrap();
+    let app = sudoku::app::App::new(
+        None,
+        sudoku::store::load_json(&path),
+        sudoku::store::ResultsDb::in_memory(),
+        Box::new(TestEnv { time: 0, seed: 1 }),
+    );
+    std::fs::remove_dir_all(&dir).ok();
+    assert!(!app.settings.highlight_on && !app.settings.auto_remove_on);
+    assert_eq!(app.settings, d.app.settings);
+}
+
+#[test]
+fn the_marks_of_a_cell_do_not_show_under_the_question_mark() {
+    // QST-1, BRD-6: while the "?" shows, the marks and the micro-cell grid of the cell are hidden.
+    // After the "?", the marks show again.
+    let fonts = fonts();
+    let mut app = reference::app(&fonts);
+    app.game = reference::sample_game();
+    let cell = cells().find(|&c| !app.game.is_filled(c)).unwrap();
+    app.ui.question = Some((cell, 0));
+    let without = draw_app(&app, &fonts);
+    app.game.marks[cell.0 as usize][cell.1 as usize] = mark_bit(1) | mark_bit(5) | mark_bit(9);
+    assert!(draw_app(&app, &fonts).data() == without.data(), "the marks are hidden");
+    app.ui.question = None;
+    assert!(draw_app(&app, &fonts).data() != without.data(), "the marks show again");
+}
+
+#[test]
+fn delete_all_games_is_gray_without_results() {
+    // ANA-12: "Delete all games" is black if there are results, and gray if there are none.
+    let fonts = fonts();
+    let darkest = |app: &sudoku::app::App| {
+        let pm = draw_app(app, &fonts);
+        let b = layout::delete_all_button();
+        (b.x0..b.x1).flat_map(|x| (b.y0..b.y1).map(move |y| (x, y))).map(|(x, y)| rgb_at(&pm, x, y)[0]).min().unwrap()
+    };
+    let mut app = reference::app(&fonts);
+    app.screen = Screen::Statistics;
+    assert!(!app.results.is_empty());
+    assert!(darkest(&app) < 30, "black with results");
+    app.results.clear();
+    assert!(darkest(&app) > 150, "gray without results");
+}

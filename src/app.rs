@@ -333,7 +333,7 @@ impl App {
                 }
             }
             Input::TouchUp { id, x, y } => match self.touch.take() {
-                Some((tid, g, _)) if tid == id => self.finger_up(g, x, y),
+                Some((tid, g, _)) if tid == id => self.finger_up(g, x, y, now),
                 other => self.touch = other,
             },
         }
@@ -499,7 +499,7 @@ impl App {
                 }
             }
             Gesture::DiscardInk => self.live_stroke = None,
-            Gesture::Control(t) => self.release_control(t, x, y),
+            Gesture::Control(t) => self.release_control(t, x, y, now),
             _ => {}
         }
     }
@@ -511,15 +511,15 @@ impl App {
         g
     }
 
-    fn finger_up(&mut self, g: Gesture, x: f32, y: f32) {
+    fn finger_up(&mut self, g: Gesture, x: f32, y: f32, now: u64) {
         match g {
-            Gesture::Control(t) => self.release_control(t, x, y),
+            Gesture::Control(t) => self.release_control(t, x, y, now),
             Gesture::Swipe { x0, y0, target } => {
                 let (dx, dy) = (x - x0, y - y0);
                 if dx.abs() >= layout::SWIPE_MIN && dx.abs() > dy.abs() {
                     self.swipe(dx < 0.0);
                 } else if let Some(t) = target {
-                    self.release_control(t, x, y);
+                    self.release_control(t, x, y, now);
                 }
             }
             _ => {}
@@ -692,9 +692,17 @@ impl App {
         }
     }
 
-    fn release_control(&mut self, t: Target, x: f32, y: f32) {
+    fn release_control(&mut self, t: Target, x: f32, y: f32, now: u64) {
         if !self.target_rect_contains(t, x, y) {
             return;
+        }
+        // The release does the action of the control. While a finger stays on the control, the pen can
+        // make a highlight or write ink. Thus the release also removes the highlight (HLT-2, HLT-4) and
+        // reads the waiting ink (INP-12) before the action, as a press does. Then an undo or a redo
+        // cannot put a number under the ink (INP-5), and a panel does not open over the ink (NAV-11).
+        self.ui.highlight = None;
+        if self.ui.pending_ink.is_some() {
+            self.read_ink(now);
         }
         match t {
             Target::Game(b) => self.game_button(b),

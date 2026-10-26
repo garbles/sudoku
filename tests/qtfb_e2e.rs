@@ -1,9 +1,12 @@
 //! An end-to-end test of the device path on Linux: a fake qtfb server (as AppLoad) starts the real
 //! executable, reads its framebuffer, sends pen and touch input and closes it. Then the test reads the
-//! saved data (PER-1, NAV-6).
+//! saved data (PER-1, NAV-6). The main loop is only on Linux, thus the clock ticks and the clock saves
+//! of the platform (CLK-6, PER-7) are also examined here.
 #![cfg(target_os = "linux")]
 
-use std::process::{Command, Stdio};
+use std::path::Path;
+use std::process::{Child, Command, Stdio};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 use sudoku::game::{cells, mark_bit, Game};
@@ -11,6 +14,9 @@ use sudoku::game::{cells, mark_bit, Game};
 const W: usize = 1620;
 const H: usize = 2160;
 const KEY: i32 = 4242;
+
+/// The fake server uses the fixed socket path of qtfb. Only one test can use it at a time.
+static SERVER: Mutex<()> = Mutex::new(());
 
 /// The C `qtfb::ServerMessage` on a 64-bit system: uint8_t type, then a union with alignment 8 at
 /// offset 8. The full size is 32 bytes.
@@ -126,6 +132,7 @@ fn wait_until(mut f: impl FnMut() -> bool) -> bool {
 
 #[test]
 fn the_executable_operates_through_qtfb() {
+    let _lock = SERVER.lock().unwrap_or_else(|e| e.into_inner());
     let root = env!("CARGO_MANIFEST_DIR");
     let data = std::env::temp_dir().join(format!("sudoku-e2e-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&data);
@@ -192,5 +199,98 @@ fn the_executable_operates_through_qtfb() {
     let g3: Game = serde_json::from_slice(&std::fs::read(&game_path).unwrap()).unwrap();
     assert_eq!((g3.seed, g3.value, g3.marks), (g2.seed, g2.value, g2.marks));
     assert!(g3.elapsed_ms > g2.elapsed_ms, "the clock continues from the saved time");
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// Starts the executable with the data folder `data`, and waits for its first frame.
+fn start(data: &Path) -> (Server, Child) {
+    let root = env!("CARGO_MANIFEST_DIR");
+    let mut server = Server::new();
+    let child = Command::new(env!("CARGO_BIN_EXE_sudoku"))
+        .env("QTFB_KEY", KEY.to_string())
+        .env("SUDOKU_DATA_DIR", data)
+        .env("SUDOKU_FONT", format!("{root}/scripts/fonts/rmsans-400.ttf"))
+        .env("SUDOKU_FONT_MEDIUM", format!("{root}/scripts/fonts/rmsans-500.ttf"))
+        .stderr(Stdio::inherit())
+        .spawn()
+        .expect("start the app");
+    server.accept();
+    assert!(server.wait_update(), "first frame");
+    (server, child)
+}
+
+fn read_game(path: &Path) -> Game {
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+/// Sends a signal and waits until the app stops. The app must stop with success.
+fn stop_with(child: &mut Child, signal: libc::c_int) {
+    unsafe { libc::kill(child.id() as i32, signal) };
+    let end = Instant::now() + Duration::from_secs(10);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            assert!(status.success(), "signal {signal}: {status}");
+            return;
+        }
+        assert!(Instant::now() < end, "signal {signal}: the app does not stop");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn the_clock_ticks_and_is_saved_with_no_input() {
+    // CLK-6: with no input, the app ticks at least one time each second; thus no gap of more than 5 s
+    // occurs and the clock counts all the time. PER-7: the app saves the clock at least each 5 seconds
+    // (a power loss loses a maximum of 5 s of the clock), and it saves the game on SIGINT and SIGHUP.
+    let _lock = SERVER.lock().unwrap_or_else(|e| e.into_inner());
+    let data = std::env::temp_dir().join(format!("sudoku-e2e-clock-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&data);
+    let game_path = data.join("game.json");
+    let (_server, mut child) = start(&data);
+    let shown = Instant::now();
+    assert!(wait_until(|| game_path.exists()));
+    assert_eq!(read_game(&game_path).elapsed_ms, 0, "a new game is saved at the start");
+
+    // Read the save file while the app runs with no input. Keep each new value of the clock.
+    const RUN: Duration = Duration::from_millis(11_500);
+    // The clock starts at the first tick after the first frame (a maximum of 1 s), and the reading of
+    // a file has a small delay.
+    const SLACK_MS: u64 = 1500;
+    let mut saves: Vec<u64> = Vec::new();
+    while shown.elapsed() < RUN {
+        let saved = read_game(&game_path).elapsed_ms;
+        let wall = shown.elapsed().as_millis() as u64;
+        assert!(saved <= wall, "the clock {saved} ms is more than the time {wall} ms");
+        assert!(wall - saved <= 5000 + SLACK_MS, "PER-7: after {wall} ms the saved clock is {saved} ms");
+        if saved > 0 && saves.last() != Some(&saved) {
+            saves.push(saved);
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert!(saves.len() >= 2, "PER-7: two clock saves in {RUN:?}: {saves:?}");
+    for w in saves.windows(2) {
+        let step = w[1] - w[0];
+        // The save occurs at the first tick 5 s after the last save. If the app ticked less often than
+        // each second, the step would be 6 s or more.
+        assert!((5000..5800).contains(&step), "CLK-6, PER-7: the clock saves are {saves:?}");
+    }
+
+    // SIGINT saves the clock: the next clock save is not yet due.
+    let before = *saves.last().unwrap();
+    stop_with(&mut child, libc::SIGINT);
+    let at_stop = shown.elapsed().as_millis() as u64;
+    let g = read_game(&game_path);
+    assert!(g.elapsed_ms > before, "SIGINT saves the clock: {} ms, last clock save {before} ms", g.elapsed_ms);
+    assert!(g.elapsed_ms + SLACK_MS >= at_stop, "CLK-6: the clock {} ms counts all of {at_stop} ms", g.elapsed_ms);
+
+    // SIGHUP saves the clock. The app opens the saved game and saves it at the start; 2.5 s is less
+    // than the clock save interval.
+    let (_server, mut child) = start(&data);
+    std::thread::sleep(Duration::from_millis(2500));
+    assert_eq!(read_game(&game_path).elapsed_ms, g.elapsed_ms, "no clock save before 5 s");
+    stop_with(&mut child, libc::SIGHUP);
+    let g2 = read_game(&game_path);
+    assert_eq!((g2.seed, g2.value, g2.marks), (g.seed, g.value, g.marks));
+    assert!(g2.elapsed_ms >= g.elapsed_ms + 1000, "SIGHUP saves the clock: {} ms after {} ms", g2.elapsed_ms, g.elapsed_ms);
     let _ = std::fs::remove_dir_all(&data);
 }
