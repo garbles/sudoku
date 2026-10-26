@@ -103,7 +103,7 @@ Terms:
 | PUZ-2 | The starting numbers have **only one** solution. That solution is `solution`. | R§14.5 |
 | PUZ-3 | For each starting number, `value = solution`. Thus two starting numbers never clash. | R§14.5 |
 | PUZ-4 | `given` does not change after the generator makes the puzzle. It changes only when a new puzzle replaces the game. | R§4.1 |
-| PUZ-5 | `(seed, mode)` sets the full game. The same pair always gives the same starting numbers and the same solution. | R§14.1, R§14.5 |
+| PUZ-5 | `(seed, mode)` sets the full game. The same pair always gives the same starting numbers and the same solution. A saved game whose starting numbers or solution are not `generate(seed, mode)` is not correct: the app does not use it (PER-5). | R§14.1, R§14.5 (confirmed 2026-10-25) |
 | PUZ-6 | The generator sets the quantity of starting numbers for each mode. No other part of the app uses a fixed quantity. | R§11, R§14.5 |
 
 ## 2. Cells
@@ -168,7 +168,7 @@ Terms:
 | INP-5 | `pending_ink ≠ None ⇒` its cell is empty and the game is not complete. The app collects the ink until the pen is lifted for the recognition pause (approximately 0.5 s). Then the app reads all the ink as one item and sets `pending_ink = None`. | R§5.1 |
 | INP-6 | The app reads the ink as one of these two results: a number from 1 to 9 (the app adds it), or "not 1–9" (scribble, letter, 0, 10 or more). For "not 1–9", the app shows the "?". There is no other result. | R§5.1 |
 | INP-7 | The app removes writing on a filled cell (starting number or entry). The writing makes no change. | R§5.1 |
-| INP-8 | The eraser changes the board only on an entry. It makes the cell empty and shows its hidden marks again. On starting numbers and empty cells, it makes no change. | R§5.1 |
+| INP-8 | The eraser changes the board only on an entry. It makes the cell empty and shows its hidden marks again. On starting numbers and empty cells, it makes no change. The eraser on the cell of the waiting ink removes the ink. The app does not read that ink, thus the board and the undo history do not change. | R§5.1 (confirmed 2026-10-25) |
 | INP-9 | When `completed` is true, pen input does not change `value`, `marks`, `highlight` or the stacks. | R§8.3 |
 | INP-10 | Ink never stays on the board. After the app reads it, removes it or shows the "?", the board shows only typed numbers, marks and the grid. | R§5.1 |
 | INP-11 | While ink waits in a cell, each pen touch that starts in the same cell is writing. This is also true if the touch stays in one micro-cell. Thus a short stroke of a number (for example the bar of a 7) does not become a pencil mark. | R§5.1 (confirmed 2026-10-25) |
@@ -268,7 +268,7 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| ANA-1 | Each result has `mode ∈ 0..4`, `seconds ≥ 0`, `givens ∈ 0..81`, a `seed`, a `finished_at` and a unique `id`. | R§14.1 |
+| ANA-1 | Each result has `mode ∈ 0..4`, `seconds ≥ 0`, `givens ∈ 0..81`, a `seed`, a `finished_at` and a unique `id`. When the app opens, it does not use a row in the results file that breaks this rule. The row stays in the file. | R§14.1 (confirmed 2026-10-25) |
 | ANA-2 | Only completion adds results (CMP-5). Only a confirmed Delete (one game) or a confirmed Delete all games removes results. (The device test tool `sudoku --test-results` is not a part of the app; refer to DECISIONS.md.) | R§14.1, R§13.1, R§13.2 |
 | ANA-3 | "Puzzles completed" on the summary is `|results|`. "Average time" is the average of `seconds` in `results`, or "–" if there are no results. | R§13.1 |
 | ANA-4 | For each mode m, completed is `|{r ∈ results : r.mode = m}|`. Average is the average of their `seconds`, or "–" if there are none. The sum of the quantities for all modes is equal to the total. | R§13.1 |
@@ -289,7 +289,7 @@ Terms:
 | PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Closed`, `panel = None`, `highlight = None`, `question = None` and `pending_ink = None`. | R§14.3 |
 | PER-3 | The settings (`color_*`, `last_mode`, `highlight_on` and `auto_remove_on`) stay the same when the app closes and opens again. | R§14.2 |
 | PER-4 | `results` stays the same when the app closes and opens again. Only ANA-2 changes it. | R§14.1 |
-| PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. | — |
+| PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. When the app opens, it does not use saved data that breaks a rule (PUZ-5, ANA-1). A saved history that play cannot make, but that agrees with UND-3, is correct: each undo and redo item still changes the board. | — (confirmed 2026-10-25) |
 | PER-6 | If the app closes during the recognition pause, the app removes the ink. The app never reads it later. | R§14.3 |
 | PER-7 | The app saves the game after each change to the board, the settings after each change, and the clock at least each 5 seconds. It also saves when it closes or gets SIGTERM, SIGINT or SIGHUP. A power loss can lose a maximum of 5 seconds of the clock. | R§14.3 (confirmed 2026-10-25) |
 

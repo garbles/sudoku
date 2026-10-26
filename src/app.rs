@@ -187,7 +187,7 @@ impl App {
     /// not correct (PER-5), the app makes a new game of the last selected mode.
     pub fn new(saved: Option<Game>, settings: Option<Settings>, db: ResultsDb, mut env: Box<dyn Env>) -> App {
         let settings = settings.filter(Settings::is_valid).unwrap_or_default();
-        let game = match saved.filter(|g| crate::invariants::check_game(g).is_ok()) {
+        let game = match saved.filter(|g| crate::invariants::check_game(g).is_ok() && is_generated(g)) {
             Some(g) => g,
             None => new_game(env.new_seed(), settings.last_mode),
         };
@@ -364,6 +364,17 @@ impl App {
             ink.last_lift_at = None;
             self.start_live_stroke(x, y);
             return Gesture::Writing;
+        }
+        // The eraser on the cell of the waiting ink removes the ink. The app does not read it, thus the
+        // board and the undo history do not change (INP-8).
+        let erases_ink = self.screen == Screen::Game
+            && self.ui.panel == Panel::None
+            && tool == Some(Tool::Eraser)
+            && cell.is_some()
+            && self.ui.pending_ink.as_ref().map(|i| Some(i.cell) == cell).unwrap_or(false);
+        if erases_ink {
+            self.ui.pending_ink = None;
+            self.live_stroke = None;
         }
         // A finger on the board has no effect on the game (INP-1), thus it does not read the ink (for
         // example a palm on the screen between two strokes of a 4).
@@ -920,6 +931,13 @@ impl App {
 pub fn new_game(seed: u64, mode: u8) -> Game {
     let p = generate(seed, mode);
     Game::new(seed, mode, p.solution, p.givens)
+}
+
+/// True if the starting numbers and the solution are the puzzle of `(seed, mode)` (PUZ-5). The app
+/// examines this only when it opens a saved game, because the generator is slow for each input.
+fn is_generated(g: &Game) -> bool {
+    let p = new_game(g.seed, g.mode);
+    p.solution == g.solution && p.given == g.given
 }
 
 /// The average of the times, rounded to whole seconds. A half rounds to the even value, as in the

@@ -671,3 +671,47 @@ fn a_gap_of_5000_ms_counts_and_a_gap_of_5001_ms_does_not() {
     d.send(Input::TouchUp { id: 1, x, y });
     assert_eq!(d.app.game.elapsed_ms, t + 5000, "CLK-6: an event after 5001 ms");
 }
+
+#[test]
+fn the_eraser_on_waiting_ink_removes_the_ink() {
+    // INP-8, INP-12, UND-1 (confirmed 2026-10-25): the eraser on the cell of the waiting ink removes
+    // the ink. The app does not read it, thus there is no change and no undo item.
+    let mut d = Driver::new(61);
+    let empty = empty_cells(&d);
+    let (cell, other) = (empty[0], empty[1]);
+    d.tap_micro(cell, 4);
+    d.tap_micro(other, 2);
+    let v = solution_at(&d.app.game, cell);
+    d.write_strokes(&digit_ink(cell, v));
+    assert!(d.app.ui.pending_ink.is_some());
+    let before = state(&d);
+    let undo_before = d.app.game.undo.clone();
+    d.erase(cell);
+    assert!(d.app.ui.pending_ink.is_none() && d.app.live_stroke.is_none(), "the eraser removes the ink");
+    assert_eq!(state(&d), before, "the eraser on waiting ink does not change the board or the history");
+    assert_eq!(d.app.game.undo, undo_before);
+    d.wait(d.app.pause_ms + 50);
+    assert_eq!(state(&d), before, "the app never reads the removed ink");
+    check(&d);
+
+    // An undo after this undoes the change before the ink: the mark in the other cell.
+    d.button(Button::Menu);
+    d.button(Button::Undo);
+    assert_eq!(d.app.game.marks_at(other), 0);
+    assert_eq!(d.app.game.value_at(cell), 0);
+    check(&d);
+
+    // The eraser in a different cell reads the ink as a press on a different item does (INP-12). The
+    // number stays, because the eraser on an empty cell makes no change (INP-8).
+    let mut d = Driver::new(62);
+    let empty = empty_cells(&d);
+    let (cell, other) = (empty[0], empty[1]);
+    let v = solution_at(&d.app.game, cell);
+    d.write_strokes(&digit_ink(cell, v));
+    let undo_len = d.app.game.undo.len();
+    d.erase(other);
+    assert!(d.app.ui.pending_ink.is_none());
+    assert_eq!(d.app.game.value_at(cell), v, "the eraser in a different cell reads the ink");
+    assert_eq!(d.app.game.undo.len(), undo_len + 1, "one undo item: the number");
+    check(&d);
+}

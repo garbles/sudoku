@@ -116,22 +116,28 @@ impl ResultsDb {
         Ok(())
     }
 
-    /// All results, with the newest first.
+    /// All results, with the newest first. The app does not use a row that does not agree with ANA-1
+    /// (for example a database from a different schema). The row stays in the file.
     pub fn all(&self) -> rusqlite::Result<Vec<ResultRow>> {
         let mut stmt = self.conn.prepare(
             "SELECT id, finished_at, mode, givens, seconds, seed FROM results ORDER BY finished_at DESC, id DESC",
         )?;
         let rows = stmt.query_map([], |row| {
-            Ok(ResultRow {
+            let (mode, givens, seconds): (i64, i64, i64) = (row.get(2)?, row.get(3)?, row.get(4)?);
+            if !((0..5).contains(&mode) && (0..=81).contains(&givens) && seconds >= 0) {
+                return Ok(None);
+            }
+            Ok(Some(ResultRow {
                 id: row.get(0)?,
                 finished_at: row.get(1)?,
-                mode: row.get(2)?,
-                givens: row.get(3)?,
-                seconds: row.get::<_, i64>(4)? as u64,
+                mode: mode as u8,
+                givens: givens as u8,
+                seconds: seconds as u64,
                 seed: row.get::<_, i64>(5)? as u64,
-            })
+            }))
         })?;
-        rows.collect()
+        // A value of the wrong type (for example text in `mode`) also makes the row not usable.
+        Ok(rows.filter_map(|r| r.ok().flatten()).collect())
     }
 }
 

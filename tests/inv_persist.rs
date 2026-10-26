@@ -513,3 +513,69 @@ fn each_result_has_correct_values_and_a_unique_id() {
     check_app(&app).unwrap();
     std::fs::remove_dir_all(&dir).ok();
 }
+
+#[test]
+fn a_saved_game_that_is_not_the_puzzle_of_its_seed_and_mode_is_not_used() {
+    // PER-5, PUZ-5 (confirmed 2026-10-25): the starting numbers and the solution must be
+    // `generate(seed, mode)`. Each corruption agrees with all other rules, thus only PUZ-5 rejects it.
+    let base = new_game(905, 2);
+    let control = open_app(Some(base.clone()), None, ResultsDb::in_memory(), 5);
+    assert_eq!(control.game, base, "the game of its own seed and mode is used");
+
+    let other_seed = Game { seed: 906, ..base.clone() };
+    let other_mode = Game { mode: 3, ..base.clone() };
+    let other_puzzle = Game { seed: base.seed, mode: base.mode, ..new_game(907, 2) };
+    for (name, bad) in [("seed", other_seed), ("mode", other_mode), ("puzzle", other_puzzle)] {
+        assert!(check_game(&bad).is_ok(), "{name}: the corruption agrees with the other rules");
+        let dir = data_dir(&format!("puz5-{name}"));
+        let path = dir.join("game.json");
+        save_json(&path, &bad).unwrap();
+        let loaded: Game = load_json(&path).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        let app = open_app(Some(loaded), None, ResultsDb::in_memory(), 5);
+        assert_ne!(app.game, bad, "{name}: the app used a game that is not generate(seed, mode)");
+        assert_eq!(app.game, new_game(first_seed(5), MIDDLE_MODE), "{name}: a new game of the last mode");
+        check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
+    }
+}
+
+#[test]
+fn result_rows_that_break_ana_1_are_not_used() {
+    // ANA-1, PER-5 (confirmed 2026-10-25): the app does not use a result row that breaks ANA-1. The
+    // schema of the app does not let such a row in, thus the test makes a database without the CHECK
+    // constraints, as an older or changed file can have.
+    let dir = data_dir("ana1-rows");
+    let path = dir.join(RESULTS_FILE);
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE results (
+                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                 finished_at INTEGER NOT NULL,
+                 mode        INTEGER NOT NULL,
+                 givens      INTEGER NOT NULL,
+                 seconds     INTEGER NOT NULL,
+                 seed        INTEGER NOT NULL
+             );
+             INSERT INTO results (finished_at, mode, givens, seconds, seed) VALUES
+                 (1790000000, 1, 40, 300, 11),
+                 (1790000001, 7, 40, 300, 12),
+                 (1790000002, 5, 40, 300, 13),
+                 (1790000003, -1, 40, 300, 14),
+                 (1790000004, 2, 82, 300, 15),
+                 (1790000005, 2, -1, 300, 16),
+                 (1790000006, 2, 40, -5, 17),
+                 (1790000007, 'x', 40, 300, 18),
+                 (1790000008, 4, 81, 0, 19);",
+        )
+        .unwrap();
+    }
+    let app = open_app(None, None, ResultsDb::open(&path).unwrap(), 5);
+    let seeds: HashSet<u64> = app.results.iter().map(|r| r.seed).collect();
+    assert_eq!(seeds, HashSet::from([11, 19]), "only the rows that agree with ANA-1 are used");
+    for r in &app.results {
+        assert!(r.mode < MODES && r.givens <= 81, "ANA-1: {r:?}");
+    }
+    check_app(&app).unwrap();
+    std::fs::remove_dir_all(&dir).ok();
+}
