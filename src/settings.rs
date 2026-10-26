@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::generator::{MIDDLE_MODE, MODES};
+use crate::generator::{FIRST_MODE, MODES};
 
 /// The cell colors. They are pale, so that the digits are easy to read. Black is not available (COL-6).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -106,7 +106,7 @@ impl Default for Settings {
             color_starting: Color::Gray,
             color_clash: Color::Red,
             color_highlight: Color::Green,
-            last_mode: MIDDLE_MODE,
+            last_mode: FIRST_MODE,
             highlight_on: true,
             auto_remove_on: true,
         }

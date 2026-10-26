@@ -39,7 +39,7 @@ open, the close button shows at the top left.
 | Image | Content | Purpose |
 |---|---|---|
 | `screen-toolbar.png` | The menu is open on a new game. Undo and redo are gray, because there is no change to undo. | Shows all menu buttons and their icons. |
-| `new-game-menu.png` | The + button is black, and its panel is open. The panel has the difficulty slider (five modes) and "Start new game". | How to start a new game. The panel is wider than the menus of the device, so that the slider is easy to use. The slider has the same size as the meter below the board. |
+| `new-game-menu.png` | The + button is black, and its panel is open. The panel has the difficulty slider (seven modes) and "Start new game". | How to start a new game. The panel is wider than the menus of the device, so that the slider is easy to use. The slider has the same size as the meter below the board. |
 | `color-menu.png` | The Cell colors panel is open on the game in progress. It has three sections: starting numbers (Gray), clashing numbers (Red) and highlighted numbers (Green). | The only place to change the cell colors. Each section has the same design as the pen-color menu of the device: a title, a 3×3 grid of 112 px cells and a black box around the selected color. |
 | `settings-menu.png` | The Settings panel is open on the game in progress (the gear is white on black). Two rows: "Highlight numbers" and "Remove pencil marks automatically", each with a switch (both on). | The only place to turn the two helpers off and on (REQUIREMENTS.md §9.1). |
 | `screen-completed-menu.png` | The menu is open on a complete puzzle. Undo and redo are gray. | Shows that a complete puzzle is locked. |
@@ -47,8 +47,8 @@ open, the close button shows at the top left.
 ## Statistics
 
 `scripts/analytics.py` also makes the three screens for landscape (`analytics-landscape.png`,
-`analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png`, 2160×1620). The games list then has
-two columns of 6 games.
+`analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png`, 2160×1620). The games list then is
+one table across the full width, with 6 games on each page.
 
 Statistics in the menu opens these screens (the image files keep the name "analytics"). They have the same top and bottom items as the manual:
 "< Back" shows the game again. The two screens use one list of sample results. Thus their numbers

@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 
 use tiny_skia::{FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, PixmapPaint, Rect as SkRect, Stroke, Transform};
 
-use crate::app::{average_seconds, App, Panel, Screen, MANUAL_PAGES, PER_PAGE};
+use crate::app::{average_seconds, App, Panel, Screen, MANUAL_PAGES};
 use crate::font::{Anchor, Font, Fonts};
 use crate::game::{cells, format_clock, Game};
 use crate::generator::MODES;
@@ -277,7 +277,7 @@ pub fn draw(c: &mut Canvas, app: &App) {
 }
 
 /// The x positions of the stops of the New game slider (layout.rs).
-pub fn ng_stops(fonts: &Fonts) -> [f32; 5] {
+pub fn ng_stops(fonts: &Fonts) -> [f32; STOPS as usize] {
     let (we, wi) = (fonts.medium.width(25.0, "Easy"), fonts.medium.width(25.0, "Hard"));
     layout::slider_stops(ng_tx(), ng_tr(), we, wi)
 }
@@ -384,8 +384,8 @@ fn labeled_slider(c: &mut Canvas, xl: i32, xr: i32, y: i32, level: u8) {
     slider(c, &stops, y as f32, level);
 }
 
-fn slider(c: &mut Canvas, stops: &[f32; 5], y: f32, level: u8) {
-    let (xa, xb) = (stops[0], stops[4]);
+fn slider(c: &mut Canvas, stops: &[f32; STOPS as usize], y: f32, level: u8) {
+    let (xa, xb) = (stops[0], stops[STOPS as usize - 1]);
     let xk = stops[level as usize];
     c.line(xk, y, xb, y, 3.0, gray(60));
     c.line(xa, y, xk, y, 5.0, BLACK);
@@ -595,9 +595,8 @@ fn draw_new_game_panel(c: &mut Canvas, slider_level: u8) {
 
 // ---- Analytics (analytics.py)
 
-/// The difficulty meter of the analytics screens (no labels).
-fn meter(c: &mut Canvas, xa: f32, y: f32, level: u8, on: Rgb, off: Rgb, hollow: Rgb) {
-    let step = 34.0;
+/// The difficulty meter of the analytics screens (no labels). `step` is the distance between the stops.
+fn meter(c: &mut Canvas, xa: f32, y: f32, step: f32, level: u8, on: Rgb, off: Rgb, hollow: Rgb) {
     let (xk, xb) = (xa + level as f32 * step, xa + (MODES - 1) as f32 * step);
     c.line(xk, y, xb, y, 2.5, off);
     c.line(xa, y, xk, y, 4.5, on);
@@ -649,19 +648,20 @@ pub fn draw_summary(c: &mut Canvas, results: &[ResultRow], confirm_all: bool) {
     let mut y = SUMMARY_TABLE_Y;
     hline(c, y, 72.0, right);
     // ANA-4
+    let row = summary_row();
     for mode in 0..MODES {
         let rows: Vec<&ResultRow> = results.iter().filter(|r| r.mode == mode).collect();
-        let cy = y + (ROW / 2.0).floor();
+        let cy = y + (row / 2.0).floor();
         let name = match mode {
             0 => "Easy",
-            4 => "Hard",
+            m if m == MODES - 1 => "Hard",
             _ => "",
         };
         c.text(false, 34.0, 72.0, cy + 12.0, Anchor::Start, name, BLACK);
-        meter(c, 230.0, cy, mode, BLACK, gray(60), WHITE);
+        meter(c, 230.0, cy, METER_STEP, mode, BLACK, gray(60), WHITE);
         c.text(false, 34.0, count_x, cy + 12.0, Anchor::End, &rows.len().to_string(), BLACK);
         c.text(false, 34.0, right, cy + 12.0, Anchor::End, &avg_text(&rows), BLACK);
-        y += ROW;
+        y += row;
         hline(c, y, 72.0, right);
     }
     y += 70.0;
@@ -739,35 +739,30 @@ fn draw_list(c: &mut Canvas, app: &App) {
             c.rect(x, SEG_Y, x + seg, SEG_Y + 80.0, BLACK);
         }
         c.stroke_rect(x, SEG_Y, x + seg, SEG_Y + 80.0, 1.7, BLACK);
-        // The meter is at the center of the segment (37 units from the left in portrait).
-        let mx = x + (seg - 136.0) / 2.0;
+        // The meter is at the center of the segment (24.75 units from the left in portrait).
+        let mx = x + (seg - (MODES - 1) as f32 * FILTER_METER_STEP) / 2.0;
         if i == 0 {
             c.text(true, 32.0, x + seg / 2.0, SEG_Y + 52.0, Anchor::Middle, "All", if selected { WHITE } else { BLACK });
         } else if selected {
-            meter(c, mx, SEG_Y + 40.0, i as u8 - 1, WHITE, gray(60), BLACK);
+            meter(c, mx, SEG_Y + 40.0, FILTER_METER_STEP, i as u8 - 1, WHITE, gray(60), BLACK);
         } else {
-            meter(c, mx, SEG_Y + 40.0, i as u8 - 1, BLACK, gray(60), WHITE);
+            meter(c, mx, SEG_Y + 40.0, FILTER_METER_STEP, i as u8 - 1, BLACK, gray(60), WHITE);
         }
     }
-    // One column of 12 rows in portrait, two columns of 6 rows in landscape (layout.rs).
+    // One table across the full width: 12 rows in portrait, 6 rows in landscape (layout.rs).
     let (meter_dx, time_dx, bin_dx) = list_offsets();
+    let (x, w) = list_column();
     let rows = app.page_rows();
-    debug_assert!(rows.len() <= PER_PAGE);
-    for col in 0..list_columns() {
-        let (x, w) = list_column(col);
-        if col == 0 || rows.len() > col * LIST_ROWS / list_columns() {
-            c.text(false, 30.0, x, 395.0, Anchor::Start, "Date", gray(40));
-            c.text(false, 30.0, x + meter_dx, 395.0, Anchor::Start, "Difficulty", gray(40));
-            c.text(false, 30.0, x + time_dx, 395.0, Anchor::End, "Time", gray(40));
-            hline(c, LIST_Y, x, x + w);
-        }
-    }
+    debug_assert!(rows.len() <= list_rows());
+    c.text(false, 30.0, x, 395.0, Anchor::Start, "Date", gray(40));
+    c.text(false, 30.0, x + meter_dx, 395.0, Anchor::Start, "Difficulty", gray(40));
+    c.text(false, 30.0, x + time_dx, 395.0, Anchor::End, "Time", gray(40));
+    hline(c, LIST_Y, x, x + w);
     for (i, r) in rows.iter().enumerate() {
-        let (col, y) = list_row(i);
-        let (x, w) = list_column(col);
+        let y = list_row(i);
         let cy = y + (ROW / 2.0).floor();
         c.text(false, 34.0, x, cy + 12.0, Anchor::Start, &format_date(r.finished_at), BLACK);
-        meter(c, x + meter_dx, cy, r.mode, BLACK, gray(60), WHITE);
+        meter(c, x + meter_dx, cy, METER_STEP, r.mode, BLACK, gray(60), WHITE);
         c.text(false, 34.0, x + time_dx, cy + 12.0, Anchor::End, &format_clock(r.seconds), BLACK);
         bin(c, x + bin_dx, cy);
         hline(c, y + ROW, x, x + w);

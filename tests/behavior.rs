@@ -5,7 +5,7 @@
 mod common;
 
 use common::*;
-use sudoku::app::{App, Input, Panel, Screen, Tool, PER_PAGE};
+use sudoku::app::{App, Input, Panel, Screen, Tool};
 use sudoku::game::{cells, mark_bit, peers, Cell};
 use sudoku::layout::{self, Button};
 use sudoku::settings::{Color, Settings};
@@ -452,10 +452,35 @@ fn manual() {
     assert_eq!(d.app.manual_page, 1, "the manual always opens at page 1");
 }
 
+#[test]
+fn the_landscape_list_keeps_the_first_game_of_the_page() {
+    // R§3.3, ANA-6: a landscape page has 6 games in one table across the full width. A turn keeps
+    // the first game of the page visible.
+    let mut d = Driver::from(app_with_results(30));
+    d.button(Button::Menu);
+    d.button(Button::Statistics);
+    let all = layout::all_games_button();
+    d.finger_tap((all.x0 + 100) as f32, (all.y0 + 20) as f32);
+    d.swipe(true);
+    let first = d.app.page_rows()[0].id;
+    assert_eq!((d.app.list.page, d.app.page_count()), (2, 3));
+    layout::set_orientation(layout::Orientation::Landscape);
+    d.app.rotate(d.app.ng_stops);
+    assert_eq!((d.app.list.page, d.app.page_count(), d.app.page_rows().len()), (3, 5, 6));
+    assert_eq!(d.app.page_rows()[0].id, first);
+    sudoku::invariants::check_app(&d.app).unwrap();
+    d.swipe(true);
+    assert_eq!(d.app.list.page, 4);
+    layout::set_orientation(layout::Orientation::Portrait);
+    d.app.rotate(d.app.ng_stops);
+    assert_eq!(d.app.list.page, 2, "game 19 is on portrait page 2");
+    sudoku::invariants::check_app(&d.app).unwrap();
+}
+
 fn app_with_results(n: usize) -> App {
     let mut db = ResultsDb::in_memory();
     for i in 0..n {
-        db.insert(&NewResult { finished_at: 1_700_000_000 + i as i64 * 1000, mode: (i % 5) as u8, givens: 30, seconds: 100 + i as u64, seed: i as u64 }).unwrap();
+        db.insert(&NewResult { finished_at: 1_700_000_000 + i as i64 * 1000, mode: (i % 5) as u8, givens: 30, seconds: 100 + i as u64, seed: i as u64, generator: 2 }).unwrap();
     }
     App::new(None, None, db, Box::new(TestEnv { time: 1_790_000_000, seed: 1 }))
 }
@@ -472,7 +497,7 @@ fn analytics_and_list() {
     assert_eq!(d.app.screen, Screen::GamesList);
     assert_eq!((d.app.list.filter, d.app.list.page), (None, 1));
     assert_eq!(d.app.page_count(), 3);
-    assert_eq!(d.app.page_rows().len(), PER_PAGE);
+    assert_eq!(d.app.page_rows().len(), layout::list_rows());
     assert!(d.app.page_rows()[0].finished_at > d.app.page_rows()[1].finished_at, "newest first");
     d.swipe(true);
     d.swipe(true);

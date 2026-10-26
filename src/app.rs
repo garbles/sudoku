@@ -21,7 +21,6 @@ pub const MAX_CLOCK_GAP_MS: u64 = 5000;
 pub const MANUAL_PAGES: u8 = 9;
 /// A finger touch with no event for this time is forgotten when a new touch starts (INP-15).
 pub const STALE_TOUCH_MS: u64 = 150;
-pub const PER_PAGE: usize = 12;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
@@ -157,7 +156,9 @@ pub struct App {
 
     pub pause_ms: u64,
     /// The x positions of the stops of the New game slider. They depend on the font (layout.rs).
-    pub ng_stops: [f32; 5],
+    pub ng_stops: [f32; layout::STOPS as usize],
+    /// The quantity of games on a page of the list in the current layout (`layout::list_rows`).
+    per_page: usize,
     /// The stroke that the pen draws now (to show the ink).
     pub live_stroke: Option<Stroke>,
     /// The quantity of live strokes that began. The platform uses it to know that `live_stroke` is a
@@ -199,6 +200,7 @@ impl App {
             ui: GameUi::closed(slider),
             manual_page: 1,
             list: ListUi { filter: None, page: 1, confirm: None },
+            per_page: crate::layout::list_rows(),
             confirm_all: false,
             settings,
             results,
@@ -251,8 +253,13 @@ impl App {
     /// The tablet turned. The positions of ink and of touches are not correct now: the app removes the
     /// ink that waits and stops the touches. The game does not change.
     /// `ng_stops` are the slider stops of the new layout (`render::ng_stops`).
-    pub fn rotate(&mut self, ng_stops: [f32; 5]) {
+    /// The games list keeps the first game of its page visible, because a page of the landscape layout
+    /// has fewer games (`layout::list_rows`).
+    pub fn rotate(&mut self, ng_stops: [f32; layout::STOPS as usize]) {
         self.ng_stops = ng_stops;
+        let first = (self.list.page - 1) * self.per_page;
+        self.per_page = crate::layout::list_rows();
+        self.list.page = (first / self.per_page + 1).min(self.page_count());
         self.ui.pending_ink = None;
         self.live_stroke = None;
         self.pen = None;
@@ -611,6 +618,7 @@ impl App {
                 givens: self.game.givens_count(),
                 seconds: self.game.seconds(),
                 seed: self.game.seed,
+                generator: self.game.generator,
             };
             match self.db.insert(&r) {
                 Ok(_) => self.refresh_results(),
@@ -890,11 +898,11 @@ impl App {
     }
 
     pub fn page_count(&self) -> usize {
-        self.filtered().len().div_ceil(PER_PAGE).max(1)
+        self.filtered().len().div_ceil(self.per_page).max(1)
     }
 
     pub fn page_rows(&self) -> Vec<&ResultRow> {
-        self.filtered().into_iter().skip((self.list.page - 1) * PER_PAGE).take(PER_PAGE).collect()
+        self.filtered().into_iter().skip((self.list.page - 1) * self.per_page).take(self.per_page).collect()
     }
 
     /// A value that changes when the screen changes, except for the clock and for new points of the
@@ -933,11 +941,14 @@ pub fn new_game(seed: u64, mode: u8) -> Game {
     Game::new(seed, mode, p.solution, p.givens)
 }
 
-/// True if the starting numbers and the solution are the puzzle of `(seed, mode)` (PUZ-5). The app
-/// examines this only when it opens a saved game, because the generator is slow for each input.
+/// True if the starting numbers and the solution are the puzzle of `(seed, mode)` with the version of
+/// the generator of the game (PUZ-5). The app examines this only when it opens a saved game, because
+/// the generator is slow for each input. `check_game` first makes sure that the version and the mode
+/// are possible.
 fn is_generated(g: &Game) -> bool {
-    let p = new_game(g.seed, g.mode);
-    p.solution == g.solution && p.given == g.given
+    let p = crate::generator::generate_version(g.generator, g.seed, g.mode);
+    let given = p.givens.map(|row| row.map(|v| v != 0));
+    p.solution == g.solution && given == g.given
 }
 
 /// The average of the times, rounded to whole seconds. A half rounds to the even value, as in the

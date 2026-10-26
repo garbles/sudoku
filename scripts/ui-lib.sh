@@ -11,9 +11,9 @@ TB_BOTTOM_Y=2048                           # the top of the bottom toolbar slot
 # (x>=1508) does not cover the board (gap of 37 px).
 C=147; X0=$(((1620-9*C)/2)); Y0=$(((2160-9*C)/2))
 
-# Five difficulty modes (0-4). LEVEL is the mode of the current puzzle. The New game panel opens at the last
-# selected mode. At the first start, this is the middle mode. The generator sets the starting numbers for each mode.
-STOPS=5
+# Seven difficulty modes (0-6). LEVEL is the mode of the current puzzle. The New game panel opens at the last
+# selected mode. At the first start, this is mode 2. The generator sets the techniques that each mode needs.
+STOPS=7
 LEVEL=2
 
 # Difficulty meter: "Easy" to "Hard" is DIFF_W px wide. It is the same in the New game panel and below the board.

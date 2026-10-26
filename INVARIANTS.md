@@ -53,7 +53,8 @@ App
 
 Game
   seed            : integer                    (from the generator; no fixed range)
-  mode            ∈ 0..4
+  mode            ∈ 0..6
+  generator       ∈ {1, 2}                     (the version of the generator; 1 only for mode ∈ 0..4)
   solution[r][c]  ∈ 1..9                       for r, c ∈ 0..8
   given[r][c]     ∈ {true, false}
   value[r][c]     ∈ 0..9                       (0 = empty)
@@ -68,23 +69,23 @@ GameUI
   highlight       ∈ {None} ∪ 1..9
   question        ∈ {None} ∪ (cell, shown_at)   (the temporary "?")
   pending_ink     ∈ {None} ∪ (cell, strokes, last_lift_at)
-  slider          ∈ 0..4                       (the selection in the New game panel)
+  slider          ∈ 0..6                       (the selection in the New game panel)
 
 ListUI
-  filter          ∈ {All} ∪ 0..4
+  filter          ∈ {All} ∪ 0..6
   page            ≥ 1
   confirm         ∈ {None} ∪ Result             (the delete dialog)
 
 Settings
   color_starting, color_clash, color_highlight ∈ Palette
-  last_mode       ∈ 0..4
+  last_mode       ∈ 0..6
   highlight_on    : bool                       (Settings panel; default true)
   auto_remove_on  : bool                       (Settings panel; default true)
 
 Palette = {Gray, White, Yellow, Blue, Red, Green, Cyan, Magenta, Orange}
 
 Result
-  id, finished_at, mode ∈ 0..4, givens ∈ 0..81, seconds ≥ 0, seed
+  id, finished_at, mode ∈ 0..6, givens ∈ 0..81, seconds ≥ 0, seed, generator
 ```
 
 Terms:
@@ -103,8 +104,8 @@ Terms:
 | PUZ-2 | The starting numbers have **only one** solution. That solution is `solution`. | R§14.5 |
 | PUZ-3 | For each starting number, `value = solution`. Thus two starting numbers never clash. | R§14.5 |
 | PUZ-4 | `given` does not change after the generator makes the puzzle. It changes only when a new puzzle replaces the game. | R§4.1 |
-| PUZ-5 | `(seed, mode)` sets the full game. The same pair always gives the same starting numbers and the same solution. A saved game whose starting numbers or solution are not `generate(seed, mode)` is not correct: the app does not use it (PER-5). | R§14.1, R§14.5 (confirmed 2026-10-25) |
-| PUZ-6 | The generator sets the quantity of starting numbers for each mode. No other part of the app uses a fixed quantity. | R§11, R§14.5 |
+| PUZ-5 | `(seed, mode)` and the version of the generator set the full game. The same values always give the same starting numbers and the same solution. A saved game whose starting numbers or solution are not `generate_version(generator, seed, mode)` is not correct: the app does not use it (PER-5). A new game has the current version (2). Version 1 has only the modes 0..4. A game file with no version is version 1. | R§14.1, R§14.5 (confirmed 2026-10-25; versions: owner decision 2026-10-25) |
+| PUZ-6 | The generator sets the level (the most difficult group of techniques) of each mode. The human-style solver, with all techniques, completes each puzzle, and the most difficult technique that it needs is of the level of the mode. Easy has 44 starting numbers. No other part of the app uses a fixed level or a fixed quantity of starting numbers. | R§11, R§14.5 (owner decision 2026-10-25) |
 
 ## 2. Cells
 
@@ -199,7 +200,7 @@ Terms:
 | CMP-2 | Each row, column and box of a complete board has the digits 1–9 one time. Thus a complete board is the same as `solution` (PUZ-2). | R§8.3, R§14.5 |
 | CMP-3 | `completed ⇒` the board, the marks and the stacks do not change (INP-9, UND-8), and `highlight = None`, `question = None`, `pending_ink = None`. | R§8.3 |
 | CMP-4 | `completed ⇒` the text "Completed in" and `elapsed` replace the meter below the board. The format is `m:ss`, and `h:mm:ss` after one hour. `¬completed ⇒` the meter shows `mode`. The player cannot change the meter. | R§3.1, R§8.3 |
-| CMP-5 | Completion adds **one** row to `results`. The row has the `mode`, the quantity of starting numbers, the final `elapsed` and the `seed` of this game. The app never adds a row for a game that is not complete. | R§8.3, R§14.1 |
+| CMP-5 | Completion adds **one** row to `results`. The row has the `mode`, the quantity of starting numbers, the final `elapsed`, the `seed` and the `generator` version of this game. The app never adds a row for a game that is not complete. | R§8.3, R§14.1 |
 | CMP-6 | Only Start new game ends the `completed` state. Help, Statistics, colors, settings and the menu continue to operate. | R§8.3 |
 
 ## 9. Clock
@@ -236,8 +237,8 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| DIF-1 | `game.mode`, `settings.last_mode` and `slider` are in `0..4`. There are five modes: 0 is Easy and 4 is Hard. | R§11 |
-| DIF-2 | At the first start, before the player selects a mode, `last_mode = 2` and the first puzzle has mode 2. | R§11 |
+| DIF-1 | `game.mode`, `settings.last_mode` and `slider` are in `0..6`. There are seven modes: 0 is Easy and 6 is Hard. | R§11 (owner decision 2026-10-25) |
+| DIF-2 | At the first start, before the player selects a mode, `last_mode = 2` and the first puzzle has mode 2. | R§11 (confirmed again 2026-10-25) |
 | DIF-3 | When the New game panel opens, `slider = last_mode`. | R§11 |
 | DIF-4 | When you move the slider, only `slider` changes. The game, `last_mode` and the meter do not change. If the panel closes before Start new game, the app does not keep `slider`. | R§11 |
 | DIF-5 | Start new game sets `last_mode = slider`. It makes a game with `mode = slider`, a new seed, `elapsed = 0`, empty stacks, `completed = false`, no entries and no marks. | R§11 |
@@ -268,12 +269,12 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| ANA-1 | Each result has `mode ∈ 0..4`, `seconds ≥ 0`, `givens ∈ 0..81`, a `seed`, a `finished_at` and a unique `id`. When the app opens, it does not use a row in the results file that breaks this rule. The row stays in the file. | R§14.1 (confirmed 2026-10-25) |
+| ANA-1 | Each result has `mode ∈ 0..6`, `seconds ≥ 0`, `givens ∈ 0..81`, a `seed`, a `finished_at`, a `generator` version and a unique `id`. When the app opens, it does not use a row in the results file that breaks this rule. The row stays in the file. | R§14.1 (confirmed 2026-10-25) |
 | ANA-2 | Only completion adds results (CMP-5). Only a confirmed Delete (one game) or a confirmed Delete all games removes results. (The device test tool `sudoku --test-results` is not a part of the app; refer to DECISIONS.md.) | R§14.1, R§13.1, R§13.2 |
 | ANA-3 | "Puzzles completed" on the summary is `|results|`. "Average time" is the average of `seconds` in `results`, or "–" if there are no results. | R§13.1 |
 | ANA-4 | For each mode m, completed is `|{r ∈ results : r.mode = m}|`. Average is the average of their `seconds`, or "–" if there are none. The sum of the quantities for all modes is equal to the total. | R§13.1 |
 | ANA-5 | The list shows only the results that agree with `filter` (all results for All). The newest `finished_at` is first. Each page has a maximum of 12 results. All pages before the last page have 12 results. If no results agree with `filter`, the list has no rows. | R§13.2 |
-| ANA-6 | `1 ≤ page ≤ max(1, ⌈matching / 12⌉)`. When the list opens, `filter = All` and `page = 1`. A change of filter sets `page = 1`. | R§13.2 |
+| ANA-6 | `1 ≤ page ≤ max(1, ⌈matching / n⌉)`, with `n = 12` in portrait and `n = 6` in landscape. When the list opens, `filter = All` and `page = 1`. A change of filter sets `page = 1`. | R§13.2 |
 | ANA-7 | `confirm ≠ None ⇒` the dialog shows on the pale list, and the list accepts no other input. Cancel sets `confirm = None` and makes no change. Delete removes that one result and then sets `confirm = None`. | R§13.2 |
 | ANA-8 | After a deletion (one game or all games), the summary and the list show the change immediately (ANA-3 to ANA-5 are true). If the current page becomes empty, the list shows the page before it, but not below page 1. Then ANA-6 is true. | R§13.2 |
 | ANA-9 | Times always have the format `m:ss`, or `h:mm:ss` after one hour. | R§8.3, R§13.2 |

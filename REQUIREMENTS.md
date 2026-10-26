@@ -87,7 +87,7 @@ Image: [`images/screen.png`](images/screen.png) (empty board, menu closed).
 |---|---|---|
 | Board | 9×9 cells of **147 px**; x 148–1471, y 418–1741 (at the center of the screen) | Lines of 12 px are around the board and the 3×3 boxes. Lines of 3 px are between the cells. |
 | Micro-cells | Each cell has a faint 3×3 grid of **49 px** micro-cells (2 px lines, light gray) | Each micro-cell is for one digit. The positions are the same as a keypad: 1 2 3 / 4 5 6 / 7 8 9. |
-| Difficulty meter | Below the board, at the center, 50 px from the board | The player cannot change it. It shows "Easy", five stops and "Hard". The large knob shows the mode of the current puzzle. When the puzzle is complete, "Completed in …" replaces the meter. |
+| Difficulty meter | Below the board, at the center, 50 px from the board | The player cannot change it. It shows "Easy", seven stops and "Hard". The large knob shows the mode of the current puzzle. When the puzzle is complete, "Completed in …" replaces the meter. |
 | Menu button | Top right, circle of 38 px, center at (1563.5, 55.5) | Closed icon: dot at the bottom left. Open icon: dot at the top left. Both icons are copies from the device. |
 | Close button | Top left, circle of 38 px with ×, center at (55.5, 55.5) | The close button shows **only when the menu is open**. The device does the same. |
 
@@ -142,7 +142,7 @@ The landscape layout has the same items, at the same sizes, as the portrait layo
 | Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. |
 | Close button | Top left, as in portrait. |
 | Manual | Each page has a landscape version with two columns (`manual-*-landscape.png`, made by `scripts/manual-*-landscape.sh`). The text is the same as in portrait. |
-| Statistics | The same scale as in portrait, across the full width. The games list shows the 12 games of a page in two columns of 6. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, made by `scripts/analytics.py`). |
+| Statistics | The same scale as in portrait, across the full width. The games list is one table across the full width. Each page shows 6 games, because the height is too small for 12. When the tablet turns, the list shows the page with the first game of the page before the turn. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, made by `scripts/analytics.py`). |
 
 When the tablet turns, the game does not change. Ink that waits for the recognition pause and touches
 in progress are removed, because their positions are not correct after the turn.
@@ -376,7 +376,7 @@ stateDiagram-v2
     direction LR
     state "In progress" as Playing
     state "Complete (locked)" as Done
-    [*] --> Playing: first start (middle difficulty) or Start new game
+    [*] --> Playing: first start (mode 2) or Start new game
     Playing --> Playing: changes to the board, undo, redo
     Playing --> Done: all cells have a number and there is no clash
     Playing --> Playing: Start new game (replaces the puzzle)
@@ -567,13 +567,13 @@ Images: [`images/new-game-menu.png`](images/new-game-menu.png),
 - The panel opens next to the + button (bottom slot). The + button becomes white on black.
 - The panel is 505 px wide. This is wider than the menus of the device, so that the slider is easy to
   use.
-- The panel has two rows. The first row has the **difficulty slider** ("Easy", five stops, "Hard").
+- The panel has two rows. The first row has the **difficulty slider** ("Easy", seven stops, "Hard").
   A divider line follows. The second row has **Start new game**, next to the + button.
 - The slider has the same size and design as the meter below the board.
-- There are **five modes**, from 0 (Easy) to 4 (Hard). An easier mode starts with more numbers on the
-  board. The puzzle generator sets the quantity of starting numbers for each mode.
+- There are **seven modes**, from 0 (Easy) to 6 (Hard). A more difficult mode needs more difficult
+  techniques. The puzzle generator sets the techniques of each mode ([§14.5](#145-puzzle-generation)).
 - When the panel opens, the slider shows the **last mode that you selected**. At the first start, the
-  slider shows the **middle mode** (2).
+  slider shows **mode 2**.
 - When you move the slider, only the selection changes. The game does not change until you tap
   **Start new game**.
 - **Start new game** replaces the current puzzle immediately. The app does not ask for a
@@ -659,7 +659,8 @@ Image: [`images/analytics.png`](images/analytics.png).
   average of their times).
 - The **By difficulty** table has one row for each mode, from Easy to Hard. Each row shows the
   difficulty meter, the quantity of completed puzzles and the average time. If a mode has no results,
-  its average is "–".
+  its average is "–". The rows are 97 units high in portrait and 76 units high in landscape, so that
+  the seven rows and the buttons below them fit on the landscape page.
 - **All completed games ›** opens the list.
 - **Delete all games** is a button with a bin icon at the right of "All completed games ›", in the same
   row (in portrait and in landscape). A tap on it opens a **confirmation dialog** at the center of the
@@ -682,11 +683,12 @@ Image: [`images/analytics-games.png`](images/analytics-games.png).
 
 - **< Back** shows the summary again.
 - The **filter** row has **All** and one segment for each mode. Each mode segment shows its meter. The
-  selected segment is black. The list opens with All selected.
+  meters in the segments are smaller (18 units between the stops, not 34), so that they fit in the
+  segments. The selected segment is black. The list opens with All selected.
 - The columns are **Date** (date and time of completion, for example "22 Oct 2026, 20:22"),
   **Difficulty** (meter), **Time** (`m:ss` or `h:mm:ss`) and a **bin** button. The newest game is
   first.
-- Each page shows **12 games**. The ‹ › arrows and finger swipes change the page. A change of filter
+- Each page shows **12 games** (6 games in landscape, [§3.3](#33-landscape)). The ‹ › arrows and finger swipes change the page. A change of filter
   shows page 1.
 - A tap on a bin opens a **confirmation dialog** on the list. The list becomes pale. The dialog shows:
   - "Delete this game?"
@@ -741,17 +743,18 @@ The database has one row for each completed puzzle:
 |---|---|
 | `id` | Primary key |
 | `finished_at` | Date and time of completion |
-| `mode` | Difficulty, from 0 (Easy) to 4 (Hard) |
+| `mode` | Difficulty, from 0 (Easy) to 6 (Hard) |
 | `givens` | Quantity of starting numbers |
 | `seconds` | Time that the player used (clock time, [§8.4](#84-the-clock)) |
 | `seed` | Random seed of the puzzle generator. With the seed, the generator can make the same puzzle again. |
+| `generator` | The version of the generator that made the puzzle ([§14.5](#145-puzzle-generation)). The seed gives the same puzzle only with the same version. |
 
 The app adds a row when a puzzle is complete. Only the bin in the games list and **Delete all games** on the summary remove rows.
 
 ### 14.2 Settings (kept when the app closes)
 
 - The starting-number color, the clash color and the highlight color.
-- The last selected difficulty mode (default: middle).
+- The last selected difficulty mode (default: mode 2).
 - The two switches of the Settings panel: highlight numbers (default: on) and remove pencil marks
   automatically (default: on).
 
@@ -760,7 +763,7 @@ The app adds a row when a puzzle is complete. Only the bin in the games list and
 The app saves the current game continuously. When the app opens again, the game is exactly the same.
 The app keeps:
 
-- The puzzle, its seed and its mode.
+- The puzzle, its seed, its mode and the version of the generator.
 - All numbers and pencil marks.
 - All of the undo and redo history.
 - The time on the clock.
@@ -793,16 +796,40 @@ the outer 2 px of the screen that is necessary to play.
 ### 14.5 Puzzle generation
 
 A generator with a seed makes each puzzle. Each puzzle must have **only one solution**. The generator
-makes the puzzle for the selected mode. The generator sets the quantity of starting numbers for each
-mode:
+makes the puzzle for the selected mode. Each mode has a most difficult group of techniques (a
+level). The puzzle of a mode needs a technique of its level, and no technique of a more difficult
+level. No mode needs a guess, and no mode needs a technique that assumes that the puzzle has only one
+solution (owner decision, 2026-10-25):
 
-| Mode | 0 (Easy) | 1 | 2 | 3 | 4 (Hard) |
-|---|---|---|---|---|---|
-| Starting numbers | 44 | 37 | 31 | 27 | 24 |
+| Mode | Level: the techniques that the mode adds | Starting numbers |
+|---|---|---|
+| 0 (Easy) | Singles: full house, naked single, hidden single | 44 |
+| 1 | Singles | As few as possible |
+| 2 | Locked candidates: pointing, claiming | As few as possible |
+| 3 | Naked and hidden pairs, triples and quads | As few as possible |
+| 4 | X-Wing, Swordfish, XY-Wing | As few as possible |
+| 5 | Skyscraper, 2-String Kite, XYZ-Wing, W-Wing, simple colouring, Jellyfish | As few as possible |
+| 6 (Hard) | X-Chain, XY-Chain and other alternating inference chains (AIC) | As few as possible |
 
-The generator removes starting numbers in a random order while the puzzle has only one solution. It
-uses its own random number generator (SplitMix64). Thus a change of a library does not change the
-puzzle of a saved seed. The code is in `src/generator.rs`.
+A human-style solver (`src/solver.rs`) uses these techniques, from the easiest to the most difficult.
+For each attempt, the generator:
+
+1. Makes a full, correct grid.
+2. Removes starting numbers in a random order. A removal stays only if the solver, with only the
+   techniques of the level of the mode, can complete the grid. Thus the puzzle has only one solution.
+   Easy stops at 44 starting numbers.
+3. Grades the puzzle with all techniques. If the puzzle does not need the level of the mode, the
+   generator makes a new attempt (a maximum of 400 attempts).
+
+The generator uses its own random number generator (SplitMix64). Thus a change of a library does not
+change the puzzle of a saved seed. The code is in `src/generator.rs`.
+
+**Versions.** A change of the generator gives a different puzzle for the same seed. Thus each game and
+each result has the version of the generator. Version 1 (before 2026-10-25) had five modes (0 to 4) and
+set only the quantity of starting numbers (44, 37, 31, 27, 24). The app keeps version 1 only to
+examine a game that it saved before version 2. A game file with no version is version 1. When the
+app opens a results database of version 1, it moves the rows to the new table with generator version
+1. A row that the app cannot use stays in the file, in the table `results_v1`.
 
 ## 15. Visual specification
 
@@ -819,7 +846,7 @@ puzzle of a saved seed. The code is in `src/generator.rs`.
 | Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |
 | Panels | 2 px black border, rows of 112 px, 2 px dividers, inner margin of 33 px |
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
-| Difficulty meter | "Easy" to "Hard" across 440 px; 5 stops; the current stop is a knob with a radius of 13 px |
+| Difficulty meter | "Easy" to "Hard" across 440 px; 7 stops; the current stop is a knob with a radius of 13 px |
 | Switch (Settings panel) | Track 72×36 px, 3 px border; knob of 28 px; 33 px from the right edge of the panel |
 
 All dimensions are in [`scripts/ui-lib.sh`](scripts/ui-lib.sh).

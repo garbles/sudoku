@@ -90,7 +90,7 @@ pub fn empty_game() -> Game {
 pub fn app(fonts: &Fonts) -> App {
     let mut db = ResultsDb::in_memory();
     for (i, (t, mode, seconds)) in analytics_results().into_iter().enumerate() {
-        db.insert(&NewResult { finished_at: t, mode, givens: 30, seconds, seed: i as u64 }).unwrap();
+        db.insert(&NewResult { finished_at: t, mode, givens: 30, seconds, seed: i as u64, generator: 2 }).unwrap();
     }
     let mut app = App::new(None, None, db, Box::new(FixedEnv));
     app.ng_stops = render::ng_stops(fonts);

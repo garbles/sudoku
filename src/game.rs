@@ -44,6 +44,10 @@ pub enum Change {
 pub struct Game {
     pub seed: u64,
     pub mode: u8,
+    /// The version of the generator that made the puzzle (PUZ-5). A game that was saved before
+    /// version 2 has no version in its file: it is version 1.
+    #[serde(default = "first_generator")]
+    pub generator: u8,
     pub solution: [[u8; 9]; 9],
     pub given: [[bool; 9]; 9],
     pub value: [[u8; 9]; 9],
@@ -53,6 +57,10 @@ pub struct Game {
     /// The clock, in milliseconds. Refer to §8.4.
     pub elapsed_ms: u64,
     pub completed: bool,
+}
+
+fn first_generator() -> u8 {
+    1
 }
 
 /// The result of an operation on the game.
@@ -82,6 +90,7 @@ impl Game {
         let mut g = Game {
             seed,
             mode,
+            generator: crate::generator::VERSION,
             solution,
             given,
             value: givens,

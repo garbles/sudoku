@@ -59,7 +59,7 @@ fn finger_move(d: &mut Driver, from: (f32, f32), to: (f32, f32)) {
 fn app_with_results(n: usize) -> App {
     let mut db = ResultsDb::in_memory();
     for i in 0..n {
-        db.insert(&NewResult { finished_at: 1_700_000_000 + i as i64 * 1000, mode: (i % 5) as u8, givens: 30, seconds: 100 + i as u64, seed: i as u64 })
+        db.insert(&NewResult { finished_at: 1_700_000_000 + i as i64 * 1000, mode: (i % 5) as u8, givens: 30, seconds: 100 + i as u64, seed: i as u64, generator: 2 })
             .unwrap();
     }
     App::new(None, None, db, Box::new(TestEnv { time: 1_790_000_000, seed: 1 }))

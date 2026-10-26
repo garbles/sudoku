@@ -262,7 +262,7 @@ fn the_landscape_layout_operates() {
     d.finger_tap(((n.x0 + n.x1) / 2) as f32, ((n.y0 + n.y1) / 2) as f32);
     assert_eq!(d.app.manual_page, 2);
     d.finger_tap(40.0, 50.0);
-    // Statistics and the list in two columns.
+    // Statistics and the list in one table across the full width.
     solve(&mut d);
     d.button(Button::Menu);
     d.button(Button::Statistics);

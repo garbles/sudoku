@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use common::*;
 use sudoku::app::{new_game, App, Env, Panel, Screen};
 use sudoku::game::{cells, mark_bit, peers, Cell, Change, Game};
-use sudoku::generator::{count_solutions, MIDDLE_MODE, MODES};
+use sudoku::generator::{count_solutions, generate_version, FIRST_MODE, MODES, VERSION};
 use sudoku::invariants::{check_app, check_game};
 use sudoku::layout::{self, Button};
 use sudoku::settings::{Color, Settings};
@@ -189,7 +189,7 @@ fn assert_rejected(base: &Game, bad: &Game, rule: &str, name: &str) {
     let app = open_app(Some(loaded), None, ResultsDb::in_memory(), 5);
     std::fs::remove_dir_all(&dir).ok();
     assert_ne!(&app.game, bad, "{name}: the app used a saved game that breaks {rule}");
-    assert_eq!(app.game, new_game(first_seed(5), MIDDLE_MODE), "{name}: a new game of the last mode");
+    assert_eq!(app.game, new_game(first_seed(5), FIRST_MODE), "{name}: a new game of the last mode");
     check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
 }
 
@@ -257,7 +257,7 @@ fn a_saved_game_file_that_cannot_be_read_is_not_used() {
         let loaded: Option<Game> = load_json(&path);
         assert!(loaded.is_none(), "{name}: the file must not give a game");
         let app = open_app(loaded, None, ResultsDb::in_memory(), 5);
-        assert_eq!(app.game, new_game(first_seed(5), MIDDLE_MODE), "{name}");
+        assert_eq!(app.game, new_game(first_seed(5), FIRST_MODE), "{name}");
         check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
     }
     std::fs::remove_dir_all(&dir).ok();
@@ -399,7 +399,7 @@ fn saved_settings_that_break_a_rule_are_not_used() {
         save_json(&path, &s).unwrap();
         let app = open_app(None, load_json(&path), ResultsDb::in_memory(), 5);
         assert_eq!(app.settings, Settings::default(), "{name}");
-        assert_eq!((app.game.mode, app.ui.slider), (MIDDLE_MODE, MIDDLE_MODE), "{name}");
+        assert_eq!((app.game.mode, app.ui.slider), (FIRST_MODE, FIRST_MODE), "{name}");
         check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
     }
     std::fs::remove_dir_all(&dir).ok();
@@ -492,12 +492,12 @@ fn each_result_has_correct_values_and_a_unique_id() {
     assert!(d.app.results.iter().all(|r| r.id != victim.id));
     drop(d);
     games.remove(&victim.seed);
-    for (i, mode) in [4u8, 2, 0].into_iter().enumerate() {
+    for (i, mode) in [4u8, 5, 6, 2, 0].into_iter().enumerate() {
         complete(&mut games, 4 + i as u64, mode);
     }
 
     let results = ResultsDb::open(&path).unwrap().all().unwrap();
-    assert_eq!(results.len(), 6);
+    assert_eq!(results.len(), 8);
     let ids: HashSet<i64> = results.iter().map(|r| r.id).collect();
     assert_eq!(ids.len(), results.len(), "each id is unique");
     assert_eq!(results.iter().map(|r| r.mode).collect::<HashSet<_>>(), (0..MODES).collect());
@@ -512,6 +512,34 @@ fn each_result_has_correct_values_and_a_unique_id() {
     assert_eq!(app.results, results);
     check_app(&app).unwrap();
     std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_game_saved_before_generator_version_2_is_used() {
+    // PUZ-5, PER-5: a game file of version 1 has no "generator". It is a puzzle of version 1, and the
+    // app continues it. The same file with a puzzle of version 2, or with mode 5 or 6, is not correct.
+    let p = generate_version(1, 908, 3);
+    let v1 = Game { generator: 1, ..Game::new(908, 3, p.solution, p.givens) };
+    let mut json = serde_json::to_value(&v1).unwrap();
+    json.as_object_mut().unwrap().remove("generator");
+    let dir = data_dir("puz5-v1");
+    let path = dir.join("game.json");
+    std::fs::write(&path, json.to_string()).unwrap();
+    let loaded: Game = load_json(&path).expect("a game file of version 1");
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(loaded, v1, "a file with no generator is version 1");
+    let app = open_app(Some(loaded), None, ResultsDb::in_memory(), 5);
+    assert_eq!(app.game, v1, "the app continues the game of version 1");
+    check_app(&app).unwrap();
+
+    let v2_puzzle = Game { generator: 1, ..new_game(908, 3) };
+    let v1_mode_5 = Game { generator: 1, ..new_game(909, 5) };
+    for (name, bad) in [("version 2 puzzle", v2_puzzle), ("mode 5", v1_mode_5)] {
+        let app = open_app(Some(bad.clone()), None, ResultsDb::in_memory(), 5);
+        assert_ne!(app.game, bad, "{name}: the app used a game that is not generate_version(1, seed, mode)");
+        assert_eq!(app.game, new_game(first_seed(5), FIRST_MODE), "{name}: a new game of the last mode");
+        assert_eq!(app.game.generator, VERSION, "{name}: a new game has the current version");
+    }
 }
 
 #[test]
@@ -534,7 +562,7 @@ fn a_saved_game_that_is_not_the_puzzle_of_its_seed_and_mode_is_not_used() {
         std::fs::remove_dir_all(&dir).ok();
         let app = open_app(Some(loaded), None, ResultsDb::in_memory(), 5);
         assert_ne!(app.game, bad, "{name}: the app used a game that is not generate(seed, mode)");
-        assert_eq!(app.game, new_game(first_seed(5), MIDDLE_MODE), "{name}: a new game of the last mode");
+        assert_eq!(app.game, new_game(first_seed(5), FIRST_MODE), "{name}: a new game of the last mode");
         check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
     }
 }

@@ -10,6 +10,7 @@ use common::*;
 use sudoku::app::{App, Panel, Screen};
 use sudoku::font::{Anchor, Fonts};
 use sudoku::game::{cells, mark_bit, Cell};
+use sudoku::generator::MODES;
 use sudoku::layout::{self, Button, Rect, CELL};
 use sudoku::reference;
 use sudoku::render::{gray, rgb_at, Canvas, BLACK};
@@ -458,7 +459,7 @@ fn a_color_of_a_different_section_is_not_available() {
 
 /// Examines the summary of `results` against the expected text: the total, the total average, and the
 /// quantity and the average of each mode.
-fn check_summary(fonts: &Fonts, pm: &Pixmap, total: &str, average: &str, modes: &[(String, String); 5]) {
+fn check_summary(fonts: &Fonts, pm: &Pixmap, total: &str, average: &str, modes: &[(String, String); MODES as usize]) {
     let bw = layout::summary_box_w();
     for (x0, value) in [(72.0, total), (100.0 + bw, average)] {
         let want = text_only(fonts, true, true, 84.0, x0 + 30.0, 405.0, Anchor::Start, value);
@@ -468,14 +469,15 @@ fn check_summary(fonts: &Fonts, pm: &Pixmap, total: &str, average: &str, modes: 
     let (count_x, right) = (layout::summary_count_x(), layout::page_right());
     let mut y = layout::SUMMARY_TABLE_Y;
     for (mode, (count, avg)) in modes.iter().enumerate() {
-        let base = y + (layout::ROW / 2.0).floor() + 12.0;
+        let row = layout::summary_row();
+        let base = y + (row / 2.0).floor() + 12.0;
         let want = text_only(fonts, true, false, 34.0, count_x, base, Anchor::End, count);
-        let area = layout::page_rect(600.0, y + 5.0, count_x + 10.0, y + layout::ROW - 5.0);
+        let area = layout::page_rect(600.0, y + 5.0, count_x + 10.0, y + row - 5.0);
         assert_eq!(first_difference(pm, &want, area), None, "mode {mode}: the quantity is not \"{count}\"");
         let want = text_only(fonts, true, false, 34.0, right, base, Anchor::End, avg);
-        let area = layout::page_rect(count_x + 50.0, y + 5.0, right + 10.0, y + layout::ROW - 5.0);
+        let area = layout::page_rect(count_x + 50.0, y + 5.0, right + 10.0, y + row - 5.0);
         assert_eq!(first_difference(pm, &want, area), None, "mode {mode}: the average is not \"{avg}\"");
-        y += layout::ROW;
+        y += row;
     }
 }
 
@@ -490,7 +492,7 @@ fn the_summary_without_results_shows_zero_and_a_dash() {
     assert!(d.app.results.is_empty());
     let pm = draw_app(&d.app, &fonts);
     let none = || ("0".to_string(), "–".to_string());
-    check_summary(&fonts, &pm, "0", "–", &[none(), none(), none(), none(), none()]);
+    check_summary(&fonts, &pm, "0", "–", &std::array::from_fn(|_| none()));
 }
 
 #[test]
@@ -502,13 +504,15 @@ fn the_summary_shows_the_quantity_and_the_average_of_each_mode() {
     let mut app = reference::app(&fonts);
     app.screen = Screen::Statistics;
     // Mode 1: 100 s and 300 s (average 3:20). Mode 3: 4000 s (1:06:40). The total average is
-    // (100 + 300 + 4000) / 3 = 1466.67 s, thus 24:27.
-    app.results = vec![row(1, 1, 100), row(2, 3, 4000), row(3, 1, 300)];
-    let counts: usize = (0..5u8).map(|m| app.results.iter().filter(|r| r.mode == m).count()).sum();
+    // (100 + 300 + 4000) / 3 = 1466.67 s, thus 24:27. Mode 6: 300 s.
+    app.results = vec![row(1, 1, 100), row(2, 3, 4000), row(3, 1, 300), row(4, 6, 300)];
+    let counts: usize = (0..MODES).map(|m| app.results.iter().filter(|r| r.mode == m).count()).sum();
     assert_eq!(counts, app.results.len());
     let pm = draw_app(&app, &fonts);
     let s = |a: &str, b: &str| (a.to_string(), b.to_string());
-    check_summary(&fonts, &pm, "3", "24:27", &[s("0", "–"), s("2", "3:20"), s("0", "–"), s("1", "1:06:40"), s("0", "–")]);
+    // The total average is (100 + 300 + 4000 + 300) / 4 = 1175 s, thus 19:35.
+    let none = || s("0", "–");
+    check_summary(&fonts, &pm, "4", "19:35", &[none(), s("2", "3:20"), none(), s("1", "1:06:40"), none(), none(), s("1", "5:00")]);
 }
 
 // ---- INP-10: no ink stays on the board.

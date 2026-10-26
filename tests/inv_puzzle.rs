@@ -7,7 +7,8 @@ mod common;
 use common::*;
 use sudoku::app::{new_game, App, Panel};
 use sudoku::game::{cells, mark_bit, peers, Cell, Game, ALL_MARKS};
-use sudoku::generator::{count_solutions, generate, is_valid_solution, MODES};
+use sudoku::generator::{count_solutions, generate, is_valid_solution, MODES, MODE_LEVELS};
+use sudoku::solver::{grade, Level};
 use sudoku::layout::{self, Button};
 use sudoku::settings::Settings;
 use sudoku::store::ResultsDb;
@@ -316,10 +317,12 @@ fn the_quantity_of_starting_numbers_comes_from_the_game() {
         counts.push(row.givens);
     }
     assert!(counts[0] > counts[1], "PUZ-6: the quantity changes with the mode: {counts:?}");
-    // The generator gives more starting numbers for easier modes.
+    // The generator sets the most difficult technique of each mode, and each puzzle needs it.
     for seed in [3u64, 8] {
-        let n: Vec<usize> = (0..MODES).map(|m| generate(seed, m).givens_count()).collect();
-        assert!(n.windows(2).all(|w| w[0] >= w[1]) && n[0] > n[4], "PUZ-6: {n:?}");
+        for m in 0..MODES {
+            let p = generate(seed, m);
+            assert_eq!(grade(&p.givens, Level::Chains), Some(MODE_LEVELS[m as usize]), "PUZ-6: seed {seed} mode {m}");
+        }
     }
 }
 

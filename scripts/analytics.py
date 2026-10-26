@@ -15,10 +15,9 @@ OUT = sys.argv[1]
 FONT = os.path.join(HERE, "fonts", "rmsans-400.ttf")
 HEAD = os.path.join(HERE, "fonts", "rmsans-500.ttf")
 SCALE = 1.153846
-STOPS = 5
-PER_PAGE = 12
+STOPS = 7
 
-# --- sample results: (finished_at, mode 0-4, seconds)
+# --- sample results: (finished_at, mode 0-4, seconds). The modes 5 and 6 have no sample results.
 rng = random.Random(7)
 BASE_MINUTES = [9, 14, 20, 31, 47]
 games = []
@@ -57,13 +56,12 @@ class Page:
         self.right = self.w - 72                      # 1332 in portrait
         self.box_w = (self.w - 172) / 2               # 616 in portrait
         self.count_x = self.right - 432               # 900 in portrait
-        self.seg_w = (self.w - 144) / 6               # 210 in portrait
-        self.cols = 2 if landscape else 1             # the games list: one column of 12, or two of 6
-        self.col_w = (self.w - 144 - 72 * (self.cols - 1)) / self.cols
-        self.offsets = (370, 650, 780) if landscape else (488, 1038, 1218)   # meter, end of time, bin
+        self.seg_w = (self.w - 144) / (STOPS + 1)     # 157.5 in portrait
+        self.summary_row = 76 if landscape else ROW    # the rows of "By difficulty": 7 rows fit in landscape
+        self.per_page = 6 if landscape else 12         # the games list: one table across the full width
+        self.col_w = self.w - 144
+        self.offsets = (488, self.col_w - 222, self.col_w - 42)   # meter, end of time, bin (1038, 1218 in portrait)
         self.dialog = (self.w / 2 - 450, self.h / 2 - 176, self.w / 2 + 450, self.h / 2 + 174)
-    def col_x(self, col):
-        return 72 + col * (self.col_w + 72)
     def suffix(self, name):
         return name.replace(".png", "-landscape.png") if self.landscape else name
 
@@ -96,6 +94,7 @@ def render(out, P, name):
     os.remove(mvg)
 
 ROW = 97  # 112 device px, the height of a list row on the device
+FILTER_STEP = 18  # the distance between the stops of the small meters in the filter segments
 
 def bin_icon(out, bx, cy):
     """Delete: a bin (lid, handle, body with two lines)."""
@@ -121,12 +120,12 @@ def screens(P):
     y = 640; hline(out, y, 72, P.right)
     for mode in range(STOPS):
         times = [g[2] for g in games if g[1] == mode]
-        cy = y + ROW//2
-        text(out, 72, cy+12, 34, "black", "start", ["Easy", "", "", "", "Hard"][mode])
+        cy = y + P.summary_row//2
+        text(out, 72, cy+12, 34, "black", "start", {0: "Easy", STOPS-1: "Hard"}.get(mode, ""))
         meter(out, 230, cy, mode)
         text(out, n(P.count_x), cy+12, 34, "black", "end", str(len(times)))
         text(out, n(P.right), cy+12, 34, "black", "end", clock(sum(times)/len(times)) if times else "–")
-        y += ROW; hline(out, y, 72, P.right)
+        y += P.summary_row; hline(out, y, 72, P.right)
 
     y += 70
     all_right = P.right - DELETE_ALL_W - 28
@@ -147,7 +146,7 @@ def screens(P):
 
     # --- table of completed games, filter "All", newest game first
     out = []
-    pages = (len(games) + PER_PAGE - 1) // PER_PAGE
+    pages = (len(games) + P.per_page - 1) // P.per_page
     chrome(out, P, "Completed games", (1, pages))
     # filter: All, then one segment for each difficulty. The selected segment is black, as on the device.
     seg_w, sx, sy = P.seg_w, 72, 240
@@ -157,20 +156,16 @@ def screens(P):
         if i == 0:
             text(out, n(x+seg_w/2), sy+52, 32, "white" if selected else "black", "middle", "All", HEAD)
         else:
-            meter(out, n(x+(seg_w-136)/2), sy+40, i-1, step=34)
+            meter(out, n(x+(seg_w-(STOPS-1)*FILTER_STEP)/2), sy+40, i-1, step=FILTER_STEP)
     md, td, bd = P.offsets
-    rows = games[:PER_PAGE]
-    per_col = PER_PAGE // P.cols
-    for col in range(P.cols):
-        cx0 = n(P.col_x(col))
-        if col == 0 or len(rows) > col * per_col:
-            text(out, cx0, 395, 30, "gray40", "start", "Date")
-            text(out, n(cx0+md), 395, 30, "gray40", "start", "Difficulty")
-            text(out, n(cx0+td), 395, 30, "gray40", "end", "Time")
-            hline(out, 420, cx0, cx0 + P.col_w)
+    rows = games[:P.per_page]
+    cx0 = 72
+    text(out, cx0, 395, 30, "gray40", "start", "Date")
+    text(out, n(cx0+md), 395, 30, "gray40", "start", "Difficulty")
+    text(out, n(cx0+td), 395, 30, "gray40", "end", "Time")
+    hline(out, 420, cx0, cx0 + P.col_w)
     for i, (when, mode, secs) in enumerate(rows):
-        col, r = divmod(i, per_col)
-        cx0 = n(P.col_x(col)); y = 420 + r*ROW
+        y = 420 + i*ROW
         cy = y + ROW//2
         text(out, cx0, cy+12, 34, "black", "start", when.strftime("%-d %b %Y, %H:%M"))
         meter(out, n(cx0+md), cy, mode)

@@ -7,6 +7,7 @@ pub mod invariants;
 pub mod layout;
 pub mod recognizer;
 pub mod settings;
+pub mod solver;
 pub mod store;
 pub mod font;
 pub mod render;

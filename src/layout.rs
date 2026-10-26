@@ -148,7 +148,7 @@ pub fn cell_origin((r, c): Cell) -> (i32, i32) {
 
 /// The difficulty meter below the board (render.sh): "Easy" at `meter_xl`, "Hard" ends at `meter_xr`.
 pub const DIFF_W: i32 = 440;
-pub const STOPS: i32 = 5;
+pub const STOPS: i32 = crate::generator::MODES as i32;
 
 pub fn meter_y() -> i32 {
     board_y() + BOARD_SIZE + 50 // 1791 in portrait
@@ -430,7 +430,13 @@ pub const SUMMARY_TABLE_Y: f32 = 640.0;
 
 /// The top of the row of "All completed games" and "Delete all games".
 pub fn summary_buttons_y() -> f32 {
-    SUMMARY_TABLE_Y + 5.0 * ROW + 70.0
+    SUMMARY_TABLE_Y + STOPS as f32 * summary_row() + 70.0
+}
+
+/// The height of a row of the "By difficulty" table: 97 units in portrait. In landscape the seven rows
+/// must fit on a page of 1404 units, thus the rows are 76 units (REQUIREMENTS.md §13.1).
+pub fn summary_row() -> f32 {
+    if landscape() { 76.0 } else { ROW }
 }
 
 /// The width of "Delete all games" (layout units).
@@ -457,13 +463,18 @@ pub fn summary_count_x() -> f32 {
     page_right() - 432.0
 }
 
-/// Games list: filter segments (All, then modes 0..4), 210 units wide in portrait.
+/// Games list: filter segments (All, then modes 0..6), 157.5 units wide in portrait.
 pub const SEG_X: f32 = 72.0;
 pub const SEG_Y: f32 = 240.0;
 
 pub fn seg_w() -> f32 {
-    (page_w() - 144.0) / 6.0
+    (page_w() - 144.0) / (STOPS + 1) as f32
 }
+
+/// The distance between the stops of a difficulty meter of the analytics screens: 34 units in the
+/// table and the list, and 18 units in the filter segments, so that the meter fits in the segment.
+pub const METER_STEP: f32 = 34.0;
+pub const FILTER_METER_STEP: f32 = 18.0;
 
 pub fn filter_segment(i: usize) -> Rect {
     let x = SEG_X + i as f32 * seg_w();
@@ -471,37 +482,33 @@ pub fn filter_segment(i: usize) -> Rect {
 }
 
 pub const LIST_Y: f32 = 420.0;
-/// The quantity of games on a page of the list (REQUIREMENTS.md §13.2).
-pub const LIST_ROWS: usize = crate::app::PER_PAGE;
 
-/// The columns of the games list: one column of 12 rows in portrait, two columns of 6 rows in
-/// landscape (the height of the screen is too small for 12 rows).
-pub fn list_columns() -> usize {
-    if landscape() { 2 } else { 1 }
+/// The quantity of games on a page of the list: 12 in portrait, 6 in landscape (the height of the
+/// screen is too small for 12 rows). The table is across the full width (REQUIREMENTS.md §3.3).
+pub fn list_rows() -> usize {
+    if landscape() { 6 } else { 12 }
 }
 
-/// The left x and the width of a column of the games list.
-pub fn list_column(col: usize) -> (f32, f32) {
-    let n = list_columns() as f32;
-    let w = (page_w() - 144.0 - 72.0 * (n - 1.0)) / n;
-    (72.0 + col as f32 * (w + 72.0), w)
+/// The left x and the width of the games list.
+pub fn list_column() -> (f32, f32) {
+    (72.0, page_w() - 144.0)
 }
 
-/// The x offsets in a column of the games list: the meter, the end of the time, and the bin.
+/// The x offsets in a row of the games list: the meter, the end of the time, and the bin.
 pub fn list_offsets() -> (f32, f32, f32) {
-    if landscape() { (370.0, 650.0, 780.0) } else { (488.0, 1038.0, 1218.0) }
+    let w = list_column().1;
+    (488.0, w - 222.0, w - 42.0)
 }
 
-/// The column, and the top y of the row, for game i (0..12) of a page.
-pub fn list_row(i: usize) -> (usize, f32) {
-    let per_column = LIST_ROWS / list_columns();
-    (i / per_column, LIST_Y + (i % per_column) as f32 * ROW)
+/// The top y of the row of game i of a page.
+pub fn list_row(i: usize) -> f32 {
+    LIST_Y + i as f32 * ROW
 }
 
-/// The bin of list row i (0..12).
+/// The bin of list row i.
 pub fn bin_button(i: usize) -> Rect {
-    let (col, y) = list_row(i);
-    let bx = list_column(col).0 + list_offsets().2;
+    let y = list_row(i);
+    let bx = list_column().0 + list_offsets().2;
     page_rect(bx - 45.0, y, bx + 45.0, y + ROW)
 }
 
@@ -564,14 +571,14 @@ mod tests {
     fn portrait_pages_keep_the_values_of_the_images() {
         set_rotation(0);
         assert_eq!((page_w().round(), page_h().round()), (1404.0, 1872.0));
-        assert_eq!((page_right().round(), summary_box_w().round(), summary_count_x().round(), seg_w().round()), (1332.0, 616.0, 900.0, 210.0));
+        assert_eq!((page_right().round(), summary_box_w().round(), summary_count_x().round(), (seg_w() * 2.0).round()), (1332.0, 616.0, 900.0, 315.0));
         let (x0, y0, x1, y1) = dialog();
         assert_eq!((x0.round(), y0.round(), x1.round(), y1.round()), (252.0, 760.0, 1152.0, 1110.0));
-        assert_eq!(list_column(0).0 + list_offsets().2, 1290.0);
+        assert_eq!(((list_column().0 + list_offsets().1).round(), (list_column().0 + list_offsets().2).round()), (1110.0, 1290.0));
         assert_eq!(prev_arrow(), page_rect(560.0, 1770.0, 660.0, 1872.0));
         set_orientation(Orientation::Landscape);
-        assert_eq!(list_row(11), (1, LIST_Y + 5.0 * ROW));
-        assert!(LIST_Y + 6.0 * ROW < page_h() - 102.0, "two columns of 6 rows fit above the page arrows");
+        assert_eq!((list_column().0 + list_offsets().2).round(), (page_right() - 42.0).round(), "the table is across the full width");
+        assert!(list_row(list_rows()) < page_h() - 102.0, "the rows fit above the page arrows");
         set_rotation(0);
     }
 

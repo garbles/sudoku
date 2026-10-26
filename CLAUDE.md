@@ -76,7 +76,8 @@ docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + 
 One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuffer.
 
 - `game.rs`: the board, the pencil marks, the undo and redo history, clashes and completion.
-- `generator.rs`: the puzzle generator with a seed (only one solution).
+- `generator.rs`: the puzzle generator with a seed (only one solution). Version 1 stays for old saves.
+- `solver.rs`: the human-style solver. It grades a puzzle by the most difficult technique it needs.
 - `recognizer.rs`: reads handwriting in a cell ($P point-cloud recognizer with templates).
 - `app.rs`: screens, menu, panels, overlays, pen and touch input, the clock. No input or output.
 - `invariants.rs`: checks of the rules in INVARIANTS.md. Debug builds check them after each input.

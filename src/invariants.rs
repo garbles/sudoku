@@ -5,7 +5,7 @@
 
 use crate::app::{App, Panel, Screen, MANUAL_PAGES};
 use crate::game::{cells, Change, Game};
-use crate::generator::{count_solutions, is_valid_solution, MODES};
+use crate::generator::{count_solutions, is_valid_solution, MODES, V1_MODES, VERSION};
 
 fn fail(rule: &str, msg: impl std::fmt::Display) -> Result<(), String> {
     Err(format!("{rule}: {msg}"))
@@ -21,7 +21,8 @@ macro_rules! ensure {
 
 /// The rules for the game only (§1 to §4, §7 and §8 of INVARIANTS.md).
 pub fn check_game(g: &Game) -> Result<(), String> {
-    ensure!(g.mode < MODES, "DIF-1", "mode {} is not in 0..4", g.mode);
+    ensure!(g.mode < MODES, "DIF-1", "mode {} is not in 0..6", g.mode);
+    ensure!(g.generator == VERSION || (g.generator == 1 && g.mode < V1_MODES), "PUZ-5", "generator {} mode {}", g.generator, g.mode);
     ensure!(is_valid_solution(&g.solution), "PUZ-1", "the solution is not a correct sudoku");
 
     let mut givens = [[0u8; 9]; 9];
@@ -55,7 +56,7 @@ pub fn check_game(g: &Game) -> Result<(), String> {
 
     // UND-1, UND-3: the board is the result of the changes in the undo history, applied in order to
     // the puzzle. The redo history applies to the current board in the opposite order.
-    let mut replay = Game::new(g.seed, g.mode, g.solution, givens);
+    let mut replay = Game { generator: g.generator, ..Game::new(g.seed, g.mode, g.solution, givens) };
     for (i, change) in g.undo.iter().enumerate() {
         check_change_applies(&replay, change).map_err(|e| format!("UND-1: undo item {i}: {e}"))?;
         replay.apply(change);

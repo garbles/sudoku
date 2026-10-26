@@ -97,7 +97,7 @@ The owner asked to see the strokes while writing. Findings on the device and the
 |---|---|
 | Rotation at the start | AppLoad sends the rotation 37 µs after the connection. The app waits for it (maximum 300 ms) before the first drawing, so it does not show a portrait screen first. |
 | Manual page 1, landscape | The screenshot (inside AppLoad's 2 px line) is the same as `manual-how-to-play-landscape.png` (mean difference 0.00). |
-| Analytics summary, landscape | The screenshot is the same as the app's drawing of the device's results database (mean difference 0.01). The games list in two columns is examined against `analytics-games-landscape.png` (`tests/render.rs`). |
+| Analytics summary, landscape | The screenshot is the same as the app's drawing of the device's results database (mean difference 0.01). The games list (one table across the full width, 6 games on each page) is examined against `analytics-games-landscape.png` (`tests/render.rs`). |
 | Games list, landscape, with results | `sudoku --test-results add` added 14 test rows in the database (one transaction, while the app was closed). The screenshot of page 1 (two columns of 6, with 4 real results of the owner) is the same as the app's drawing of the device's database (mean difference 0.02). `--test-results remove` then deleted only the 14 test rows; the 4 real results stay and the integrity check is ok. |
 
 ### Recognizer, second version, 2026-10-25
@@ -171,3 +171,39 @@ missing items are corrected.
 
 The owner examined all three on the device: finger taps on the menu keep working, the two switches
 operate, and "Delete all games" asks for a confirmation.
+
+### Owner request: seven technique-based modes, 2026-10-25
+
+The owner asked for two more difficulty levels. The owner decided:
+
+- The two new modes are **more difficult** than the old Hard: modes 5 and 6. The modes 0 to 4 keep
+  their numbers, thus a saved `last_mode` and the results keep their meaning.
+- **All seven modes** come from the techniques that a person must use, not from the quantity of
+  starting numbers: 0 singles with 44 starting numbers; 1 singles; 2 locked candidates; 3 subsets;
+  4 X-Wing, Swordfish, XY-Wing; 5 Skyscraper, 2-String Kite, XYZ-Wing, W-Wing, simple colouring,
+  Jellyfish; 6 chains (AIC). No mode needs a guess or a uniqueness technique.
+- **Migrate** the old data. A game file with no generator version is version 1, and the app examines
+  it with the old generator (PUZ-5). The results table goes to schema version 2 (`PRAGMA
+  user_version`). Rows that break ANA-1 stay in the table `results_v1`.
+- The landscape Statistics page has **shorter rows** (76 units) in the "By difficulty" table. Portrait
+  does not change.
+- The meters in the filter segments are **smaller** (18 units between the stops).
+- The first start stays at **mode 2**.
+
+The background research is in `research/puzzle_generation.md` (Simon Tatham's "Solo" method).
+
+Examination:
+
+- `solver::tests::steps_never_remove_the_solution`: on 300 puzzles of version 1 (made without the
+  solver, thus also very difficult ones), no step of any technique removes the digit of the only
+  solution.
+- `solver::tests::each_mode_needs_its_level` and the benchmark `examples/gen_bench.rs`: 700 puzzles
+  (100 seeds for each mode) need exactly the level of their mode. All techniques occur in the
+  puzzles, except quads and Jellyfish, which are rare; hand-made boards examine them.
+- `generator::tests::version_1_puzzles_do_not_change`: three puzzles of version 1 are the same as the
+  puzzles of commit 0b855b0.
+- Time on the development computer (Apple Silicon, release build): mean 0.002 s (mode 0) to 0.13 s
+  (mode 4); maximum 0.64 s. The time on the tablet is not measured yet.
+- The reference images were made again with `scripts/build.sh`. Changed: the images with a meter or a
+  slider, the analytics images and the "New game" manual page ("Easy needs only simple logic. Hard
+  needs advanced logic.").
