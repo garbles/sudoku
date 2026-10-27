@@ -4,7 +4,7 @@ A Sudoku game for the color e-ink display of the reMarkable Paper Pro. You write
 pen, and you add pencil marks with a tap.
 
 <p align="center">
-  <img src="video/demo.gif" alt="Demo: pencil marks, numbers, a clash, the Cell colors menu and the eraser" width="48%" />
+  <a href="video/demo.mp4"><img src="video/demo.gif" alt="Demo: pencil marks, numbers, a clash, the Cell colors menu and the eraser" width="48%" /></a>
 </p>
 
 ## Features
