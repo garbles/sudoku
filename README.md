@@ -52,7 +52,10 @@ You need a reMarkable Paper Pro with developer mode and SSH access.
 
    After a restart of the tablet, run `/home/root/xovi/start` again.
 
-2. Build the app (refer to [Build](#build)).
+2. Download `sudoku-<version>.tar.gz` from the
+   [Releases](https://github.com/garbles/sudoku/releases) page, and extract it to `dist/`
+   (`mkdir -p dist && tar -xzf sudoku-<version>.tar.gz -C dist`). Or build the app (refer to
+   [Build](#build)).
 3. Copy the `dist/sudoku` folder to the tablet and make the program executable:
 
    ```bash
@@ -102,6 +105,10 @@ video. [`src/bin/video.rs`](src/bin/video.rs) gives the commands of the script.
 `Dockerfile.imagegen` uses fixed versions of ImageMagick and ffmpeg, so each computer makes the same
 files. The GitHub workflow makes them again on each push to `main`, and it fails when they are not
 the same as the files in git.
+
+Releases: when all checks of a push to `main` pass, the workflow makes the prerelease `pre-<sha>`.
+To make a stable release, start the **Release** workflow manually on `main`. It gets the name
+`stable-<n>`, where n is 1 more than the number of the last stable release.
 
 ## How the app was made
 
