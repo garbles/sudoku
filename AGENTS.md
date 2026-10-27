@@ -28,6 +28,24 @@ docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + 
 
 `dist/sudoku/` is the AppLoad folder. Copy it to `/home/root/xovi/exthome/appload/` on the tablet.
 
+## Release & CI
+
+- Demo video: `video/demo.txt` is the event script. The video tool runs the real app with no screen
+  and sends the pen, eraser and finger events of the script. Each run gives the same video.
+  `src/bin/video.rs` gives the commands of the script.
+- `Dockerfile.imagegen` uses fixed versions of ImageMagick and ffmpeg, so each computer makes the same
+  files. The GitHub workflow makes `images/` and `video/` again on each push to `main`, and it fails
+  when they are not the same as the files in git. When you change them, run the imagegen build and
+  commit the result.
+- Prereleases: when all checks of a push to `main` pass, the workflow makes the prerelease
+  `pre-<sha>`.
+- Stable releases: the owner starts the **Release** workflow manually on `main`. The release gets
+  the name `v<version>`, with the version in `Cargo.toml`. Increase the version before each stable
+  release.
+- Each release has `version.json`, with the version, the download URL of the archive and its
+  SHA-256 checksum: `{"version": "<version>", "url": "<url>", "sha256": "<checksum>"}`. Do not
+  change this format without approval from the owner.
+
 ## Architecture Overview
 
 One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuffer.
@@ -56,6 +74,9 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   eraser).
 - README.md must agree with the current state of the app (features, build, installation, data
   files). When a change makes README.md incorrect, update README.md in the same change.
+- Run `cargo test` before you send a change.
+- README.md is for players and contributors. Put maintainer and agent details (CI, releases,
+  dev tools) in AGENTS.md.
 
 <!-- BEGIN BEADS INTEGRATION v:1 profile:minimal hash:1105d646 -->
 ## Beads Issue Tracker

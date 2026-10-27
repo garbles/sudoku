@@ -1,8 +1,11 @@
-# Builds the app and makes a GitHub release with the AppLoad folder (sudoku-<version>.tar.gz).
+# Builds the app and makes a GitHub release with the AppLoad folder (sudoku-<version>.tar.gz) and
+# version.json. version.json gives the version, the download URL and the SHA-256 checksum of the
+# archive.
 #
 # - build.yml calls this workflow after each push to main. The result is the prerelease `pre-<sha>`.
-# - A manual run (workflow_dispatch) on main makes the stable release `stable-<n>`. The number n is
-#   1 more than the largest number of the stable-* tags. Only one stable run can operate at a time.
+# - A manual run (workflow_dispatch) on main makes the stable release `v<version>`, with the version
+#   of Cargo.toml. If this tag is already on GitHub, the run fails. Increase the version first.
+#   Only one stable run can operate at a time.
 name: Release
 
 on:
@@ -36,19 +39,40 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Find the stable version
+        if: env.STABLE == 'true'
+        id: stable
+        run: |
+          # tomllib is the TOML parser of the Python standard library (Python 3.11 and later).
+          cargo_version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
+          echo "version=v$cargo_version" >> "$GITHUB_OUTPUT"
+          echo "Version: v$cargo_version"
+
+      # The tag of each release has the name of the release. An API error stops the run.
+      - name: Make sure that the stable version is new
+        if: env.STABLE == 'true'
+        env:
+          VERSION: ${{ steps.stable.outputs.version }}
+        run: |
+          tags="$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$VERSION" --jq '.[].ref')"
+          if grep -qx "refs/tags/$VERSION" <<< "$tags"; then
+            echo "::error::The tag $VERSION is already on GitHub. Increase the version in Cargo.toml."
+            exit 1
+          fi
+
       - name: Find the version
         id: version
+        env:
+          STABLE_VERSION: ${{ steps.stable.outputs.version }}
         run: |
           if [ "$STABLE" = true ]; then
-            last="$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/stable-" --jq '.[].ref' \
-              | sed -n 's|^refs/tags/stable-\([0-9][0-9]*\)$|\1|p' | sort -n | tail -n 1)"
-            version="stable-$(( ${last:-0} + 1 ))"
+            version="$STABLE_VERSION"
           else
             version="pre-${GITHUB_SHA::7}"
-          fi
-          if gh release view "$version" > /dev/null 2>&1; then
-            echo "::notice::The release $version is already on GitHub."
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+            if gh release view "$version" > /dev/null 2>&1; then
+              echo "::notice::The release $version is already on GitHub."
+              echo "exists=true" >> "$GITHUB_OUTPUT"
+            fi
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Version: $version"
@@ -74,7 +98,13 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          tar -C dist -czf "sudoku-$VERSION.tar.gz" sudoku
+          archive="sudoku-$VERSION.tar.gz"
+          tar -C dist -czf "$archive" sudoku
+          sha256="$(sha256sum "$archive" | cut -d ' ' -f 1)"
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$VERSION/$archive"
+          jq -n --arg version "$VERSION" --arg url "$url" --arg sha256 "$sha256" \
+            '{version: $version, url: $url, sha256: $sha256}' > version.json
+          cat version.json
           if [ "$STABLE" = true ]; then kind=--latest; else kind=--prerelease; fi
-          gh release create "$VERSION" "sudoku-$VERSION.tar.gz" --target "$GITHUB_SHA" \
+          gh release create "$VERSION" "$archive" version.json --target "$GITHUB_SHA" \
             --title "$VERSION" --generate-notes "$kind"

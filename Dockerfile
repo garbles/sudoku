@@ -26,7 +26,7 @@ RUN touch src/lib.rs src/bin/*.rs
 RUN cargo test --release --locked
 # The debug build checks all state rules of INVARIANTS.md after each input (invariants::check_app).
 RUN cargo test --locked
-# The version in the Settings panel. release.yml gives pre-<sha> or stable-<n>. The tests above always use "dev".
+# The version in the Settings panel. release.yml gives pre-<sha> or v<version>. The tests above always use "dev".
 ARG SUDOKU_VERSION=dev
 RUN SUDOKU_VERSION="$SUDOKU_VERSION" cargo build --release --locked --bin sudoku \
  && file_info="$(head -c 4 target/release/sudoku | od -An -c)" && echo "built: $file_info"

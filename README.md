@@ -86,30 +86,18 @@ To use a different folder, set the environment variable `SUDOKU_DATA_DIR`.
 You need:
 
 - The Rust toolchain, to run the tests on your computer (macOS or Linux).
-- Docker, to build the program for the tablet and to make the reference images and the demo video.
+- Docker, to build the program for the tablet.
 
-| Task                                                        | Command                                                                                   |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
-| Run all tests                                               | `cargo test`                                                                              |
-| Build for the tablet (also runs all tests on Linux)         | `docker build --platform linux/arm64 --output type=local,dest=dist .`                     |
-| Compare the app with the reference images                   | `cargo run --release --bin snapshot -- OUT_DIR`                                           |
-| Make the reference images, the demo video and the GIF again | `docker build --platform linux/arm64 -f Dockerfile.imagegen --output type=local,dest=. .` |
-| Examine a tablet without AppLoad (run it on the tablet)     | `sudoku --self-test OUT.png SECONDS`                                                      |
+| Task                                                | Command                                                               |
+| --------------------------------------------------- | --------------------------------------------------------------------- |
+| Run all tests                                       | `cargo test`                                                          |
+| Build for the tablet (also runs all tests on Linux) | `docker build --platform linux/arm64 --output type=local,dest=dist .` |
 
 The Docker build makes the folder `dist/sudoku/`. It contains the program `sudoku`, the AppLoad
 manifest `external.manifest.json` and the launcher icon `icon.png`.
 
-The demo video comes from the script [`video/demo.txt`](video/demo.txt). The video tool runs the real
-app with no screen and sends the pen, eraser and finger events of the script. Each run gives the same
-video. [`src/bin/video.rs`](src/bin/video.rs) gives the commands of the script.
-
-`Dockerfile.imagegen` uses fixed versions of ImageMagick and ffmpeg, so each computer makes the same
-files. The GitHub workflow makes them again on each push to `main`, and it fails when they are not
-the same as the files in git.
-
-Releases: when all checks of a push to `main` pass, the workflow makes the prerelease `pre-<sha>`.
-To make a stable release, start the **Release** workflow manually on `main`. It gets the name
-`stable-<n>`, where n is 1 more than the number of the last stable release.
+[`AGENTS.md`](AGENTS.md) gives the other tools (reference images, demo video, tablet self-test) and
+the release procedure.
 
 ## How the app was made
 
@@ -139,14 +127,7 @@ Contributions are welcome, especially:
   generation or better difficulty grades. Each puzzle must keep only one solution (rule `PUZ-2`).
 - Corrections of bugs on the tablet or in the drawing.
 
-Rules:
-
-1. Write all text, comments and messages in ASD-STE100 Simplified Technical English. Use US spelling.
-2. Make sure that your change agrees with `REQUIREMENTS.md` and `INVARIANTS.md`. If the behavior
-
-   changes, update the two documents.
-
-3. Run `cargo test` before you send the change.
+[`AGENTS.md`](AGENTS.md) gives the rules for all changes, from people and from AI agents.
 
 ## License
 

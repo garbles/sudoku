@@ -523,8 +523,8 @@ It has three rows of 112 px with a 2 px line between them. The first two rows ea
 - A tap on a row changes its switch immediately. The panel stays open.
 - The version row has the name **Version** (reMarkable Sans Medium, 25 px, black) at the left. The
   version is at the right, 33 px from the right edge of the panel (reMarkable Sans Regular, 25 px,
-  `gray40`). A release build shows the version of its GitHub release (`pre-<sha>` or `stable-<n>`).
-  All other builds show `dev`. A tap on the version row has no effect, and the panel stays open
+  `gray40`). A release build shows the version of its GitHub release (`pre-<sha>` or `v<version>`,
+  with the version of Cargo.toml). All other builds show `dev`. A tap on the version row has no effect, and the panel stays open
   (owner decision 2026-10-26).
 - A change of a switch does not change the board and is not a part of undo. It has an effect only on
   the next actions. Changes that are already in the undo history do not change.

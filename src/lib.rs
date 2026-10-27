@@ -17,7 +17,7 @@ pub mod platform;
 pub mod reference;
 
 /// The version of the app (REQUIREMENTS.md §9.1). release.yml sets SUDOKU_VERSION at build time
-/// (pre-<sha> or stable-<n>). Other builds show "dev".
+/// (pre-<sha> or v<version>). Other builds show "dev".
 pub const VERSION: &str = match option_env!("SUDOKU_VERSION") {
     Some(v) => v,
     None => "dev",
