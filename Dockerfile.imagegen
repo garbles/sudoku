@@ -1,0 +1,29 @@
+# check=skip=FromPlatformFlagConstDisallowed
+# Makes the reference images (images/*.png) and the demo video (video/demo.mp4, video/demo.gif) again.
+#
+#   docker build --platform linux/arm64 -f Dockerfile.imagegen --output type=local,dest=. .
+#
+# Alpine 3.22 gives fixed versions of ImageMagick and ffmpeg, so each computer makes the same files.
+# The GitHub workflow runs this build and fails when the result is different from the files in git.
+FROM --platform=linux/arm64 rust:1.97-alpine3.22 AS build
+RUN apk add --no-cache musl-dev imagemagick python3 fontconfig ffmpeg
+WORKDIR /src
+# Download and compile the dependencies first, so that a change of the source does not do this again.
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir -p src/bin && echo 'fn main() {}' > src/bin/sudoku.rs && echo 'fn main() {}' > src/bin/snapshot.rs \
+ && echo 'fn main() {}' > src/bin/video.rs \
+ && echo '' > src/lib.rs && cargo build --release --locked && rm -rf src
+COPY scripts scripts
+# Remove the time stamps from the PNG files, so that the same images give the same bytes.
+RUN mkdir images && sh scripts/build.sh \
+ && magick mogrify -define png:exclude-chunks=date,time images/*.png
+COPY src src
+COPY assets assets
+COPY tests tests
+COPY video/demo.txt video/demo.txt
+RUN touch src/lib.rs src/bin/*.rs
+RUN cargo run --release --locked --bin video -- video/demo.txt video/demo.mp4
+
+FROM scratch AS export
+COPY --from=build /src/images/*.png /images/
+COPY --from=build /src/video/demo.mp4 /src/video/demo.gif /video/

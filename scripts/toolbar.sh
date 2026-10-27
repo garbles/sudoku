@@ -5,6 +5,7 @@
 #   new-game-menu.png         the + panel is open: the difficulty slider and "Start new game"
 #   color-menu.png            the Cell colors panel is open (starting, clashing, highlighted), on a game
 #   screen-completed-menu.png menu open on a complete (locked) puzzle: undo and redo not available
+#   color-menu-right-handed.png  color-menu.png for a right-handed player (toolbar on the left)
 # Top of the menu: menu button, cell colors, undo, redo. Bottom, from the bottom to the top: + (new game),
 # Analytics, Help.
 set -e
@@ -160,4 +161,13 @@ compose screen-in-progress.png settings-menu.png
 # --- complete puzzle: the board is locked, so undo and redo are not available
 toolbar gray70 ""
 compose screen-completed.png screen-completed-menu.png
+# --- color-menu.png for a right-handed player (REQUIREMENTS.md §3.1). The toolbar moves to the left edge and
+# the close button to the top right. The menu icon is a mirror image. The other icons and the panel contents
+# do not change: the panel moves 996 px to the left (x 112-511). All moves are full pixels.
+magick "$OUT/screen-in-progress.png" \
+  \( "$OUT/color-menu.png" -crop 112x2160+$TB_X+0 +repage \) -geometry +0+0 -composite \
+  \( "$OUT/color-menu.png" -crop 112x112+$TB_X+0 +repage -flop \) -geometry +0+0 -composite \
+  \( "$OUT/color-menu.png" -crop 112x112+0+0 +repage \) -geometry +$TB_X+0 -composite \
+  \( "$OUT/color-menu.png" -crop $((PR-PL+1))x$((3*448))+$PL+112 +repage \) -geometry +112+112 -composite \
+  -units PixelsPerInch -density 229 "$OUT/color-menu-right-handed.png"
 rm -f $M

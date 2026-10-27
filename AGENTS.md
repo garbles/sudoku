@@ -22,6 +22,7 @@ executable for the reMarkable Paper Pro.
 cargo test                                   # all tests on the computer (macOS or Linux)
 cargo run --release --bin snapshot -- DIR    # draw the reference states and compare them with images/
 cargo run --release --bin video -- video/demo.txt video/demo.mp4   # demo video from an event script (ffmpeg)
+docker build --platform linux/arm64 -f Dockerfile.imagegen --output type=local,dest=. .   # images/ and video/ with fixed tool versions (commit these)
 docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + static aarch64 build
 ```
 

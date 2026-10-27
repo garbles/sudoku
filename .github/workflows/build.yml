@@ -1,5 +1,6 @@
 # Runs all tests and builds the app for the reMarkable Paper Pro on each push to main.
 # The Dockerfile runs the tests on aarch64 Linux and makes the AppLoad folder dist/sudoku/.
+# Dockerfile.imagegen makes the images and the demo video again. They must be the same as the files in git.
 name: Build
 
 on:
@@ -31,12 +32,36 @@ jobs:
         with:
           context: .
           platforms: linux/arm64
-          outputs: type=local,dest=dist
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          outputs: type=cacheonly
+          cache-from: type=gha,scope=build
+          cache-to: type=gha,scope=build,mode=max
 
-      - uses: actions/upload-artifact@v7
+  media:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
         with:
-          name: sudoku
-          path: dist/sudoku/
-          if-no-files-found: error
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Writes images/*.png, video/demo.mp4 and video/demo.gif into the checkout.
+      - name: Make the images and the video
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.imagegen
+          platforms: linux/arm64
+          outputs: type=local,dest=.
+          cache-from: type=gha,scope=media
+          cache-to: type=gha,scope=media,mode=max
+
+      - name: Compare with the files in git
+        run: |
+          changes="$(git status --porcelain -- images video)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            echo "::error::The images or the video are not the same as the output of Dockerfile.imagegen. Make them again with Dockerfile.imagegen and commit them."
+            exit 1
+          fi

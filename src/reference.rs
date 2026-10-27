@@ -130,6 +130,15 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             a.ui.menu_open = true;
             a.ui.panel = Panel::Colors
         }),
+        ("color-menu-right-handed.png", |a| {
+            // The same state as color-menu.png, for a right-handed player (REQUIREMENTS.md §3.1).
+            crate::layout::set_right_handed(true);
+            a.game = sample_game();
+            a.game.toggle_mark((8, 0), 1);
+            a.game.undo();
+            a.ui.menu_open = true;
+            a.ui.panel = Panel::Colors
+        }),
         ("screen-completed-menu.png", |a| {
             a.game = completed_game();
             a.ui.menu_open = true
@@ -173,10 +182,13 @@ pub fn ink_state(a: &mut App) {
 }
 
 pub fn render(fonts: &Fonts, setup: Setup) -> Pixmap {
+    // The images are left-handed, if the setup does not change this.
+    crate::layout::set_right_handed(false);
     let mut a = app(fonts);
     setup(&mut a);
     let mut pm = Pixmap::new(crate::layout::screen_w(), crate::layout::screen_h()).unwrap();
     render::draw(&mut Canvas::new(&mut pm, fonts), &a);
+    crate::layout::set_right_handed(false);
     pm
 }
 

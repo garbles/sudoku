@@ -4,7 +4,7 @@ A Sudoku game for the color e-ink display of the reMarkable Paper Pro. You write
 pen, and you add pencil marks with a tap.
 
 <p align="center">
-  <a href="video/demo.mp4"><img src="video/demo.gif" alt="Demo: pencil marks, numbers, a clash, the Cell colors menu and the eraser" width="48%" /></a>
+  <a href="video/demo.mp4"><img src="video/demo.gif" alt="Demo: pencil marks, numbers, a clash, the Cell colors menu and the eraser" width="50%" /></a>
 </p>
 
 ## Features
@@ -45,20 +45,19 @@ You need a reMarkable Paper Pro with developer mode and SSH access.
 1. Install the AppLoad launcher with Vellum, and start xovi:
 
    ```bash
-   vellum add appload
-   /home/root/xovi/rebuild_hashtable
-   /home/root/xovi/start
+    vellum add appload
+    /home/root/xovi/rebuild_hashtable
+    /home/root/xovi/start
    ```
 
    After a restart of the tablet, run `/home/root/xovi/start` again.
 
 2. Build the app (refer to [Build](#build)).
-
 3. Copy the `dist/sudoku` folder to the tablet and make the program executable:
 
    ```bash
-   scp -r dist/sudoku root@10.11.99.1:/home/root/xovi/exthome/appload/
-   ssh root@10.11.99.1 "chmod 755 /home/root/xovi/exthome/appload/sudoku/sudoku"
+    scp -r dist/sudoku root@10.11.99.1:/home/root/xovi/exthome/appload/
+    ssh root@10.11.99.1 "chmod 755 /home/root/xovi/exthome/appload/sudoku/sudoku"
    ```
 
    `10.11.99.1` is the address of the tablet on a USB connection. On Wi-Fi, use the IP address of
@@ -70,11 +69,11 @@ You need a reMarkable Paper Pro with developer mode and SSH access.
 
 The app keeps its data in `/home/root/.local/share/rm-sudoku/` on the tablet:
 
-| File | Contents |
-|---|---|
-| `game.json` | The current game: the puzzle, your numbers and pencil marks, the undo history and the clock |
-| `settings.json` | The cell colors, the last difficulty and the two switches of the Settings panel |
-| `results.sqlite` | Your completed games: date, difficulty, time and puzzle seed |
+| File             | Contents                                                                                    |
+| ---------------- | ------------------------------------------------------------------------------------------- |
+| `game.json`      | The current game: the puzzle, your numbers and pencil marks, the undo history and the clock |
+| `settings.json`  | The cell colors, the last difficulty and the two switches of the Settings panel             |
+| `results.sqlite` | Your completed games: date, difficulty, time and puzzle seed                                |
 
 To use a different folder, set the environment variable `SUDOKU_DATA_DIR`.
 
@@ -83,39 +82,36 @@ To use a different folder, set the environment variable `SUDOKU_DATA_DIR`.
 You need:
 
 - The Rust toolchain, to run the tests on your computer (macOS or Linux).
-- Docker, to build the program for the tablet.
-- ffmpeg, only to make the demo video.
-- ImageMagick 7 and Python 3, only to make the reference images again.
+- Docker, to build the program for the tablet and to make the reference images and the demo video.
 
-| Task | Command |
-|---|---|
-| Run all tests | `cargo test` |
-| Build for the tablet (also runs all tests on Linux) | `docker build --platform linux/arm64 --output type=local,dest=dist .` |
-| Compare the app with the reference images | `cargo run --release --bin snapshot -- OUT_DIR` |
-| Make the reference images again | `sh scripts/build.sh` |
-| Make the demo video and GIF | `cargo run --release --bin video -- video/demo.txt video/demo.mp4` |
-| Examine a tablet without AppLoad (run it on the tablet) | `sudoku --self-test OUT.png SECONDS` |
+| Task                                                        | Command                                                                                   |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Run all tests                                               | `cargo test`                                                                              |
+| Build for the tablet (also runs all tests on Linux)         | `docker build --platform linux/arm64 --output type=local,dest=dist .`                     |
+| Compare the app with the reference images                   | `cargo run --release --bin snapshot -- OUT_DIR`                                           |
+| Make the reference images, the demo video and the GIF again | `docker build --platform linux/arm64 -f Dockerfile.imagegen --output type=local,dest=. .` |
+| Examine a tablet without AppLoad (run it on the tablet)     | `sudoku --self-test OUT.png SECONDS`                                                      |
 
 The Docker build makes the folder `dist/sudoku/`. It contains the program `sudoku`, the AppLoad
 manifest `external.manifest.json` and the launcher icon `icon.png`.
-
-GitHub Actions does the Docker build on each push to `main`
-([`.github/workflows/build.yml`](.github/workflows/build.yml)). When all tests pass, you can download
-the `dist/sudoku/` folder from the run as the artifact `sudoku`.
 
 The demo video comes from the script [`video/demo.txt`](video/demo.txt). The video tool runs the real
 app with no screen and sends the pen, eraser and finger events of the script. Each run gives the same
 video. [`src/bin/video.rs`](src/bin/video.rs) gives the commands of the script.
 
+`Dockerfile.imagegen` uses fixed versions of ImageMagick and ffmpeg, so each computer makes the same
+files. The GitHub workflow makes them again on each push to `main`, and it fails when they are not
+the same as the files in git.
+
 ## How the app was made
 
-The app was made with **Reverse Visual Regression Testing Driven Development**. A usual visual
-regression test compares the app with screenshots of an earlier version of the app. Here, the
-"screenshots" came first, before the app existed:
+This app was started with **"Reverse Visual Regression Testing Driven Development"**. I had Claude generate screenshots of a non-existant application before any source code was written. A usual visual regression test compares the app with screenshots of an earlier version of the app. Here, the "screenshots" came first, before the app existed:
 
 1. **Reference images.** Scripts in [`scripts/`](scripts/) draw exact 1620×2160 images of each screen,
+
    panel and dialog, and the 9 pages of the manual in portrait and in landscape. The images are in
    [`images/`](images/), and [`images/INDEX.md`](images/INDEX.md) gives a list of them.
+
 2. **Specification.** Two documents tell how the app must operate:
    - [`REQUIREMENTS.md`](REQUIREMENTS.md): all screens, sizes, inputs and saved data.
    - [`INVARIANTS.md`](INVARIANTS.md): the rules that must be true in all states of the app.
@@ -139,7 +135,9 @@ Rules:
 
 1. Write all text, comments and messages in ASD-STE100 Simplified Technical English. Use US spelling.
 2. Make sure that your change agrees with `REQUIREMENTS.md` and `INVARIANTS.md`. If the behavior
+
    changes, update the two documents.
+
 3. Run `cargo test` before you send the change.
 
 ## License

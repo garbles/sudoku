@@ -12,6 +12,8 @@
 //!
 //!     fps N                       frames each second (default 30)
 //!     puzzle seed S mode M        the puzzle (it must come before the first event)
+//!     hand right|left             the handedness of the player (default right, as on the device). It
+//!                                 must come before the first event.
 //!     wait S                      no input for S seconds
 //!     mark rRcC D...              pen taps on the micro-cells of the digits D
 //!     write rRcC D [writer N]     pen writes the digit D (handwriting of the recognizer examples,
@@ -204,6 +206,7 @@ struct Script {
 fn parse(text: &str, pause_ms: u64) -> Result<Script, String> {
     let mut fps = 30;
     let mut puzzle = None;
+    layout::set_right_handed(true);
     let mut tl = Timeline { t: 0, events: Vec::new(), checks: Vec::new(), pen_at: None };
     // The pencil marks that the script made, to know the expected values.
     let mut marks = [[0u16; 9]; 9];
@@ -221,6 +224,12 @@ fn parse(text: &str, pause_ms: u64) -> Result<Script, String> {
                 let seed = s.parse().map_err(|_| err(format!("incorrect seed {s:?}")))?;
                 let mode = m.parse().map_err(|_| err(format!("incorrect mode {m:?}")))?;
                 puzzle = Some((seed, mode));
+            }
+            ["hand", h @ ("right" | "left")] => {
+                if !tl.events.is_empty() {
+                    return Err(err("the hand line must come before the first event".into()));
+                }
+                layout::set_right_handed(*h == "right");
             }
             ["wait", s] => {
                 let secs: f64 = s.parse().map_err(|_| err(format!("incorrect time {s:?}")))?;

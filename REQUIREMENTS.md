@@ -106,6 +106,9 @@ The positions above are for a **left-handed** player. The app reads the handedne
 
 The board, the meter, the manual and the statistics do not change.
 
+Image: [`images/color-menu-right-handed.png`](images/color-menu-right-handed.png) (the Cell colors
+panel of `color-menu.png` for a right-handed player).
+
 [`images/box.png`](images/box.png) shows one 3×3 box. [`images/cell.png`](images/cell.png) shows one
 cell with its micro-cells. Both images use the scale of the board and have 20 px of space around them.
 
@@ -901,6 +904,7 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`screen-completed-menu.png`](images/screen-completed-menu.png) | [§8.3](#83-complete), [§9](#9-the-menu) |
 | [`screen-toolbar.png`](images/screen-toolbar.png) | [§9](#9-the-menu) |
 | [`color-menu.png`](images/color-menu.png) | [§10](#10-cell-colors-panel) |
+| [`color-menu-right-handed.png`](images/color-menu-right-handed.png) | [§3.1](#31-layout), [§10](#10-cell-colors-panel) |
 | [`new-game-menu.png`](images/new-game-menu.png) | [§11](#11-new-game-panel-and-difficulty) |
 | [`analytics.png`](images/analytics.png) | [§13.1](#131-summary) |
 | [`analytics-games.png`](images/analytics-games.png) | [§13.2](#132-completed-games-list) |

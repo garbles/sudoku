@@ -4,6 +4,7 @@
 
 fps 30
 puzzle seed 7 mode 0          # Easy. The same puzzle each time.
+hand right                    # the menu is at the left edge
 
 wait 1.5                      # show the new board
 

@@ -220,4 +220,8 @@ the left edge and the close button at the right (REQUIREMENTS.md §3.1, NAV-15).
   app starts again.
 - The menu icon is a mirror image for a right-handed user (owner decision). The other icons do not
   change, for example the undo arrow still turns to the left.
-- The reference images in `images/` stay left-handed.
+- The reference images in `images/` stay left-handed. Only `color-menu-right-handed.png` shows the
+  right-handed layout. `scripts/toolbar.sh` makes it from `color-menu.png`: the parts move by full
+  pixels and only the menu icon is a mirror image.
+- The demo video uses the right-handed layout, as the device does by default (`hand right` in
+  `video/demo.txt`).
