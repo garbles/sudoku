@@ -11,6 +11,7 @@ WORKDIR /src
 # Download and compile the dependencies first, so that a change of the source does not do this again.
 COPY Cargo.toml Cargo.lock ./
 RUN mkdir -p src/bin && echo 'fn main() {}' > src/bin/sudoku.rs && echo 'fn main() {}' > src/bin/snapshot.rs \
+ && echo 'fn main() {}' > src/bin/video.rs \
  && echo '' > src/lib.rs && cargo build --release --locked && cargo test --release --locked --no-run \
  && rm -rf src
 COPY src src

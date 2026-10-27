@@ -19,7 +19,7 @@ write r2c9 9
 wait 1.0
 
 # 3. An incorrect number. r3c4 must be 5 (the last empty cell in row 3).
-write r3c4 9                  # clashes with r3c6 and r4c4: the cells are red
+write r3c4 9 writer 7         # a different 9 (round loop). It clashes with r3c6 and r4c4: the cells are red
 wait 2.0
 
 # 4. Change the clash color.

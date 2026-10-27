@@ -14,13 +14,14 @@
 //!     puzzle seed S mode M        the puzzle (it must come before the first event)
 //!     wait S                      no input for S seconds
 //!     mark rRcC D...              pen taps on the micro-cells of the digits D
-//!     write rRcC D                pen writes the digit D (handwriting of the recognizer examples)
+//!     write rRcC D [writer N]     pen writes the digit D (handwriting of the recognizer examples,
+//!                                 writer 1 to 60, default 1)
 //!     erase rRcC                  eraser end rubs the cell
 //!     tap menu|colors|settings|undo|redo
 //!     tap color starting|clashing|highlighted COLOR
 //!
-//! It uses the fonts in scripts/fonts (refer to scripts/fonts/README.md) and ffmpeg. An output file
-//! that ends with .gif gives a GIF at a smaller size.
+//! It uses the fonts in scripts/fonts (refer to scripts/fonts/README.md) and ffmpeg. After the MP4, the
+//! tool makes a smaller GIF from it with the same name (for example video/demo.gif), for README.md.
 
 use std::io::Write;
 use std::path::Path;
@@ -243,14 +244,19 @@ fn parse(text: &str, pause_ms: u64) -> Result<Script, String> {
                 tl.check(0, Check::Marks(cell, marks[cell.0 as usize][cell.1 as usize]));
                 tl.leave(Tool::Pen);
             }
-            ["write", cell, d] => {
+            ["write", cell, d, rest @ ..] => {
                 need_puzzle()?;
                 let cell = parse_cell(cell).map_err(err)?;
                 let d = parse_digit(d).map_err(err)?;
+                let writer = match rest {
+                    [] => 1,
+                    ["writer", n] => n.parse().map_err(|_| err(format!("incorrect writer {n:?}")))?,
+                    _ => return Err(err(format!("unknown line {line:?}"))),
+                };
                 let (x, y) = layout::cell_origin(cell);
                 let off = (CELL as f32 - INK_BOX) / 2.0;
-                let ink = sudoku::recognizer::example_ink(d, 1, x as f32 + off, y as f32 + off, INK_BOX)
-                    .ok_or_else(|| err(format!("no handwriting example for {d}")))?;
+                let ink = sudoku::recognizer::example_ink(d, writer, x as f32 + off, y as f32 + off, INK_BOX)
+                    .ok_or_else(|| err(format!("no handwriting example of {d} by writer {writer}")))?;
                 for (i, s) in ink.iter().enumerate() {
                     if i > 0 {
                         tl.t += STROKE_GAP_MS;
@@ -432,22 +438,36 @@ fn verify(app: &App, c: Check) -> Result<(), String> {
 fn ffmpeg(out: &Path, fps: u64, w: u32, h: u32) -> std::process::Child {
     let size = format!("{w}x{h}");
     let rate = fps.to_string();
-    let mut cmd = Command::new("ffmpeg");
-    cmd.args(["-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", &size, "-r", &rate, "-i", "-"]);
-    if out.extension().is_some_and(|e| e == "gif") {
-        cmd.args(["-vf", "fps=15,scale=540:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse"]);
-    } else {
-        cmd.args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-movflags", "+faststart"]);
-    }
-    cmd.arg(out).stdin(Stdio::piped()).spawn().expect("ffmpeg (install it and put it on PATH)")
+    Command::new("ffmpeg")
+        .args(["-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", &size, "-r", &rate, "-i", "-"])
+        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-movflags", "+faststart"])
+        .arg(out)
+        .stdin(Stdio::piped())
+        .spawn()
+        .expect("ffmpeg (install it and put it on PATH)")
+}
+
+/// Makes a GIF from the MP4: 15 frames each second, 540 px wide, with one palette for all frames.
+fn gif(mp4: &Path, out: &Path) -> bool {
+    Command::new("ffmpeg")
+        .args(["-loglevel", "error", "-y", "-i"])
+        .arg(mp4)
+        .args(["-vf", "fps=15,scale=540:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse"])
+        .arg(out)
+        .status()
+        .is_ok_and(|s| s.success())
 }
 
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let [script_path, out] = args.as_slice() else {
-        eprintln!("usage: video SCRIPT OUT.mp4|OUT.gif");
+        eprintln!("usage: video SCRIPT OUT.mp4");
         std::process::exit(2);
     };
+    if !out.ends_with(".mp4") {
+        eprintln!("the output file must end with .mp4");
+        std::process::exit(2);
+    }
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let fonts = if std::env::var_os("SUDOKU_FONT").is_some() {
         Fonts::load().expect("fonts")
@@ -524,4 +544,11 @@ fn main() {
         std::process::exit(1);
     }
     println!("{out}: {} frames, {:.1} s", frames + 1, end as f64 / 1000.0);
+
+    let gif_out = Path::new(out).with_extension("gif");
+    if !gif(Path::new(out), &gif_out) {
+        eprintln!("ffmpeg failed to make {}", gif_out.display());
+        std::process::exit(1);
+    }
+    println!("{}", gif_out.display());
 }

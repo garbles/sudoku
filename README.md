@@ -1,153 +1,151 @@
 # Sudoku for reMarkable Paper Pro
 
-This document is written in ASD-STE100 Simplified Technical English (STE).
-
-Sudoku is an open-source puzzle application for the reMarkable Paper Pro tablet. The application runs as an AppLoad external application with a `qtfb` framebuffer.
+A Sudoku game for the color e-ink display of the reMarkable Paper Pro. You write the numbers with the
+pen, and you add pencil marks with a tap.
 
 <p align="center">
-  <img src="images/irl.jpg" alt="Sudoku on the reMarkable Paper Pro" width="48%" />
-  <img src="images/color-menu.png" alt="Cell colors menu in the application" width="48%" />
+  <img src="video/demo.gif" alt="Demo: pencil marks, numbers, a clash, the Cell colors menu and the eraser" width="48%" />
 </p>
 
-## What It Is
+## Features
 
-The application provides a full Sudoku game designed for the color e-ink display of the reMarkable Paper Pro (1620×2160 portrait, 2160×1620 landscape, 229 DPI).
+**Play with the pen**
 
-Main features:
-- **Pen handwriting input**: Write a digit (1 to 9) in a cell. The $P point-cloud recognizer reads your stroke.
-- **Pen pencil marks**: Tap a micro-cell with the pen tip to add or remove a pencil mark.
-- **Marker eraser support**: Rub a cell with the marker eraser to clear numbers and pencil marks.
-- **Touch controls**: Use your finger to operate menus, buttons, and difficulty sliders.
-- **Live ink**: The screen shows strokes immediately while you write.
-- **Puzzle generator**: Creates puzzles with 5 difficulty levels (Easy, Medium, Hard, Expert, Master). Each puzzle has only one solution.
-- **Smart helpers**: Automatic pencil mark cleanup, duplicate number clash detection (red), and number highlight overlays (green).
-- **Undo and redo**: Full history support for all board moves.
-- **Built-in manual**: A 9-page guide that explains how to play and how to use the tablet controls.
-- **Statistics**: Tracks completed games, times, and difficulty metrics in a local SQLite database.
-- **State persistence**: Saves the current game, elapsed time, and custom settings automatically when you pause or close the app.
-- **System font integration**: Loads and uses the native `reMarkable Sans` font directly from the tablet.
+- Write a digit from 1 to 9 in a cell. The app reads your handwriting after a short pause.
+- Tap a micro-cell to add or remove a pencil mark.
+- Rub one of your numbers with the eraser end of the pen to remove it.
+- Your finger operates the menu and the panels. Finger touches on the board have no effect.
 
-## How This Application Was Built
+**Helpers**
 
-Claude designed and wrote this entire application through a process called **"Fake Screenshot Driven Development"**.
+- When you add a number, the app removes that digit from the pencil marks in the same row, column
+  and box.
+- When the same digit is two times in a row, column or box, the two cells change color.
+- Tap a number to highlight all cells with that digit.
+- You can turn the pencil mark removal and the highlights off. You can also select the cell colors.
+- Undo and redo for all changes on the board.
 
-### 1. Fake Screenshot Driven Development
+**Puzzles**
 
-Before Claude wrote a single line of Rust code:
-1. Claude generated simulated ("fake") screenshots of the entire application.
-2. These screenshots defined every screen state, toolbar panel, and dialog.
-3. Claude also generated 9 complete pages of a visual user "manual" that explained how the application works.
-4. Shell and Python scripts (`scripts/build.sh`) made these exact 1620×2160 reference images in the [`images/`](images/) directory.
+- 7 difficulty modes, from Easy to Hard. Each mode needs a different group of solving techniques.
+- Each puzzle has only one solution, and you never have to guess.
 
-Refer to [`images/INDEX.md`](images/INDEX.md) for the list of reference images.
+**Other**
 
-### 2. Specification Generation
+- A manual of 9 pages in the app.
+- Statistics: your completed games, your times and the average time for each mode.
+- Portrait and landscape layouts. For a right-handed player, the menu is on the left side.
+- The app saves your game all the time. When you open the app again, you continue at the same point.
+- The app uses the reMarkable Sans font of the tablet.
 
-From that conversation and the reference screenshots, Claude generated two formal specification documents:
-- [`REQUIREMENTS.md`](REQUIREMENTS.md): Specifies all screens, layout dimensions, user inputs, visual elements, and persistent data formats.
-- [`INVARIANTS.md`](INVARIANTS.md): Specifies all formal state invariants and rules that must hold true in every reachable application state.
+## Installation
 
-### 3. Implementation and Verification
+You need a reMarkable Paper Pro with developer mode and SSH access.
 
-Claude wrote the entire application code in Rust:
-- **State invariants**: The application verifies the rules from [`INVARIANTS.md`](INVARIANTS.md) after each user input.
-- **Visual tests**: Snapshot tests ([`tests/render.rs`](tests/render.rs)) compare rendered screens with the reference screenshots pixel by pixel.
-- **Device verification**: Device logs and hardware tests confirmed ink latency, eraser detection, and AppLoad integration ([`DECISIONS.md`](DECISIONS.md)).
+1. Install the AppLoad launcher with Vellum, and start xovi:
 
-## How to Build
+   ```bash
+   vellum add appload
+   /home/root/xovi/rebuild_hashtable
+   /home/root/xovi/start
+   ```
 
-### Requirements
-- **Rust toolchain** (to run tests locally on macOS or Linux)
-- **Docker** (to build the aarch64 Linux executable for the reMarkable Paper Pro)
+   After a restart of the tablet, run `/home/root/xovi/start` again.
 
-### Run Tests on Your Computer
+2. Build the app (refer to [Build](#build)).
 
-Run the test suite on your local machine:
+3. Copy the `dist/sudoku` folder to the tablet and make the program executable:
 
-```bash
-cargo test
-```
+   ```bash
+   scp -r dist/sudoku root@10.11.99.1:/home/root/xovi/exthome/appload/
+   ssh root@10.11.99.1 "chmod 755 /home/root/xovi/exthome/appload/sudoku/sudoku"
+   ```
 
-To compare rendered states with the reference images in [`images/`](images/):
+   `10.11.99.1` is the address of the tablet on a USB connection. On Wi-Fi, use the IP address of
+   the tablet.
 
-```bash
-cargo run --release --bin snapshot -- images/
-```
+4. Open AppLoad on the tablet and tap **Sudoku**.
 
-To make a demo video of the app (it needs `ffmpeg`):
+### Saved data
 
-```bash
-cargo run --release --bin video -- video/demo.txt video/demo.mp4
-```
+The app keeps its data in `/home/root/.local/share/rm-sudoku/` on the tablet:
 
-The tool runs the real app with no screen. It sends the timed pen, eraser and finger events of the
-script in [`video/demo.txt`](video/demo.txt) and records the frames. Markers show where the pen, the
-eraser and the finger touch the screen. Each run gives the same video. An output file that ends with
-`.gif` gives a smaller GIF. `src/bin/video.rs` gives the commands of the script.
+| File | Contents |
+|---|---|
+| `game.json` | The current game: the puzzle, your numbers and pencil marks, the undo history and the clock |
+| `settings.json` | The cell colors, the last difficulty and the two switches of the Settings panel |
+| `results.sqlite` | Your completed games: date, difficulty, time and puzzle seed |
 
-### Build for the reMarkable Paper Pro
+To use a different folder, set the environment variable `SUDOKU_DATA_DIR`.
 
-Use the Dockerfile of the project to compile the static binary for `aarch64` Linux:
+## Build
 
-```bash
-docker build --platform linux/arm64 --output type=local,dest=dist .
-```
+You need:
 
-This command makes the `dist/sudoku/` folder. The folder contains:
-- `sudoku`: The compiled static Linux binary.
-- `external.manifest.json`: The AppLoad configuration manifest.
-- `icon.png`: The application icon for the AppLoad launcher.
+- The Rust toolchain, to run the tests on your computer (macOS or Linux).
+- Docker, to build the program for the tablet.
+- ffmpeg, only to make the demo video.
+- ImageMagick 7 and Python 3, only to make the reference images again.
 
-## How to Install on the reMarkable
+| Task | Command |
+|---|---|
+| Run all tests | `cargo test` |
+| Build for the tablet (also runs all tests on Linux) | `docker build --platform linux/arm64 --output type=local,dest=dist .` |
+| Compare the app with the reference images | `cargo run --release --bin snapshot -- OUT_DIR` |
+| Make the reference images again | `sh scripts/build.sh` |
+| Make the demo video and GIF | `cargo run --release --bin video -- video/demo.txt video/demo.mp4` |
+| Examine a tablet without AppLoad (run it on the tablet) | `sudoku --self-test OUT.png SECONDS` |
 
-### Prerequisites
-1. Enable developer mode on your reMarkable Paper Pro.
-2. Set up SSH access to the tablet.
-3. Install AppLoad on the tablet (for example, with Vellum: `vellum add appload`).
+The Docker build makes the folder `dist/sudoku/`. It contains the program `sudoku`, the AppLoad
+manifest `external.manifest.json` and the launcher icon `icon.png`.
 
-### Installation Steps
+GitHub Actions does the Docker build on each push to `main`
+([`.github/workflows/build.yml`](.github/workflows/build.yml)). When all tests pass, you can download
+the `dist/sudoku/` folder from the run as the artifact `sudoku`.
 
-1. Copy the `dist/sudoku` folder to the AppLoad directory on your tablet:
+The demo video comes from the script [`video/demo.txt`](video/demo.txt). The video tool runs the real
+app with no screen and sends the pen, eraser and finger events of the script. Each run gives the same
+video. [`src/bin/video.rs`](src/bin/video.rs) gives the commands of the script.
 
-```bash
-scp -r dist/sudoku root@10.11.99.1:/home/root/xovi/exthome/appload/
-```
+## How the app was made
 
-> [!NOTE]
-> Replace `10.11.99.1` with the IP address of your tablet if you connect through Wi-Fi.
+The app was made with **Reverse Visual Regression Testing Driven Development**. A usual visual
+regression test compares the app with screenshots of an earlier version of the app. Here, the
+"screenshots" came first, before the app existed:
 
-2. Make sure that the binary has executable permissions:
-
-```bash
-ssh root@10.11.99.1 "chmod 755 /home/root/xovi/exthome/appload/sudoku/sudoku"
-```
-
-3. Open the AppLoad launcher on your tablet.
-4. Tap **Sudoku** to start the application.
-
-## Data Storage
-
-The application keeps its data in `/home/root/.local/share/remarkable-sudoku/` on the tablet:
-- `game.json`: The active game state, board history, and elapsed clock time.
-- `settings.json`: The user settings (such as cell color selections).
-- `results.db`: The SQLite database of completed games and completion times.
+1. **Reference images.** Scripts in [`scripts/`](scripts/) draw exact 1620×2160 images of each screen,
+   panel and dialog, and the 9 pages of the manual in portrait and in landscape. The images are in
+   [`images/`](images/), and [`images/INDEX.md`](images/INDEX.md) gives a list of them.
+2. **Specification.** Two documents tell how the app must operate:
+   - [`REQUIREMENTS.md`](REQUIREMENTS.md): all screens, sizes, inputs and saved data.
+   - [`INVARIANTS.md`](INVARIANTS.md): the rules that must be true in all states of the app.
+3. **Implementation and tests.** The app is written in Rust.
+   - The render tests ([`tests/render.rs`](tests/render.rs)) compare the screens of the app with the
+     reference images, pixel by pixel.
+   - Debug builds examine all rules of `INVARIANTS.md` after each input. Each test gives the IDs of
+     the rules that it examines.
+   - Tests on the tablet examined the ink speed, the eraser and AppLoad
+     ([`DECISIONS.md`](DECISIONS.md)).
 
 ## Contributing
 
-We welcome your contributions. We look for help in these areas:
+Contributions are welcome, especially:
 
-- **Puzzle generation algorithm**: Improvements to [`src/generator.rs`](src/generator.rs). Examples include better difficulty ratings, faster generation, or improved clue patterns. Each puzzle must keep exactly one valid solution (`PUZ-2`).
-- **Bug fixes**: Fixes for reported software defects, device edge cases, or drawing errors.
+- Improvements to the puzzle generator ([`src/generator.rs`](src/generator.rs)), for example faster
+  generation or better difficulty grades. Each puzzle must keep only one solution (rule `PUZ-2`).
+- Corrections of bugs on the tablet or in the drawing.
 
-### Guidelines
+Rules:
 
-1. Write all text, comments, and messages in ASD-STE100 Simplified Technical English (STE). Use US spelling.
-2. Make sure that your changes follow [`REQUIREMENTS.md`](REQUIREMENTS.md) and [`INVARIANTS.md`](INVARIANTS.md).
-3. Run the test suite on your computer:
-   ```bash
-   cargo test
-   ```
+1. Write all text, comments and messages in ASD-STE100 Simplified Technical English. Use US spelling.
+2. Make sure that your change agrees with `REQUIREMENTS.md` and `INVARIANTS.md`. If the behavior
+   changes, update the two documents.
+3. Run `cargo test` before you send the change.
 
 ## License
 
 MIT
+
+---
+
+The full source code of this project was generated with an LLM.
