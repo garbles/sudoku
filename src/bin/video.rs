@@ -444,12 +444,18 @@ fn verify(app: &App, c: Check) -> Result<(), String> {
     if ok { Ok(()) } else { Err(format!("the app does not show the expected result: {c:?}")) }
 }
 
+/// The number of ffmpeg threads. The output of x264 changes with the number of threads, so a fixed number
+/// gives the same files on all computers (Dockerfile.imagegen, the GitHub workflow).
+const THREADS: &str = "4";
+/// The scaler flags for the same pixels on all CPUs (no fast SIMD rounding).
+const EXACT: &str = "bitexact+accurate_rnd+full_chroma_int";
+
 fn ffmpeg(out: &Path, fps: u64, w: u32, h: u32) -> std::process::Child {
     let size = format!("{w}x{h}");
     let rate = fps.to_string();
     Command::new("ffmpeg")
-        .args(["-loglevel", "error", "-y", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", &size, "-r", &rate, "-i", "-"])
-        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-movflags", "+faststart"])
+        .args(["-loglevel", "error", "-y", "-sws_flags", EXACT, "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", &size, "-r", &rate, "-i", "-"])
+        .args(["-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-movflags", "+faststart", "-threads", THREADS])
         .arg(out)
         .stdin(Stdio::piped())
         .spawn()
@@ -459,9 +465,9 @@ fn ffmpeg(out: &Path, fps: u64, w: u32, h: u32) -> std::process::Child {
 /// Makes a GIF from the MP4: 15 frames each second, 540 px wide, with one palette for all frames.
 fn gif(mp4: &Path, out: &Path) -> bool {
     Command::new("ffmpeg")
-        .args(["-loglevel", "error", "-y", "-i"])
+        .args(["-loglevel", "error", "-y", "-sws_flags", EXACT, "-threads", THREADS, "-filter_threads", THREADS, "-i"])
         .arg(mp4)
-        .args(["-vf", "fps=15,scale=540:-1:flags=lanczos,split[a][b];[a]palettegen[p];[b][p]paletteuse"])
+        .args(["-vf", &format!("fps=15,scale=540:-1:flags=lanczos+{EXACT},split[a][b];[a]palettegen[p];[b][p]paletteuse"), "-threads", THREADS])
         .arg(out)
         .status()
         .is_ok_and(|s| s.success())
