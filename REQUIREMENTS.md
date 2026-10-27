@@ -512,8 +512,8 @@ and redo gray), [`manual-menu.png`](images/manual-menu.png).
 
 The gear (top slot 2) opens the Settings panel. The panel has the same design as the Cell colors panel:
 it is next to the gear, its top aligns with the button, it is 400 px wide and it has a 2 px border.
-It has two rows of 112 px with a 2 px line between them. Each row has a name (reMarkable Sans Medium,
-25 px) and a switch at the right.
+It has three rows of 112 px with a 2 px line between them. The first two rows each have a name
+(reMarkable Sans Medium, 25 px) and a switch at the right. The third row shows the version of the app.
 
 | Row | Default | When the switch is off |
 |---|---|---|
@@ -521,6 +521,11 @@ It has two rows of 112 px with a 2 px line between them. Each row has a name (re
 | **Remove pencil marks automatically** | On | When you add a number, the app does not remove that digit from the pencil marks of the peers ([§6.1](#61-automatic-pencil-mark-removal)). |
 
 - A tap on a row changes its switch immediately. The panel stays open.
+- The version row has the name **Version** (reMarkable Sans Medium, 25 px, black) at the left. The
+  version is at the right, 33 px from the right edge of the panel (reMarkable Sans Regular, 25 px,
+  `gray40`). A release build shows the version of its GitHub release (`pre-<sha>` or `stable-<n>`).
+  All other builds show `dev`. A tap on the version row has no effect, and the panel stays open
+  (owner decision 2026-10-26).
 - A change of a switch does not change the board and is not a part of undo. It has an effect only on
   the next actions. Changes that are already in the undo history do not change.
 - The app keeps the switches when you close the app ([§14.2](#142-settings-kept-when-the-app-closes)).

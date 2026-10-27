@@ -151,10 +151,13 @@ color_section 1008 "Highlighted numbers" "$HIGHLIGHT_BG" $STARTING_BG "$CLASH_BG
 toolbar black colors
 compose screen-in-progress.png color-menu.png
 
-# --- the Settings panel: two rows (highlight numbers, remove pencil marks automatically), both on
-panel 224 453; divider 338
+# --- the Settings panel: two rows (highlight numbers, remove pencil marks automatically), both on, then the
+# version of a development build ("dev") in reMarkable Sans Regular, gray40, at the right
+panel 224 567; divider 338; divider 452
 label $TX $((226+65)) start black "Highlight numbers"; switch $((PR-33)) $((226+56)) on
 label $TX $((340+49)) start black "Remove pencil marks"; label $TX $((340+81)) start black "automatically"; switch $((PR-33)) $((340+56)) on
+label $TX $((454+65)) start black "Version"
+echo "stroke none fill gray40 font '$DIGIT_FONT' font-size $UI_SIZE text-anchor end text $((PR-33)),$((454+65)) 'dev'" >> $M
 toolbar black settings
 compose screen-in-progress.png settings-menu.png
 

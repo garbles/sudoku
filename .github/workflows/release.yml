@@ -56,7 +56,8 @@ jobs:
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         if: steps.version.outputs.exists != 'true'
 
-      # The Dockerfile runs all tests before it makes dist/sudoku/. The cache of build.yml makes this fast.
+      # The Dockerfile runs all tests before it makes dist/sudoku/. The cache keeps the compiled
+      # dependencies between runs.
       - name: Test and build
         if: steps.version.outputs.exists != 'true'
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
@@ -64,7 +65,9 @@ jobs:
           context: .
           platforms: linux/arm64
           outputs: type=local,dest=dist
+          build-args: SUDOKU_VERSION=${{ steps.version.outputs.version }}
           cache-from: type=gha,scope=build
+          cache-to: type=gha,scope=build,mode=max
 
       - name: Make the release
         if: steps.version.outputs.exists != 'true'

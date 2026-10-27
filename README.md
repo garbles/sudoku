@@ -37,6 +37,7 @@ pen, and you add pencil marks with a tap.
 - Portrait and landscape layouts. For a right-handed player, the menu is on the left side.
 - The app saves your game all the time. When you open the app again, you continue at the same point.
 - The app uses the reMarkable Sans font of the tablet.
+- The Settings panel shows the version of the app (`dev` for a build on your computer).
 
 ## Installation
 

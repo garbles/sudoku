@@ -581,6 +581,20 @@ fn switches_change_only_the_settings() {
 }
 
 #[test]
+fn the_version_row_has_no_effect() {
+    // NAV-14: a tap on the version row changes no setting, and the panel stays open.
+    let mut d = Driver::new(43);
+    open_settings(&mut d);
+    let before = d.app.settings.clone();
+    let (x, y) = switch_point(layout::SETTINGS_ROWS as usize);
+    d.finger_tap(x, y);
+    d.pen_tap(x, y);
+    assert_eq!(d.app.settings, before);
+    assert_eq!(d.app.ui.panel, Panel::Settings, "the panel stays open");
+    assert!(!d.app.settings_dirty);
+}
+
+#[test]
 fn no_highlight_when_highlights_are_off() {
     // HLT-6
     let mut d = Driver::new(42);

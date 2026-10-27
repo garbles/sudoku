@@ -511,7 +511,7 @@ fn gear(c: &mut Canvas, cx: f32, cy: f32, col: Rgb) {
     }
 }
 
-/// The Settings panel (REQUIREMENTS.md §9.1): two rows with a name and a switch.
+/// The Settings panel (REQUIREMENTS.md §9.1): two rows with a name and a switch, then the version.
 fn draw_settings_panel(c: &mut Canvas, settings: &Settings) {
     let (pl, pr) = (colors_pl(), colors_pr());
     let p = layout::settings_panel();
@@ -532,6 +532,11 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings) {
         }
         switch(c, (pr - 33) as f32, cy, *on);
     }
+    let r = layout::settings_row(layout::SETTINGS_ROWS as usize);
+    c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
+    let y = (r.y0 + 65) as f32;
+    c.text(true, 25.0, (pl + 33) as f32, y, Anchor::Start, "Version", BLACK);
+    c.text(false, 25.0, (pr - 33) as f32, y, Anchor::End, crate::VERSION, gray(40));
 }
 
 /// A switch with its right end at x: a track of 72 x 36 px and a knob of 28 px.

@@ -308,17 +308,19 @@ pub fn color_cell(section: usize, i: usize) -> (i32, i32) {
     (colors_pl() + 32 + (i as i32 % 3) * 112, top + 79 + (i as i32 / 3) * 112)
 }
 
-/// The Settings panel (REQUIREMENTS.md §9.1): two rows of 112 px from the top of the gear (y 224),
-/// with the width and the border of the Cell colors panel.
+/// The Settings panel (REQUIREMENTS.md §9.1): two rows of 112 px with a switch and one row with the
+/// version, from the top of the gear (y 224), with the width and the border of the Cell colors panel.
 pub const SETTINGS_TOP: i32 = 2 * TB_SLOT;
 pub const SETTINGS_ROWS: i32 = 2;
+pub const SETTINGS_ALL_ROWS: i32 = SETTINGS_ROWS + 1;
 
 pub fn settings_panel() -> Rect {
     // 2 px border at the top and at the bottom, 2 px line between the rows.
-    Rect::new(colors_pl(), SETTINGS_TOP, colors_pr() + 1, SETTINGS_TOP + SETTINGS_ROWS * TB_SLOT + 6)
+    Rect::new(colors_pl(), SETTINGS_TOP, colors_pr() + 1, SETTINGS_TOP + SETTINGS_ALL_ROWS * (TB_SLOT + 2) + 2)
 }
 
-/// The row of a switch (0: highlight numbers, 1: remove pencil marks automatically).
+/// A row of the Settings panel (0: highlight numbers, 1: remove pencil marks automatically, 2: the
+/// version, without a switch).
 pub fn settings_row(i: usize) -> Rect {
     let y = SETTINGS_TOP + 2 + i as i32 * (TB_SLOT + 2);
     Rect::new(colors_pl(), y, colors_pr() + 1, y + TB_SLOT)

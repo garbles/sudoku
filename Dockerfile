@@ -5,6 +5,7 @@
 #
 # The result is dist/sudoku/: the AppLoad folder (external.manifest.json, icon.png and the static
 # executable `sudoku`). Copy it to /home/root/xovi/exthome/appload/ on the tablet.
+# To set the version in the Settings panel (default "dev"), add --build-arg SUDOKU_VERSION=<version>.
 FROM --platform=linux/arm64 rust:1.97-alpine AS build
 RUN apk add --no-cache musl-dev
 WORKDIR /src
@@ -25,7 +26,9 @@ RUN touch src/lib.rs src/bin/*.rs
 RUN cargo test --release --locked
 # The debug build checks all state rules of INVARIANTS.md after each input (invariants::check_app).
 RUN cargo test --locked
-RUN cargo build --release --locked --bin sudoku \
+# The version in the Settings panel. release.yml gives pre-<sha> or stable-<n>. The tests above always use "dev".
+ARG SUDOKU_VERSION=dev
+RUN SUDOKU_VERSION="$SUDOKU_VERSION" cargo build --release --locked --bin sudoku \
  && file_info="$(head -c 4 target/release/sudoku | od -An -c)" && echo "built: $file_info"
 COPY appload/sudoku /out/sudoku
 RUN cp target/release/sudoku /out/sudoku/sudoku && chmod 755 /out/sudoku/sudoku
