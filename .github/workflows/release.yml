@@ -93,6 +93,20 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Version: $version"
 
+      # git does not contain the reMarkable Sans font (refer to scripts/fonts/README.md).
+      - name: Write the fonts
+        if: steps.version.outputs.exists != 'true'
+        env:
+          FONT_REGULAR: ${{ secrets.SUDOKU_FONT_REGULAR }}
+          FONT_MEDIUM: ${{ secrets.SUDOKU_FONT_MEDIUM }}
+        run: |
+          if [ -z "$FONT_REGULAR" ] || [ -z "$FONT_MEDIUM" ]; then
+            echo "::error::The secrets SUDOKU_FONT_REGULAR and SUDOKU_FONT_MEDIUM are not set (refer to AGENTS.md)."
+            exit 1
+          fi
+          printf '%s' "$FONT_REGULAR" | base64 -d | gunzip > scripts/fonts/rmsans-400.ttf
+          printf '%s' "$FONT_MEDIUM" | base64 -d | gunzip > scripts/fonts/rmsans-500.ttf
+
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
         if: steps.version.outputs.exists != 'true'
 

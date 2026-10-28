@@ -10,3 +10,6 @@
 # Rust build output
 /target/
 /dist/
+
+# reMarkable Sans: reMarkable owns the font. Do not commit it (refer to scripts/fonts/README.md).
+scripts/fonts/rmsans-*.ttf

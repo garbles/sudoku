@@ -88,6 +88,10 @@ You need:
 
 - The Rust toolchain, to run the tests on your computer (macOS or Linux).
 - Docker, to build the program for the tablet.
+- The reMarkable Sans font files `scripts/fonts/rmsans-400.ttf` and `scripts/fonts/rmsans-500.ttf`.
+  reMarkable owns the font, so the repository does not contain these files. The tests and the
+  Docker builds need them. [`scripts/fonts/README.md`](scripts/fonts/README.md) tells how to make
+  them from a tablet.
 
 | Task                                                | Command                                                               |
 | --------------------------------------------------- | --------------------------------------------------------------------- |

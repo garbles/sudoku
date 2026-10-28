@@ -37,6 +37,10 @@ docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + 
   files. The GitHub workflow makes `images/` and `video/` again on each push to `main`, and it fails
   when they are not the same as the files in git. When you change them, run the imagegen build and
   commit the result.
+- Fonts in CI: git does not contain the reMarkable Sans files (`scripts/fonts/rmsans-*.ttf`). The
+  secrets `SUDOKU_FONT_REGULAR` and `SUDOKU_FONT_MEDIUM` contain `rmsans-400.ttf` and
+  `rmsans-500.ttf`, compressed with gzip and encoded with base64 (`gzip -9c F | base64`). build.yml
+  and release.yml write the files before the Docker builds. Without the secrets, the run fails.
 - Prereleases: when all checks of a push to `main` pass, the workflow makes the prerelease
   `pre-<sha>`.
 - Stable releases: the owner starts the **Release** workflow manually on `main`. The release gets
