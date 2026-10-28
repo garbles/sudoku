@@ -6,6 +6,7 @@
 use crate::app::{App, Panel, Screen, MANUAL_PAGES};
 use crate::game::{cells, Change, Game};
 use crate::generator::{count_solutions, is_valid_solution, MODES, V1_MODES, VERSION};
+use crate::update::{parse_version, UpdateState};
 
 fn fail(rule: &str, msg: impl std::fmt::Display) -> Result<(), String> {
     Err(format!("{rule}: {msg}"))
@@ -161,6 +162,17 @@ pub fn check_app(app: &App) -> Result<(), String> {
     }
     if l.confirm.is_some() {
         ensure!(app.screen == Screen::GamesList, "ANA-7", "the delete dialog on screen {:?}", app.screen);
+    }
+
+    // Updates (UPD-1, UPD-2, UPD-7).
+    let u = &app.update;
+    let current = parse_version(&u.current);
+    ensure!((u.state == UpdateState::Off) == current.is_none(), "UPD-1", "state {:?} for version {}", u.state, u.current);
+    if let UpdateState::Available(m) | UpdateState::Installing(m) | UpdateState::Failed(m, _) = &u.state {
+        ensure!(parse_version(&m.version) > current, "UPD-2", "{} is not newer than {}", m.version, u.current);
+    }
+    if u.state == UpdateState::Off {
+        ensure!(!u.checking && u.request.is_none(), "UPD-1", "a request in a build that is not stable");
     }
     Ok(())
 }

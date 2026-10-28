@@ -308,22 +308,40 @@ pub fn color_cell(section: usize, i: usize) -> (i32, i32) {
     (colors_pl() + 32 + (i as i32 % 3) * 112, top + 79 + (i as i32 / 3) * 112)
 }
 
-/// The Settings panel (REQUIREMENTS.md §9.1): two rows of 112 px with a switch and one row with the
-/// version, from the top of the gear (y 224), with the width and the border of the Cell colors panel.
+/// The Settings panel (REQUIREMENTS.md §9.1): two rows of 112 px with a switch, one row with the
+/// version and, in a stable build, one row for updates (§9.2), from the top of the gear (y 224), with
+/// the width and the border of the Cell colors panel.
 pub const SETTINGS_TOP: i32 = 2 * TB_SLOT;
 pub const SETTINGS_ROWS: i32 = 2;
-pub const SETTINGS_ALL_ROWS: i32 = SETTINGS_ROWS + 1;
+/// The row of the version.
+pub const VERSION_ROW: usize = SETTINGS_ROWS as usize;
+/// The row for updates (only when `Update::has_row`).
+pub const UPDATE_ROW: usize = VERSION_ROW + 1;
 
-pub fn settings_panel() -> Rect {
+pub fn settings_panel(update_row: bool) -> Rect {
+    let rows = UPDATE_ROW as i32 + i32::from(update_row);
     // 2 px border at the top and at the bottom, 2 px line between the rows.
-    Rect::new(colors_pl(), SETTINGS_TOP, colors_pr() + 1, SETTINGS_TOP + SETTINGS_ALL_ROWS * (TB_SLOT + 2) + 2)
+    Rect::new(colors_pl(), SETTINGS_TOP, colors_pr() + 1, SETTINGS_TOP + rows * (TB_SLOT + 2) + 2)
 }
 
 /// A row of the Settings panel (0: highlight numbers, 1: remove pencil marks automatically, 2: the
-/// version, without a switch).
+/// version, 3: updates).
 pub fn settings_row(i: usize) -> Rect {
     let y = SETTINGS_TOP + 2 + i as i32 * (TB_SLOT + 2);
     Rect::new(colors_pl(), y, colors_pr() + 1, y + TB_SLOT)
+}
+
+/// The button "Update to v<version>" (§9.2): 33 px from the sides of the panel, from 22 px to 90 px
+/// below the top of the row. x1 and y1 are the last pixels of the border.
+pub fn update_button() -> Rect {
+    let r = settings_row(UPDATE_ROW);
+    Rect::new(colors_pl() + 33, r.y0 + 22, colors_pr() - 33, r.y0 + 90)
+}
+
+/// The tap area of the update button.
+pub fn update_button_area() -> Rect {
+    let b = update_button();
+    Rect::new(b.x0, b.y0, b.x1 + 1, b.y1 + 1)
 }
 
 /// The switch at a point in the Settings panel.

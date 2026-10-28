@@ -11,7 +11,7 @@ correct this document.
 
 Each rule has an ID (for example `BRD-3`). Each rule also gives the section of the requirements that it
 comes from (for example *R§4.1*). Rules that are not confirmed yet are in
-[§16](#16-rules-to-confirm).
+[§17](#17-rules-to-confirm).
 
 ## Contents
 
@@ -31,7 +31,8 @@ comes from (for example *R§4.1*). Rules that are not confirmed yet are in
 13. [Manual](#13-manual)
 14. [Statistics and the results database](#14-statistics-and-the-results-database)
 15. [Saved data](#15-saved-data)
-16. [Rules to confirm](#16-rules-to-confirm)
+16. [Updates](#16-updates)
+17. [Rules to confirm](#17-rules-to-confirm)
 
 ---
 
@@ -50,6 +51,7 @@ App
   confirm_all     ∈ {false, true}              (used when screen = Statistics: the "Delete all games" dialog)
   settings        : Settings
   results         : set of Result               (the SQLite table)
+  update          : Update
 
 Game
   seed            : integer                    (from the generator; no fixed range)
@@ -81,6 +83,11 @@ Settings
   last_mode       ∈ 0..6
   highlight_on    : bool                       (Settings panel; default true)
   auto_remove_on  : bool                       (Settings panel; default true)
+
+Update
+  current         : text                       (the version of the app: v<version>, pre-<sha> or dev)
+  state           ∈ {Off, Unknown, CheckFailed, UpToDate, Available(v), Installing(v), Failed(v, at), Installed}
+  checking        : bool                       (a request for version.json is in progress)
 
 Palette = {Gray, White, Yellow, Blue, Red, Green, Cyan, Magenta, Orange}
 
@@ -295,7 +302,20 @@ Terms:
 | PER-6 | If the app closes during the recognition pause, the app removes the ink. The app never reads it later. | R§14.3 |
 | PER-7 | The app saves the game after each change to the board, the settings after each change, and the clock at least each 5 seconds. It also saves when it closes or gets SIGTERM, SIGINT or SIGHUP. A power loss can lose a maximum of 5 seconds of the clock. | R§14.3 (confirmed 2026-10-25) |
 
-## 16. Rules to confirm
+## 16. Updates
+
+| ID | Rule | Source |
+|---|---|---|
+| UPD-1 | `state = Off` exactly when `current` is not a stable version (`v<major>.<minor>.<patch>`). When `state = Off`, the app never sends a request, and the Settings panel has only three rows. In all other states, the Settings panel has four rows. | R§9.2 |
+| UPD-2 | `Available(v)`, `Installing(v)` and `Failed(v, at)` only when `v` is newer than `current`. | R§9.2 |
+| UPD-3 | The gear has the caution icon exactly when `state ∈ {Available, Installing, Failed, Installed}`. | R§9.2 |
+| UPD-4 | The app uses a `version.json` only when its ed25519 signature is correct for the public key of the app. It installs an archive only when its SHA-256 checksum is equal to the checksum in that `version.json`. | R§9.2 |
+| UPD-5 | Only a tap on the button in `state = Available(v)` starts an installation. The tap sets `state = Installing(v)`, and it does not change the game, the settings, the screen or the panel. At most one installation is in progress. | R§9.2 |
+| UPD-6 | When an installation fails, the app folder is the same as before the installation. `Failed(v, at)` becomes `Available(v)` 3 seconds after `at`. | R§9.2 |
+| UPD-7 | A result of a request changes only `Unknown`, `CheckFailed`, `UpToDate` and `Available`. A failed request changes only `Unknown` (to `CheckFailed`). At most one request is in progress (`checking`). | R§9.2 |
+| UPD-8 | The app does not keep `update`. When it opens, `state` is `Off` or `Unknown`, and a stable build sends a request. | R§9.2 |
+
+## 17. Rules to confirm
 
 There are no rules to confirm now. If a rule in this document comes from a conclusion and not from a
 statement in `REQUIREMENTS.md`, put it in this section until the rule is confirmed.

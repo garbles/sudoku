@@ -439,7 +439,7 @@ fn a_right_handed_player_has_the_toolbar_at_the_left() {
             // The panel touches the toolbar and has the same contents.
             let p = match panel {
                 Panel::Colors => Some(layout::colors_panel()),
-                Panel::Settings => Some(layout::settings_panel()),
+                Panel::Settings => Some(layout::settings_panel(false)),
                 Panel::NewGame => Some(layout::ng_panel()),
                 Panel::None => None,
             };

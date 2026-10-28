@@ -53,3 +53,5 @@ jobs:
     permissions:
       contents: write
     uses: ./.github/workflows/release.yml
+    # release.yml signs version.json with the secret SUDOKU_SIGNING_KEY.
+    secrets: inherit

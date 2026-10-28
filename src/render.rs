@@ -15,6 +15,7 @@ use crate::generator::MODES;
 use crate::layout::{self, *};
 use crate::settings::{Color, Section, Settings};
 use crate::store::ResultRow;
+use crate::update::Update;
 
 pub type Rgb = [u8; 3];
 
@@ -32,6 +33,8 @@ pub const BLACK: Rgb = [0, 0, 0];
 /// The width of the ink of the pen (px).
 pub const INK_WIDTH: f32 = 5.0;
 pub const WHITE: Rgb = [255, 255, 255];
+/// The caution icon on the gear (REQUIREMENTS.md §9.2).
+pub const CAUTION_RED: Rgb = [0xD6, 0x2D, 0x20];
 
 /// ImageMagick grayN: N percent of white.
 pub const fn gray(n: u32) -> Rgb {
@@ -419,6 +422,9 @@ fn draw_toolbar(c: &mut Canvas, app: &App) {
         active_slot(c, 2 * TB_SLOT);
     }
     gear(c, tb_cx(), tb_cy(2), if settings_active { WHITE } else { BLACK });
+    if app.update.caution() {
+        caution(c, tb_cx() + 16.0, tb_cy(2) - 16.0);
+    }
     if plus_active {
         active_slot(c, tb_bottom_y());
     }
@@ -478,7 +484,7 @@ fn draw_toolbar(c: &mut Canvas, app: &App) {
 
     match panel {
         Panel::Colors => draw_colors_panel(c, &app.settings),
-        Panel::Settings => draw_settings_panel(c, &app.settings),
+        Panel::Settings => draw_settings_panel(c, &app.settings, &app.update),
         Panel::NewGame => draw_new_game_panel(c, app.ui.slider),
         Panel::None => {}
     }
@@ -511,10 +517,18 @@ fn gear(c: &mut Canvas, cx: f32, cy: f32, col: Rgb) {
     }
 }
 
-/// The Settings panel (REQUIREMENTS.md §9.1): two rows with a name and a switch, then the version.
-fn draw_settings_panel(c: &mut Canvas, settings: &Settings) {
+/// The red caution icon at the top right of the gear (REQUIREMENTS.md §9.2), with its center at (x, y).
+fn caution(c: &mut Canvas, x: f32, y: f32) {
+    c.circle(x, y, 10.0, Some(CAUTION_RED), Some((WHITE, 3.0)));
+    c.line(x, y - 6.0, x, y + 1.5, 3.0, WHITE);
+    c.circle(x, y + 5.5, 1.6, Some(WHITE), None);
+}
+
+/// The Settings panel (REQUIREMENTS.md §9.1): two rows with a name and a switch, the version, and the
+/// update row of a stable build (§9.2).
+fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
     let (pl, pr) = (colors_pl(), colors_pr());
-    let p = layout::settings_panel();
+    let p = layout::settings_panel(update.has_row());
     panel_frame(c, pl, pr, p.y0, p.y1 - 1);
     let rows: [(&[&str], bool); 2] = [
         (&["Highlight numbers"], settings.highlight_on),
@@ -532,11 +546,32 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings) {
         }
         switch(c, (pr - 33) as f32, cy, *on);
     }
-    let r = layout::settings_row(layout::SETTINGS_ROWS as usize);
+    let r = layout::settings_row(layout::VERSION_ROW);
     c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
     let y = (r.y0 + 65) as f32;
     c.text(true, 25.0, (pl + 33) as f32, y, Anchor::Start, "Version", BLACK);
-    c.text(false, 25.0, (pr - 33) as f32, y, Anchor::End, crate::VERSION, gray(40));
+    c.text(false, 25.0, (pr - 33) as f32, y, Anchor::End, &update.current, gray(40));
+    if !update.has_row() {
+        return;
+    }
+    let r = layout::settings_row(layout::UPDATE_ROW);
+    c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
+    if let Some(text) = update.row_text() {
+        c.text(false, 25.0, (pl + 33) as f32, (r.y0 + 65) as f32, Anchor::Start, text, gray(40));
+    } else if let Some(text) = update.button_text() {
+        // A box with a 2 px border, the update icon and the text.
+        let b = layout::update_button();
+        let (x0, y0, x1, y1) = (b.x0 as f32, b.y0 as f32, b.x1 as f32, b.y1 as f32);
+        c.rect(x0, y0, x1, y0 + 1.0, BLACK);
+        c.rect(x0, y1 - 1.0, x1, y1, BLACK);
+        c.rect(x0, y0, x0 + 1.0, y1, BLACK);
+        c.rect(x1 - 1.0, y0, x1, y1, BLACK);
+        let (ix, cy) = (x0 + 40.0, (r.y0 + 56) as f32);
+        c.line(ix, cy - 13.0, ix, cy + 5.0, 3.0, BLACK);
+        c.polyline(&[(ix - 8.0, cy - 3.0), (ix, cy + 5.0), (ix + 8.0, cy - 3.0)], 3.0, BLACK, true);
+        c.polyline(&[(ix - 13.0, cy + 3.0), (ix - 13.0, cy + 13.0), (ix + 13.0, cy + 13.0), (ix + 13.0, cy + 3.0)], 3.0, BLACK, true);
+        c.text(true, 25.0, x0 + 72.0, cy + 9.0, Anchor::Start, &text, BLACK);
+    }
 }
 
 /// A switch with its right end at x: a track of 72 x 36 px and a knob of 28 px.

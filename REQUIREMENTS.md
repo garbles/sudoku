@@ -514,6 +514,7 @@ The gear (top slot 2) opens the Settings panel. The panel has the same design as
 it is next to the gear, its top aligns with the button, it is 400 px wide and it has a 2 px border.
 It has three rows of 112 px with a 2 px line between them. The first two rows each have a name
 (reMarkable Sans Medium, 25 px) and a switch at the right. The third row shows the version of the app.
+A stable build (`v<version>`) has a fourth row for updates ([§9.2](#92-updates)).
 
 | Row | Default | When the switch is off |
 |---|---|---|
@@ -539,6 +540,81 @@ It has three rows of 112 px with a 2 px line between them. The first two rows ea
 - The Highlighted numbers color stays available in the Cell colors panel when highlights are off.
 
 Image: [`settings-menu.png`](images/settings-menu.png).
+
+### 9.2 Updates
+
+A stable build (version `v<major>.<minor>.<patch>`) looks for a newer stable release on GitHub and
+installs it when the user taps a button (owner decision 2026-10-27). A `pre-<sha>` build and a `dev`
+build do not look for updates and do not have the update row.
+
+**Look for an update.** The app reads two files of the latest stable release:
+
+- `https://github.com/garbles/sudoku/releases/latest/download/version.json`:
+  `{"version": "v<version>", "url": "<archive URL>", "sha256": "<checksum of the archive>"}`.
+- `https://github.com/garbles/sudoku/releases/latest/download/version.json.sig`: the ed25519
+  signature (64 bytes) of the bytes of `version.json`.
+
+The app has the public key in its program. It uses `version.json` only when the signature is
+correct. An update is available only when the version in `version.json` is newer than the version of
+the app (compare major, then minor, then patch). A version that is the same or older is not an update.
+
+- The app looks for an update when it opens, and then each 24 hours while it stays open.
+- If the app cannot get or examine the two files (for example, Wi-Fi is off), it tries again after
+  1 hour. When the Settings panel opens and the last attempt failed, the app tries again immediately.
+- The request runs in the background. It never stops the game or the input.
+- The app does not keep the result when it closes.
+
+**Caution icon.** When an update is available, the gear has a caution icon at its top right: a red
+(`#D62D20`) circle with a radius of 10 px and a white border of 3 px, with a white "!" in it. The
+center of the circle is 16 px to the right of and 16 px above the center of the gear. The icon
+stays until the app closes (also while the update installs and after it is installed). Image:
+[`screen-toolbar-update.png`](images/screen-toolbar-update.png).
+
+**Update row.** The fourth row of the Settings panel has the same height, lines and border as the
+other rows. It shows one of these:
+
+| State | Row |
+|---|---|
+| The first attempt is not complete | "Looking for updates..." |
+| The attempts failed, and no attempt was successful | "Cannot look for updates" |
+| No update is available | "Sudoku is up to date" |
+| An update is available | The button **Update to v\<version\>** |
+| The update installs | "Installing update..." |
+| The installation failed | "Update failed" for 3 seconds, then the button again |
+| The update is installed | "Restart to apply update" |
+
+- The text of a state is reMarkable Sans Regular, 25 px, `gray40`, at the left (33 px from the left
+  edge of the panel). The baseline is 65 px below the top of the row.
+- The button has a black border of 2 px. It is 33 px from the left and the right edges of the panel,
+  and from 22 px to 90 px below the top of the row. It has an update icon at the left: a down arrow
+  into a tray (3 px round strokes, approximately 28 px), with its center 40 px from the left edge of
+  the button. The text (reMarkable Sans Medium, 25 px, black) starts 72 px from the left edge of the
+  button. Images: [`settings-update.png`](images/settings-update.png) and
+  [`settings-up-to-date.png`](images/settings-up-to-date.png).
+- A tap on the button starts the installation. A tap on the row in a different state has no effect.
+  The panel stays open, and the game does not change.
+- A later successful attempt changes the row only from "Looking for updates...", "Cannot look for
+  updates", "Sudoku is up to date" or the button. A failed attempt does not remove an earlier result.
+- "Restart to apply update" is only a text. The user closes the app and opens it again from
+  AppLoad. Then the new version operates.
+
+**Installation.** The app runs as root. Thus it installs only an archive that agrees with the signed
+`version.json`:
+
+1. The app downloads the archive to `update/` in the data folder ([§14](#14-data-that-the-app-keeps)),
+   not to `/tmp`.
+2. The SHA-256 checksum of the archive must be equal to `sha256` in `version.json`.
+3. The app extracts the archive in `update/`. The archive must have the folder `sudoku/` with the
+   program `sudoku` and `external.manifest.json`. It must not have links, or paths that go out of
+   the folder.
+4. The app moves the new folder next to the AppLoad folder of the app as `sudoku.new`. Then it
+   renames the app folder to `sudoku.old` and `sudoku.new` to the app folder. If the second rename
+   fails, the app renames `sudoku.old` back. The app never writes over the files of the app that
+   operates. The program that operates continues with its old files.
+5. The app deletes `sudoku.old` and `update/`. When the app opens, it also deletes a `sudoku.old`,
+   a `sudoku.new` and an `update/` that stay from an earlier installation.
+
+If a step fails, the app folder does not change, and the row shows "Update failed".
 
 ## 10. Cell colors panel
 
@@ -870,6 +946,7 @@ app opens a results database of version 1, it moves the rows to the new table wi
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
 | Difficulty meter | "Easy" to "Hard" across 440 px; 7 stops; the current stop is a knob with a radius of 13 px |
 | Switch (Settings panel) | Track 72×36 px, 3 px border; knob of 28 px; 33 px from the right edge of the panel |
+| Caution icon (gear) | Circle `#D62D20`, radius 10 px, 3 px white border, white "!"; center 16 px right of and 16 px above the gear center |
 
 All dimensions are in [`scripts/ui-lib.sh`](scripts/ui-lib.sh).
 
@@ -925,5 +1002,8 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`manual-finished.png`](images/manual-finished.png) | [§8.3](#83-complete), [§12](#12-manual-help) |
 | `manual-*-landscape.png` (9 images) | [§3.3](#33-landscape), [§12](#12-manual-help) |
 | [`settings-menu.png`](images/settings-menu.png) | [§9.1](#91-settings-panel) |
+| [`settings-update.png`](images/settings-update.png) | [§9.2](#92-updates) |
+| [`settings-up-to-date.png`](images/settings-up-to-date.png) | [§9.2](#92-updates) |
+| [`screen-toolbar-update.png`](images/screen-toolbar-update.png) | [§9.2](#92-updates) |
 | [`analytics-delete-all.png`](images/analytics-delete-all.png) | [§13.1](#131-summary) |
 | `analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png` | [§3.3](#33-landscape), [§13](#13-statistics) |

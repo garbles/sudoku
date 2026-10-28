@@ -3,8 +3,9 @@
 pub mod evdev;
 pub mod qtfb;
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
@@ -17,6 +18,7 @@ use crate::render::{self, Canvas};
 use crate::settings::Settings;
 use crate::store::{self, ResultsDb};
 use crate::system::SystemEnv;
+use crate::update::{self, Manifest, UpdateRequest};
 
 /// The longest wait for the rotation of the tablet before the first drawing.
 const START_ROTATION_WAIT: Duration = Duration::from_millis(300);
@@ -62,6 +64,44 @@ fn save(app: &mut App, paths: &Paths) {
             Err(e) => eprintln!("sudoku: cannot save the settings: {e}"),
         }
     }
+}
+
+/// The result of update work on a background thread (REQUIREMENTS.md §9.2).
+enum UpdateResult {
+    Checked(Result<Manifest, String>),
+    Installed(Result<(), String>),
+}
+
+/// Gets a file over HTTPS. GitHub sends a redirect to the file.
+fn download(url: &str, timeout: Duration) -> Result<Vec<u8>, String> {
+    let agent: ureq::Agent = ureq::Agent::config_builder().timeout_global(Some(timeout)).https_only(true).build().into();
+    let mut response = agent.get(url).call().map_err(|e| format!("{url}: {e}"))?;
+    response.body_mut().with_config().limit(update::MAX_ARCHIVE_BYTES).read_to_vec().map_err(|e| format!("{url}: {e}"))
+}
+
+/// Starts the update work of `request` on a new thread. The result goes to `results`.
+fn start_update(request: UpdateRequest, results: mpsc::Sender<UpdateResult>, staging: PathBuf, app_dir: Option<PathBuf>) {
+    std::thread::spawn(move || {
+        let result = match request {
+            UpdateRequest::Check => UpdateResult::Checked((|| {
+                let json = download(update::VERSION_URL, Duration::from_secs(30))?;
+                let signature = download(update::SIGNATURE_URL, Duration::from_secs(30))?;
+                update::read_manifest(&json, &signature, &update::PUBLIC_KEY)
+            })()),
+            UpdateRequest::Install(m) => UpdateResult::Installed((|| {
+                let app_dir = app_dir.ok_or("the folder of the app is not known")?;
+                eprintln!("sudoku: install {} from {} in {}", m.version, m.url, app_dir.display());
+                let archive = download(&m.url, Duration::from_secs(300))?;
+                update::install(&archive, &m, &staging, &app_dir)
+            })()),
+        };
+        let _ = results.send(result);
+    });
+}
+
+/// The AppLoad folder of the app: the folder of the program.
+fn app_dir() -> Option<PathBuf> {
+    std::env::current_exe().ok()?.parent().map(Path::to_path_buf)
 }
 
 /// Converts a qtfb input message to an app input.
@@ -264,6 +304,15 @@ pub fn run() -> Result<(), String> {
     // SUDOKU_LOG_INPUT=1, or the file `log-input` in the data folder, writes each input message to the
     // system log (for an examination on the device).
     let log_input = std::env::var_os("SUDOKU_LOG_INPUT").is_some() || store::data_dir().join("log-input").exists();
+    // Updates (REQUIREMENTS.md §9.2). The folder of the program is found now: an installation renames
+    // it. Only a stable build looks for updates, thus only a stable build deletes the folders that
+    // stay from an earlier installation.
+    let app_dir = app_dir();
+    let staging = store::data_dir().join("update");
+    if let Some(dir) = app_dir.as_deref().filter(|_| app.update.has_row()) {
+        update::clean(&staging, dir);
+    }
+    let (update_tx, update_rx) = mpsc::channel();
 
     while !app.quit && !STOP.load(Ordering::SeqCst) {
         // Wait for input, a timer of the app, or the next clock save.
@@ -316,6 +365,15 @@ pub fn run() -> Result<(), String> {
         app.tick(now_ms());
         if closed {
             break;
+        }
+        if let Some(request) = app.update.request.take() {
+            start_update(request, update_tx.clone(), staging.clone(), app_dir.clone());
+        }
+        while let Ok(result) = update_rx.try_recv() {
+            match result {
+                UpdateResult::Checked(r) => app.update_checked(r, now_ms()),
+                UpdateResult::Installed(r) => app.update_installed(r, now_ms()),
+            }
         }
 
         if last_clock_save.elapsed() >= CLOCK_SAVE_INTERVAL && !app.game.completed {

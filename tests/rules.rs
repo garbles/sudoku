@@ -887,3 +887,70 @@ fn delete_all_games_is_gray_without_results() {
     app.results.clear();
     assert!(darkest(&app) > 150, "gray without results");
 }
+
+#[test]
+fn the_update_button_starts_only_the_installation() {
+    // UPD-5: a tap on the button starts one installation. The panel stays open, and the game and the
+    // settings do not change. The other parts of the update row do nothing.
+    use sudoku::update::{UpdateRequest, UpdateState};
+    let mut d = Driver::new(56);
+    d.app.update = reference::update_state(true);
+    open_settings(&mut d);
+    let board = |d: &Driver| (d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len(), d.app.settings.clone());
+    let before = board(&d);
+    let row = layout::settings_row(layout::UPDATE_ROW);
+    d.finger_tap((row.x0 + 10) as f32, (row.y0 + 56) as f32);
+    assert!(matches!(d.app.update.state, UpdateState::Available(_)), "a tap next to the button");
+    let b = layout::update_button_area();
+    let (x, y) = ((b.x0 + b.x1) as f32 / 2.0, (b.y0 + b.y1) as f32 / 2.0);
+    d.finger_tap(x, y);
+    assert!(matches!(d.app.update.state, UpdateState::Installing(_)));
+    assert!(matches!(d.app.update.request.take(), Some(UpdateRequest::Install(m)) if m.version == "v0.2.0"));
+    d.finger_tap(x, y);
+    assert_eq!(d.app.update.request, None, "one installation at a time");
+    assert_eq!((d.app.ui.panel, d.app.screen), (Panel::Settings, Screen::Game));
+    assert_eq!(board(&d), before);
+    let now = d.now;
+    d.app.update_installed(Err("no network".into()), now);
+    assert!(matches!(d.app.update.state, UpdateState::Failed(..)));
+    d.wait(3000);
+    assert!(matches!(d.app.update.state, UpdateState::Available(_)), "UPD-6: the button shows again");
+}
+
+#[test]
+fn the_settings_panel_tries_a_failed_check_again() {
+    // UPD-7: when all requests failed, the Settings panel starts a new request when it opens.
+    use sudoku::update::{Update, UpdateRequest, UpdateState};
+    let mut d = Driver::new(57);
+    d.app.update = Update::new("v0.1.0");
+    assert_eq!(d.app.update.request.take(), Some(UpdateRequest::Check));
+    let now = d.now;
+    d.app.update_checked(Err("no network".into()), now);
+    assert_eq!(d.app.update.state, UpdateState::CheckFailed);
+    open_settings(&mut d);
+    assert_eq!(d.app.update.request.take(), Some(UpdateRequest::Check));
+    d.button(Button::Settings);
+    d.button(Button::Settings);
+    assert_eq!(d.app.update.request, None, "a request is in progress");
+}
+
+#[test]
+fn the_caution_icon_follows_the_update_state() {
+    // UPD-3: the red icon on the gear shows only when an update is available, installs or is installed.
+    use sudoku::update::{Update, UpdateState};
+    let fonts = fonts();
+    let (x, y) = ((layout::tb_cx() + 16.0 - 5.0) as i32, (layout::tb_cy(2) - 16.0) as i32);
+    let available = reference::update_state(true);
+    let mut installed = available.clone();
+    installed.state = UpdateState::Installed;
+    for (update, want) in [(available, true), (installed, true), (reference::update_state(false), false), (Update::new("dev"), false)] {
+        let state = update.state.clone();
+        sudoku::layout::set_right_handed(false);
+        let mut a = reference::app(&fonts);
+        a.update = update;
+        a.ui.menu_open = true;
+        let mut pm = tiny_skia::Pixmap::new(layout::screen_w(), layout::screen_h()).unwrap();
+        sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &a);
+        assert_eq!(rgb_at(&pm, x, y) == sudoku::render::CAUTION_RED, want, "{state:?}");
+    }
+}

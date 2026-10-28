@@ -1,16 +1,24 @@
-# Builds the app and makes a GitHub release with the AppLoad folder (sudoku-<version>.tar.gz) and
-# version.json. version.json gives the version, the download URL and the SHA-256 checksum of the
-# archive.
+# Builds the app and makes a GitHub release with the AppLoad folder (sudoku-<version>.tar.gz),
+# version.json and version.json.sig. version.json gives the version, the download URL and the SHA-256
+# checksum of the archive. version.json.sig is the ed25519 signature of version.json with the private
+# key in the secret SUDOKU_SIGNING_KEY (PEM). The app installs an update only with a correct signature
+# (REQUIREMENTS.md §9.2). A stable release fails without the secret.
 #
 # - build.yml calls this workflow after each push to main. The result is the prerelease `pre-<sha>`.
 # - A manual run (workflow_dispatch) on main makes the stable release `v<version>`, with the version
-#   of Cargo.toml. If this tag is already on GitHub, the run fails. Increase the version first.
-#   Only one stable run can operate at a time.
+#   of Cargo.toml. If this tag is already on GitHub, the run fails. Increase the version first, or
+#   set the input `replace`: the run then deletes the old release and its tag, after the new build
+#   passes all tests. Only one stable run can operate at a time.
 name: Release
 
 on:
   workflow_call:
   workflow_dispatch:
+    inputs:
+      replace:
+        description: Replace the release v<version> if it is already on GitHub
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -28,6 +36,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       STABLE: ${{ github.event_name == 'workflow_dispatch' }}
+      # Empty for a call from build.yml, because that call has no inputs.
+      REPLACE: ${{ inputs.replace == true }}
     steps:
       - name: Stable releases only from main
         if: env.STABLE == 'true' && github.ref != 'refs/heads/main'
@@ -51,13 +61,19 @@ jobs:
       # The tag of each release has the name of the release. An API error stops the run.
       - name: Make sure that the stable version is new
         if: env.STABLE == 'true'
+        id: tag
         env:
           VERSION: ${{ steps.stable.outputs.version }}
         run: |
           tags="$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$VERSION" --jq '.[].ref')"
           if grep -qx "refs/tags/$VERSION" <<< "$tags"; then
-            echo "::error::The tag $VERSION is already on GitHub. Increase the version in Cargo.toml."
-            exit 1
+            if [ "$REPLACE" = true ]; then
+              echo "::warning::The tag $VERSION is already on GitHub. The run replaces it."
+              echo "replace=true" >> "$GITHUB_OUTPUT"
+            else
+              echo "::error::The tag $VERSION is already on GitHub. Increase the version in Cargo.toml, or set the input replace."
+              exit 1
+            fi
           fi
 
       - name: Find the version
@@ -97,6 +113,8 @@ jobs:
         if: steps.version.outputs.exists != 'true'
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          SIGNING_KEY: ${{ secrets.SUDOKU_SIGNING_KEY }}
+          REPLACE_OLD: ${{ steps.tag.outputs.replace }}
         run: |
           archive="sudoku-$VERSION.tar.gz"
           tar -C dist -czf "$archive" sudoku
@@ -105,6 +123,27 @@ jobs:
           jq -n --arg version "$VERSION" --arg url "$url" --arg sha256 "$sha256" \
             '{version: $version, url: $url, sha256: $sha256}' > version.json
           cat version.json
+          files=("$archive" version.json)
+          if [ -n "$SIGNING_KEY" ]; then
+            key="$RUNNER_TEMP/signing-key.pem"
+            (umask 077 && printf '%s\n' "$SIGNING_KEY" > "$key")
+            openssl pkeyutl -sign -inkey "$key" -rawin -in version.json -out version.json.sig
+            rm -f "$key"
+            files+=(version.json.sig)
+          elif [ "$STABLE" = true ]; then
+            echo "::error::The secret SUDOKU_SIGNING_KEY is not set. A stable release must have version.json.sig."
+            exit 1
+          else
+            echo "::warning::The secret SUDOKU_SIGNING_KEY is not set. The prerelease has no version.json.sig."
+          fi
+          # Delete the old release only now, after the new build passes all tests.
+          if [ "$REPLACE_OLD" = true ]; then
+            if gh release view "$VERSION" > /dev/null 2>&1; then
+              gh release delete "$VERSION" --cleanup-tag --yes
+            else
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$VERSION"
+            fi
+          fi
           if [ "$STABLE" = true ]; then kind=--latest; else kind=--prerelease; fi
-          gh release create "$VERSION" "$archive" version.json --target "$GITHUB_SHA" \
+          gh release create "$VERSION" "${files[@]}" --target "$GITHUB_SHA" \
             --title "$VERSION" --generate-notes "$kind"

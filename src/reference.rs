@@ -8,6 +8,7 @@ use crate::font::Fonts;
 use crate::game::{peers, Game};
 use crate::render::{self, Canvas};
 use crate::store::{NewResult, ResultsDb};
+use crate::update::{Manifest, Update};
 
 struct FixedEnv;
 
@@ -52,6 +53,17 @@ fn grid(rows: &[&str; 9]) -> [[u8; 9]; 9] {
 }
 
 /// The game in progress of board-state.py, made with the same operations as a player.
+/// The update state of a stable build v0.1.0 (REQUIREMENTS.md §9.2): v0.2.0 is available, or the app
+/// is up to date.
+pub fn update_state(available: bool) -> Update {
+    let mut u = Update::new("v0.1.0");
+    u.request = None;
+    let version = if available { "v0.2.0" } else { "v0.1.0" };
+    let m = Manifest { version: version.to_string(), url: String::new(), sha256: String::new() };
+    u.checked(Ok(m), 0);
+    u
+}
+
 pub fn sample_game() -> Game {
     let sol = grid(&SOLUTION);
     let mut g = Game::new(1, 2, sol, grid(&GIVENS));
@@ -147,6 +159,30 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             a.game = sample_game();
             a.game.toggle_mark((8, 0), 1);
             a.game.undo();
+            a.ui.menu_open = true;
+            a.ui.panel = Panel::Settings
+        }),
+        ("screen-toolbar-update.png", |a| {
+            // REQUIREMENTS.md §9.2: an update is available, and the gear has the caution icon.
+            a.game = sample_game();
+            a.game.toggle_mark((8, 0), 1);
+            a.game.undo();
+            a.update = update_state(true);
+            a.ui.menu_open = true
+        }),
+        ("settings-update.png", |a| {
+            a.game = sample_game();
+            a.game.toggle_mark((8, 0), 1);
+            a.game.undo();
+            a.update = update_state(true);
+            a.ui.menu_open = true;
+            a.ui.panel = Panel::Settings
+        }),
+        ("settings-up-to-date.png", |a| {
+            a.game = sample_game();
+            a.game.toggle_mark((8, 0), 1);
+            a.game.undo();
+            a.update = update_state(false);
             a.ui.menu_open = true;
             a.ui.panel = Panel::Settings
         }),

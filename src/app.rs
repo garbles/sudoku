@@ -10,6 +10,7 @@ use crate::layout::{self, Button, Rect};
 use crate::recognizer::{self, Stroke};
 use crate::settings::{Color, Section, Settings};
 use crate::store::{NewResult, ResultRow, ResultsDb};
+use crate::update::{Manifest, Update};
 
 /// The recognition pause after the pen lifts (§5.1). `SUDOKU_RECOGNITION_PAUSE_MS` changes it.
 pub const DEFAULT_PAUSE_MS: u64 = 500;
@@ -136,6 +137,8 @@ enum Target {
     DialogDelete,
     /// A row of the Settings panel (0: highlight numbers, 1: remove pencil marks automatically).
     Switch(usize),
+    /// The button "Update to v<version>" (§9.2).
+    Update,
     DeleteAll,
     AllCancel,
     AllDelete,
@@ -151,6 +154,8 @@ pub struct App {
     pub confirm_all: bool,
     pub settings: Settings,
     pub results: Vec<ResultRow>,
+    /// The update state (§9.2). The platform takes `update.request` and gives the results.
+    pub update: Update,
     db: ResultsDb,
     env: Box<dyn Env>,
 
@@ -204,6 +209,7 @@ impl App {
             confirm_all: false,
             settings,
             results,
+            update: Update::new(crate::VERSION),
             db,
             env,
             pause_ms: DEFAULT_PAUSE_MS,
@@ -233,6 +239,9 @@ impl App {
             }
         }
         self.last_clock = Some(now);
+        if self.update.tick(now) {
+            self.redraw = true;
+        }
 
         if let Some((_, shown_at)) = self.ui.question {
             if now.saturating_sub(shown_at) >= QUESTION_MS {
@@ -413,7 +422,10 @@ impl App {
                 return Gesture::Control(Target::Game(b));
             }
             match self.ui.panel {
-                Panel::Settings if layout::settings_panel().contains(x, y) => {
+                Panel::Settings if layout::settings_panel(self.update.has_row()).contains(x, y) => {
+                    if self.update.button_text().is_some() && layout::update_button_area().contains(x, y) {
+                        return Gesture::Control(Target::Update);
+                    }
                     return layout::settings_at(x, y).map(|i| Gesture::Control(Target::Switch(i))).unwrap_or(Gesture::Ignored);
                 }
                 Panel::Colors if layout::colors_panel().contains(x, y) => {
@@ -707,6 +719,7 @@ impl App {
             Target::Color(s, i) => layout::color_at(x, y) == Some((s, i)),
             Target::StartNewGame => layout::ng_start_row().contains(x, y),
             Target::Switch(i) => layout::settings_at(x, y) == Some(i),
+            Target::Update => layout::update_button_area().contains(x, y),
             _ => self.page_target(x, y) == Some(t),
         }
     }
@@ -749,6 +762,10 @@ impl App {
                     self.settings.auto_remove_on = !self.settings.auto_remove_on;
                 }
                 self.settings_dirty = true;
+            }
+            // UPD-5: only the update state changes.
+            Target::Update => {
+                self.update.tap();
             }
             Target::DeleteAll => self.confirm_all = true,
             Target::AllCancel => self.confirm_all = false,
@@ -799,6 +816,9 @@ impl App {
                 self.close_panel(); // DIF-3: the slider shows the last mode.
                 if open {
                     self.ui.panel = panel;
+                    if panel == Panel::Settings {
+                        self.update.panel_opened();
+                    }
                 }
             }
             Button::Undo => {
@@ -925,9 +945,22 @@ impl App {
         (self.manual_page, self.list.filter, self.list.page, self.list.confirm.as_ref().map(|r| r.id)).hash(&mut h);
         (self.settings.color_starting, self.settings.color_clash, self.settings.color_highlight).hash(&mut h);
         (self.settings.highlight_on, self.settings.auto_remove_on, self.confirm_all).hash(&mut h);
+        (&self.update.current, &self.update.state).hash(&mut h);
         self.results.len().hash(&mut h);
         self.results.iter().for_each(|r| r.id.hash(&mut h));
         h.finish()
+    }
+
+    /// The result of an update request from the platform (§9.2).
+    pub fn update_checked(&mut self, result: Result<Manifest, String>, now: u64) {
+        self.update.checked(result, now);
+        self.redraw = true;
+    }
+
+    /// The result of an installation from the platform (§9.2).
+    pub fn update_installed(&mut self, result: Result<(), String>, now: u64) {
+        self.update.installed(result, now);
+        self.redraw = true;
     }
 
     /// The pen or a finger is on the screen now.

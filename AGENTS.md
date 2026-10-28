@@ -41,10 +41,20 @@ docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + 
   `pre-<sha>`.
 - Stable releases: the owner starts the **Release** workflow manually on `main`. The release gets
   the name `v<version>`, with the version in `Cargo.toml`. Increase the version before each stable
-  release.
+  release. Use `cargo set-version --bump patch|minor|major` (from `cargo-edit`), not a manual edit.
+  This command changes `Cargo.toml` and `Cargo.lock` together. Commit the two files. If the tag
+  `v<version>` is already on GitHub, the run fails. To make the same release again, set the input
+  `replace`. The run deletes the old release and its tag only after the new build passes all tests.
+  A tablet that has the old build of this version does not update to the new build, because the
+  version is not newer.
 - Each release has `version.json`, with the version, the download URL of the archive and its
   SHA-256 checksum: `{"version": "<version>", "url": "<url>", "sha256": "<checksum>"}`. Do not
-  change this format without approval from the owner.
+  change this format without approval from the owner. The version has the `v` prefix
+  (`v0.1.0`), and the archive is `sudoku-v<version>.tar.gz`.
+- Each release also has `version.json.sig`: the ed25519 signature (64 bytes) of `version.json`.
+  release.yml makes it with the private key in the secret `SUDOKU_SIGNING_KEY` (PEM). The public
+  key is `PUBLIC_KEY` in `src/update.rs`. A stable release fails without the secret. If the key
+  changes, the builds with the old public key cannot update.
 
 ## Architecture Overview
 
@@ -58,6 +68,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `invariants.rs`: checks of the rules in INVARIANTS.md. Debug builds check them after each input.
 - `layout.rs`, `render.rs`, `font.rs`: positions, drawing (tiny-skia) and the font of the tablet.
 - `store.rs`, `settings.rs`: the SQLite results, the settings and the saved game (JSON).
+- `update.rs`: the update state, the signed `version.json` and the installation of a release
+  archive. No network: `platform/` downloads the files on a background thread (ureq, rustls).
 - `platform/`: Linux only. The qtfb client, the eraser state (evdev) and the main loop.
 - `reference.rs`: the states of the images in `images/`, for the snapshot tool and `tests/render.rs`.
 - `bin/video.rs`: runs the app with a script of timed events (`video/*.txt`) and records a video.

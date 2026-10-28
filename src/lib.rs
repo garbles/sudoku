@@ -12,6 +12,7 @@ pub mod store;
 pub mod font;
 pub mod render;
 pub mod system;
+pub mod update;
 #[cfg(target_os = "linux")]
 pub mod platform;
 pub mod reference;
