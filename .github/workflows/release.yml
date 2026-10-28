@@ -1,5 +1,6 @@
 # Builds the app and makes a GitHub release with the AppLoad folder (sudoku-<version>.tar.gz),
-# version.json and version.json.sig. version.json gives the version, the download URL and the SHA-256
+# version.json, version.json.sig and install.sh. install.sh has the version and the checksum of the
+# archive of its release. version.json gives the version, the download URL and the SHA-256
 # checksum of the archive. version.json.sig is the ed25519 signature of version.json with the private
 # key in the secret SUDOKU_SIGNING_KEY (PEM). The app installs an update only with a correct signature
 # (REQUIREMENTS.md §9.2). A stable release fails without the secret.
@@ -137,7 +138,14 @@ jobs:
           jq -n --arg version "$VERSION" --arg url "$url" --arg sha256 "$sha256" \
             '{version: $version, url: $url, sha256: $sha256}' > version.json
           cat version.json
-          files=("$archive" version.json)
+          # install.sh of this release installs this archive (REQUIREMENTS.md §14.6).
+          mkdir -p installer
+          sed -e "s/@SUDOKU_VERSION@/$VERSION/" -e "s/@SUDOKU_SHA256@/$sha256/" install.sh > installer/install.sh
+          if grep -q '@SUDOKU_' installer/install.sh; then
+            echo "::error::install.sh still has a placeholder."
+            exit 1
+          fi
+          files=("$archive" version.json installer/install.sh)
           if [ -n "$SIGNING_KEY" ]; then
             key="$RUNNER_TEMP/signing-key.pem"
             (umask 077 && printf '%s\n' "$SIGNING_KEY" > "$key")

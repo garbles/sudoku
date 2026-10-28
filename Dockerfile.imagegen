@@ -6,7 +6,7 @@
 # Alpine 3.22 gives fixed versions of ImageMagick and ffmpeg, so each computer makes the same files.
 # The GitHub workflow runs this build and fails when the result is different from the files in git.
 FROM --platform=linux/arm64 rust:1.97-alpine3.22 AS build
-RUN apk add --no-cache musl-dev imagemagick python3 fontconfig ffmpeg
+RUN apk add --no-cache musl-dev imagemagick python3 fontconfig ffmpeg bash
 WORKDIR /src
 # Download and compile the dependencies first, so that a change of the source does not do this again.
 COPY Cargo.toml Cargo.lock ./
@@ -14,6 +14,9 @@ RUN mkdir -p src/bin && echo 'fn main() {}' > src/bin/sudoku.rs && echo 'fn main
  && echo 'fn main() {}' > src/bin/video.rs \
  && echo '' > src/lib.rs && cargo build --release --locked && rm -rf src
 COPY scripts scripts
+# The installer and its simulation, for the images install-*.png.
+COPY install.sh install.sh
+COPY tests/install tests/install
 # Remove the time stamps from the PNG files, so that the same images give the same bytes.
 RUN mkdir images && sh scripts/build.sh \
  && magick mogrify -define png:exclude-chunks=date,time images/*.png

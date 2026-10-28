@@ -51,6 +51,12 @@ docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + 
   `replace`. The run deletes the old release and its tag only after the new build passes all tests.
   A tablet that has the old build of this version does not update to the new build, because the
   version is not newer.
+- Each release has `install.sh` (REQUIREMENTS.md §14.6). release.yml replaces `@SUDOKU_VERSION@`
+  and `@SUDOKU_SHA256@` with the version and the checksum of the archive. Thus the installer of a
+  release installs that release. `tests/install/run.sh SCENARIO` runs the installer with fake `ssh`,
+  `ssh-keygen` and `curl` (`tests/install/fake/`). The fake ssh finds each remote command from its
+  first word (`: name;`). When you add or change a remote command in `install.sh`, change the fake
+  ssh also.
 - Each release has `version.json`, with the version, the download URL of the archive and its
   SHA-256 checksum: `{"version": "<version>", "url": "<url>", "sha256": "<checksum>"}`. Do not
   change this format without approval from the owner. The version has the `v` prefix
@@ -76,6 +82,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   archive. No network: `platform/` downloads the files on a background thread (ureq, rustls).
 - `platform/`: Linux only. The qtfb client, the eraser state (evdev) and the main loop.
 - `reference.rs`: the states of the images in `images/`, for the snapshot tool and `tests/render.rs`.
+- `install.sh` (not in `src/`): the installer for the tablet. It runs on the computer of the user.
+  `scripts/terminal.py` draws its output (`images/install-*.png`).
 - `bin/video.rs`: runs the app with a script of timed events (`video/*.txt`) and records a video.
 
 ## Conventions & Patterns

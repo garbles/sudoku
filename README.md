@@ -3,9 +3,7 @@
 A Sudoku game for the color e-ink display of the reMarkable Paper Pro. You write the numbers with the
 pen, and you add pencil marks with a tap.
 
-<p align="center">
-  <a href="video/demo.mp4"><img src="video/demo.gif" alt="Demo: pencil marks, numbers, a clash, the Cell colors menu and the eraser" width="50%" /></a>
-</p>
+![Demo: pencil marks, numbers, a clash, the Cell colors menu and the eraser](video/demo.gif)
 
 ## Features
 
@@ -39,30 +37,66 @@ pen, and you add pencil marks with a tap.
 - The app uses the reMarkable Sans font of the tablet.
 - The Settings panel shows the version of the app (`dev` for a build on your computer).
 - Updates from within the app.
+- An installer that does all the installation steps for you.
 
 ## Installation
 
-You need a reMarkable Paper Pro with developer mode and SSH access.
+You need a reMarkable Paper Pro and a computer with macOS or Linux. Run this command in a terminal
+of the computer:
+
+```bash
+curl -fsSL https://github.com/garbles/sudoku/releases/latest/download/install.sh | bash
+```
+
+The installer tells you what to do at each step:
+
+1. It downloads the latest release and examines its checksum.
+2. It finds the tablet on the USB cable. If developer mode is off, it tells you how to turn it on.
+
+   **Developer mode erases all data on the tablet.** Sync your notebooks to the cloud first.
+
+3. It makes an SSH key and adds it to the tablet. For this, you type the SSH password of the tablet
+
+   one time. The installer tells you where to find it.
+
+4. It installs [Vellum](https://github.com/vellum-dev/vellum) and the AppLoad launcher, makes the
+
+   xovi hashtable and starts xovi. The tablet must be connected to Wi-Fi for this step.
+
+5. It copies Sudoku to AppLoad.
+
+The installer skips each step that is done. Thus you can run it again at all times:
+
+- After a restart of the tablet, xovi is off, and AppLoad is not in the menu. Run the installer
+  again to start xovi.
+- To install a new version. (Sudoku also tells you about new versions in its Settings panel.)
+
+To use Wi-Fi in place of the USB cable, set the address of the tablet:
+`curl -fsSL .../install.sh | REMARKABLE_HOST=192.168.1.20 bash`.
+
+### Manual installation
 
 1. Install the AppLoad launcher with Vellum, and start xovi:
 
    ```bash
-    vellum add appload
-    /home/root/xovi/rebuild_hashtable
-    /home/root/xovi/start
+     vellum add appload
+     /home/root/xovi/rebuild_hashtable
+     /home/root/xovi/start
    ```
 
    After a restart of the tablet, run `/home/root/xovi/start` again.
 
 2. Download `sudoku-<version>.tar.gz` from the
+
    [Releases](https://github.com/garbles/sudoku/releases) page, and extract it to `dist/`
    (`mkdir -p dist && tar -xzf sudoku-<version>.tar.gz -C dist`). Or build the app (refer to
    [Build](#build)).
+
 3. Copy the `dist/sudoku` folder to the tablet and make the program executable:
 
    ```bash
-    scp -r dist/sudoku root@10.11.99.1:/home/root/xovi/exthome/appload/
-    ssh root@10.11.99.1 "chmod 755 /home/root/xovi/exthome/appload/sudoku/sudoku"
+     scp -r dist/sudoku root@10.11.99.1:/home/root/xovi/exthome/appload/
+     ssh root@10.11.99.1 "chmod 755 /home/root/xovi/exthome/appload/sudoku/sudoku"
    ```
 
    `10.11.99.1` is the address of the tablet on a USB connection. On Wi-Fi, use the IP address of

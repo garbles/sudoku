@@ -1,6 +1,6 @@
 #!/bin/sh
 # Makes all the images in ../images from these scripts. You can run it from all folders: sh scripts/build.sh
-# It needs ImageMagick 7 (magick) and python3. For the fonts, refer to fonts/README.md.
+# It needs ImageMagick 7 (magick), python3 and bash. For the fonts, refer to fonts/README.md.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="$HERE/../images"
@@ -18,5 +18,10 @@ python3 -I analytics.py "$OUT"               # analytics.png, analytics-games.pn
 for page in how-to-play candidates pen pen-rules helpers mistakes menu new-game finished; do
   sh manual-$page.sh "$OUT"
   sh manual-$page-landscape.sh "$OUT"          # the same page for the landscape orientation
+done
+# The terminal output of the installer (install.sh) in the simulation of tests/install/run.sh.
+for scenario in first connect restart again; do
+  T=$(mktemp); bash ../tests/install/run.sh $scenario > $T || true
+  python3 -I terminal.py $T "$OUT/install-$scenario.png"; rm -f $T
 done
 echo "built $(ls "$OUT"/*.png | wc -l | tr -d ' ') images in $OUT"

@@ -94,6 +94,19 @@ next page, next to the page number.
 | 8 | `manual-new-game.png` | How to start a new game, step by step. The difficulty meter, which you cannot change. |
 | 9 | `manual-finished.png` | How a puzzle becomes complete, the lock, the clock and the saved results. |
 
+## Installer
+
+The terminal output of `install.sh` (REQUIREMENTS.md §14.6), in the simulation of
+`tests/install/run.sh`. `scripts/terminal.py` draws each image (width 1549 px, the height changes
+with the output). The font is DejaVu Sans Mono (`scripts/fonts/`).
+
+| Image | Scenario | Content |
+|---|---|---|
+| `install-first.png` | `first` | A new tablet in developer mode. All 9 steps operate: the SSH key and the password, Vellum, AppLoad, the hashtable, xovi and Sudoku. |
+| `install-connect.png` | `connect` | The tablet does not answer (instructions for the USB cable), then SSH is off (instructions for developer mode). All other steps are done already. |
+| `install-restart.png` | `restart` | After a restart of the tablet with an earlier version of Sudoku: the installer starts xovi and replaces the app. |
+| `install-again.png` | `again` | All steps are done already. The installer changes nothing. |
+
 ## Behavior summary
 
 This section is a short summary. `REQUIREMENTS.md` gives the full behavior.

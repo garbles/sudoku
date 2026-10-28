@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+# A fake ssh for the installer simulation (tests/install/run.sh). It simulates the tablet with the
+# files in $SIM/state:
+#
+#   unreachable, refused, offline   Counters. While a counter is more than 0, each connection (or each
+#                                   internet check) fails and decreases it by 1.
+#   hostkey-changed                 SSH fails with a changed host key until `ssh-keygen -R`.
+#   password                        The root password.
+#   authorized                      The public keys in authorized_keys.
+#   default-key                     A different key of the computer opens the tablet.
+#   model, os                       The device model and the software version.
+#   vellum, appload, hashtab, xovi  The parts that are installed or on.
+#   app                             The SHA-256 checksum of the installed executable.
+#
+# install.sh starts each remote command with ": name;". This file finds the command from the name.
+S="$SIM/state"
+batch=0 only=0 pubkey=1 key="" host="" cmd=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o)
+      case "$2" in
+        BatchMode=yes) batch=1 ;;
+        IdentitiesOnly=yes) only=1 ;;
+        PubkeyAuthentication=no) pubkey=0 ;;
+      esac
+      shift 2
+      ;;
+    -i) key="$2"; shift 2 ;;
+    -*) shift ;;
+    *) if [ -z "$host" ]; then host="$1"; else cmd="$1"; fi; shift ;;
+  esac
+done
+h="${host#*@}"
+
+# Decreases the counter $1. Returns 0 if the counter was more than 0.
+count() {
+  local n
+  [ -f "$S/$1" ] || return 1
+  n="$(cat "$S/$1")"
+  [ "$n" -gt 0 ] || return 1
+  echo $((n - 1)) >"$S/$1"
+}
+
+if count unreachable; then
+  echo "ssh: connect to host $h port 22: Operation timed out" >&2
+  exit 255
+fi
+if count refused; then
+  echo "ssh: connect to host $h port 22: Connection refused" >&2
+  exit 255
+fi
+if [ -f "$S/hostkey-changed" ]; then
+  cat >&2 <<EOF
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+@    WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!     @
+@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@
+Host key verification failed.
+EOF
+  exit 255
+fi
+
+authed=0
+if [ "$pubkey" = 1 ]; then
+  if [ "$only" = 1 ]; then
+    [ -n "$key" ] && [ -f "$key.pub" ] && grep -qxF "$(cat "$key.pub")" "$S/authorized" 2>/dev/null && authed=1
+  else
+    [ -f "$S/default-key" ] && authed=1
+  fi
+fi
+if [ "$authed" = 0 ]; then
+  if [ "$batch" = 1 ]; then
+    echo "root@$h: Permission denied (publickey,password)." >&2
+    exit 255
+  fi
+  # The real ssh reads the password from the terminal. The simulation reads it from fd 3 (the input
+  # file of install.sh). The password does not show.
+  tries=0
+  while [ "$tries" -lt 3 ]; do
+    printf "root@%s's password: " "$h" >&2
+    IFS= read -r pw <&3 || pw=""
+    printf '\n' >&2
+    if [ "$pw" = "$(cat "$S/password")" ]; then
+      authed=1
+      break
+    fi
+    tries=$((tries + 1))
+    [ "$tries" -lt 3 ] && echo "Permission denied, please try again." >&2
+  done
+  if [ "$authed" = 0 ]; then
+    echo "root@$h: Permission denied (publickey,password)." >&2
+    exit 255
+  fi
+fi
+
+yes_no() { if [ -e "$S/$1" ]; then echo yes; else echo no; fi; }
+
+name="$(printf '%s' "$cmd" | sed -n '1s/^: \([a-z-]*\);.*/\1/p')"
+case "$name" in
+  probe) ;;
+  authorize) IFS= read -r k && echo "$k" >>"$S/authorized" ;;
+  info) cat "$S/model" "$S/os" ;;
+  has-vellum) yes_no vellum ;;
+  has-appload) yes_no appload ;;
+  has-hashtab) yes_no hashtab ;;
+  has-xovi) yes_no xovi ;;
+  has-internet) if count offline; then echo no; else echo yes; fi ;;
+  install-vellum)
+    grep -q 'Vellum bootstrap' || { echo "fake ssh: no bootstrap script on stdin" >&2; exit 1; }
+    cat <<'EOF'
+Installing vellum...
+Downloading apk.vellum...
+Downloading vellum...
+Downloading signing key...
+Generating local signing key...
+Configuring repositories...
+Initializing local repository...
+Initializing apk database...
+Registering vellum package...
+Updating package index...
+Installing mount-utils...
+Installing bash completion...
+Added vellum to PATH in /home/root/.bashrc
+Added completions in /home/root/.bashrc
+
+Vellum installed successfully!
+Run 'exec bash --login' to use vellum.
+EOF
+    touch "$S/vellum"
+    ;;
+  install-appload)
+    cat <<'EOF'
+fetch https://packages.vellum.delivery/aarch64/APKINDEX.tar.gz
+OK: 112 distinct packages available
+(1/5) Installing xovi (0.3.3-r2)
+(2/5) Installing xovi-extensions (19.0.1-r0)
+(3/5) Installing qt-resource-rebuilder (19.0.1-r0)
+======================================================
+  NOTE: Before using any QT modifications,
+  you must run: xovi/rebuild_hashtable
+======================================================
+(4/5) Installing appload (0.6.0-r1)
+(5/5) Installing remarkable-os (3.29.0.153-r0)
+OK: 5 MiB in 9 packages
+EOF
+    touch "$S/appload"
+    ;;
+  make-hashtab) touch "$S/hashtab"; rm -f "$S/xovi" ;; # rebuild_hashtable stops the user interface
+  start-xovi) touch "$S/xovi" ;;
+  app-hash) cat "$S/app" 2>/dev/null; true ;;
+  install-app)
+    t="$(mktemp -d)"
+    cat >"$t/a.tar.gz"
+    tar -xzf "$t/a.tar.gz" -C "$t"
+    if command -v sha256sum >/dev/null; then sum=(sha256sum); else sum=(shasum -a 256); fi
+    "${sum[@]}" "$t/sudoku/sudoku" | cut -d ' ' -f 1 >"$S/app"
+    rm -rf "$t"
+    ;;
+  *)
+    echo "fake ssh: unknown remote command: $cmd" >&2
+    exit 127
+    ;;
+esac

@@ -7,7 +7,8 @@
 # executable `sudoku`). Copy it to /home/root/xovi/exthome/appload/ on the tablet.
 # To set the version in the Settings panel (default "dev"), add --build-arg SUDOKU_VERSION=<version>.
 FROM --platform=linux/arm64 rust:1.97-alpine AS build
-RUN apk add --no-cache musl-dev
+# bash runs the simulation of the installer (tests/install.rs).
+RUN apk add --no-cache musl-dev bash
 WORKDIR /src
 # Download and compile the dependencies first, so that a change of the source does not do this again.
 COPY Cargo.toml Cargo.lock ./
@@ -17,6 +18,7 @@ RUN mkdir -p src/bin && echo 'fn main() {}' > src/bin/sudoku.rs && echo 'fn main
  && rm -rf src
 COPY src src
 COPY tests tests
+COPY install.sh install.sh
 COPY images images
 COPY assets assets
 COPY INVARIANTS.md INVARIANTS.md

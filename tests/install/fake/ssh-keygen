@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# A fake ssh-keygen for the installer simulation (tests/install/run.sh). `-R host` removes the
+# changed host key of the fake tablet. All other calls write a fake key pair to the file of -f.
+file="" comment=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -R) rm -f "$SIM/state/hostkey-changed"; exit 0 ;;
+    -f) file="$2"; shift 2 ;;
+    -C) comment="$2"; shift 2 ;;
+    -t | -N) shift 2 ;;
+    *) shift ;;
+  esac
+done
+printf 'FAKE PRIVATE KEY\n' >"$file"
+printf 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFakeKeyOfTheInstallerSimulation %s\n' "$comment" >"$file.pub"

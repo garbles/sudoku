@@ -887,6 +887,8 @@ package manager **Vellum**:
    run `/home/root/xovi/start` again.
 3. Copy the folder `dist/sudoku` (from the Dockerfile) to `/home/root/xovi/exthome/appload/`.
 
+The installer (§14.6) does these steps automatically.
+
 The close button shows the reMarkable interface again. AppLoad draws a black line of 2 px around the
 window of each app, also in full screen. The app cannot remove it. The app does not put content at
 the outer 2 px of the screen that is necessary to play.
@@ -928,6 +930,46 @@ set only the quantity of starting numbers (44, 37, 31, 27, 24). The app keeps ve
 examine a game that it saved before version 2. A game file with no version is version 1. When the
 app opens a results database of version 1, it moves the rows to the new table with generator version
 1. A row that the app cannot use stays in the file, in the table `results_v1`.
+
+### 14.6 Installer
+
+`install.sh` installs the app on the tablet from a computer (macOS or Linux). Each release has this
+file. It installs the archive of its release. The command for the latest stable release is:
+
+```bash
+curl -fsSL https://github.com/garbles/sudoku/releases/latest/download/install.sh | bash
+```
+
+The installer has these requirements (owner decision, 2026-10-27):
+
+- **One script.** All steps are in one file. A copy from git (with no version) installs the latest
+  stable release.
+- **Idempotent.** Each step examines the tablet or the computer first. If the step is done, the
+  installer shows "(done already)" and does not change it. A second run changes nothing.
+- **Instructions.** When the user must do something, a box tells the user what to do, step by step.
+  Then the installer waits for Enter (or `q` to stop), and examines the step again.
+- **Colors.** The output uses ANSI colors (256-color palette) and Unicode symbols. `NO_COLOR` turns
+  the colors off.
+- **Tests.** `tests/install/run.sh` runs the installer with fake `ssh`, `ssh-keygen` and `curl`
+  programs. `tests/install.rs` examines the scenarios. `scripts/build.sh` makes the screenshots
+  `images/install-*.png` from them.
+
+The steps:
+
+| Step | Examination | Action |
+|---|---|---|
+| 1. Programs | `ssh`, `ssh-keygen`, `curl`, `tar` and `sha256sum` or `shasum` | If a program is missing, the installer tells how to install it and stops. |
+| 2. Download | – | Downloads `sudoku-<version>.tar.gz` and compares its SHA-256 checksum. If the checksum is not correct, the installer stops. |
+| 3. Connection | SSH to `10.11.99.1` (or `REMARKABLE_HOST`) | No answer: instructions for the USB cable. Connection refused: instructions for developer mode (with the caution that it erases the tablet). Changed host key: the installer removes the old key after a confirmation. |
+| 4. SSH key | `~/.ssh/id_ed25519_remarkable`, and the tablet accepts it | Makes the key (ed25519, no passphrase). Adds it to `/home/root/.ssh/authorized_keys`, with a different key of the computer or with the root password. The installer tells where the password is (Settings > General > Help > About > Copyrights and licenses). Shows the tablet model and software version. A tablet that is not a Paper Pro needs a confirmation. |
+| 5. Vellum | `/home/root/.vellum/bin/vellum` | Examines the internet connection of the tablet (instructions for Wi-Fi). Downloads the latest Vellum bootstrap script on the computer (curl examines the TLS certificate) and runs it on the tablet. The installer keeps no checksum of this script, because each Vellum release changes it. |
+| 6. AppLoad | `/home/root/xovi/extensions.d/appload.so` | `vellum update`, then `vellum add appload`. |
+| 7. Hashtable | `/home/root/xovi/exthome/qt-resource-rebuilder/hashtab` | Tells the user that the screen stops for 1 to 2 minutes, then runs `xovi/rebuild_hashtable`. |
+| 8. xovi | `xochitl` has `xovi.so` | Runs `xovi/start` (the user interface starts again). |
+| 9. Sudoku | The SHA-256 checksum of the installed `sudoku` is equal to the checksum in the archive | Copies the archive to the tablet and replaces the AppLoad folder `sudoku` only after all checks. The saved data (§14.1–14.3) does not change. |
+
+At the end, a box tells how to open the app. A restart of the tablet stops xovi. To start it again,
+the user runs the installer again.
 
 ## 15. Visual specification
 

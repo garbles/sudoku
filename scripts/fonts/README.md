@@ -19,3 +19,10 @@ for w in (400, 500):
     f.save(f"rmsans-{w}.ttf")
 PY
 ```
+
+## Terminal font
+
+The screenshots of the installer (`images/install-*.png`) use **DejaVu Sans Mono** 2.37
+(`dejavu-mono-400.ttf` and `dejavu-mono-700.ttf`, from
+https://github.com/dejavu-fonts/dejavu-fonts/releases). The license of this font permits copies.
+`DEJAVU-LICENSE` gives the license.
