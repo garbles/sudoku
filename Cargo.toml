@@ -1,6 +1,6 @@
 [package]
 name = "rm-sudoku"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "Sudoku for the reMarkable Paper Pro (AppLoad external app with qtfb)"
 license = "MIT"
