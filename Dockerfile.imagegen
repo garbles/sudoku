@@ -1,5 +1,6 @@
 # check=skip=FromPlatformFlagConstDisallowed
-# Makes the reference images (images/*.png), the AppLoad icon (appload/sudoku/icon.png) and the demo video (video/demo.mp4, video/demo.gif) again.
+# Makes the reference images (images/*.png), the AppLoad icon (appload/sudoku/icon.png) and the demo videos (video/demo.mp4,
+# video/demo.gif, video/demo-full.mp4) again.
 #
 #   docker build --platform linux/arm64 -f Dockerfile.imagegen --output type=local,dest=. .
 #
@@ -24,11 +25,12 @@ RUN mkdir -p images appload/sudoku && sh scripts/build.sh \
 COPY src src
 COPY assets assets
 COPY tests tests
-COPY video/demo.txt video/demo.txt
+COPY video/demo.txt video/demo-full.txt video/
 RUN touch src/lib.rs src/bin/*.rs
-RUN cargo run --release --locked --bin video -- video/demo.txt video/demo.mp4
+RUN cargo run --release --locked --bin video -- video/demo.txt video/demo.mp4 \
+ && cargo run --release --locked --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4
 
 FROM scratch AS export
 COPY --from=build /src/images/*.png /images/
 COPY --from=build /src/appload/sudoku/icon.png /appload/sudoku/icon.png
-COPY --from=build /src/video/demo.mp4 /src/video/demo.gif /video/
+COPY --from=build /src/video/demo.mp4 /src/video/demo.gif /src/video/demo-full.mp4 /video/

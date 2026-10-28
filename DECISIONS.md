@@ -223,5 +223,5 @@ the left edge and the close button at the right (REQUIREMENTS.md §3.1, NAV-15).
 - The reference images in `images/` stay left-handed. Only `color-menu-right-handed.png` shows the
   right-handed layout. `scripts/toolbar.sh` makes it from `color-menu.png`: the parts move by full
   pixels and only the menu icon is a mirror image.
-- The demo video uses the right-handed layout, as the device does by default (`hand right` in
-  `video/demo.txt`).
+- The demo videos use the right-handed layout, as the device does by default (`hand right` in
+  `video/demo.txt` and `video/demo-full.txt`).

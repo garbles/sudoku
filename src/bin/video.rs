@@ -24,6 +24,7 @@
 //!
 //! It uses the fonts in scripts/fonts (refer to scripts/fonts/README.md) and ffmpeg. After the MP4, the
 //! tool makes a smaller GIF from it with the same name (for example video/demo.gif), for README.md.
+//! With `--no-gif`, it makes only the MP4 (for example video/demo-full.mp4, for the website).
 
 use std::io::Write;
 use std::path::Path;
@@ -474,9 +475,13 @@ fn gif(mp4: &Path, out: &Path) -> bool {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let no_gif = args.first().is_some_and(|a| a == "--no-gif");
+    if no_gif {
+        args.remove(0);
+    }
     let [script_path, out] = args.as_slice() else {
-        eprintln!("usage: video SCRIPT OUT.mp4");
+        eprintln!("usage: video [--no-gif] SCRIPT OUT.mp4");
         std::process::exit(2);
     };
     if !out.ends_with(".mp4") {
@@ -559,6 +564,9 @@ fn main() {
         std::process::exit(1);
     }
     println!("{out}: {} frames, {:.1} s", frames + 1, end as f64 / 1000.0);
+    if no_gif {
+        return;
+    }
 
     let gif_out = Path::new(out).with_extension("gif");
     if !gif(Path::new(out), &gif_out) {

@@ -1,0 +1,168 @@
+# Extended demo video of the Sudoku app, for the website (site/). Steps 1 to 7 are the same as
+# video/demo.txt. Then the player solves the puzzle to the end, as in a real game: with pencil marks,
+# pauses to think, two more incorrect numbers (one is erased, one is undone) and the completion.
+# Make it with:
+#   cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4
+# Cells are rRcC, with rows and columns from 1 to 9. The commands are in src/bin/video.rs.
+
+fps 30
+puzzle seed 7 mode 0          # Easy. The same puzzle each time.
+hand right                    # the menu is at the left edge
+
+wait 1.5                      # show the new board
+
+# 1. Pencil marks in the bottom-middle box (true candidates only).
+mark r7c4 1 8
+mark r8c5 2 9
+mark r9c4 1 4 8
+wait 1.0
+
+# 2. Two obvious numbers in the top-right box (3 and 9 are missing).
+write r1c8 3                  # 9 is already in column 8, thus r1c8 is 3
+write r2c9 9
+wait 1.0
+
+# 3. An incorrect number. r3c4 must be 5 (the last empty cell in row 3).
+write r3c4 9 writer 7         # a different 9 (round loop). It clashes with r3c6 and r4c4: the cells are red
+wait 2.0
+
+# 4. Change the clash color.
+tap menu
+wait 0.8
+tap colors                    # opens the Cell colors panel
+wait 1.0
+tap color clashing orange     # the clashing cells change to orange
+wait 1.5
+tap colors                    # closes the panel
+wait 0.5
+tap menu                      # closes the menu
+wait 1.0
+
+# 5. Erase the incorrect number.
+erase r3c4
+wait 1.0
+
+# 6. More pencil marks in the middle-left box.
+mark r4c2 2 5
+mark r5c2 5
+mark r6c1 1
+wait 1.0
+
+# 7. The last obvious number: r5c2 can only be 5.
+write r5c2 5                  # automatic removal takes the 5 out of r4c2
+wait 2.5
+
+# The rest of the game. Above, the player wrote fast. Now the player thinks between the steps.
+
+# 8. The correct number in row 3, then column 1 (1 and 8 are missing).
+write r3c4 5
+wait 1.2
+write r6c1 1                  # row 6 has no 1, and r6c1 has the pencil mark 1
+write r1c1 8
+wait 1.5
+
+# 9. The top-left box: 6 and 9 are missing.
+mark r1c2 6 9
+mark r2c2 6 9
+wait 1.2
+mark r2c2 9                   # row 2 has a 9 (r2c9): the player removes the pencil mark
+wait 0.8
+write r2c2 6                  # automatic removal takes the 6 out of r1c2
+wait 0.6
+write r1c2 9
+wait 1.5
+
+# 10. Row 1: 4 and 6 are missing. A guess that is not correct.
+write r1c4 4                  # no clash yet
+write r1c6 6                  # clashes with the 6 in r7c6 (column 6)
+wait 2.0
+tap menu
+wait 0.6
+tap undo                      # removes the 6
+wait 0.6
+tap undo                      # removes the 4
+wait 0.6
+tap menu
+wait 0.8
+write r1c6 4
+write r1c4 6
+wait 1.5
+
+# 11. The top-middle box: 2, 3 and 8 are missing.
+write r2c4 8                  # automatic removal takes the 8 out of r7c4 and r9c4
+wait 1.0
+mark r2c5 2 3
+mark r2c6 2 3
+wait 1.5                      # column 5 has a 3 (r6c5), thus r2c5 is 2
+write r2c5 2                  # automatic removal takes the 2 out of r2c6
+wait 0.5
+write r2c6 3
+wait 1.5
+
+# 12. Column 4: r7c4 shows only 1 now.
+write r7c4 1                  # automatic removal takes the 1 out of r9c4
+wait 0.5
+write r9c4 4
+wait 1.5
+
+# 13. The center box: 1, 4, 5 and 6 are missing.
+mark r4c5 6
+mark r4c6 1 5
+mark r5c5 4 8
+mark r5c6 1
+wait 1.2
+write r5c6 1                  # automatic removal takes the 1 out of r4c6
+write r4c6 5
+write r4c5 6
+write r5c5 4
+wait 1.5
+
+# 14. Rows 4 and 5.
+write r4c2 2
+write r4c9 1
+wait 1.0
+write r5c9 8                  # incorrect: column 9 has an 8 (r8c9)
+wait 2.0
+erase r5c9
+wait 0.8
+write r5c9 7
+write r5c7 8
+wait 1.5
+
+# 15. Row 6: 5 and 6 are missing.
+write r6c9 5
+write r6c8 6
+wait 1.5
+
+# 16. Row 7 and column 2.
+mark r7c2 8 9
+mark r9c2 7 8
+wait 1.2
+mark r7c2 9                   # column 2 has a 9 (r1c2)
+wait 0.6
+write r7c2 8                  # automatic removal takes the 8 out of r9c2
+write r9c2 7
+write r7c3 2
+write r7c7 9
+wait 1.5
+
+# 17. Column 7: 1 and 6 are missing.
+mark r8c7 6
+mark r9c7 1 6
+wait 1.0
+write r8c7 6                  # automatic removal takes the 6 out of r9c7
+write r9c7 1
+wait 1.2
+
+# 18. Row 8: r8c5 has the marks 2 and 9 from step 1. Column 5 has a 2, thus it is 9.
+write r8c5 9
+write r8c8 2
+wait 1.5
+
+# 19. The last row.
+write r9c5 8
+write r9c6 2
+write r9c8 5
+wait 1.0
+write r9c9 3                  # the last number
+wait 5.0                      # the board shows "Completed in m:ss"

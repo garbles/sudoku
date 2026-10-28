@@ -22,6 +22,7 @@ executable for the reMarkable Paper Pro.
 cargo test                                   # all tests on the computer (macOS or Linux)
 cargo run --release --bin snapshot -- DIR    # draw the reference states and compare them with images/
 cargo run --release --bin video -- video/demo.txt video/demo.mp4   # demo video from an event script (ffmpeg)
+cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4   # extended demo video for the website
 docker build --platform linux/arm64 -f Dockerfile.imagegen --output type=local,dest=. .   # images/ and video/ with fixed tool versions (commit these)
 docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + static aarch64 build
 ```
@@ -32,7 +33,12 @@ docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + 
 
 - Demo video: `video/demo.txt` is the event script. The video tool runs the real app with no screen
   and sends the pen, eraser and finger events of the script. Each run gives the same video.
-  `src/bin/video.rs` gives the commands of the script.
+  `src/bin/video.rs` gives the commands of the script. `video/demo.mp4` and `video/demo.gif` are for
+  README.md.
+- Extended demo video: `video/demo-full.txt` starts as `video/demo.txt` and plays the same puzzle to
+  the completion, with pencil marks, pauses and incorrect numbers. `video/demo-full.mp4` (no GIF) is
+  for the website. When you change the first part of `video/demo.txt`, change `video/demo-full.txt`
+  also.
 - `Dockerfile.imagegen` uses fixed versions of ImageMagick and ffmpeg, so each computer makes the same
   files. The GitHub workflow makes `images/` and `video/` again on each push to `main`, and it fails
   when they are not the same as the files in git. When you change them, run the imagegen build and
@@ -52,8 +58,8 @@ docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + 
   A tablet that has the old build of this version does not update to the new build, because the
   version is not newer.
 - Website: `site/index.html` is the GitHub Pages site (https://garbles.github.io/sudoku/).
-  `pages.yml` publishes it on each push to `main` that changes `site/`, `video/demo.mp4` or the
-  app icon. The workflow adds `demo.mp4` and `icon.svg` to the site. The instructions on the
+  `pages.yml` publishes it on each push to `main` that changes `site/`, `video/demo-full.mp4` or
+  the app icon. The workflow adds `demo-full.mp4` and `icon.svg` to the site. The instructions on the
   site must agree with README.md and `install.sh` (refer to Conventions & Patterns). In the repository settings, Pages > Source must be "GitHub Actions".
 - App icon: `icon.svg` is the source. Its digits are outlines of reMarkable Sans Regular.
   AppLoad reads only `icon.png` and shows it at 150x150, thus `scripts/build.sh` (rsvg-convert)

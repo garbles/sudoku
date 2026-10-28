@@ -1,5 +1,5 @@
 # Publishes the website (site/) on GitHub Pages on each push to main.
-# The workflow adds the demo video and the app icon (SVG) to the site.
+# The workflow adds the extended demo video (video/demo-full.mp4) and the app icon (SVG) to the site.
 # In the repository settings, set Pages > Source to "GitHub Actions".
 name: Pages
 
@@ -8,7 +8,7 @@ on:
     branches: [main]
     paths:
       - site/**
-      - video/demo.mp4
+      - video/demo-full.mp4
       - icon.svg
       - .github/workflows/pages.yml
   workflow_dispatch:
@@ -37,7 +37,7 @@ jobs:
         run: |
           mkdir -p _site
           cp site/* _site/
-          cp video/demo.mp4 _site/demo.mp4
+          cp video/demo-full.mp4 _site/demo-full.mp4
           cp icon.svg _site/icon.svg
 
       - uses: actions/upload-pages-artifact@v4
