@@ -1,6 +1,7 @@
 #!/bin/sh
 # Makes all the images in ../images from these scripts. You can run it from all folders: sh scripts/build.sh
-# It needs ImageMagick 7 (magick), python3 and bash. For the fonts, refer to fonts/README.md.
+# It also makes the AppLoad icon ../appload/sudoku/icon.png from ../icon.svg.
+# It needs ImageMagick 7 (magick), rsvg-convert, python3 and bash. For the fonts, refer to fonts/README.md.
 set -e
 HERE="$(cd "$(dirname "$0")" && pwd)"
 OUT="$HERE/../images"
@@ -24,4 +25,7 @@ for scenario in first connect restart again; do
   T=$(mktemp); bash ../tests/install/run.sh $scenario > $T || true
   python3 -I terminal.py $T "$OUT/install-$scenario.png"; rm -f $T
 done
+# The AppLoad icon. AppLoad shows icon.png at 150x150 and does not read SVG files.
+I=$(mktemp); rsvg-convert -w 150 -h 150 ../icon.svg -o $I
+magick $I -colorspace gray -define png:exclude-chunks=date,time "$HERE/../appload/sudoku/icon.png"; rm -f $I
 echo "built $(ls "$OUT"/*.png | wc -l | tr -d ' ') images in $OUT"

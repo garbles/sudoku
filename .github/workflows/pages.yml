@@ -1,0 +1,48 @@
+# Publishes the website (site/) on GitHub Pages on each push to main.
+# The workflow adds the demo video and the app icon (SVG) to the site.
+# In the repository settings, set Pages > Source to "GitHub Actions".
+name: Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - video/demo.mp4
+      - icon.svg
+      - .github/workflows/pages.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Assemble the site
+        run: |
+          mkdir -p _site
+          cp site/* _site/
+          cp video/demo.mp4 _site/demo.mp4
+          cp icon.svg _site/icon.svg
+
+      - uses: actions/upload-pages-artifact@v4
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

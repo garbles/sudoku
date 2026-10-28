@@ -1,7 +1,7 @@
 # Sudoku for reMarkable Paper Pro
 
-A Sudoku game for the color e-ink display of the reMarkable Paper Pro. You write the numbers with the
-pen, and you add pencil marks with a tap.
+A Sudoku game for the color e-ink display. It is the best way to play Sudoku: it feels like pen and
+paper, and it does the work that paper cannot do.
 
 <p align="center">
   <a href="video/demo.mp4"><img src="video/demo.gif" alt="Demo: pencil marks, numbers, a clash, the Cell colors menu and the eraser" /></a>

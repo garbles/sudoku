@@ -51,6 +51,14 @@ docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + 
   `replace`. The run deletes the old release and its tag only after the new build passes all tests.
   A tablet that has the old build of this version does not update to the new build, because the
   version is not newer.
+- Website: `site/index.html` is the GitHub Pages site (https://garbles.github.io/sudoku/).
+  `pages.yml` publishes it on each push to `main` that changes `site/`, `video/demo.mp4` or the
+  app icon. The workflow adds `demo.mp4` and `icon.svg` to the site. The instructions on the
+  site must agree with README.md and `install.sh` (refer to Conventions & Patterns). In the repository settings, Pages > Source must be "GitHub Actions".
+- App icon: `icon.svg` is the source. Its digits are outlines of reMarkable Sans Regular.
+  AppLoad reads only `icon.png` and shows it at 150x150, thus `scripts/build.sh` (rsvg-convert)
+  makes `appload/sudoku/icon.png` from the SVG. Do not edit the PNG. The imagegen build makes it,
+  and the GitHub workflow compares it with the file in git.
 - Each release has `install.sh` (REQUIREMENTS.md §14.6). release.yml replaces `@SUDOKU_VERSION@`
   and `@SUDOKU_SHA256@` with the version and the checksum of the archive. Thus the installer of a
   release installs that release. `tests/install/run.sh SCENARIO` runs the installer with fake `ssh`,
@@ -98,6 +106,10 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   eraser).
 - README.md must agree with the current state of the app (features, build, installation, data
   files). When a change makes README.md incorrect, update README.md in the same change.
+- README.md, `install.sh` and `site/` must always give the same instructions to the user: the
+  install command, the installation steps, the requirements (tablet, computer, Wi-Fi, developer
+  mode), the cautions and the environment variables. When you change the instructions in one of
+  them, change the other two in the same change. Do not send a change where they do not agree.
 - Run `cargo test` before you send a change.
 - README.md is for players and contributors. Put maintainer and agent details (CI, releases,
   dev tools) in AGENTS.md.

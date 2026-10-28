@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sudoku for reMarkable Paper Pro</title>
+  <meta name="description" content="A Sudoku game for the color e-ink display of the reMarkable Paper Pro. Write the numbers with the pen.">
+  <link rel="icon" type="image/svg+xml" href="icon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --paper: #f3f0e8;
+      --card: #fbfaf6;
+      --ink: #1d1d1b;
+      --muted: #6b6860;
+      --line: #dcd7cb;
+      --accent: #2f6fb0;
+      --warn-bg: #fbeee0;
+      --warn-ink: #8a4a12;
+      --code-bg: #1d1d1b;
+      --code-ink: #f3f0e8;
+      --bezel: #2a2a28;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --paper: #161614;
+        --card: #1f1f1d;
+        --ink: #ecebe6;
+        --muted: #a29f96;
+        --line: #34332f;
+        --accent: #7fb2e5;
+        --warn-bg: #2e2318;
+        --warn-ink: #f0b37a;
+        --code-bg: #0b0b0a;
+        --code-ink: #ecebe6;
+        --bezel: #3a3a37;
+      }
+    }
+
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      background: var(--paper);
+      color: var(--ink);
+      font: 16px/1.6 Inter, system-ui, -apple-system, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    header {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 24px 24px 0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 600;
+      color: var(--ink);
+    }
+    .brand img { width: 28px; height: 28px; border-radius: 6px; }
+    .gh-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--ink);
+      font-weight: 500;
+      font-size: 15px;
+      padding: 8px 14px;
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      transition: background .15s;
+    }
+    .gh-link:hover { background: var(--card); text-decoration: none; }
+    .gh-link svg { width: 20px; height: 20px; fill: currentColor; }
+
+    main {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 48px 24px 64px;
+      display: grid;
+      grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+      gap: 64px;
+      align-items: start;
+    }
+
+    .tablet {
+      position: sticky;
+      top: 32px;
+      background: var(--bezel);
+      border-radius: 28px;
+      padding: 22px;
+      box-shadow: 0 1px 0 rgba(255,255,255,.06) inset, 0 30px 60px -20px rgba(0,0,0,.35);
+    }
+    .tablet video {
+      display: block;
+      width: 100%;
+      aspect-ratio: 1620 / 2160;
+      border-radius: 6px;
+      background: #fff;
+    }
+
+    h1 {
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 600;
+      font-size: clamp(34px, 4.4vw, 52px);
+      line-height: 1.08;
+      letter-spacing: -0.015em;
+      margin: 0 0 16px;
+    }
+    .lede {
+      font-size: 18px;
+      color: var(--muted);
+      margin: 0 0 32px;
+      max-width: 34em;
+    }
+    h2 {
+      font-family: Fraunces, Georgia, serif;
+      font-weight: 500;
+      font-size: 24px;
+      margin: 40px 0 12px;
+    }
+    .needs { margin: 0 0 16px; }
+
+    .cmd {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--code-bg);
+      color: var(--code-ink);
+      border-radius: 12px;
+      padding: 14px 14px 14px 18px;
+    }
+    .cmd code {
+      flex: 1;
+      min-width: 0;
+      overflow-x: auto;
+      white-space: nowrap;
+      font: 14px/1.5 "JetBrains Mono", ui-monospace, monospace;
+    }
+    .cmd code::before { content: "$ "; opacity: .5; }
+    .copy {
+      flex: none;
+      font: 500 13px Inter, sans-serif;
+      color: var(--code-ink);
+      background: rgba(255,255,255,.1);
+      border: 0;
+      border-radius: 8px;
+      padding: 7px 12px;
+      cursor: pointer;
+    }
+    .copy:hover { background: rgba(255,255,255,.18); }
+
+    ol.steps {
+      list-style: none;
+      counter-reset: step;
+      padding: 0;
+      margin: 24px 0 0;
+    }
+    ol.steps li {
+      counter-increment: step;
+      position: relative;
+      padding: 0 0 18px 44px;
+    }
+    ol.steps li::before {
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      border: 1px solid var(--line);
+      background: var(--card);
+      display: grid;
+      place-items: center;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .warn {
+      background: var(--warn-bg);
+      color: var(--warn-ink);
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 15px;
+      margin: 4px 0 24px;
+    }
+
+    ul.notes { padding-left: 20px; margin: 0; }
+    ul.notes li { margin-bottom: 8px; }
+    .notes code, .note code {
+      font: 13.5px "JetBrains Mono", ui-monospace, monospace;
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: 5px;
+      padding: 1px 5px;
+    }
+    .note { color: var(--muted); font-size: 15px; }
+
+    footer {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 24px 24px 40px;
+      border-top: 1px solid var(--line);
+      color: var(--muted);
+      font-size: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 24px;
+      justify-content: space-between;
+    }
+
+    @media (max-width: 860px) {
+      main { grid-template-columns: minmax(0, 1fr); gap: 40px; padding-top: 32px; }
+      .tablet { position: static; max-width: 420px; margin: 0 auto; border-radius: 22px; padding: 16px; }
+    }
+    @media (max-width: 480px) {
+      header, main, footer { padding-left: 16px; padding-right: 16px; }
+      .gh-link span { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <a class="brand" href="./"><img src="icon.svg" alt="">Sudoku</a>
+    <a class="gh-link" href="https://github.com/garbles/sudoku" aria-label="Source code on GitHub">
+      <svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+      <span>GitHub</span>
+    </a>
+  </header>
+
+  <main>
+    <div class="tablet">
+      <video src="demo.mp4" autoplay muted loop playsinline
+             aria-label="Demo: pencil marks, numbers, a clash, the Cell colors menu and the eraser"></video>
+    </div>
+
+    <section>
+      <h1>Sudoku for reMarkable Paper Pro</h1>
+      <p class="lede">
+        A Sudoku game for the color e-ink display. It is the best way to play Sudoku:
+        it feels like pen and paper, and it does the work that paper cannot do.
+      </p>
+
+      <h2>Installation</h2>
+      <p class="needs">You need a reMarkable Paper Pro and a computer with macOS or Linux. Run this command in a terminal of the computer:</p>
+      <div class="cmd">
+        <code id="install">curl -fsSL https://github.com/garbles/sudoku/releases/latest/download/install.sh | bash</code>
+        <button class="copy" type="button" data-target="install">Copy</button>
+      </div>
+
+      <ol class="steps">
+        <li>The installer downloads the latest release and examines its checksum.</li>
+        <li>It finds the tablet on the USB cable. If developer mode is off, it tells you how to turn it on.</li>
+        <li>It makes an SSH key and adds it to the tablet. For this, you type the SSH password of the tablet one time.</li>
+        <li>It installs <a href="https://github.com/vellum-dev/vellum">Vellum</a> and the AppLoad launcher, and starts xovi. The tablet must be connected to Wi-Fi.</li>
+        <li>It copies Sudoku to AppLoad. Open AppLoad on the tablet and tap <strong>Sudoku</strong>.</li>
+      </ol>
+
+      <div class="warn"><strong>Developer mode erases all data on the tablet.</strong> Sync your notebooks to the cloud first.</div>
+
+      <h2>Run it again</h2>
+      <ul class="notes">
+        <li>After a restart of the tablet, AppLoad is not in the menu. Run the installer again to start xovi.</li>
+        <li>To install a new version. Sudoku also tells you about new versions in its Settings panel.</li>
+        <li>To use Wi-Fi in place of the USB cable, set <code>REMARKABLE_HOST=&lt;address&gt;</code> before <code>bash</code>.</li>
+      </ul>
+
+      <p class="note" style="margin-top:28px">
+        For the manual installation and the build, refer to the
+        <a href="https://github.com/garbles/sudoku#manual-installation">README</a>.
+        Downloads are on the <a href="https://github.com/garbles/sudoku/releases">Releases</a> page.
+      </p>
+    </section>
+  </main>
+
+  <footer>
+    <span>MIT License</span>
+    <a href="https://github.com/garbles/sudoku">github.com/garbles/sudoku</a>
+  </footer>
+
+  <script>
+    document.querySelectorAll(".copy").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var text = document.getElementById(btn.dataset.target).textContent;
+        navigator.clipboard.writeText(text).then(function () {
+          btn.textContent = "Copied";
+          setTimeout(function () { btn.textContent = "Copy"; }, 1500);
+        });
+      });
+    });
+  </script>
+</body>
+</html>
