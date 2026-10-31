@@ -13,3 +13,6 @@
 
 # reMarkable Sans: reMarkable owns the font. Do not commit it (refer to scripts/fonts/README.md).
 scripts/fonts/rmsans-*.ttf
+
+# Local settings (refer to .env.sample).
+.env

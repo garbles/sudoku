@@ -137,6 +137,16 @@ You need:
 The Docker build makes the folder `dist/sudoku/`. It contains the program `sudoku`, the AppLoad
 manifest `external.manifest.json` and the launcher icon `icon.png`.
 
+To keep the address of your tablet, copy `.env.sample` to `.env` and set `REMARKABLE_HOST` (git
+ignores `.env`). Then load it into your shell before you run the installer or `ssh` and `scp`:
+
+```bash
+cp .env.sample .env          # then set REMARKABLE_HOST, for example 192.168.1.20
+set -a; . ./.env; set +a     # REMARKABLE_HOST is now in the environment
+./install.sh                 # the installer uses REMARKABLE_HOST
+ssh root@"$REMARKABLE_HOST"
+```
+
 [`AGENTS.md`](AGENTS.md) gives the other tools (reference images, demo video, performance bench,
 tablet self-test) and the release procedure.
 
