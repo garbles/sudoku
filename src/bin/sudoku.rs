@@ -16,6 +16,9 @@ fn main() {
             }
             _ => Err("usage: sudoku --test-results add|remove".to_string()),
         }
+    } else if args.get(1).map(String::as_str) == Some("--bench") {
+        // `sudoku --bench [OUT.json] [options]`: the performance bench (src/bench.rs).
+        sudoku::bench::main(args[2..].to_vec(), sudoku::font::Fonts::load)
     } else if args.get(1).map(String::as_str) == Some("--self-test") {
         let out = args.get(2).map(String::as_str).unwrap_or("/tmp/sudoku-self-test.png");
         sudoku::platform::self_test(out, args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0))

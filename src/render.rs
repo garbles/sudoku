@@ -78,6 +78,18 @@ impl<'a> Canvas<'a> {
         self.pm.fill(tiny_skia::Color::WHITE);
     }
 
+    /// Makes all pixels white, except the rectangle (x, y, w, h).
+    fn clear_except(&mut self, (x, y, w, h): (usize, usize, usize, usize)) {
+        let fw = self.pm.width() as usize;
+        let data = self.pm.data_mut();
+        data[..y * fw * 4].fill(255);
+        for r in y..y + h {
+            data[r * fw * 4..(r * fw + x) * 4].fill(255);
+            data[(r * fw + x + w) * 4..(r + 1) * fw * 4].fill(255);
+        }
+        data[(y + h) * fw * 4..].fill(255);
+    }
+
     /// ImageMagick `rectangle x0,y0 x1,y1` with a fill: the pixels from x0 to x1, x1 included.
     pub fn rect(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, c: Rgb) {
         let h = 0.5 / self.scale;
@@ -91,6 +103,40 @@ impl<'a> Canvas<'a> {
     pub fn veil(&mut self, alpha: f32) {
         let mut p = Paint::default();
         p.set_color(tiny_skia::Color::from_rgba(1.0, 1.0, 1.0, alpha).unwrap());
+        // On an opaque screen, each channel of the result depends only on the same channel of the
+        // pixel. Thus tiny-skia draws the veil on the 256 levels once, and the table gives the result
+        // of each pixel (the same values as tiny-skia on the full screen).
+        if self.pm.data().chunks_exact(4).fold(255, |a, px| a & px[3]) == 255 {
+            let mut levels = Pixmap::new(256, 1).unwrap();
+            for (i, px) in levels.data_mut().chunks_exact_mut(4).enumerate() {
+                px.copy_from_slice(&[i as u8, i as u8, i as u8, 255]);
+            }
+            levels.fill_rect(SkRect::from_xywh(0.0, 0.0, 256.0, 1.0).unwrap(), &p, Transform::identity(), None);
+            let lut: Vec<u8> = levels.data().chunks_exact(4).map(|px| px[0]).collect();
+            let gray = levels.data().chunks_exact(4).all(|px| px[0] == px[1] && px[0] == px[2]);
+            // The table is the same as `s + (d * k + 255) / 256` (the blend of tiny-skia with 8 bits)
+            // for one k: then this calculation is used, because it is faster than the table. It
+            // keeps 255 as 255, thus it can also go on the alpha bytes (all 255): one simple loop
+            // on all bytes is fast (SIMD).
+            let s = lut[0] as u16;
+            let k = (0..=255u16).find(|&k| (0..256u16).all(|d| s + ((d * k + 255) >> 8) == lut[d as usize] as u16));
+            match k.filter(|_| gray && lut[255] == 255) {
+                Some(k) => {
+                    for v in self.pm.data_mut() {
+                        *v = (s + ((*v as u16 * k + 255) >> 8)) as u8;
+                    }
+                }
+                None => {
+                    let lut: Vec<[u8; 3]> = levels.data().chunks_exact(4).map(|px| [px[0], px[1], px[2]]).collect();
+                    for px in self.pm.data_mut().chunks_exact_mut(4) {
+                        px[0] = lut[px[0] as usize][0];
+                        px[1] = lut[px[1] as usize][1];
+                        px[2] = lut[px[2] as usize][2];
+                    }
+                }
+            }
+            return;
+        }
         let r = SkRect::from_xywh(0.0, 0.0, screen_w() as f32, screen_h() as f32).unwrap();
         self.pm.fill_rect(r, &p, Transform::identity(), None);
     }
@@ -254,14 +300,20 @@ fn toggle_icon(open: bool) -> &'static Pixmap {
     }
 }
 
-fn manual_page(page: u8) -> &'static Pixmap {
-    static PAGES: [OnceLock<Pixmap>; MANUAL_PAGES as usize] = [const { OnceLock::new() }; MANUAL_PAGES as usize];
-    static LANDSCAPE: [OnceLock<Pixmap>; MANUAL_PAGES as usize] = [const { OnceLock::new() }; MANUAL_PAGES as usize];
+/// A manual page, and true if all its pixels are opaque.
+fn manual_page(page: u8) -> &'static (Pixmap, bool) {
+    static PAGES: [OnceLock<(Pixmap, bool)>; MANUAL_PAGES as usize] = [const { OnceLock::new() }; MANUAL_PAGES as usize];
+    static LANDSCAPE: [OnceLock<(Pixmap, bool)>; MANUAL_PAGES as usize] = [const { OnceLock::new() }; MANUAL_PAGES as usize];
     let i = (page.clamp(1, MANUAL_PAGES) - 1) as usize;
+    let load = |png: &[u8]| {
+        let pm = decode_png(png);
+        let opaque = pm.pixels().iter().all(|p| p.alpha() == 255);
+        (pm, opaque)
+    };
     if layout::orientation() == layout::Orientation::Landscape {
-        LANDSCAPE[i].get_or_init(|| decode_png(MANUAL_LANDSCAPE[i]))
+        LANDSCAPE[i].get_or_init(|| load(MANUAL_LANDSCAPE[i]))
     } else {
-        PAGES[i].get_or_init(|| decode_png(MANUAL[i]))
+        PAGES[i].get_or_init(|| load(MANUAL[i]))
     }
 }
 
@@ -269,12 +321,21 @@ fn manual_page(page: u8) -> &'static Pixmap {
 
 /// Draws the full screen for the state of the app.
 pub fn draw(c: &mut Canvas, app: &App) {
-    c.clear();
+    // `draw_board` writes all pixels of the board area: the clear does not need to write them.
+    match board_area(c.pm).filter(|_| app.screen == Screen::Game) {
+        Some(a) => c.clear_except(a),
+        None => c.clear(),
+    }
     match app.screen {
         Screen::Game => draw_game(c, app),
         Screen::Manual => {
-            let page = manual_page(app.manual_page);
-            c.image(page, 0, 0, false);
+            let (page, opaque) = manual_page(app.manual_page);
+            if *opaque && page.width() == c.pm.width() && page.height() == c.pm.height() {
+                // An opaque page covers the full screen: the result of the drawing is the page.
+                c.pm.data_mut().copy_from_slice(page.data());
+            } else {
+                c.image(page, 0, 0, false);
+            }
         }
         Screen::Statistics => draw_summary(c, &app.results, app.confirm_all),
         Screen::GamesList => draw_list(c, app),
@@ -317,26 +378,110 @@ fn draw_game(c: &mut Canvas, app: &App) {
     }
 }
 
-/// The board (render.sh and board-state.py).
-pub fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, highlight: Option<u8>, question: Option<crate::game::Cell>) {
+/// The look of one cell: all that its pixels depend on.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum CellLook {
+    /// A number: the digit, the background and the color of the digit.
+    Value(u8, Rgb, Rgb),
+    /// The "?" of a number that the app did not know (INP-7).
+    Question,
+    /// An empty cell with its pencil marks.
+    Empty(crate::game::Marks),
+}
+
+/// The cached areas of the board (refer to `draw_board`). An area is drawn at its true position: the
+/// float rounding of the glyph outlines changes with the position.
+#[derive(Default)]
+struct TileCache {
+    /// The pixels of each area, and the last frame that used them.
+    map: std::collections::HashMap<TileKey, (Pixmap, u64), std::hash::BuildHasherDefault<FxHasher>>,
+    /// The number of the frame (`draw_board` calls).
+    frame: u64,
+}
+
+impl TileCache {
+    /// Starts a frame. If the cache is full, it keeps only the tiles of the last frame.
+    fn begin_frame(&mut self) {
+        self.frame += 1;
+        if self.map.len() > MAX_TILES {
+            let last = self.frame - 1;
+            self.map.retain(|_, (_, used)| *used == last);
+        }
+    }
+
+    fn get(&mut self, key: &TileKey) -> Option<&Pixmap> {
+        let frame = self.frame;
+        self.map.get_mut(key).map(|(pm, used)| {
+            *used = frame;
+            &*pm
+        })
+    }
+
+    fn insert(&mut self, key: TileKey, pm: Pixmap) {
+        self.map.insert(key, (pm, self.frame));
+    }
+}
+
+/// A small, fast hash (the method of rustc's FxHasher). The keys are not from a user, thus a
+/// hash with protection against collisions is not necessary.
+#[derive(Default)]
+struct FxHasher(u64);
+
+impl std::hash::Hasher for FxHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.write_u64(b as u64);
+        }
+    }
+    fn write_u8(&mut self, i: u8) {
+        self.write_u64(i as u64);
+    }
+    fn write_u16(&mut self, i: u16) {
+        self.write_u64(i as u64);
+    }
+    fn write_u32(&mut self, i: u32) {
+        self.write_u64(i as u64);
+    }
+    fn write_i32(&mut self, i: i32) {
+        self.write_u64(i as u32 as u64);
+    }
+    fn write_usize(&mut self, i: usize) {
+        self.write_u64(i as u64);
+    }
+    fn write_u64(&mut self, i: u64) {
+        self.0 = (self.0.rotate_left(5) ^ i).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+    }
+    fn finish(&self) -> u64 {
+        self.0
+    }
+}
+
+thread_local! {
+    static TILES: std::cell::RefCell<TileCache> = std::cell::RefCell::new(TileCache::default());
+    /// A white pixmap of the screen size, to draw new tiles at their true position.
+    static SCRATCH: std::cell::RefCell<Option<Pixmap>> = const { std::cell::RefCell::new(None) };
+}
+
+/// Copies the rectangle (sx, sy, w, h) of `src` to (dx, dy) in `dst`. The rectangles must be inside.
+#[allow(clippy::too_many_arguments)]
+fn copy_px(src: &Pixmap, sx: usize, sy: usize, w: usize, h: usize, dst: &mut Pixmap, dx: usize, dy: usize) {
+    let (sw, dw) = (src.width() as usize * 4, dst.width() as usize * 4);
+    let (s, d) = (src.data(), dst.data_mut());
+    for r in 0..h {
+        let so = (sy + r) * sw + sx * 4;
+        let doff = (dy + r) * dw + dx * 4;
+        d[doff..doff + w * 4].copy_from_slice(&s[so..so + w * 4]);
+    }
+}
+
+/// Draws one cell with its top left at (xf, yf): the background or the faint micro-cell grid, then
+/// the number, the "?" or the pencil marks.
+fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
     let cs = CELL as f32;
-    for cell in cells() {
-        let (x, y) = cell_origin(cell);
-        let (xf, yf) = (x as f32, y as f32);
-        let v = g.value_at(cell);
-        if v != 0 {
-            // BRD-7: the first rule that applies.
-            let bg = if g.is_clashing(cell) {
-                settings.color_clash.rgb()
-            } else if highlight == Some(v) {
-                settings.color_highlight.rgb()
-            } else if g.is_given(cell) {
-                settings.color_starting.rgb()
-            } else {
-                Color::White.rgb()
-            };
-            c.rect(xf, yf, xf + cs, yf + cs, bg);
-        } else if question != Some(cell) {
+    match look {
+        CellLook::Value(_, bg, _) => c.rect(xf, yf, xf + cs, yf + cs, bg),
+        CellLook::Question => {}
+        CellLook::Empty(_) => {
             // The faint micro-cell grid of an empty cell (BRD-6).
             for k in 1..=2 {
                 let o = micro_offset(k) as f32;
@@ -345,31 +490,13 @@ pub fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, highlight: Opti
             }
         }
     }
-    let (x0, y0, b) = (board_x() as f32, board_y() as f32, BOARD_SIZE as f32);
-    for i in (0..=9).filter(|i| i % 3 != 0) {
-        let o = (i * CELL) as f32;
-        c.line_butt(x0 + o, y0, x0 + o, y0 + b, 3.0, BLACK);
-        c.line_butt(x0, y0 + o, x0 + b, y0 + o, 3.0, BLACK);
-    }
-    for i in (0..=9).step_by(3) {
-        let o = (i * CELL) as f32;
-        c.line_square(x0 + o, y0, x0 + o, y0 + b, 13.0, BLACK);
-        c.line_square(x0, y0 + o, x0 + b, y0 + o, 13.0, BLACK);
-    }
     // Numbers: starting numbers black, your numbers gray35 (BRD-8). Pencil marks only on empty cells
     // (MRK-2), gray15, at their keypad positions (MRK-1).
     const MARK_POS: [f32; 3] = [24.0, 74.0, 122.0];
-    for cell in cells() {
-        let (x, y) = cell_origin(cell);
-        let (xf, yf) = (x as f32, y as f32);
-        let v = g.value_at(cell);
-        if v != 0 {
-            let col = if g.is_given(cell) { BLACK } else { gray(35) };
-            c.text(false, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, &v.to_string(), col);
-        } else if question == Some(cell) {
-            c.text(false, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, "?", gray(40));
-        } else {
-            let marks = g.marks_at(cell);
+    match look {
+        CellLook::Value(v, _, col) => c.text(false, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, &v.to_string(), col),
+        CellLook::Question => c.text(false, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, "?", gray(40)),
+        CellLook::Empty(marks) => {
             for d in 1..=9u8 {
                 if marks & crate::game::mark_bit(d) != 0 {
                     let i = (d - 1) as usize;
@@ -378,6 +505,204 @@ pub fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, highlight: Opti
                 }
             }
         }
+    }
+}
+
+/// The lines of the board, in the order of the drawing: the thin lines, then the thick lines. Only the
+/// lines that `keep` accepts (the index 0 to 9 and true for a vertical line). With `near`, only the
+/// part of each line near the area (x0, y0, x1, y1): the pixels of that area are the same as with the
+/// full lines, because the lines are straight and the ends of the parts are out of the area.
+fn board_lines(c: &mut Canvas, keep: impl Fn(i32, bool) -> bool, near: Option<(i32, i32, i32, i32)>) {
+    let (x0, y0, b) = (board_x() as f32, board_y() as f32, BOARD_SIZE as f32);
+    // The part of a line from `a` to `a + b` near the span s0..s1 (with a margin larger than the
+    // ends of the thick lines).
+    let part = |a: f32, s0: i32, s1: i32| match near {
+        None => (a, a + b),
+        Some(_) => ((s0 as f32 - 16.0).max(a), (s1 as f32 + 16.0).min(a + b)),
+    };
+    let (nx0, ny0, nx1, ny1) = near.unwrap_or((0, 0, 0, 0));
+    let (vy0, vy1) = part(y0, ny0, ny1);
+    let (hx0, hx1) = part(x0, nx0, nx1);
+    for i in (0..=9).filter(|i| i % 3 != 0) {
+        let o = (i * CELL) as f32;
+        if keep(i, true) {
+            c.line_butt(x0 + o, vy0, x0 + o, vy1, 3.0, BLACK);
+        }
+        if keep(i, false) {
+            c.line_butt(hx0, y0 + o, hx1, y0 + o, 3.0, BLACK);
+        }
+    }
+    for i in (0..=9).step_by(3) {
+        let o = (i * CELL) as f32;
+        if keep(i, true) {
+            c.line_square(x0 + o, vy0, x0 + o, vy1, 13.0, BLACK);
+        }
+        if keep(i, false) {
+            c.line_square(hx0, y0 + o, hx1, y0 + o, 13.0, BLACK);
+        }
+    }
+}
+
+/// The width of the band around the cells that the thick lines of the board touch (px).
+const BOARD_MARGIN: usize = 8;
+
+/// The key of a cached area of the board: the fonts (address), the board origin, the area origin and
+/// the cell look (None: the band around the cells).
+type TileKey = (usize, i32, i32, i32, i32, Option<CellLook>);
+
+/// Gives the cached pixels of an area of the board, or draws them with `draw` in a white scratch
+/// pixmap at their true position. Copies them into the frame at (x, y), (w, h) pixels.
+fn put_cached(c: &mut Canvas, key: TileKey, x: usize, y: usize, w: usize, h: usize, draw: impl FnOnce(&mut Canvas)) {
+    let (fw, fh) = (c.pm.width(), c.pm.height());
+    TILES.with(|tiles| {
+        let mut tiles = tiles.borrow_mut();
+        if let Some(tile) = tiles.get(&key) {
+            copy_px(tile, 0, 0, w, h, c.pm, x, y);
+            return;
+        }
+        {
+            let tile = SCRATCH.with(|scratch| {
+                let mut scratch = scratch.borrow_mut();
+                if scratch.as_ref().is_none_or(|p| p.width() != fw || p.height() != fh) {
+                    *scratch = Pixmap::new(fw, fh);
+                }
+                let pm = scratch.as_mut().unwrap();
+                for r in 0..h {
+                    let o = ((y + r) * fw as usize + x) * 4;
+                    pm.data_mut()[o..o + w * 4].fill(255);
+                }
+                draw(&mut Canvas::new(pm, c.fonts));
+                let mut tile = Pixmap::new(w as u32, h as u32).unwrap();
+                copy_px(pm, x, y, w, h, &mut tile, 0, 0);
+                tile
+            });
+            copy_px(&tile, 0, 0, w, h, c.pm, x, y);
+            tiles.insert(key, tile);
+        }
+    });
+}
+
+/// The board (render.sh and board-state.py).
+///
+/// Each cell is a cached tile with the final pixels of its area (CELL + 1 pixels on each side): the
+/// cell, then the lines at its four sides. The text of a cell does not touch the lines, and the lines
+/// cover the edge pixels of the tile fully, thus the pixels are the same as a drawing of all cells,
+/// then all lines, then all text. The band around the cells has only lines on white.
+pub fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, highlight: Option<u8>, question: Option<crate::game::Cell>) {
+    let (bx, by) = (board_x(), board_y());
+    let m = BOARD_MARGIN as i32;
+    let Some(area) = board_area(c.pm) else {
+        // Not on the screen: draw without the cache (this does not occur with the layouts).
+        for cell in cells() {
+            let (x, y) = cell_origin(cell);
+            draw_cell(c, cell_look(g, settings, highlight, question, cell), x as f32, y as f32);
+        }
+        board_lines(c, |_, _| true, None);
+        return;
+    };
+    let fonts = c.fonts as *const Fonts as usize;
+    let n = CELL as usize + 1;
+    // The band around the cells: top, bottom, left and right.
+    let (mu, bu, s) = (BOARD_MARGIN, BOARD_SIZE as usize, (bx - m) as usize);
+    let (bxu, byu) = (bx as usize, by as usize);
+    let bands = [
+        (s, byu - mu, bu + 1 + 2 * mu, mu),
+        (s, byu + bu + 1, bu + 1 + 2 * mu, mu),
+        (s, byu, mu, bu + 1),
+        (bxu + bu + 1, byu, mu, bu + 1),
+    ];
+    let looks: Vec<_> = cells().map(|cell| (cell, cell_look(g, settings, highlight, question, cell))).collect();
+    let key = |x: usize, y: usize, look| (fonts, bx, by, x as i32, y as i32, look);
+    let missing = TILES.with(|t| {
+        let mut t = t.borrow_mut();
+        t.begin_frame();
+        looks.iter().filter(|&&(cell, look)| {
+            let (x, y) = cell_origin(cell);
+            !t.map.contains_key(&key(x as usize, y as usize, Some(look)))
+        }).count()
+    });
+    if missing > COLD_TILES {
+        // Many new tiles (for example the first frame): one full drawing of the board is faster.
+        // Then the tiles come from the frame.
+        let (ax, ay, aw, ah) = area;
+        let fw = c.pm.width() as usize;
+        for r in ay..ay + ah {
+            c.pm.data_mut()[(r * fw + ax) * 4..(r * fw + ax + aw) * 4].fill(255);
+        }
+        for &(cell, look) in &looks {
+            let (x, y) = cell_origin(cell);
+            draw_cell(c, look, x as f32, y as f32);
+        }
+        board_lines(c, |_, _| true, None);
+        TILES.with(|t| {
+            let mut t = t.borrow_mut();
+            let mut take = |k: TileKey, x: usize, y: usize, w: usize, h: usize| {
+                let mut tile = Pixmap::new(w as u32, h as u32).unwrap();
+                copy_px(c.pm, x, y, w, h, &mut tile, 0, 0);
+                t.insert(k, tile);
+            };
+            for &(cell, look) in &looks {
+                let (x, y) = cell_origin(cell);
+                take(key(x as usize, y as usize, Some(look)), x as usize, y as usize, n, n);
+            }
+            for (x, y, w, h) in bands {
+                take(key(x, y, None), x, y, w, h);
+            }
+        });
+        return;
+    }
+    for &(cell, look) in &looks {
+        let (x, y) = cell_origin(cell);
+        let (r, k) = (cell.0 as i32, cell.1 as i32);
+        put_cached(c, key(x as usize, y as usize, Some(look)), x as usize, y as usize, n, n, |c| {
+            draw_cell(c, look, x as f32, y as f32);
+            let near = Some((x, y, x + CELL, y + CELL));
+            board_lines(c, |i, vertical| if vertical { i == k || i == k + 1 } else { i == r || i == r + 1 }, near);
+        });
+    }
+    for (x, y, w, h) in bands {
+        put_cached(c, key(x, y, None), x, y, w, h, |c| board_lines(c, |_, _| true, None));
+    }
+}
+
+/// The board area that `draw_board` writes fully: the cells and the band around them (x, y, w, h).
+/// None if the area is not fully on the screen (then `draw_board` does not use the tiles).
+fn board_area(pm: &Pixmap) -> Option<(usize, usize, usize, usize)> {
+    let (bx, by, m) = (board_x(), board_y(), BOARD_MARGIN as i32);
+    let (fw, fh) = (pm.width() as i32, pm.height() as i32);
+    if bx < m || by < m || bx + BOARD_SIZE + m >= fw || by + BOARD_SIZE + m >= fh {
+        return None;
+    }
+    let n = (BOARD_SIZE + 1 + 2 * m) as usize;
+    Some(((bx - m) as usize, (by - m) as usize, n, n))
+}
+
+/// The largest quantity of cached tiles (approximately 87 KB each, thus 22 MB). One frame uses 85.
+/// When the cache is full, it keeps only the tiles of the last frame.
+const MAX_TILES: usize = 256;
+
+/// With more new tiles than this, `draw_board` draws the full board (it is faster than the tiles).
+const COLD_TILES: usize = 16;
+
+/// The look of a cell for the state of the game.
+fn cell_look(g: &Game, settings: &Settings, highlight: Option<u8>, question: Option<crate::game::Cell>, cell: crate::game::Cell) -> CellLook {
+    let v = g.value_at(cell);
+    if v != 0 {
+        // BRD-7: the first rule that applies.
+        let bg = if g.is_clashing(cell) {
+            settings.color_clash.rgb()
+        } else if highlight == Some(v) {
+            settings.color_highlight.rgb()
+        } else if g.is_given(cell) {
+            settings.color_starting.rgb()
+        } else {
+            Color::White.rgb()
+        };
+        CellLook::Value(v, bg, if g.is_given(cell) { BLACK } else { gray(35) })
+    } else if question == Some(cell) {
+        CellLook::Question
+    } else {
+        CellLook::Empty(g.marks_at(cell))
     }
 }
 

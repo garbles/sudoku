@@ -93,6 +93,9 @@ impl Technique {
 /// A set of cells: bit i is cell i (row * 9 + column).
 type Set = u128;
 
+/// The set of all 81 cells.
+const ALL_CELLS: Set = (1 << 81) - 1;
+
 struct Tables {
     /// The 9 cells of each unit: rows 0..9, columns 9..18, boxes 18..27.
     units: [[usize; 9]; 27],
@@ -155,22 +158,29 @@ fn sees(a: usize, b: usize) -> bool {
     tables().peers[a] >> b & 1 != 0
 }
 
-/// Calls `f` with each combination of `n` items of `items`, until `f` gives true.
-fn combinations(items: &[usize], n: usize, f: &mut impl FnMut(&[usize]) -> bool) -> bool {
-    fn go(items: &[usize], n: usize, start: usize, pick: &mut Vec<usize>, f: &mut impl FnMut(&[usize]) -> bool) -> bool {
-        if pick.len() == n {
-            return f(pick);
+/// Calls `f` with each combination of `n` items of `items` (lowest indices first) and the union of
+/// their masks, until `f` gives true. Only the combinations with a union of `n` bits or fewer: a
+/// combination with more bits cannot get fewer bits when it gets more items, thus the search skips it.
+fn small_unions(items: &[usize], masks: &[Set], n: usize, f: &mut impl FnMut(&[usize], Set) -> bool) -> bool {
+    #[allow(clippy::too_many_arguments)]
+    fn go(items: &[usize], masks: &[Set], n: usize, start: usize, union: Set, pick: &mut [usize; 4], len: usize, f: &mut impl FnMut(&[usize], Set) -> bool) -> bool {
+        if len == n {
+            return f(&pick[..n], union);
         }
         for k in start..items.len() {
-            pick.push(items[k]);
-            if go(items, n, k + 1, pick, f) {
+            let u = union | masks[k];
+            if u.count_ones() as usize > n {
+                continue;
+            }
+            pick[len] = items[k];
+            if go(items, masks, n, k + 1, u, pick, len + 1, f) {
                 return true;
             }
-            pick.pop();
         }
         false
     }
-    go(items, n, 0, &mut Vec::with_capacity(n), f)
+    assert!(n <= 4);
+    go(items, masks, n, 0, 0, &mut [0; 4], 0, f)
 }
 
 /// The board of the solver: the numbers and the candidates of the empty cells.
@@ -179,12 +189,16 @@ pub struct Board {
     value: [u8; 81],
     /// The candidates of each empty cell (bit d - 1 is digit d). 0 for a filled cell.
     cand: [u16; 81],
+    /// The empty cells that have each candidate (index d - 1). The same data as `cand`, kept for speed.
+    pos: [Set; 9],
+    /// The quantity of empty cells.
+    empty: u8,
 }
 
 impl Board {
     /// The board of the starting numbers (0 = empty), with all the candidates that the numbers permit.
     pub fn new(givens: &[[u8; 9]; 9]) -> Board {
-        let mut b = Board { value: [0; 81], cand: [0x1FF; 81] };
+        let mut b = Board { value: [0; 81], cand: [0x1FF; 81], pos: [ALL_CELLS; 9], empty: 81 };
         for i in 0..81 {
             let v = givens[i / 9][i % 9];
             if v != 0 {
@@ -204,7 +218,7 @@ impl Board {
     }
 
     pub fn is_solved(&self) -> bool {
-        self.value.iter().all(|&v| v != 0)
+        self.empty == 0
     }
 
     /// Makes one step with the easiest technique that can make progress and that is not more difficult
@@ -240,20 +254,32 @@ impl Board {
     }
 
     fn place(&mut self, i: usize, d: u8) {
+        if self.value[i] == 0 {
+            self.empty -= 1;
+        }
         self.value[i] = d;
         self.cand[i] = 0;
-        for p in members(tables().peers[i]) {
+        let peers = tables().peers[i];
+        for p in members(peers) {
             self.cand[p] &= !bit(d);
         }
+        for pos in &mut self.pos {
+            *pos &= !(1 << i);
+        }
+        self.pos[d as usize - 1] &= !peers;
     }
 
     /// Removes the candidates `mask` from the empty cells of `cells`. True if a candidate was removed.
     fn eliminate(&mut self, cells: Set, mask: u16) -> bool {
         let mut changed = false;
-        for i in members(cells) {
-            if self.cand[i] & mask != 0 {
-                self.cand[i] &= !mask;
+        for d in digits(mask) {
+            let hit = self.pos[d as usize - 1] & cells;
+            if hit != 0 {
                 changed = true;
+                self.pos[d as usize - 1] &= !hit;
+                for i in members(hit) {
+                    self.cand[i] &= !bit(d);
+                }
             }
         }
         changed
@@ -261,7 +287,7 @@ impl Board {
 
     /// The empty cells that have the candidate d.
     fn with(&self, d: u8) -> Set {
-        (0..81).filter(|&i| self.cand[i] & bit(d) != 0).fold(0, |s, i| s | 1 << i)
+        self.pos[d as usize - 1]
     }
 
     fn hidden_single(&mut self) -> bool {
@@ -335,11 +361,16 @@ impl Board {
                 continue;
             }
             let cand = self.cand;
+            let masks: Vec<Set> = empty.iter().map(|&i| cand[i] as Set).collect();
+            let empty_set = empty.iter().fold(0, |s, &i| s | 1 << i);
             let mut found = None;
-            combinations(&empty, n, &mut |pick| {
-                let union = pick.iter().fold(0, |m, &i| m | cand[i]);
-                let others = empty.iter().filter(|i| !pick.contains(i)).fold(0, |s, &i| s | 1 << i);
-                let hit = union.count_ones() as usize == n && empty.iter().any(|i| !pick.contains(i) && cand[*i] & union != 0);
+            small_unions(&empty, &masks, n, &mut |pick, union| {
+                let union = union as u16;
+                if union.count_ones() as usize != n {
+                    return false;
+                }
+                let others = pick.iter().fold(empty_set, |s, &i| s & !(1 << i));
+                let hit = members(others).any(|i| cand[i] & union != 0);
                 if hit {
                     found = Some((others, union));
                 }
@@ -363,9 +394,9 @@ impl Board {
             }
             let pos: Vec<Set> = (0..=9).map(|d| if d == 0 { 0 } else { unit & self.with(d as u8) }).collect();
             let cand = self.cand;
+            let masks: Vec<Set> = open.iter().map(|&d| pos[d]).collect();
             let mut found = None;
-            combinations(&open, n, &mut |pick| {
-                let cells = pick.iter().fold(0, |s, &d| s | pos[d]);
+            small_unions(&open, &masks, n, &mut |pick, cells| {
                 let mask = pick.iter().fold(0u16, |m, &d| m | bit(d as u8));
                 let hit = cells.count_ones() as usize == n && members(cells).any(|i| cand[i] & !mask != 0);
                 if hit {
@@ -393,9 +424,9 @@ impl Board {
                     .map(|k| t.units[base + k].iter().enumerate().filter(|(_, &i)| with >> i & 1 != 0).fold(0, |m, (j, _)| m | 1 << j))
                     .collect();
                 let lines: Vec<usize> = (0..9).filter(|&k| (2..=n as u32).contains(&idx[k].count_ones())).collect();
+                let masks: Vec<Set> = lines.iter().map(|&k| idx[k] as Set).collect();
                 let mut found = None;
-                combinations(&lines, n, &mut |pick| {
-                    let cols = pick.iter().fold(0u16, |m, &k| m | idx[k]);
+                small_unions(&lines, &masks, n, &mut |pick, cols| {
                     if cols.count_ones() as usize != n {
                         return false;
                     }
@@ -588,60 +619,64 @@ impl Board {
     fn chain(&mut self) -> bool {
         let t = tables();
         let node = |i: usize, d: u8| i * 9 + (d as usize - 1);
-        let mut strong: Vec<Vec<usize>> = vec![Vec::new(); 729];
+        // The strong links of each node (cell, digit), in the order that they are found: at most 3
+        // units and 1 bivalue cell.
+        let mut strong = [[0u16; 4]; 729];
+        let mut count = [0u8; 729];
+        let mut link = |a: usize, b: usize| {
+            strong[a][count[a] as usize] = b as u16;
+            count[a] += 1;
+        };
         for d in 1..=9 {
             for (p, q, _) in self.strong_links(d, false) {
-                strong[node(p, d)].push(node(q, d));
-                strong[node(q, d)].push(node(p, d));
+                link(node(p, d), node(q, d));
+                link(node(q, d), node(p, d));
             }
         }
         for i in self.bivalue() {
             let mut ds = digits(self.cand[i]);
             let (x, y) = (ds.next().unwrap(), ds.next().unwrap());
-            strong[node(i, x)].push(node(i, y));
-            strong[node(i, y)].push(node(i, x));
+            link(node(i, x), node(i, y));
+            link(node(i, y), node(i, x));
         }
-        let with: Vec<Set> = (0..=9).map(|d| if d == 0 { 0 } else { self.with(d) }).collect();
-        let starts: Vec<usize> = (0..729).filter(|&n| !strong[n].is_empty()).collect();
-        let (mut is_true, mut is_false) = (vec![false; 729], vec![false; 729]);
-        for &a in &starts {
-            is_true.iter_mut().for_each(|v| *v = false);
-            is_false.iter_mut().for_each(|v| *v = false);
-            is_false[a] = true;
-            let mut queue = std::collections::VecDeque::from([(a, false)]);
+        let strong = |n: usize| &strong[n][..count[n] as usize];
+        let with: [Set; 10] = std::array::from_fn(|d| if d == 0 { 0 } else { self.with(d as u8) });
+        let mut queue = std::collections::VecDeque::new();
+        for a in (0..729).filter(|&n| count[n] != 0) {
+            let (mut is_true, mut is_false) = (NodeSet::default(), NodeSet::default());
+            is_false.insert(a);
+            queue.clear();
+            queue.push_back((a, false));
             while let Some((n, truth)) = queue.pop_front() {
                 if !truth {
-                    for &m in &strong[n] {
-                        if !is_true[m] {
-                            is_true[m] = true;
-                            queue.push_back((m, true));
+                    for &m in strong(n) {
+                        if is_true.insert(m as usize) {
+                            queue.push_back((m as usize, true));
                         }
                     }
                 } else {
                     let (i, d) = (n / 9, (n % 9) as u8 + 1);
                     for e in digits(self.cand[i] & !bit(d)) {
                         let m = node(i, e);
-                        if !is_false[m] {
-                            is_false[m] = true;
+                        if is_false.insert(m) {
                             queue.push_back((m, false));
                         }
                     }
                     for j in members(t.peers[i] & with[d as usize]) {
                         let m = node(j, d);
-                        if !is_false[m] {
-                            is_false[m] = true;
+                        if is_false.insert(m) {
                             queue.push_back((m, false));
                         }
                     }
                 }
             }
             let (ia, da) = (a / 9, (a % 9) as u8 + 1);
-            if is_true[a] {
+            if is_true.contains(a) {
                 // A is false makes A true: A is true.
                 self.place(ia, da);
                 return true;
             }
-            for b in (0..729).filter(|&b| b != a && is_true[b]) {
+            for b in is_true.iter().filter(|&b| b != a) {
                 let (ib, db) = (b / 9, (b % 9) as u8 + 1);
                 let changed = if da == db {
                     self.eliminate(t.peers[ia] & t.peers[ib], bit(da))
@@ -658,6 +693,38 @@ impl Board {
             }
         }
         false
+    }
+}
+
+/// A set of chain nodes (cell * 9 + digit - 1, 0..729).
+#[derive(Clone, Copy, Default)]
+struct NodeSet([u64; 12]);
+
+impl NodeSet {
+    /// Adds n. True if n was not in the set.
+    fn insert(&mut self, n: usize) -> bool {
+        let (w, b) = (n / 64, 1u64 << (n % 64));
+        let new = self.0[w] & b == 0;
+        self.0[w] |= b;
+        new
+    }
+
+    fn contains(&self, n: usize) -> bool {
+        self.0[n / 64] >> (n % 64) & 1 != 0
+    }
+
+    /// The nodes of the set, from the lowest.
+    fn iter(self) -> impl Iterator<Item = usize> {
+        (0..12).flat_map(move |w| {
+            let mut bits = self.0[w];
+            std::iter::from_fn(move || {
+                (bits != 0).then(|| {
+                    let k = bits.trailing_zeros() as usize;
+                    bits &= bits - 1;
+                    w * 64 + k
+                })
+            })
+        })
     }
 }
 
@@ -724,7 +791,15 @@ mod tests {
 
     /// An empty board: each cell has all candidates.
     fn open_board() -> Board {
-        Board { value: [0; 81], cand: [0x1FF; 81] }
+        Board { value: [0; 81], cand: [0x1FF; 81], pos: [ALL_CELLS; 9], empty: 81 }
+    }
+
+    impl Board {
+        /// Makes `pos` agree with `cand` again, after a test changed `cand`.
+        fn sync(mut self) -> Board {
+            self.pos = std::array::from_fn(|k| (0..81).filter(|&i| self.cand[i] >> k & 1 != 0).fold(0, |s, i| s | 1 << i));
+            self
+        }
     }
 
     #[test]
@@ -734,6 +809,7 @@ mod tests {
         for (i, m) in [0b0011, 0b0110, 0b1100, 0b1001].into_iter().enumerate() {
             b.cand[i] = m;
         }
+        let mut b = b.sync();
         assert!(b.naked_subset(4));
         assert!((4..9).all(|i| b.cand[i] == 0x1F0));
         assert!((9..81).all(|i| b.cand[i] == 0x1FF), "only row 0 changes");
@@ -746,6 +822,7 @@ mod tests {
         for i in 4..9 {
             b.cand[i] = 0x1F0;
         }
+        let mut b = b.sync();
         assert!(b.hidden_subset(4));
         assert!((0..4).all(|i| b.cand[i] == 0x00F));
     }
@@ -759,6 +836,7 @@ mod tests {
                 b.cand[r * 9 + c] &= !1;
             }
         }
+        let mut b = b.sync();
         assert!(b.fish(4));
         for r in 4..9 {
             for c in 0..9 {

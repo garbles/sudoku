@@ -1,0 +1,124 @@
+{
+  "phases": {
+    "blit": {
+      "max_us": 2779.5,
+      "mean_us": 624.8,
+      "n": 87,
+      "p50_us": 573.5,
+      "p95_us": 734.7,
+      "total_ms": 54.4
+    },
+    "draw": {
+      "max_us": 5080.0,
+      "mean_us": 1494.1,
+      "n": 87,
+      "p50_us": 1411.9,
+      "p95_us": 1688.9,
+      "total_ms": 130.0
+    },
+    "draw.states": {
+      "max_us": 19029.6,
+      "mean_us": 2921.7,
+      "n": 105,
+      "p50_us": 1337.7,
+      "p95_us": 9625.8,
+      "total_ms": 306.8
+    },
+    "gen": {
+      "max_us": 29408.3,
+      "mean_us": 6898.9,
+      "n": 21,
+      "p50_us": 3525.0,
+      "p95_us": 18715.5,
+      "total_ms": 144.9
+    },
+    "handle": {
+      "max_us": 1409.5,
+      "mean_us": 6.4,
+      "n": 2302,
+      "p50_us": 0.0,
+      "p95_us": 1.7,
+      "total_ms": 14.7
+    },
+    "ink.blit": {
+      "max_us": 3.5,
+      "mean_us": 0.8,
+      "n": 594,
+      "p50_us": 0.8,
+      "p95_us": 1.3,
+      "total_ms": 0.5
+    },
+    "ink.draw": {
+      "max_us": 14.5,
+      "mean_us": 4.5,
+      "n": 1982,
+      "p50_us": 4.4,
+      "p95_us": 5.1,
+      "total_ms": 8.9
+    },
+    "ink.step": {
+      "max_us": 17.7,
+      "mean_us": 4.0,
+      "n": 2423,
+      "p50_us": 4.4,
+      "p95_us": 5.5,
+      "total_ms": 9.7
+    },
+    "input_to_pixels": {
+      "max_us": 6116.1,
+      "mean_us": 2499.0,
+      "n": 87,
+      "p50_us": 2626.5,
+      "p95_us": 3304.4,
+      "total_ms": 217.4
+    },
+    "recognize": {
+      "max_us": 1306.0,
+      "mean_us": 813.8,
+      "n": 2016,
+      "p50_us": 810.9,
+      "p95_us": 980.3,
+      "total_ms": 1640.7
+    },
+    "startup.app": {
+      "max_us": 714.9,
+      "mean_us": 714.9,
+      "n": 1,
+      "p50_us": 714.9,
+      "p95_us": 714.9,
+      "total_ms": 0.7
+    },
+    "startup.first_frame": {
+      "max_us": 11164.2,
+      "mean_us": 11164.2,
+      "n": 1,
+      "p50_us": 11164.2,
+      "p95_us": 11164.2,
+      "total_ms": 11.2
+    },
+    "startup.fonts": {
+      "max_us": 64.8,
+      "mean_us": 64.8,
+      "n": 1,
+      "p50_us": 64.8,
+      "p95_us": 64.8,
+      "total_ms": 0.1
+    },
+    "startup.recognizer": {
+      "max_us": 69792.8,
+      "mean_us": 69792.8,
+      "n": 1,
+      "p50_us": 69792.8,
+      "p95_us": 69792.8,
+      "total_ms": 69.8
+    }
+  },
+  "hashes": {
+    "draw.states": "6a3e7df2a06b2e58",
+    "gen": "ee9c7e1cbfd02b4e",
+    "recognize": "2016/2016 e55fd037ce75ab6e",
+    "script.frames": "f8942ad18d2ea809",
+    "script.updates": "721 9ae169620eac0708"
+  },
+  "runs": 5
+}

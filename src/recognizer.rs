@@ -167,9 +167,18 @@ pub fn samples() -> &'static [Sample] {
     })
 }
 
+/// The examples are in blocks of LANES examples. The distances of one block are calculated together,
+/// one example in each lane (SIMD).
+const LANES: usize = 16;
+
+/// The values of the distance are added in chunks of this size (the same sums for each lane).
+const CHUNK: usize = 64;
+
 pub struct Recognizer {
     classes: Vec<u8>,
-    features: Vec<f32>,
+    /// The features of block b, value j, lane l are at (b * DIM + j) * LANES + l. The lanes after the
+    /// last example are zero.
+    blocks: Vec<f32>,
     /// Refer to ALPHA.
     pub alpha: f32,
 }
@@ -187,32 +196,28 @@ pub struct Match {
 
 impl Recognizer {
     pub fn new<'a>(samples: impl Iterator<Item = &'a Sample>) -> Recognizer {
-        let mut classes = Vec::new();
-        let mut features = Vec::new();
-        for s in samples {
-            // Digits also get copies with a different slant, rotation and width (DIGIT_COPIES).
-            let copies: &[(f32, f32, f32)] = if s.class == 0 { &[(0.0, 0.0, 1.0)] } else { &DIGIT_COPIES };
-            for &(k, rot, sx) in copies {
-                let (sin, cos) = rot.to_radians().sin_cos();
-                let strokes: Vec<Stroke> = s
-                    .strokes
-                    .iter()
-                    .map(|st| {
-                        st.iter()
-                            .map(|&(x, y)| {
-                                let (x, y) = ((x + k * (255.0 - y) - 128.0) * sx, y - 128.0);
-                                (x * cos - y * sin + 128.0, x * sin + y * cos + 128.0)
-                            })
-                            .collect()
-                    })
-                    .collect();
-                if let Some(f) = features_of(&strokes) {
-                    classes.push(s.class);
-                    features.extend(f);
-                }
+        // The features of each example do not depend on the other examples: the threads calculate
+        // parts of the list, and the result keeps the order of the list.
+        let samples: Vec<&Sample> = samples.collect();
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4);
+        let parts: Vec<Vec<(u8, Vec<f32>)>> = std::thread::scope(|scope| {
+            let handles: Vec<_> = samples
+                .chunks(samples.len().div_ceil(threads).max(1))
+                .map(|part| scope.spawn(move || part.iter().flat_map(|s| example_features(s)).collect()))
+                .collect();
+            handles.into_iter().map(|h| h.join().expect("recognizer thread")).collect()
+        });
+        let n: usize = parts.iter().map(Vec::len).sum();
+        let mut classes = Vec::with_capacity(n);
+        let mut blocks = vec![0f32; n.div_ceil(LANES) * DIM * LANES];
+        for (i, (class, f)) in parts.into_iter().flatten().enumerate() {
+            classes.push(class);
+            let (b, l) = (i / LANES, i % LANES);
+            for (j, v) in f.into_iter().enumerate() {
+                blocks[(b * DIM + j) * LANES + l] = v;
             }
         }
-        Recognizer { classes, features, alpha: ALPHA }
+        Recognizer { classes, blocks, alpha: ALPHA }
     }
 
     pub fn read(&self, strokes: &[Stroke]) -> Option<u8> {
@@ -240,17 +245,24 @@ impl Recognizer {
 
         let mut nearest: [(f32, u8); K] = [(f32::MAX, 0); K];
         let mut other = f32::MAX;
-        for (class, t) in self.classes.iter().zip(self.features.chunks_exact(DIM)) {
-            let limit = if *class == 0 { other } else { nearest[K - 1].0 };
-            let Some(d) = distance(&f, t, limit) else { continue };
-            if *class == 0 {
-                other = d;
-            } else {
-                let mut j = K - 1;
-                nearest[j] = (d, *class);
-                while j > 0 && nearest[j].0 < nearest[j - 1].0 {
-                    nearest.swap(j, j - 1);
-                    j -= 1;
+        for (b, blk) in self.blocks.chunks_exact(DIM * LANES).enumerate() {
+            let sums = block_distances(&f, blk, other.max(nearest[K - 1].0));
+            for (l, &d) in sums.iter().enumerate() {
+                let Some(&class) = self.classes.get(b * LANES + l) else { break };
+                // An example that is farther than the limit does not change the result.
+                let limit = if class == 0 { other } else { nearest[K - 1].0 };
+                if d > limit {
+                    continue;
+                }
+                if class == 0 {
+                    other = d;
+                } else {
+                    let mut j = K - 1;
+                    nearest[j] = (d, class);
+                    while j > 0 && nearest[j].0 < nearest[j - 1].0 {
+                        nearest.swap(j, j - 1);
+                        j -= 1;
+                    }
                 }
             }
         }
@@ -269,16 +281,56 @@ impl Recognizer {
     }
 }
 
-/// The squared distance, or None if it is more than `limit` (the search stops early).
-fn distance(a: &[f32], b: &[f32], limit: f32) -> Option<f32> {
-    let mut sum = 0.0;
-    for (ca, cb) in a.chunks(64).zip(b.chunks(64)) {
-        sum += ca.iter().zip(cb).map(|(x, y)| (x - y) * (x - y)).sum::<f32>();
-        if sum > limit {
-            return None;
+/// The class and the features of an example and of its copies (DIGIT_COPIES: digits also get copies
+/// with a different slant, rotation and width).
+fn example_features(s: &Sample) -> Vec<(u8, Vec<f32>)> {
+    let copies: &[(f32, f32, f32)] = if s.class == 0 { &[(0.0, 0.0, 1.0)] } else { &DIGIT_COPIES };
+    copies
+        .iter()
+        .filter_map(|&(k, rot, sx)| {
+            let (sin, cos) = rot.to_radians().sin_cos();
+            let strokes: Vec<Stroke> = s
+                .strokes
+                .iter()
+                .map(|st| {
+                    st.iter()
+                        .map(|&(x, y)| {
+                            let (x, y) = ((x + k * (255.0 - y) - 128.0) * sx, y - 128.0);
+                            (x * cos - y * sin + 128.0, x * sin + y * cos + 128.0)
+                        })
+                        .collect()
+                })
+                .collect();
+            features_of(&strokes).map(|f| (s.class, f))
+        })
+        .collect()
+}
+
+/// The squared distances from `f` to the LANES examples of a block. Each lane adds the squares in the
+/// same order: in chunks of CHUNK values, each chunk from the first value. If all the distances are
+/// more than `limit`, the calculation can stop early: then the result has distances more than
+/// `limit`, but not the full distances. The partial sums only increase, thus a distance that is more
+/// than `limit` at a chunk is more than `limit` at the end.
+fn block_distances(f: &[f32], blk: &[f32], limit: f32) -> [f32; LANES] {
+    let mut sum = [0f32; LANES];
+    for start in (0..DIM).step_by(CHUNK) {
+        let mut cs = [-0f32; LANES];
+        for j in start..(start + CHUNK).min(DIM) {
+            let q = f[j];
+            let row: &[f32; LANES] = blk[j * LANES..(j + 1) * LANES].try_into().unwrap();
+            for l in 0..LANES {
+                let x = q - row[l];
+                cs[l] += x * x;
+            }
+        }
+        for l in 0..LANES {
+            sum[l] += cs[l];
+        }
+        if sum.iter().all(|&s| s > limit) {
+            break;
         }
     }
-    Some(sum)
+    sum
 }
 
 fn bbox<'a>(points: impl Iterator<Item = &'a Point>) -> (f32, f32, f32, f32) {

@@ -1,6 +1,7 @@
 //! Sudoku for the reMarkable Paper Pro. Refer to REQUIREMENTS.md and INVARIANTS.md.
 
 pub mod app;
+pub mod bench;
 pub mod game;
 pub mod generator;
 pub mod invariants;
@@ -15,7 +16,9 @@ pub mod system;
 pub mod update;
 #[cfg(target_os = "linux")]
 pub mod platform;
+pub mod present;
 pub mod reference;
+pub mod script;
 
 /// The version of the app (REQUIREMENTS.md §9.1). release.yml sets SUDOKU_VERSION at build time
 /// (pre-<sha> or v<version>). Other builds show "dev".

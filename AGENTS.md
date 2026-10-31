@@ -23,11 +23,43 @@ cargo test                                   # all tests on the computer (macOS 
 cargo run --release --bin snapshot -- DIR    # draw the reference states and compare them with images/
 cargo run --release --bin video -- video/demo.txt video/demo.mp4   # demo video from an event script (ffmpeg)
 cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4   # extended demo video for the website
+scripts/bench.sh                             # performance bench: compare with bench/baseline-computer.json
 docker build --platform linux/arm64 -f Dockerfile.imagegen --output type=local,dest=. .   # images/ and video/ with fixed tool versions (commit these)
 docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + static aarch64 build
 ```
 
 `dist/sudoku/` is the AppLoad folder. Copy it to `/home/root/xovi/exthome/appload/` on the tablet.
+
+## Performance
+
+- `src/bench.rs` plays `video/demo-full.txt` with no screen, with the same output code as the device
+  (`present.rs`). It measures each phase (`input_to_pixels`, `draw`, `blit`, `ink.*`, `handle`,
+  `gen`, `recognize`, `startup.*`) and gives hashes of the output: the framebuffer at each check of
+  the script, the update rectangles, the reference states, the puzzles and the recognizer matches.
+- `scripts/bench.sh` builds the bench, does one warm-up run and 5 runs, keeps the median, compares
+  it with `bench/baseline-computer.json` and adds one line to `bench/history.jsonl`. `--save`
+  writes a new baseline. `--note TEXT` describes the change in the history.
+- `bench/baseline-linux.json` is the baseline in the Linux container (aarch64, musl, as the tablet
+  build). The C library of the tablet is musl: its `memcmp` and `malloc` are much slower than on
+  macOS. Thus, also measure in the container: run `scripts/bench.sh --baseline
+  bench/baseline-linux.json` in `rust:1.97-alpine` (with `python3`) and set `CARGO_TARGET_DIR` to a
+  folder that is not `target/`. The recognizer hash on macOS is not the same as on Linux (the math
+  functions of the C library are different): compare a result only with the baseline of the same
+  platform.
+- On the tablet: `sudoku --bench /tmp/bench.json`. Copy the file to the computer and compare it:
+  `scripts/bench.sh --compare FILE --baseline bench/baseline-tablet.json`.
+- Bench options: `--gen N` (seeds for each mode), `--recognize-step N` (each n-th example),
+  `--draw-reps N`, `--script FILE`, `--dump DIR` (writes the framebuffer at each check and each
+  reference state, to find the pixels that changed). `BENCH_STATE_TIMES=1` shows the time of each
+  reference state.
+- Rules for an optimization: change one thing at a time. Keep a change only if the time decreases by
+  more than the noise (approximately 3%). The output hashes must not change: a change of a hash is a
+  change of the pixels, the puzzles (PUZ-5) or the recognizer. `cargo test` must pass, and the
+  snapshot tool must agree with `images/`. Then save the new baseline.
+- A change of `video/demo-full.txt`, of the reference states or of the screens changes the hashes.
+  Then save the baselines again (`--save`) in the same change.
+- On macOS, `sample PID SECONDS` shows where the time goes. Build the bench with symbols:
+  `CARGO_PROFILE_RELEASE_STRIP=false CARGO_PROFILE_RELEASE_DEBUG=1 CARGO_TARGET_DIR=target/prof cargo build --release --bin bench`.
 
 ## Release & CI
 
@@ -89,8 +121,11 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `solver.rs`: the human-style solver. It grades a puzzle by the most difficult technique it needs.
 - `recognizer.rs`: reads handwriting in a cell ($P point-cloud recognizer with templates).
 - `app.rs`: screens, menu, panels, overlays, pen and touch input, the clock. No input or output.
+- `present.rs`: the output of the main loop: the drawing, the copy of the changes into the
+  framebuffer and the ink updates. No input or output, thus the bench uses the same code.
 - `invariants.rs`: checks of the rules in INVARIANTS.md. Debug builds check them after each input.
 - `layout.rs`, `render.rs`, `font.rs`: positions, drawing (tiny-skia) and the font of the tablet.
+  `render.rs` keeps the pixels of each board cell in a cache (tiles at their true position).
 - `store.rs`, `settings.rs`: the SQLite results, the settings and the saved game (JSON).
 - `update.rs`: the update state, the signed `version.json` and the installation of a release
   archive. No network: `platform/` downloads the files on a background thread (ureq, rustls).
@@ -98,7 +133,9 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `reference.rs`: the states of the images in `images/`, for the snapshot tool and `tests/render.rs`.
 - `install.sh` (not in `src/`): the installer for the tablet. It runs on the computer of the user.
   `scripts/terminal.py` draws its output (`images/install-*.png`).
+- `script.rs`: the event scripts (`video/*.txt`) for the video tool and the bench.
 - `bin/video.rs`: runs the app with a script of timed events (`video/*.txt`) and records a video.
+- `bench.rs`, `bin/bench.rs`: the performance bench (refer to Performance).
 
 ## Conventions & Patterns
 

@@ -137,8 +137,8 @@ You need:
 The Docker build makes the folder `dist/sudoku/`. It contains the program `sudoku`, the AppLoad
 manifest `external.manifest.json` and the launcher icon `icon.png`.
 
-[`AGENTS.md`](AGENTS.md) gives the other tools (reference images, demo video, tablet self-test) and
-the release procedure.
+[`AGENTS.md`](AGENTS.md) gives the other tools (reference images, demo video, performance bench,
+tablet self-test) and the release procedure.
 
 ## How the app was made
 
