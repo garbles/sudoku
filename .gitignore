@@ -16,3 +16,7 @@ scripts/fonts/rmsans-*.ttf
 
 # Local settings (refer to .env.sample).
 .env
+
+# Pedantic review files.
+.review
+
