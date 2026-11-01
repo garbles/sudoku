@@ -44,6 +44,23 @@ impl Paths {
     }
 }
 
+/// The QML patch of AppLoad that shows the pen region (DEBUG.md).
+const PEN_REGION_PATCH: &str = "/home/root/xovi/exthome/qt-resource-rebuilder/sudoku-penregion.qmd";
+
+/// The file that gives the pen region to the patch: "x y width height" (physical pixels), or empty
+/// for no region. The patch reads it each 15 ms.
+const PEN_REGION_FILE: &str = "/tmp/sudoku-pen-region";
+
+/// Writes the pen region for the patch. A rename replaces the file in one step, so that the patch
+/// never reads a part of it.
+fn write_pen_region(region: Option<present::Update>) {
+    let text = region.map_or(String::new(), |(x, y, w, h)| format!("{x} {y} {w} {h}\n"));
+    let tmp = format!("{PEN_REGION_FILE}.tmp");
+    if let Err(e) = std::fs::write(&tmp, text).and_then(|_| std::fs::rename(&tmp, PEN_REGION_FILE)) {
+        eprintln!("sudoku: cannot write {PEN_REGION_FILE}: {e}");
+    }
+}
+
 fn save(app: &mut App, paths: &Paths) {
     if app.game_dirty {
         match store::save_json(&paths.game, &app.game) {
@@ -229,9 +246,30 @@ pub fn run() -> Result<(), String> {
         }
     }
     let mut presenter = Presenter::new();
+    // The QML patch of AppLoad shows the pen region (DEBUG.md). Without it, the app does not use one.
+    presenter.use_pen_region = std::path::Path::new(PEN_REGION_PATCH).exists();
+    eprintln!("sudoku: pen region {}", if presenter.use_pen_region { "on" } else { "off" });
+    write_pen_region(None);
+    // For a test on the device: SUDOKU_INK_WAVE_MS, or the file `ink-wave-ms` in the data folder,
+    // changes the time that the app gives an update to complete (default present::INK_WAVE_MS).
+    if let Some(ms) = std::env::var("SUDOKU_INK_WAVE_MS")
+        .ok()
+        .or_else(|| std::fs::read_to_string(store::data_dir().join("ink-wave-ms")).ok())
+        .and_then(|s| s.trim().parse::<u64>().ok())
+    {
+        eprintln!("sudoku: ink wave time {ms} ms");
+        presenter.set_wave_ms(ms);
+    }
     // One refresh mode for the full time: a change of the mode makes AppLoad refresh the full window,
-    // which shows as a flash.
-    conn.set_refresh_mode(qtfb::RefreshMode::Ui).ok();
+    // which shows as a flash. For a test on the device, SUDOKU_REFRESH_MODE, or the file
+    // `refresh-mode` in the data folder, selects another mode (refer to `RefreshMode::from_name`).
+    let refresh_mode = std::env::var("SUDOKU_REFRESH_MODE")
+        .ok()
+        .or_else(|| std::fs::read_to_string(store::data_dir().join("refresh-mode")).ok())
+        .and_then(|name| qtfb::RefreshMode::from_name(&name))
+        .unwrap_or(qtfb::RefreshMode::Ui);
+    eprintln!("sudoku: refresh mode {refresh_mode:?}");
+    conn.set_refresh_mode(refresh_mode).ok();
     render::draw(&mut Canvas::new(&mut presenter.frame, &fonts), &app);
     present::blit(&presenter.frame, conn.pixels());
     conn.update_all().map_err(|e| format!("qtfb update: {e}"))?;
@@ -319,10 +357,14 @@ pub fn run() -> Result<(), String> {
 
         let mut updates = Vec::new();
         presenter.present(&mut app, &fonts, conn.pixels(), now_ms(), |u| updates.push(u));
+        if let Some(region) = presenter.take_region_change() {
+            write_pen_region(region);
+        }
         for (x, y, w, h) in updates {
             conn.update(x, y, w, h).ok();
         }
     }
+    write_pen_region(None);
 
     eprintln!("sudoku: the app stops (quit {}, signal {})", app.quit, STOP.load(Ordering::SeqCst));
     // The app closes: ink that waits is removed (PER-6) and the game is saved (PER-1, NAV-6).

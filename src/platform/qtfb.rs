@@ -38,10 +38,52 @@ pub const INPUT_PEN_PRESS: i32 = 0x20;
 pub const INPUT_PEN_RELEASE: i32 = 0x21;
 pub const INPUT_PEN_UPDATE: i32 = 0x22;
 
+/// The refresh modes of qtfb. AppLoad puts an `Epaper.ScreenModeItem` below the window. Its mode is
+/// `[Pen, Mono, Animation, Content, UI][mode]` (the AppLoad patch of xochitl). xochitl sends the
+/// pixels of each screen mode with a different waveform: Pen uses the fast waveform of the pen ink.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(i32)]
 pub enum RefreshMode {
+    /// xochitl "Pen".
+    UFast = 0,
+    /// xochitl "Mono".
+    Fast = 1,
+    /// xochitl "Animation".
+    Animate = 2,
+    /// xochitl "Content".
+    Content = 3,
+    /// xochitl "UI".
     Ui = 4,
+}
+
+impl RefreshMode {
+    /// The mode for a name (`ufast`, `pen`, `fast`, `mono`, `animate`, `content`, `ui`; any case).
+    pub fn from_name(name: &str) -> Option<RefreshMode> {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "ufast" | "pen" => Some(RefreshMode::UFast),
+            "fast" | "mono" => Some(RefreshMode::Fast),
+            "animate" | "animation" => Some(RefreshMode::Animate),
+            "content" => Some(RefreshMode::Content),
+            "ui" => Some(RefreshMode::Ui),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod refresh_mode_tests {
+    use super::RefreshMode;
+
+    #[test]
+    fn refresh_mode_names() {
+        assert_eq!(RefreshMode::from_name("ufast"), Some(RefreshMode::UFast));
+        assert_eq!(RefreshMode::from_name(" Pen\n"), Some(RefreshMode::UFast));
+        assert_eq!(RefreshMode::from_name("mono"), Some(RefreshMode::Fast));
+        assert_eq!(RefreshMode::from_name("UI"), Some(RefreshMode::Ui));
+        assert_eq!(RefreshMode::from_name("sleep"), None);
+        assert_eq!(RefreshMode::UFast as i32, 0);
+        assert_eq!(RefreshMode::Ui as i32, 4);
+    }
 }
 
 #[repr(C)]
