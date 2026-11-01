@@ -44,8 +44,43 @@ impl Paths {
     }
 }
 
-/// The QML patch of AppLoad that shows the pen region (DEBUG.md).
+/// The ink patch: a QML patch of AppLoad that shows the pen region (`appload/sudoku/sudoku-penregion.qmd`).
+/// install.sh copies it here.
 const PEN_REGION_PATCH: &str = "/home/root/xovi/exthome/qt-resource-rebuilder/sudoku-penregion.qmd";
+
+/// True if xochitl applied the ink patch: the patch is installed, and xochitl (the parent process,
+/// because AppLoad starts the app) started after the patch was copied. xochitl reads the patches only
+/// when it starts. If the parent is not xochitl, the file is sufficient.
+fn pen_region_patch_active() -> bool {
+    let Ok(modified) = std::fs::metadata(PEN_REGION_PATCH).and_then(|m| m.modified()) else { return false };
+    // SAFETY: getppid has no preconditions.
+    let ppid = unsafe { libc::getppid() };
+    let comm = std::fs::read_to_string(format!("/proc/{ppid}/comm")).unwrap_or_default();
+    if comm.trim() != "xochitl" {
+        return true;
+    }
+    // The boot time has whole seconds, thus the start time can be up to 1 s early. install.sh copies
+    // the patch and starts xochitl again at once: a tolerance of 2 s accepts this.
+    match process_start(ppid) {
+        Some(started) => modified <= started + Duration::from_secs(2),
+        None => true,
+    }
+}
+
+/// The start time of the process `pid`: the boot time (/proc/stat "btime") plus the start time in
+/// clock ticks after boot (/proc/PID/stat, field 22).
+fn process_start(pid: libc::pid_t) -> Option<std::time::SystemTime> {
+    let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+    // The second field (the name) can contain spaces: count the fields after the last ')'.
+    let ticks: u64 = stat.rsplit_once(')')?.1.split_whitespace().nth(19)?.parse().ok()?;
+    let btime: u64 = std::fs::read_to_string("/proc/stat")
+        .ok()?
+        .lines()
+        .find_map(|l| l.strip_prefix("btime ").and_then(|v| v.trim().parse().ok()))?;
+    // SAFETY: sysconf has no preconditions.
+    let hz = unsafe { libc::sysconf(libc::_SC_CLK_TCK) }.max(1) as u64;
+    Some(std::time::UNIX_EPOCH + Duration::from_secs(btime) + Duration::from_millis(ticks * 1000 / hz))
+}
 
 /// The file that gives the pen region to the patch: "x y width height" (physical pixels), or empty
 /// for no region. The patch reads it each 15 ms.
@@ -246,8 +281,8 @@ pub fn run() -> Result<(), String> {
         }
     }
     let mut presenter = Presenter::new();
-    // The QML patch of AppLoad shows the pen region (DEBUG.md). Without it, the app does not use one.
-    presenter.use_pen_region = std::path::Path::new(PEN_REGION_PATCH).exists();
+    // The ink patch shows the pen region. Without it, the app does not use one.
+    presenter.use_pen_region = pen_region_patch_active();
     eprintln!("sudoku: pen region {}", if presenter.use_pen_region { "on" } else { "off" });
     write_pen_region(None);
     // For a test on the device: SUDOKU_INK_WAVE_MS, or the file `ink-wave-ms` in the data folder,

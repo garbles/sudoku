@@ -15,8 +15,9 @@
 #   5. Install Vellum, the package manager.
 #   6. Install AppLoad (with xovi) with Vellum.
 #   7. Make the hashtable of xovi.
-#   8. Start xovi.
-#   9. Install the Sudoku folder in AppLoad.
+#   8. Install the ink patch (a QML patch that xovi applies when it starts).
+#   9. Start xovi (again, if the ink patch changed).
+#  10. Install the Sudoku folder in AppLoad.
 #
 # Environment variables:
 #   REMARKABLE_HOST     The address of the tablet. Default: 10.11.99.1 (the USB connection).
@@ -47,9 +48,13 @@ VELLUM_BOOTSTRAP="https://github.com/vellum-dev/vellum-cli/releases/latest/downl
 HOST="${REMARKABLE_HOST:-10.11.99.1}"
 KEY="${SUDOKU_SSH_KEY:-$HOME/.ssh/id_ed25519_remarkable}"
 TTY="${SUDOKU_INSTALL_TTY:-/dev/tty}"
-STEPS=9
+STEPS=10
 WIDTH=66 # the width of the text in a box. All box text is ASCII.
 UI_WARNED=0
+PATCH_CHANGED=0
+# The ink patch: AppLoad shows the ink of Sudoku with the fast pen waveform (no gaps).
+PATCH_DIR=/home/root/xovi/exthome/qt-resource-rebuilder
+PATCH_NAME=sudoku-penregion.qmd
 
 setup_colors
 if ! exec 3<"$TTY"; then
@@ -70,6 +75,7 @@ step_key
 step_vellum
 step_appload
 step_hashtable
+step_patch
 step_xovi
 step_sudoku
 finish
@@ -558,13 +564,41 @@ step_hashtable() {
   ok "The hashtable is available."
 }
 
-step_xovi() {
-  step 8 "Start xovi"
-  if check has-xovi 'p=$(pidof xochitl) && grep -q xovi.so /proc/${p%% *}/maps 2>/dev/null'; then
-    skip "xovi is on."
+step_patch() {
+  step 8 "Ink patch"
+  local file="$WORK/app/sudoku/$PATCH_NAME" want have
+  if [ ! -f "$file" ]; then
+    info "This version of Sudoku has no ink patch."
     return
   fi
-  info "xovi adds AppLoad to the tablet. Each restart of the tablet stops xovi."
+  want="$(sha_of "$file")"
+  have="$(remote ': patch-hash; sha256sum '"$PATCH_DIR/$PATCH_NAME"' 2>/dev/null | cut -d " " -f 1')" || lost
+  if [ "$have" = "$want" ]; then
+    skip "The ink patch is installed."
+    return
+  fi
+  info "With the ink patch, the ink has no gaps while you write."
+  info "xovi applies the patch when it starts."
+  act "Copying the ink patch to the tablet..."
+  ssh_key ': install-patch; set -e; d='"$PATCH_DIR"'; mkdir -p "$d"; cat > "$d/'"$PATCH_NAME"'.new"; mv "$d/'"$PATCH_NAME"'.new" "$d/'"$PATCH_NAME"'"' \
+    <"$file" || failed "The installer could not copy the ink patch to the tablet."
+  have="$(remote ': patch-hash; sha256sum '"$PATCH_DIR/$PATCH_NAME"' 2>/dev/null | cut -d " " -f 1')" || lost
+  [ "$have" = "$want" ] || failed "The installed copy of the ink patch is not correct."
+  PATCH_CHANGED=1
+  ok "The ink patch is installed."
+}
+
+step_xovi() {
+  step 9 "Start xovi"
+  if check has-xovi 'p=$(pidof xochitl) && grep -q xovi.so /proc/${p%% *}/maps 2>/dev/null'; then
+    if [ "$PATCH_CHANGED" = 0 ]; then
+      skip "xovi is on."
+      return
+    fi
+    info "xovi must start again to apply the ink patch."
+  else
+    info "xovi adds AppLoad to the tablet. Each restart of the tablet stops xovi."
+  fi
   if [ "$UI_WARNED" = 0 ]; then
     box "$YELLOW" "Before you continue" \
       "The user interface of the tablet starts again. This takes some" \
@@ -578,7 +612,7 @@ step_xovi() {
 }
 
 step_sudoku() {
-  step 9 "Sudoku $SUDOKU_VERSION"
+  step 10 "Sudoku $SUDOKU_VERSION"
   local installed
   installed="$(remote ': app-hash; sha256sum /home/root/xovi/exthome/appload/sudoku/sudoku 2>/dev/null | cut -d " " -f 1')" || lost
   if [ "$installed" = "$APP_HASH" ]; then

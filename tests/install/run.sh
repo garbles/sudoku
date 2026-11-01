@@ -20,6 +20,7 @@
 #   download  The computer has no internet at the first download.
 #   stop      The tablet is not connected, and the user types q.
 #   other     The tablet is a Paper Pro Move, and the user does not continue.
+#   patch     All steps are done, but the ink patch is old: the installer copies it and starts xovi again.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -40,10 +41,12 @@ archive() { # version, archive file
   mkdir -p "$d/sudoku"
   printf 'fake sudoku %s\n' "$1" >"$d/sudoku/sudoku"
   printf '{"name": "Sudoku"}\n' >"$d/sudoku/external.manifest.json"
+  printf '; fake ink patch\n' >"$d/sudoku/sudoku-penregion.qmd"
   tar -C "$d" -czf "$2" sudoku
   "${SUM[@]}" "$d/sudoku/sudoku" | cut -d ' ' -f 1
 }
 APP="$(archive "$VERSION" "$SIM/web/sudoku-$VERSION.tar.gz")"
+PATCH="$("${SUM[@]}" "$SIM/pkg-$VERSION/sudoku/sudoku-penregion.qmd" | cut -d ' ' -f 1)"
 OLD_APP="$(archive v0.1.1 "$SIM/old.tar.gz")"
 SHA="$("${SUM[@]}" "$SIM/web/sudoku-$VERSION.tar.gz" | cut -d ' ' -f 1)"
 # The same replacement as release.yml.
@@ -61,6 +64,7 @@ installed() {
   cat "$SIM/home/.ssh/id_ed25519_remarkable.pub" >>"$S/authorized"
   touch "$S/vellum" "$S/appload" "$S/hashtab" "$S/xovi"
   printf '%s\n' "$APP" >"$S/app"
+  printf '%s\n' "$PATCH" >"$S/patch"
 }
 input() { printf '%s\n' "$@" >"$SIM/input"; }
 run() {
@@ -82,6 +86,7 @@ case "$SCENARIO" in
   download) installed; echo 1 >"$S/no-network"; input "" ;;
   stop) echo 9 >"$S/unreachable"; input q ;;
   other) installed; printf 'reMarkable Chiappa\n' >"$S/model"; input "" ;;
+  patch) installed; printf 'old\n' >"$S/patch"; input "" ;;
   *) echo "run.sh: unknown scenario: $SCENARIO" >&2; exit 2 ;;
 esac
 run

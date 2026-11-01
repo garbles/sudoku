@@ -11,6 +11,7 @@
 #   model, os                       The device model and the software version.
 #   vellum, appload, hashtab, xovi  The parts that are installed or on.
 #   app                             The SHA-256 checksum of the installed executable.
+#   patch                           The SHA-256 checksum of the installed ink patch.
 #
 # install.sh starts each remote command with ": name;". This file finds the command from the name.
 S="$SIM/state"
@@ -147,6 +148,11 @@ EOF
   make-hashtab) touch "$S/hashtab"; rm -f "$S/xovi" ;; # rebuild_hashtable stops the user interface
   start-xovi) touch "$S/xovi" ;;
   app-hash) cat "$S/app" 2>/dev/null; true ;;
+  patch-hash) cat "$S/patch" 2>/dev/null; true ;;
+  install-patch)
+    if command -v sha256sum >/dev/null; then sum=(sha256sum); else sum=(shasum -a 256); fi
+    "${sum[@]}" | cut -d ' ' -f 1 >"$S/patch"
+    ;;
   install-app)
     t="$(mktemp -d)"
     cat >"$t/a.tar.gz"

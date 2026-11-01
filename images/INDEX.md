@@ -103,7 +103,7 @@ with the output). The font is DejaVu Sans Mono (`scripts/fonts/`).
 
 | Image | Scenario | Content |
 |---|---|---|
-| `install-first.png` | `first` | A new tablet in developer mode. All 9 steps operate: the SSH key and the password, Vellum, AppLoad, the hashtable, xovi and Sudoku. |
+| `install-first.png` | `first` | A new tablet in developer mode. All 10 steps operate: the SSH key and the password, Vellum, AppLoad, the hashtable, the ink patch, xovi and Sudoku. |
 | `install-connect.png` | `connect` | The tablet does not answer (instructions for the USB cable), then SSH is off (instructions for developer mode). All other steps are done already. |
 | `install-restart.png` | `restart` | After a restart of the tablet with an earlier version of Sudoku: the installer starts xovi and replaces the app. |
 | `install-again.png` | `again` | All steps are done already. The installer changes nothing. |

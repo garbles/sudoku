@@ -1,8 +1,9 @@
-; Prototype: the Pen screen mode of xochitl in the area that Sudoku gives in /tmp/sudoku-pen-region
-; ("x y width height", or empty for no area). Sudoku gives the cell of the ink while the player
-; writes, thus the ink uses the fast pen waveform, and all other updates use the UI waveform.
-; Install: /home/root/xovi/exthome/qt-resource-rebuilder/sudoku-penregion.qmd, then xovi/start.
-; Remove: delete the file, then xovi/start.
+; The ink patch of Sudoku: the Pen screen mode of xochitl in the area that Sudoku gives in
+; /tmp/sudoku-pen-region ("x y width height", or empty for no area). Sudoku gives the cell of the ink
+; while the player writes, thus the ink uses the fast pen waveform (no gaps), and all other updates
+; use the UI waveform (correct colors).
+; install.sh copies this file to /home/root/xovi/exthome/qt-resource-rebuilder/ and starts xovi
+; again. xochitl reads it only when it starts. To remove it, delete that copy and run xovi/start.
 ; The AppLoad patch already imports xofm.libs.epaper as Epaper in this file.
 AFFECT /appload/qml/window.qml
     TRAVERSE FocusScope

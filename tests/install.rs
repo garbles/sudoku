@@ -33,11 +33,11 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
-/// The lines of the step "n/9 ..." up to the next step.
+/// The lines of the step "n/10 ..." up to the next step.
 fn step(out: &str, n: u32) -> String {
-    let start = out.find(&format!(" {n}/9 ")).unwrap_or_else(|| panic!("no step {n}:\n{out}"));
+    let start = out.find(&format!(" {n}/10 ")).unwrap_or_else(|| panic!("no step {n}:\n{out}"));
     let rest = &out[start + 1..];
-    let end = rest.find(&format!(" {}/9 ", n + 1)).unwrap_or(rest.len());
+    let end = rest.find(&format!(" {}/10 ", n + 1)).unwrap_or(rest.len());
     rest[..end].to_string()
 }
 
@@ -45,9 +45,9 @@ fn assert_has(out: &str, text: &str) {
     assert!(out.contains(text), "the output does not contain {text:?}:\n{out}");
 }
 
-/// All 9 steps show "(done already)" and none does an action.
+/// All 10 steps show "(done already)" and none does an action.
 fn assert_all_done(out: &str) {
-    for n in 2..=9 {
+    for n in 2..=10 {
         let s = step(out, n);
         if n == 2 || n == 3 {
             continue; // the download and the connection always operate
@@ -71,10 +71,12 @@ fn first_installation_does_all_steps() {
     assert_has(&step(&out, 6), "AppLoad is installed.");
     assert_has(&step(&out, 7), "Before you continue");
     assert_has(&step(&out, 7), "The hashtable is available.");
-    // The hashtable step warned already. Step 8 does not ask again.
-    assert!(!step(&out, 8).contains("Before you continue"), "{out}");
-    assert_has(&step(&out, 8), "xovi is on.");
-    assert_has(&step(&out, 9), "Sudoku v0.1.2 is installed.");
+    assert_has(&step(&out, 8), "Copying the ink patch to the tablet...");
+    assert_has(&step(&out, 8), "The ink patch is installed.");
+    // The hashtable step warned already. Step 9 does not ask again.
+    assert!(!step(&out, 9).contains("Before you continue"), "{out}");
+    assert_has(&step(&out, 9), "xovi is on.");
+    assert_has(&step(&out, 10), "Sudoku v0.1.2 is installed.");
     assert!(!out.contains("(done already)"), "{out}");
 }
 
@@ -110,11 +112,25 @@ fn restart_starts_xovi_and_replaces_an_old_version() {
     let (out, code) = run("restart");
     assert_eq!(code, 0, "{out}");
     assert_has(&step(&out, 7), "(done already)");
-    assert_has(&step(&out, 8), "Before you continue");
-    assert_has(&step(&out, 8), "xovi is on.");
-    assert_has(&step(&out, 9), "A different version of Sudoku is on the tablet.");
-    assert_has(&step(&out, 9), "Your games, settings and statistics stay on the tablet.");
-    assert_has(&step(&out, 9), "Sudoku v0.1.2 is installed.");
+    assert_has(&step(&out, 8), "(done already)");
+    assert_has(&step(&out, 9), "Before you continue");
+    assert_has(&step(&out, 9), "xovi is on.");
+    assert_has(&step(&out, 10), "A different version of Sudoku is on the tablet.");
+    assert_has(&step(&out, 10), "Your games, settings and statistics stay on the tablet.");
+    assert_has(&step(&out, 10), "Sudoku v0.1.2 is installed.");
+}
+
+/// A new ink patch: the installer copies it, and xovi starts again (one time) to apply it.
+#[test]
+fn new_ink_patch_starts_xovi_again() {
+    let (out, code) = run("patch");
+    assert_eq!(code, 0, "{out}");
+    assert_has(&step(&out, 8), "Copying the ink patch to the tablet...");
+    assert_has(&step(&out, 8), "The ink patch is installed.");
+    assert_has(&step(&out, 9), "xovi must start again to apply the ink patch.");
+    assert_has(&step(&out, 9), "Before you continue");
+    assert_has(&step(&out, 9), "xovi is on.");
+    assert_has(&step(&out, 10), "(done already)");
 }
 
 #[test]
@@ -157,7 +173,7 @@ fn q_stops_the_installer() {
     let (out, code) = run("stop");
     assert_eq!(code, 1, "{out}");
     assert_has(&out, "The installer stopped. Run the same command again to continue.");
-    assert!(!out.contains(" 4/9 "), "{out}");
+    assert!(!out.contains(" 4/10 "), "{out}");
 }
 
 #[test]
@@ -165,13 +181,13 @@ fn other_tablet_needs_a_confirmation() {
     let (out, code) = run("other");
     assert_eq!(code, 1, "{out}");
     assert_has(&out, "This tablet is not a reMarkable Paper Pro");
-    assert!(!out.contains(" 5/9 "), "{out}");
+    assert!(!out.contains(" 5/10 "), "{out}");
 }
 
 /// All boxes have the same width, and no line is wider than the 90 columns of the screenshots.
 #[test]
 fn output_fits_the_terminal() {
-    for scenario in ["first", "connect", "password", "hostkey", "offline", "download", "stop", "other"] {
+    for scenario in ["first", "connect", "password", "hostkey", "offline", "download", "stop", "other", "patch"] {
         let (out, _) = run(scenario);
         for line in out.lines() {
             let width = line.chars().count();
