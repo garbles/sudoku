@@ -306,7 +306,7 @@ pub fn run() -> Result<(), String> {
         }
         while let Ok(result) = update_rx.try_recv() {
             match result {
-                UpdateResult::Checked(r) => app.update_checked(r, now_ms()),
+                UpdateResult::Checked(r) => app.update_checked(r),
                 UpdateResult::Installed(r) => app.update_installed(r, now_ms()),
             }
         }

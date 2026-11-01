@@ -23,10 +23,6 @@ pub const PUBLIC_KEY: [u8; 32] = [
     0xc3, 0x15, 0x24, 0xd9, 0xfc, 0x84, 0x11, 0x4e, 0xc7, 0x02, 0xb4, 0xd9,
 ];
 
-/// The time between two requests after a successful request.
-pub const CHECK_INTERVAL_MS: u64 = 24 * 60 * 60 * 1000;
-/// The time before the next request after a failed request.
-pub const RETRY_INTERVAL_MS: u64 = 60 * 60 * 1000;
 /// The time that "Update failed" shows (UPD-6).
 pub const FAILED_MS: u64 = 3000;
 /// The largest archive that the app downloads.
@@ -217,6 +213,24 @@ pub enum UpdateState {
     Installed,
 }
 
+/// The button of the update row (REQUIREMENTS.md §9.2).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UpdateButton {
+    /// "Update to v<version>": starts the installation.
+    Install(String),
+    /// "Check for updates": sends a request for `version.json`.
+    Check,
+}
+
+impl UpdateButton {
+    pub fn text(&self) -> &str {
+        match self {
+            UpdateButton::Install(t) => t,
+            UpdateButton::Check => "Check for updates",
+        }
+    }
+}
+
 /// Work for the platform.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UpdateRequest {
@@ -235,21 +249,23 @@ pub struct Update {
     pub state: UpdateState,
     /// A request for `version.json` is in progress (UPD-7).
     pub checking: bool,
-    /// The time (ms) of the next request.
-    next_check: Option<u64>,
+    /// The row shows "Sudoku is up to date" in place of the button "Check for updates": a request
+    /// found no update while the Settings panel was open, and the panel did not close after it (UPD-9).
+    pub up_to_date_shown: bool,
     /// Work that the platform must start.
     pub request: Option<UpdateRequest>,
 }
 
 impl Update {
-    /// The state when the app opens (UPD-8): a stable build sends a request immediately.
+    /// The state when the app opens (UPD-8): a stable build sends a request immediately. This is the
+    /// only automatic request. After it, only the button "Check for updates" sends a request.
     pub fn new(current: &str) -> Update {
         let stable = parse_version(current).is_some();
         Update {
             current: current.to_string(),
             state: if stable { UpdateState::Unknown } else { UpdateState::Off },
             checking: stable,
-            next_check: None,
+            up_to_date_shown: false,
             request: stable.then_some(UpdateRequest::Check),
         }
     }
@@ -264,40 +280,31 @@ impl Update {
         matches!(self.state, UpdateState::Available(_) | UpdateState::Installing(_) | UpdateState::Failed(..) | UpdateState::Installed)
     }
 
-    /// The text of the update row, or `None` for the button (REQUIREMENTS.md §9.2).
+    /// The text of the update row, or `None` for a button (REQUIREMENTS.md §9.2).
     pub fn row_text(&self) -> Option<&'static str> {
         Some(match self.state {
             UpdateState::Off | UpdateState::Available(_) => return None,
             UpdateState::Unknown => "Looking for updates...",
-            UpdateState::CheckFailed => "Cannot look for updates",
-            UpdateState::UpToDate => "Sudoku is up to date",
+            UpdateState::CheckFailed | UpdateState::UpToDate if self.checking => "Looking for updates...",
+            UpdateState::UpToDate if self.up_to_date_shown => "Sudoku is up to date",
+            UpdateState::CheckFailed | UpdateState::UpToDate => return None,
             UpdateState::Installing(_) => "Installing update...",
             UpdateState::Failed(..) => "Update failed",
             UpdateState::Installed => "Restart to apply update",
         })
     }
 
-    /// The text of the button.
-    pub fn button_text(&self) -> Option<String> {
+    /// The button of the update row, or `None` for a text (REQUIREMENTS.md §9.2).
+    pub fn button(&self) -> Option<UpdateButton> {
         match &self.state {
-            UpdateState::Available(m) => Some(format!("Update to {}", m.version)),
+            UpdateState::Available(m) => Some(UpdateButton::Install(format!("Update to {}", m.version))),
+            UpdateState::CheckFailed | UpdateState::UpToDate if !self.checking && !self.up_to_date_shown => Some(UpdateButton::Check),
             _ => None,
-        }
-    }
-
-    fn start_check(&mut self) {
-        if !self.checking && self.state != UpdateState::Off {
-            self.checking = true;
-            self.next_check = None;
-            self.request = Some(UpdateRequest::Check);
         }
     }
 
     /// Moves the timers to `now` (ms). True if the row changed.
     pub fn tick(&mut self, now: u64) -> bool {
-        if self.next_check.is_some_and(|t| now >= t) && !matches!(self.state, UpdateState::Installing(_) | UpdateState::Installed) {
-            self.start_check();
-        }
         if let UpdateState::Failed(m, at) = &self.state {
             if now >= at + FAILED_MS {
                 self.state = UpdateState::Available(m.clone());
@@ -307,29 +314,27 @@ impl Update {
         false
     }
 
-    /// The Settings panel opens: if all requests failed, try again now.
-    pub fn panel_opened(&mut self) {
-        if self.state == UpdateState::CheckFailed {
-            self.start_check();
-        }
+    /// The Settings panel closed: the row shows the button "Check for updates" again (UPD-9).
+    pub fn panel_closed(&mut self) {
+        self.up_to_date_shown = false;
     }
 
-    /// The result of a request (UPD-2, UPD-7).
-    pub fn checked(&mut self, result: Result<Manifest, String>, now: u64) {
+    /// The result of a request (UPD-2, UPD-7). `panel_open`: the Settings panel shows now. Then a
+    /// result with no update shows "Sudoku is up to date" until the panel closes (UPD-9).
+    pub fn checked(&mut self, result: Result<Manifest, String>, panel_open: bool) {
         self.checking = false;
         let current = parse_version(&self.current);
         let can_change = matches!(self.state, UpdateState::Unknown | UpdateState::CheckFailed | UpdateState::UpToDate | UpdateState::Available(_));
         match result {
             Ok(m) => {
-                self.next_check = Some(now + CHECK_INTERVAL_MS);
                 if can_change {
                     let newer = parse_version(&m.version).is_some_and(|v| current.is_some_and(|c| v > c));
                     self.state = if newer { UpdateState::Available(m) } else { UpdateState::UpToDate };
+                    self.up_to_date_shown = panel_open && self.state == UpdateState::UpToDate;
                 }
             }
             Err(e) => {
                 eprintln!("sudoku: cannot look for updates: {e}");
-                self.next_check = Some(now + RETRY_INTERVAL_MS);
                 if self.state == UpdateState::Unknown {
                     self.state = UpdateState::CheckFailed;
                 }
@@ -337,14 +342,24 @@ impl Update {
         }
     }
 
-    /// A tap on the button (UPD-5). True if an installation starts.
+    /// A tap on the button (UPD-5, UPD-9). "Update to v<version>" starts an installation, and
+    /// "Check for updates" sends a request. True if the row changed.
     pub fn tap(&mut self) -> bool {
-        if let UpdateState::Available(m) = &self.state {
-            self.request = Some(UpdateRequest::Install(m.clone()));
-            self.state = UpdateState::Installing(m.clone());
-            return true;
+        match self.button() {
+            Some(UpdateButton::Install(_)) => {
+                if let UpdateState::Available(m) = &self.state {
+                    self.request = Some(UpdateRequest::Install(m.clone()));
+                    self.state = UpdateState::Installing(m.clone());
+                }
+                true
+            }
+            Some(UpdateButton::Check) => {
+                self.checking = true;
+                self.request = Some(UpdateRequest::Check);
+                true
+            }
+            None => false,
         }
-        false
     }
 
     /// The result of an installation (UPD-6).
@@ -413,7 +428,7 @@ mod tests {
             assert_eq!(u.state, UpdateState::Off);
             assert_eq!(u.request, None);
             u.tick(u64::MAX / 2);
-            u.panel_opened();
+            assert!(!u.tap());
             assert_eq!(u.request, None);
             assert!(!u.has_row());
         }
@@ -427,31 +442,49 @@ mod tests {
         // UPD-2
         for (remote, want) in [("v0.1.0", false), ("v0.0.9", false), ("v0.1.1", true), ("v1.0.0", true)] {
             let mut u = Update::new("v0.1.0");
-            u.checked(Ok(manifest(remote, b"")), 0);
+            u.checked(Ok(manifest(remote, b"")), false);
             assert_eq!(matches!(u.state, UpdateState::Available(_)), want, "{remote}");
             assert_eq!(u.caution(), want);
         }
     }
 
     #[test]
-    fn requests_repeat_and_a_failure_keeps_the_last_result() {
-        // UPD-7
+    fn only_the_start_and_the_button_send_requests() {
+        // UPD-7, UPD-8, UPD-9
         let mut u = Update::new("v0.1.0");
-        u.request = None;
-        u.checked(Err("no network".into()), 1000);
+        assert_eq!(u.request.take(), Some(UpdateRequest::Check));
+        assert_eq!((u.row_text(), u.button()), (Some("Looking for updates..."), None));
+        u.checked(Err("no network".into()), true);
         assert_eq!(u.state, UpdateState::CheckFailed);
-        assert!(!u.tick(1000 + RETRY_INTERVAL_MS - 1));
+        assert!(!u.tick(u64::MAX / 2));
+        assert_eq!(u.request, None, "no automatic request after the start");
+        assert_eq!((u.row_text(), u.button()), (None, Some(UpdateButton::Check)));
+        assert!(u.tap());
+        assert_eq!(u.request.take(), Some(UpdateRequest::Check));
+        assert_eq!((u.row_text(), u.button()), (Some("Looking for updates..."), None));
+        assert!(!u.tap(), "one request at a time");
         assert_eq!(u.request, None);
-        u.panel_opened();
+        u.checked(Ok(manifest("v0.1.0", b"")), true);
+        assert_eq!(u.state, UpdateState::UpToDate);
+        assert_eq!((u.row_text(), u.button()), (Some("Sudoku is up to date"), None), "the panel is open");
+        assert!(!u.tap());
+        u.panel_closed();
+        assert_eq!(u.button().map(|b| b.text().to_string()).as_deref(), Some("Check for updates"));
+        assert!(u.tap());
         assert_eq!(u.request.take(), Some(UpdateRequest::Check));
-        u.panel_opened();
-        assert_eq!(u.request, None, "one request at a time");
-        u.checked(Ok(manifest("v0.2.0", b"")), 5000);
+        u.checked(Err("no network".into()), true);
+        assert_eq!(u.state, UpdateState::UpToDate, "a failure keeps the last result");
+        assert_eq!(u.button(), Some(UpdateButton::Check));
+        assert!(u.tap());
+        u.checked(Ok(manifest("v0.1.0", b"")), false);
+        assert_eq!(u.button(), Some(UpdateButton::Check), "the panel is closed: no text");
+        assert!(u.tap());
+        u.checked(Ok(manifest("v0.2.0", b"")), true);
         assert!(matches!(u.state, UpdateState::Available(_)));
-        u.tick(5000 + CHECK_INTERVAL_MS);
         assert_eq!(u.request.take(), Some(UpdateRequest::Check));
-        u.checked(Err("no network".into()), 6000);
-        assert!(matches!(u.state, UpdateState::Available(_)), "a failure keeps the button");
+        u.checked(Ok(manifest("v0.2.0", b"")), true);
+        u.tick(u64::MAX / 2);
+        assert_eq!(u.request, None);
     }
 
     #[test]
@@ -459,14 +492,14 @@ mod tests {
         // UPD-5, UPD-6
         let mut u = Update::new("v0.1.0");
         u.request = None;
-        assert!(!u.tap());
-        u.checked(Ok(manifest("v0.2.0", b"x")), 0);
-        assert_eq!(u.button_text().as_deref(), Some("Update to v0.2.0"));
+        assert!(!u.tap(), "no button while the first request is in progress");
+        u.checked(Ok(manifest("v0.2.0", b"x")), true);
+        assert_eq!(u.button(), Some(UpdateButton::Install("Update to v0.2.0".to_string())));
         assert!(u.tap());
         assert!(matches!(u.request.take(), Some(UpdateRequest::Install(_))));
         assert!(!u.tap(), "one installation at a time");
         assert_eq!(u.row_text(), Some("Installing update..."));
-        u.checked(Ok(manifest("v0.3.0", b"x")), 10);
+        u.checked(Ok(manifest("v0.3.0", b"x")), true);
         assert!(matches!(u.state, UpdateState::Installing(_)), "a request does not change an installation");
         u.installed(Err("checksum".into()), 100);
         assert_eq!(u.row_text(), Some("Update failed"));
@@ -477,7 +510,7 @@ mod tests {
         u.installed(Ok(()), 200);
         assert_eq!(u.row_text(), Some("Restart to apply update"));
         assert!(u.caution());
-        u.tick(200 + CHECK_INTERVAL_MS * 2);
+        u.tick(u64::MAX / 2);
         assert_eq!(u.request, None, "no requests after the installation");
     }
 

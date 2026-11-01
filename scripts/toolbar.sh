@@ -7,7 +7,8 @@
 #   screen-completed-menu.png menu open on a complete (locked) puzzle: undo and redo not available
 #   color-menu-right-handed.png  color-menu.png for a right-handed player (toolbar on the left)
 #   settings-menu.png         the Settings panel of a development build
-#   screen-toolbar-update.png, settings-update.png, settings-up-to-date.png  updates (stable build v0.1.0)
+#   screen-toolbar-update.png, settings-update.png, settings-up-to-date.png, settings-check-updates.png
+#                                                                             updates (stable build v0.1.0)
 # Top of the menu: menu button, cell colors, undo, redo. Bottom, from the bottom to the top: + (new game),
 # Analytics, Help.
 set -e
@@ -154,18 +155,19 @@ toolbar black colors
 compose screen-in-progress.png color-menu.png
 
 # settings_panel VERSION BOTTOM : the Settings panel: two rows (highlight numbers, remove pencil marks
-# automatically), both on, then the version in reMarkable Sans Regular, gray40, at the right. A stable build
+# automatically), both on, then the version in reMarkable Sans Regular, black, at the right. A stable build
 # has a fourth row for updates (BOTTOM 681, REQUIREMENTS.md §9.2).
 settings_panel() {
   panel 224 $2; divider 338; divider 452
   label $TX $((226+65)) start black "Highlight numbers"; switch $((PR-33)) $((226+56)) on
   label $TX $((340+49)) start black "Remove pencil marks"; label $TX $((340+81)) start black "automatically"; switch $((PR-33)) $((340+56)) on
   label $TX $((454+65)) start black "Version"
-  gray_text end $((PR-33)) $((454+65)) "$1"
+  regular_text end $((PR-33)) $((454+65)) "$1"
   [ $2 -gt 567 ] && divider 566
   return 0
 }
 gray_text() { echo "stroke none fill gray40 font '$DIGIT_FONT' font-size $UI_SIZE text-anchor $1 text $2,$3 '$4'" >> $M; }
+regular_text() { echo "stroke none fill black font '$DIGIT_FONT' font-size $UI_SIZE text-anchor $1 text $2,$3 '$4'" >> $M; }
 
 # caution : the red caution icon at the top right of the gear (slot 2): its center is 16 px to the right of
 # and 16 px above the center of the gear. A red circle with a white border and a white "!".
@@ -177,16 +179,27 @@ caution() {
     printf "stroke none fill white circle %.1f,%.1f %.1f,%.1f\n", x, y+5.5, x+1.6, y+5.5 }' >> $M
 }
 
-# update_button TEXT : the update button in the fourth row (top 568): a box with a 2 px border, 33 px from the
-# sides of the panel and from 22 px to 90 px below the top of the row, the update icon (a down arrow into a
-# tray) 40 px from the left of the box, and the text 72 px from the left of the box.
+# update_button TEXT [check] : the button in the fourth row (top 568): a box with a 2 px border, 33 px from
+# the sides of the panel and from 22 px to 90 px below the top of the row, the icon 40 px from the left of the
+# box, and the text 72 px from the left of the box. The icon of "Update to v<version>" is a down arrow into a
+# tray. The icon of "Check for updates" (check) is a circular arrow: an arc (radius 12 px) clockwise from
+# 0 to 255 degrees, a gap, and an arrow head on the circle at 330 degrees that points clockwise (two 8 px
+# strokes, 45 degrees to each side of the line back from its tip).
 update_button() {
   bx0=$((PL+33)); bx1=$((PR-33)); by0=$((568+22)); by1=$((568+90)); ix=$((bx0+40)); cy=$((568+56))
   echo "stroke none fill black rectangle $bx0,$by0 $bx1,$((by0+1)) rectangle $bx0,$((by1-1)) $bx1,$by1" >> $M
   echo "rectangle $bx0,$by0 $((bx0+1)),$by1 rectangle $((bx1-1)),$by0 $bx1,$by1" >> $M
-  echo "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round line $ix,$((cy-13)) $ix,$((cy+5))" >> $M
-  echo "polyline $((ix-8)),$((cy-3)) $ix,$((cy+5)) $((ix+8)),$((cy-3))" >> $M
-  echo "polyline $((ix-13)),$((cy+3)) $((ix-13)),$((cy+13)) $((ix+13)),$((cy+13)) $((ix+13)),$((cy+3))" >> $M
+  if [ "$2" = check ]; then
+    awk -v x=$ix -v y=$cy 'BEGIN{
+      r = atan2(0, -1) / 180; s = "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round polyline"
+      for (k = 0; k <= 17; k++) { a = 15*k * r; s = s sprintf(" %.2f,%.2f", x + 12*cos(a), y + 12*sin(a)) }
+      print s; ex = x + 12*cos(330*r); ey = y + 12*sin(330*r)
+      printf "polyline %.2f,%.2f %.2f,%.2f %.2f,%.2f\n", ex+8*cos(195*r), ey+8*sin(195*r), ex, ey, ex+8*cos(285*r), ey+8*sin(285*r) }' >> $M
+  else
+    echo "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round line $ix,$((cy-13)) $ix,$((cy+5))" >> $M
+    echo "polyline $((ix-8)),$((cy-3)) $ix,$((cy+5)) $((ix+8)),$((cy-3))" >> $M
+    echo "polyline $((ix-13)),$((cy+3)) $((ix-13)),$((cy+13)) $((ix+13)),$((cy+13)) $((ix+13)),$((cy+3))" >> $M
+  fi
   label $((bx0+72)) $((cy+9)) start black "$1"
 }
 
@@ -196,7 +209,9 @@ toolbar black settings
 compose screen-in-progress.png settings-menu.png
 
 # --- updates (REQUIREMENTS.md §9.2) for the stable build v0.1.0. v0.2.0 is available: the gear has the
-# caution icon, and the update row has the button. Then the same panel when the app is up to date.
+# caution icon, and the update row has the button. Then the same panel when the app is up to date: the text
+# "Sudoku is up to date" after a check while the panel is open, and the button "Check for updates" after the
+# panel closed and opened again.
 toolbar black ""; caution
 compose screen-in-progress.png screen-toolbar-update.png
 settings_panel v0.1.0 681; update_button "Update to v0.2.0"
@@ -205,6 +220,9 @@ compose screen-in-progress.png settings-update.png
 settings_panel v0.1.0 681; gray_text start $TX $((568+65)) "Sudoku is up to date"
 toolbar black settings
 compose screen-in-progress.png settings-up-to-date.png
+settings_panel v0.1.0 681; update_button "Check for updates" check
+toolbar black settings
+compose screen-in-progress.png settings-check-updates.png
 
 # --- complete puzzle: the board is locked, so undo and redo are not available
 toolbar gray70 ""

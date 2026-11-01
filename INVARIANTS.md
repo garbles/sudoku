@@ -88,6 +88,7 @@ Update
   current         : text                       (the version of the app: v<version>, pre-<sha> or dev)
   state           ∈ {Off, Unknown, CheckFailed, UpToDate, Available(v), Installing(v), Failed(v, at), Installed}
   checking        : bool                       (a request for version.json is in progress)
+  up_to_date_shown : bool                      (the row shows "Sudoku is up to date"; UPD-9)
 
 Palette = {Gray, White, Yellow, Blue, Red, Green, Cyan, Magenta, Orange}
 
@@ -313,7 +314,8 @@ Terms:
 | UPD-5 | Only a tap on the button in `state = Available(v)` starts an installation. The tap sets `state = Installing(v)`, and it does not change the game, the settings, the screen or the panel. At most one installation is in progress. | R§9.2 |
 | UPD-6 | When an installation fails, the app folder is the same as before the installation. `Failed(v, at)` becomes `Available(v)` 3 seconds after `at`. | R§9.2 |
 | UPD-7 | A result of a request changes only `Unknown`, `CheckFailed`, `UpToDate` and `Available`. A failed request changes only `Unknown` (to `CheckFailed`). At most one request is in progress (`checking`). | R§9.2 |
-| UPD-8 | The app does not keep `update`. When it opens, `state` is `Off` or `Unknown`, and a stable build sends a request. | R§9.2 |
+| UPD-8 | The app does not keep `update`. When it opens, `state` is `Off` or `Unknown`, and a stable build sends a request. `state = Unknown` only while this request is in progress. The app never sends a request by itself after this request. | R§9.2 (owner decision 2026-10-31) |
+| UPD-9 | The text "Sudoku is up to date" shows exactly when `up_to_date_shown`. `up_to_date_shown` becomes true only when a request finds no update while the Settings panel is open, and it becomes false when the panel closes (or the screen changes). It is true only when `state = UpToDate`, `checking` is false and the Settings panel is open. The button "Check for updates" shows exactly when `state ∈ {CheckFailed, UpToDate}`, `checking` is false and `up_to_date_shown` is false. A tap on it sets `checking` and sends one request. It does not change the game, the settings, the screen or the panel. `checking` is true only when `state ∈ {Unknown, CheckFailed, UpToDate}`. | R§9.2 (owner decision 2026-10-31) |
 
 ## 17. Rules to confirm
 

@@ -54,13 +54,13 @@ fn grid(rows: &[&str; 9]) -> [[u8; 9]; 9] {
 
 /// The game in progress of board-state.py, made with the same operations as a player.
 /// The update state of a stable build v0.1.0 (REQUIREMENTS.md §9.2): v0.2.0 is available, or the app
-/// is up to date.
+/// is up to date (a request with the Settings panel open found no update).
 pub fn update_state(available: bool) -> Update {
     let mut u = Update::new("v0.1.0");
     u.request = None;
     let version = if available { "v0.2.0" } else { "v0.1.0" };
     let m = Manifest { version: version.to_string(), url: String::new(), sha256: String::new() };
-    u.checked(Ok(m), 0);
+    u.checked(Ok(m), true);
     u
 }
 
@@ -183,6 +183,16 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             a.game.toggle_mark((8, 0), 1);
             a.game.undo();
             a.update = update_state(false);
+            a.ui.menu_open = true;
+            a.ui.panel = Panel::Settings
+        }),
+        ("settings-check-updates.png", |a| {
+            // UPD-9: the Settings panel closed after "Sudoku is up to date" and opened again.
+            a.game = sample_game();
+            a.game.toggle_mark((8, 0), 1);
+            a.game.undo();
+            a.update = update_state(false);
+            a.update.panel_closed();
             a.ui.menu_open = true;
             a.ui.panel = Panel::Settings
         }),

@@ -15,7 +15,7 @@ use crate::generator::MODES;
 use crate::layout::{self, *};
 use crate::settings::{Color, Section, Settings};
 use crate::store::ResultRow;
-use crate::update::Update;
+use crate::update::{Update, UpdateButton};
 
 pub type Rgb = [u8; 3];
 
@@ -875,7 +875,7 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
     c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
     let y = (r.y0 + 65) as f32;
     c.text(true, 25.0, (pl + 33) as f32, y, Anchor::Start, "Version", BLACK);
-    c.text(false, 25.0, (pr - 33) as f32, y, Anchor::End, &update.current, gray(40));
+    c.text(false, 25.0, (pr - 33) as f32, y, Anchor::End, &update.current, BLACK);
     if !update.has_row() {
         return;
     }
@@ -883,8 +883,8 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
     c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
     if let Some(text) = update.row_text() {
         c.text(false, 25.0, (pl + 33) as f32, (r.y0 + 65) as f32, Anchor::Start, text, gray(40));
-    } else if let Some(text) = update.button_text() {
-        // A box with a 2 px border, the update icon and the text.
+    } else if let Some(button) = update.button() {
+        // A box with a 2 px border, the icon and the text.
         let b = layout::update_button();
         let (x0, y0, x1, y1) = (b.x0 as f32, b.y0 as f32, b.x1 as f32, b.y1 as f32);
         c.rect(x0, y0, x1, y0 + 1.0, BLACK);
@@ -892,10 +892,32 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
         c.rect(x0, y0, x0 + 1.0, y1, BLACK);
         c.rect(x1 - 1.0, y0, x1, y1, BLACK);
         let (ix, cy) = (x0 + 40.0, (r.y0 + 56) as f32);
-        c.line(ix, cy - 13.0, ix, cy + 5.0, 3.0, BLACK);
-        c.polyline(&[(ix - 8.0, cy - 3.0), (ix, cy + 5.0), (ix + 8.0, cy - 3.0)], 3.0, BLACK, true);
-        c.polyline(&[(ix - 13.0, cy + 3.0), (ix - 13.0, cy + 13.0), (ix + 13.0, cy + 13.0), (ix + 13.0, cy + 3.0)], 3.0, BLACK, true);
-        c.text(true, 25.0, x0 + 72.0, cy + 9.0, Anchor::Start, &text, BLACK);
+        match button {
+            UpdateButton::Install(_) => {
+                // A down arrow into a tray.
+                c.line(ix, cy - 13.0, ix, cy + 5.0, 3.0, BLACK);
+                c.polyline(&[(ix - 8.0, cy - 3.0), (ix, cy + 5.0), (ix + 8.0, cy - 3.0)], 3.0, BLACK, true);
+                c.polyline(&[(ix - 13.0, cy + 3.0), (ix - 13.0, cy + 13.0), (ix + 13.0, cy + 13.0), (ix + 13.0, cy + 3.0)], 3.0, BLACK, true);
+            }
+            UpdateButton::Check => {
+                // A circular arrow: an arc (radius 12 px) clockwise from the right (0 degrees) through
+                // the bottom and the top to 255 degrees, then a gap, and an arrow head on the circle at
+                // 330 degrees. The head points clockwise along the circle: two 8 px strokes, 45 degrees
+                // to each side of the line back from its tip.
+                let arc: Vec<(f32, f32)> = (0..=17)
+                    .map(|k| {
+                        let a = (15.0 * k as f32).to_radians();
+                        (ix + 12.0 * a.cos(), cy + 12.0 * a.sin())
+                    })
+                    .collect();
+                c.polyline(&arc, 3.0, BLACK, true);
+                let t = 330f32.to_radians();
+                let (ex, ey) = (ix + 12.0 * t.cos(), cy + 12.0 * t.sin());
+                let wing = |deg: f32| (ex + 8.0 * deg.to_radians().cos(), ey + 8.0 * deg.to_radians().sin());
+                c.polyline(&[wing(195.0), (ex, ey), wing(285.0)], 3.0, BLACK, true);
+            }
+        }
+        c.text(true, 25.0, x0 + 72.0, cy + 9.0, Anchor::Start, button.text(), BLACK);
     }
 }
 

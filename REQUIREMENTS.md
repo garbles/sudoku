@@ -524,7 +524,7 @@ A stable build (`v<version>`) has a fourth row for updates ([§9.2](#92-updates)
 - A tap on a row changes its switch immediately. The panel stays open.
 - The version row has the name **Version** (reMarkable Sans Medium, 25 px, black) at the left. The
   version is at the right, 33 px from the right edge of the panel (reMarkable Sans Regular, 25 px,
-  `gray40`). A release build shows the version of its GitHub release (`pre-<sha>` or `v<version>`,
+  black; owner decision 2026-10-31). A release build shows the version of its GitHub release (`pre-<sha>` or `v<version>`,
   with the version of Cargo.toml). All other builds show `dev`. A tap on the version row has no effect, and the panel stays open
   (owner decision 2026-10-26).
 - A change of a switch does not change the board and is not a part of undo. It has an effect only on
@@ -558,9 +558,10 @@ The app has the public key in its program. It uses `version.json` only when the 
 correct. An update is available only when the version in `version.json` is newer than the version of
 the app (compare major, then minor, then patch). A version that is the same or older is not an update.
 
-- The app looks for an update when it opens, and then each 24 hours while it stays open.
-- If the app cannot get or examine the two files (for example, Wi-Fi is off), it tries again after
-  1 hour. When the Settings panel opens and the last attempt failed, the app tries again immediately.
+- The app looks for an update automatically only when it opens. After that, it looks for an update
+  only when the user taps the button **Check for updates** (owner decision 2026-10-31).
+- If the app cannot get or examine the two files (for example, Wi-Fi is off), it does not try again
+  automatically. The user can tap **Check for updates**.
 - The request runs in the background. It never stops the game or the input.
 - The app does not keep the result when it closes.
 
@@ -575,9 +576,10 @@ other rows. It shows one of these:
 
 | State | Row |
 |---|---|
-| The first attempt is not complete | "Looking for updates..." |
-| The attempts failed, and no attempt was successful | "Cannot look for updates" |
-| No update is available | "Sudoku is up to date" |
+| An attempt is not complete (when the app opens, or after a tap on **Check for updates**) | "Looking for updates..." |
+| The attempts failed, and no attempt was successful | The button **Check for updates** |
+| No update is available, and the attempt was complete while the Settings panel was open | "Sudoku is up to date", until the panel closes |
+| No update is available (all other cases) | The button **Check for updates** |
 | An update is available | The button **Update to v\<version\>** |
 | The update installs | "Installing update..." |
 | The installation failed | "Update failed" for 3 seconds, then the button again |
@@ -585,16 +587,27 @@ other rows. It shows one of these:
 
 - The text of a state is reMarkable Sans Regular, 25 px, `gray40`, at the left (33 px from the left
   edge of the panel). The baseline is 65 px below the top of the row.
-- The button has a black border of 2 px. It is 33 px from the left and the right edges of the panel,
-  and from 22 px to 90 px below the top of the row. It has an update icon at the left: a down arrow
-  into a tray (3 px round strokes, approximately 28 px), with its center 40 px from the left edge of
-  the button. The text (reMarkable Sans Medium, 25 px, black) starts 72 px from the left edge of the
-  button. Images: [`settings-update.png`](images/settings-update.png) and
-  [`settings-up-to-date.png`](images/settings-up-to-date.png).
-- A tap on the button starts the installation. A tap on the row in a different state has no effect.
-  The panel stays open, and the game does not change.
-- A later successful attempt changes the row only from "Looking for updates...", "Cannot look for
-  updates", "Sudoku is up to date" or the button. A failed attempt does not remove an earlier result.
+- The two buttons have a black border of 2 px. They are 33 px from the left and the right edges of
+  the panel, and from 22 px to 90 px below the top of the row. Each has an icon at the left (3 px
+  round strokes, approximately 28 px), with its center 40 px from the left edge of the button. The
+  text (reMarkable Sans Medium, 25 px, black) starts 72 px from the left edge of the button.
+  - **Update to v\<version\>** has an update icon: a down arrow into a tray. Image:
+    [`settings-update.png`](images/settings-update.png).
+  - **Check for updates** has a circular arrow: an arc with a radius of 12 px, clockwise from the
+    right through the bottom and the left to the top. After a gap, an arrow head at the top right of
+    the circle points clockwise along the circle. Image:
+    [`settings-check-updates.png`](images/settings-check-updates.png).
+- A tap on **Update to v\<version\>** starts the installation. A tap on **Check for updates** starts
+  one attempt, and the row shows "Looking for updates..." until the attempt is complete. If the
+  attempt finds no update, the row shows "Sudoku is up to date" until the Settings panel closes
+  (owner decision 2026-10-31). When the panel opens again, the row shows **Check for updates**.
+  Image: [`settings-up-to-date.png`](images/settings-up-to-date.png). A tap on
+  the row in a different state, or next to the button, has no effect. The panel stays open, and the
+  game does not change.
+- A later successful attempt changes the row only from "Looking for updates...", **Check for
+  updates** or **Update to v\<version\>**. A failed attempt does not remove an earlier result. After
+  a failed attempt, the row shows the button that it showed before the attempt (**Check for
+  updates** if no attempt was successful).
 - "Restart to apply update" is only a text. The user closes the app and opens it again from
   AppLoad. Then the new version operates.
 
@@ -1046,6 +1059,7 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`settings-menu.png`](images/settings-menu.png) | [§9.1](#91-settings-panel) |
 | [`settings-update.png`](images/settings-update.png) | [§9.2](#92-updates) |
 | [`settings-up-to-date.png`](images/settings-up-to-date.png) | [§9.2](#92-updates) |
+| [`settings-check-updates.png`](images/settings-check-updates.png) | [§9.2](#92-updates) |
 | [`screen-toolbar-update.png`](images/screen-toolbar-update.png) | [§9.2](#92-updates) |
 | [`analytics-delete-all.png`](images/analytics-delete-all.png) | [§13.1](#131-summary) |
 | `analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png` | [§3.3](#33-landscape), [§13](#13-statistics) |

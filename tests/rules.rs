@@ -918,20 +918,43 @@ fn the_update_button_starts_only_the_installation() {
 }
 
 #[test]
-fn the_settings_panel_tries_a_failed_check_again() {
-    // UPD-7: when all requests failed, the Settings panel starts a new request when it opens.
+fn the_check_button_sends_a_request() {
+    // UPD-8: the app does not look for updates again by itself. UPD-9: a tap on "Check for
+    // updates" sends one request, and it does not change the game, the settings or the panel.
     use sudoku::update::{Update, UpdateRequest, UpdateState};
     let mut d = Driver::new(57);
     d.app.update = Update::new("v0.1.0");
     assert_eq!(d.app.update.request.take(), Some(UpdateRequest::Check));
-    let now = d.now;
-    d.app.update_checked(Err("no network".into()), now);
+    d.app.update_checked(Err("no network".into()));
     assert_eq!(d.app.update.state, UpdateState::CheckFailed);
     open_settings(&mut d);
+    d.wait(3000);
+    assert_eq!(d.app.update.request, None, "no automatic request");
+    let board = |d: &Driver| (d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len(), d.app.settings.clone());
+    let before = board(&d);
+    let b = layout::update_button_area();
+    let (x, y) = ((b.x0 + b.x1) as f32 / 2.0, (b.y0 + b.y1) as f32 / 2.0);
+    d.finger_tap(x, y);
     assert_eq!(d.app.update.request.take(), Some(UpdateRequest::Check));
-    d.button(Button::Settings);
-    d.button(Button::Settings);
+    d.finger_tap(x, y);
     assert_eq!(d.app.update.request, None, "a request is in progress");
+    d.app.update_checked(Err("no network".into()));
+    d.finger_tap(x, y);
+    assert_eq!(d.app.update.request.take(), Some(UpdateRequest::Check));
+    assert_eq!((d.app.ui.panel, d.app.screen), (Panel::Settings, Screen::Game));
+    assert_eq!(board(&d), before);
+    // No update: "Sudoku is up to date" until the panel closes, then the button again.
+    let m = sudoku::update::Manifest { version: "v0.1.0".into(), url: String::new(), sha256: String::new() };
+    d.app.update_checked(Ok(m));
+    assert_eq!(d.app.update.row_text(), Some("Sudoku is up to date"));
+    d.finger_tap(x, y);
+    assert_eq!(d.app.update.request, None, "the text is not a button");
+    d.wait(60_000);
+    assert_eq!(d.app.update.row_text(), Some("Sudoku is up to date"), "the panel is still open");
+    d.button(Button::Settings);
+    assert_eq!(d.app.ui.panel, Panel::None);
+    open_settings(&mut d);
+    assert_eq!((d.app.update.row_text(), d.app.update.button().is_some()), (None, true));
 }
 
 #[test]

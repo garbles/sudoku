@@ -353,6 +353,10 @@ impl App {
                 other => self.touch = other,
             },
         }
+        // §9.2: "Sudoku is up to date" shows only until the Settings panel closes.
+        if self.ui.panel != Panel::Settings || self.screen != Screen::Game {
+            self.update.panel_closed();
+        }
         if before.is_some_and(|b| self.view_key() != b) {
             self.redraw = true;
         }
@@ -423,7 +427,7 @@ impl App {
             }
             match self.ui.panel {
                 Panel::Settings if layout::settings_panel(self.update.has_row()).contains(x, y) => {
-                    if self.update.button_text().is_some() && layout::update_button_area().contains(x, y) {
+                    if self.update.button().is_some() && layout::update_button_area().contains(x, y) {
                         return Gesture::Control(Target::Update);
                     }
                     return layout::settings_at(x, y).map(|i| Gesture::Control(Target::Switch(i))).unwrap_or(Gesture::Ignored);
@@ -763,7 +767,7 @@ impl App {
                 }
                 self.settings_dirty = true;
             }
-            // UPD-5: only the update state changes.
+            // UPD-5, UPD-9: only the update state changes.
             Target::Update => {
                 self.update.tap();
             }
@@ -816,9 +820,6 @@ impl App {
                 self.close_panel(); // DIF-3: the slider shows the last mode.
                 if open {
                     self.ui.panel = panel;
-                    if panel == Panel::Settings {
-                        self.update.panel_opened();
-                    }
                 }
             }
             Button::Undo => {
@@ -945,15 +946,15 @@ impl App {
         (self.manual_page, self.list.filter, self.list.page, self.list.confirm.as_ref().map(|r| r.id)).hash(&mut h);
         (self.settings.color_starting, self.settings.color_clash, self.settings.color_highlight).hash(&mut h);
         (self.settings.highlight_on, self.settings.auto_remove_on, self.confirm_all).hash(&mut h);
-        (&self.update.current, &self.update.state).hash(&mut h);
+        (&self.update.current, &self.update.state, self.update.checking, self.update.row_text()).hash(&mut h);
         self.results.len().hash(&mut h);
         self.results.iter().for_each(|r| r.id.hash(&mut h));
         h.finish()
     }
 
     /// The result of an update request from the platform (§9.2).
-    pub fn update_checked(&mut self, result: Result<Manifest, String>, now: u64) {
-        self.update.checked(result, now);
+    pub fn update_checked(&mut self, result: Result<Manifest, String>) {
+        self.update.checked(result, self.ui.panel == Panel::Settings && self.screen == Screen::Game);
         self.redraw = true;
     }
 
