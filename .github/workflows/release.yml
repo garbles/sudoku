@@ -1,19 +1,27 @@
-# Builds the app and makes a GitHub release with the AppLoad folder (sudoku-<version>.tar.gz),
-# version.json, version.json.sig and install.sh. install.sh has the version and the checksum of the
-# archive of its release. version.json gives the version, the download URL and the SHA-256
-# checksum of the archive. version.json.sig is the ed25519 signature of version.json with the private
-# key in the secret SUDOKU_SIGNING_KEY (PEM). The app installs an update only with a correct signature
-# (REQUIREMENTS.md §9.2). A stable release fails without the secret.
+# Tests, builds and releases the app for the reMarkable Paper Pro. One workflow, two events:
 #
-# - build.yml calls this workflow after each push to main. The result is the prerelease `pre-<sha>`.
+# - A push to main makes the prerelease `pre-<sha>` (a preview version).
 # - A manual run (workflow_dispatch) on main makes the stable release `v<version>`, with the version
 #   of Cargo.toml. If this tag is already on GitHub, the run fails. Increase the version first, or
 #   set the input `replace`: the run then deletes the old release and its tag, after the new build
 #   passes all tests. Only one stable run can operate at a time.
+#
+# Each run has two jobs:
+#
+# 1. media: Dockerfile.imagegen makes the images, the AppLoad icon and the demo videos again. They
+#    must be the same as the files in git.
+# 2. release: the Dockerfile runs all tests on aarch64 Linux and builds the app. Then the job makes
+#    a GitHub release with the AppLoad folder (sudoku-<version>.tar.gz), version.json,
+#    version.json.sig and install.sh. install.sh has the version and the checksum of the archive of
+#    its release. version.json gives the version, the download URL and the SHA-256 checksum of the
+#    archive. version.json.sig is the ed25519 signature of version.json with the private key in the
+#    secret SUDOKU_SIGNING_KEY (PEM). The app installs an update only with a correct signature
+#    (REQUIREMENTS.md §9.2). A stable release fails without the secret.
 name: Release
 
 on:
-  workflow_call:
+  push:
+    branches: [main]
   workflow_dispatch:
     inputs:
       replace:
@@ -24,20 +32,70 @@ on:
 permissions:
   contents: read
 
+# A new push to main cancels the run of an older push. A manual run is never canceled by a push.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.ref || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'push' }}
+
 jobs:
+  media:
+    # An arm64 runner builds the arm64 image without emulation.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # git does not contain the reMarkable Sans font (refer to scripts/fonts/README.md).
+      - name: Write the fonts
+        env:
+          FONT_REGULAR: ${{ secrets.SUDOKU_FONT_REGULAR }}
+          FONT_MEDIUM: ${{ secrets.SUDOKU_FONT_MEDIUM }}
+        run: |
+          if [ -z "$FONT_REGULAR" ] || [ -z "$FONT_MEDIUM" ]; then
+            echo "::error::The secrets SUDOKU_FONT_REGULAR and SUDOKU_FONT_MEDIUM are not set (refer to AGENTS.md)."
+            exit 1
+          fi
+          printf '%s' "$FONT_REGULAR" | base64 -d | gunzip > scripts/fonts/rmsans-400.ttf
+          printf '%s' "$FONT_MEDIUM" | base64 -d | gunzip > scripts/fonts/rmsans-500.ttf
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # Writes images/*.png, video/demo.mp4, video/demo.gif and video/demo-full.mp4 into the checkout.
+      - name: Make the images and the video
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.imagegen
+          platforms: linux/arm64
+          outputs: type=local,dest=.
+          cache-from: type=gha,scope=media
+          cache-to: type=gha,scope=media,mode=max
+
+      - name: Compare with the files in git
+        run: |
+          changes="$(git status --porcelain -- images video appload/sudoku/icon.png)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            echo "::error::The images, the icon or the video are not the same as the output of Dockerfile.imagegen. Make them again with Dockerfile.imagegen and commit them."
+            exit 1
+          fi
+
+  # When the images and the video are correct: all tests, the build and the release.
   release:
+    needs: media
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 45
     permissions:
       contents: write
-    # In a called workflow, github.event_name is the event of the caller (push).
     concurrency:
       group: ${{ github.event_name == 'workflow_dispatch' && 'release-stable' || format('release-pre-{0}', github.sha) }}
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
       STABLE: ${{ github.event_name == 'workflow_dispatch' }}
-      # Empty for a call from build.yml, because that call has no inputs.
+      # False for a push, because a push has no inputs.
       REPLACE: ${{ inputs.replace == true }}
     steps:
       - name: Stable releases only from main

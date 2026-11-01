@@ -72,16 +72,19 @@ docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + 
   for the website. When you change the first part of `video/demo.txt`, change `video/demo-full.txt`
   also.
 - `Dockerfile.imagegen` uses fixed versions of ImageMagick and ffmpeg, so each computer makes the same
-  files. The GitHub workflow makes `images/` and `video/` again on each push to `main`, and it fails
-  when they are not the same as the files in git. When you change them, run the imagegen build and
+  files. The **Release** workflow (`release.yml`, job `media`) makes `images/` and `video/` again in
+  each run, and it fails when they are not the same as the files in git. When you change them, run the imagegen build and
   commit the result.
 - Fonts in CI: git does not contain the reMarkable Sans files (`scripts/fonts/rmsans-*.ttf`). The
   secrets `SUDOKU_FONT_REGULAR` and `SUDOKU_FONT_MEDIUM` contain `rmsans-400.ttf` and
-  `rmsans-500.ttf`, compressed with gzip and encoded with base64 (`gzip -9c F | base64`). build.yml
-  and release.yml write the files before the Docker builds. Without the secrets, the run fails.
-- Prereleases: when all checks of a push to `main` pass, the workflow makes the prerelease
-  `pre-<sha>`.
-- Stable releases: the owner starts the **Release** workflow manually on `main`. The release gets
+  `rmsans-500.ttf`, compressed with gzip and encoded with base64 (`gzip -9c F | base64`). The two
+  jobs of release.yml write the files before the Docker builds. Without the secrets, the run fails.
+- One workflow, `release.yml` (**Release**), tests, builds and releases. It has two jobs: `media`
+  (the images, the icon and the videos must agree with git), then `release` (all tests on aarch64,
+  the build and the GitHub release). The event selects the type of release.
+- Prereleases (preview versions): each push to `main` runs the workflow. When all checks pass, it
+  makes the prerelease `pre-<sha>`. A new push cancels the run of an older push.
+- Stable releases: the owner starts the **Release** workflow manually (workflow_dispatch) on `main`. The release gets
   the name `v<version>`, with the version in `Cargo.toml`. Increase the version before each stable
   release. Use `cargo set-version --bump patch|minor|major` (from `cargo-edit`), not a manual edit.
   This command changes `Cargo.toml` and `Cargo.lock` together. Commit the two files. If the tag
