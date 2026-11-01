@@ -39,7 +39,7 @@ def peers(r, c):
 conflicts = {(r, c) for r in range(9) for c in range(9)
              if grid[r][c] and any(grid[i][j] == grid[r][c] for i, j in peers(r, c))}
 
-# the app removes pencil marks automatically, so a cell shows only its possible digits
+# the app hides pencil marks automatically, so a cell shows only its possible digits
 def candidates(r, c):
     used = set(grid[r]) | {grid[i][c] for i in range(9)}
     br, bc = r//3*3, c//3*3

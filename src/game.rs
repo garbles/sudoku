@@ -34,8 +34,15 @@ pub fn peers((r, c): Cell) -> impl Iterator<Item = Cell> {
 pub enum Change {
     /// Add or remove one pencil mark of an empty cell. The change is its own opposite.
     ToggleMark { cell: Cell, digit: u8 },
-    /// Add a number. `removed` gives the peer cells that lost the mark `digit` (automatic removal, §6.1).
-    AddNumber { cell: Cell, digit: u8, removed: Vec<Cell> },
+    /// Add a number. A new number does not change the marks of other cells: it only hides them
+    /// (§6.1). `removed` is always empty for a new number. Old saved games can have the peer cells
+    /// that lost the mark `digit` (the old automatic removal), thus undo and redo still use it.
+    AddNumber {
+        cell: Cell,
+        digit: u8,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        removed: Vec<Cell>,
+    },
     /// Erase your number.
     Erase { cell: Cell, digit: u8 },
 }
@@ -125,6 +132,26 @@ impl Game {
         self.is_filled(cell) && !self.is_given(cell)
     }
 
+    /// The digits of the numbers in the peers of a cell, as a set of marks.
+    pub fn peer_digits(&self, cell: Cell) -> Marks {
+        peers(cell).fold(0, |m, p| match self.value_at(p) {
+            0 => m,
+            v => m | mark_bit(v),
+        })
+    }
+
+    /// The marks that show in a cell. A filled cell shows no marks (MRK-2). If `hide`, a mark does
+    /// not show while a peer has its digit as a number (§6.1, MRK-4).
+    pub fn visible_marks(&self, cell: Cell, hide: bool) -> Marks {
+        if self.is_filled(cell) {
+            0
+        } else if hide {
+            self.marks_at(cell) & !self.peer_digits(cell)
+        } else {
+            self.marks_at(cell)
+        }
+    }
+
     /// The cell is filled and a peer has the same value (§6.3).
     pub fn is_clashing(&self, cell: Cell) -> bool {
         let v = self.value_at(cell);
@@ -153,31 +180,30 @@ impl Game {
         self.elapsed_ms / 1000
     }
 
-    /// A pen tap on an empty cell: add or remove the mark of that micro-cell.
+    /// A pen tap on an empty cell: add or remove the mark of that micro-cell. Automatic hiding is on.
     pub fn toggle_mark(&mut self, cell: Cell, digit: u8) -> Outcome {
+        self.toggle_mark_with(cell, digit, true)
+    }
+
+    /// A pen tap on an empty cell. If `hide` and a peer has `digit` as a number, the mark is hidden
+    /// (or would be hidden), thus the tap has no effect (MRK-7).
+    pub fn toggle_mark_with(&mut self, cell: Cell, digit: u8, hide: bool) -> Outcome {
         if self.completed || self.is_filled(cell) || !(1..=9).contains(&digit) {
+            return Outcome::NoChange;
+        }
+        if hide && self.peer_digits(cell) & mark_bit(digit) != 0 {
             return Outcome::NoChange;
         }
         self.record(Change::ToggleMark { cell, digit })
     }
 
-    /// Writing that the app reads as `digit` on an empty cell.
+    /// Writing that the app reads as `digit` on an empty cell. The marks of the peers do not change
+    /// (MRK-5). Automatic hiding is a part of the display (`visible_marks`).
     pub fn add_number(&mut self, cell: Cell, digit: u8) -> Outcome {
-        self.add_number_with(cell, digit, true)
-    }
-
-    /// Adds a number. If `auto_remove`, the change also removes the digit from the marks of the peers
-    /// (MRK-4); if not, it changes no other cell (MRK-9).
-    pub fn add_number_with(&mut self, cell: Cell, digit: u8, auto_remove: bool) -> Outcome {
         if self.completed || self.is_filled(cell) || !(1..=9).contains(&digit) {
             return Outcome::NoChange;
         }
-        let removed: Vec<Cell> = if auto_remove {
-            peers(cell).filter(|&p| self.marks_at(p) & mark_bit(digit) != 0).collect()
-        } else {
-            Vec::new()
-        };
-        self.record(Change::AddNumber { cell, digit, removed })
+        self.record(Change::AddNumber { cell, digit, removed: Vec::new() })
     }
 
     /// The eraser on a cell. Only your numbers change.
@@ -315,27 +341,43 @@ mod tests {
     }
 
     #[test]
-    fn add_number_removes_peer_marks_and_undo_restores() {
-        let mut g = sample(&[(0, 0), (0, 1), (1, 1), (8, 8)]);
+    fn add_number_hides_peer_marks_and_undo_shows_them() {
+        // MRK-4, MRK-5, UND-4
+        let mut g = sample(&cells().collect::<Vec<_>>());
         assert_eq!(g.toggle_mark((0, 1), 5), Outcome::Changed);
         assert_eq!(g.toggle_mark((8, 8), 5), Outcome::Changed);
         assert_eq!(g.add_number((0, 0), 5), Outcome::Changed);
-        assert_eq!(g.marks_at((0, 1)) & mark_bit(5), 0);
-        assert_ne!(g.marks_at((8, 8)) & mark_bit(5), 0, "not a peer");
+        assert_ne!(g.marks_at((0, 1)) & mark_bit(5), 0, "the mark is kept");
+        assert_eq!(g.visible_marks((0, 1), true) & mark_bit(5), 0, "the mark is hidden");
+        assert_ne!(g.visible_marks((0, 1), false) & mark_bit(5), 0, "the switch is off: it shows");
+        assert_ne!(g.visible_marks((8, 8), true) & mark_bit(5), 0, "not a peer");
         g.undo();
-        assert_ne!(g.marks_at((0, 1)) & mark_bit(5), 0);
+        assert_ne!(g.visible_marks((0, 1), true) & mark_bit(5), 0);
         assert_eq!(g.value_at((0, 0)), 0);
     }
 
     #[test]
-    fn eraser_does_not_restore_peer_marks() {
-        let mut g = sample(&[(0, 0), (0, 1), (8, 8)]);
+    fn eraser_shows_hidden_peer_marks_again() {
+        // MRK-6, MRK-8
+        let mut g = sample(&cells().collect::<Vec<_>>());
         g.toggle_mark((0, 1), 5);
         g.toggle_mark((0, 0), 3);
         g.add_number((0, 0), 5);
         g.erase((0, 0));
-        assert_eq!(g.marks_at((0, 1)) & mark_bit(5), 0);
-        assert_eq!(g.marks_at((0, 0)), mark_bit(3), "hidden marks show again");
+        assert_ne!(g.visible_marks((0, 1), true) & mark_bit(5), 0, "the peer mark shows again");
+        assert_eq!(g.visible_marks((0, 0), true), mark_bit(3), "hidden marks show again");
+    }
+
+    #[test]
+    fn tap_on_a_hidden_mark_has_no_effect() {
+        // MRK-7
+        let mut g = sample(&[(0, 0), (0, 1)]);
+        g.toggle_mark_with((0, 1), 5, false);
+        g.add_number((0, 0), 5);
+        assert_eq!(g.toggle_mark((0, 1), 5), Outcome::NoChange, "the mark is hidden");
+        assert_eq!(g.toggle_mark((0, 1), 4), Outcome::NoChange, "4 is a starting number in row 0");
+        assert_ne!(g.marks_at((0, 1)) & mark_bit(5), 0);
+        assert_eq!(g.toggle_mark_with((0, 1), 4, false), Outcome::Changed, "the switch is off");
     }
 
     #[test]

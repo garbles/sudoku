@@ -154,13 +154,13 @@ color_section 1008 "Highlighted numbers" "$HIGHLIGHT_BG" $STARTING_BG "$CLASH_BG
 toolbar black colors
 compose screen-in-progress.png color-menu.png
 
-# settings_panel VERSION BOTTOM : the Settings panel: two rows (highlight numbers, remove pencil marks
+# settings_panel VERSION BOTTOM : the Settings panel: two rows (highlight numbers, hide pencil marks
 # automatically), both on, then the version in reMarkable Sans Regular, black, at the right. A stable build
 # has a fourth row for updates (BOTTOM 681, REQUIREMENTS.md §9.2).
 settings_panel() {
   panel 224 $2; divider 338; divider 452
   label $TX $((226+65)) start black "Highlight numbers"; switch $((PR-33)) $((226+56)) on
-  label $TX $((340+49)) start black "Remove pencil marks"; label $TX $((340+81)) start black "automatically"; switch $((PR-33)) $((340+56)) on
+  label $TX $((340+49)) start black "Hide pencil marks"; label $TX $((340+81)) start black "automatically"; switch $((PR-33)) $((340+56)) on
   label $TX $((454+65)) start black "Version"
   regular_text end $((PR-33)) $((454+65)) "$1"
   [ $2 -gt 567 ] && divider 566

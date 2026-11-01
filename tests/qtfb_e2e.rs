@@ -160,7 +160,8 @@ fn the_executable_operates_through_qtfb() {
     assert!(wait_until(|| game_path.exists()));
     let g: Game = serde_json::from_slice(&std::fs::read(&game_path).unwrap()).unwrap();
     assert_eq!(g.mode, 2);
-    let cell = cells().find(|&c| !g.is_filled(c)).unwrap();
+    // An empty cell where no peer has the number 5 (MRK-7).
+    let cell = cells().find(|&c| !g.is_filled(c) && g.peer_digits(c) & mark_bit(5) == 0).unwrap();
     let (x, y) = sudoku::layout::cell_origin(cell);
 
     // A pen tap on micro-cell 5 adds a pencil mark.

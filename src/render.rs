@@ -702,7 +702,7 @@ fn cell_look(g: &Game, settings: &Settings, highlight: Option<u8>, question: Opt
     } else if question == Some(cell) {
         CellLook::Question
     } else {
-        CellLook::Empty(g.marks_at(cell))
+        CellLook::Empty(g.visible_marks(cell, settings.auto_hide_on))
     }
 }
 
@@ -857,7 +857,7 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
     panel_frame(c, pl, pr, p.y0, p.y1 - 1);
     let rows: [(&[&str], bool); 2] = [
         (&["Highlight numbers"], settings.highlight_on),
-        (&["Remove pencil marks", "automatically"], settings.auto_remove_on),
+        (&["Hide pencil marks", "automatically"], settings.auto_hide_on),
     ];
     for (i, (name, on)) in rows.iter().enumerate() {
         let r = layout::settings_row(i);

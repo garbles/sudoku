@@ -22,6 +22,19 @@ fn empty_cell(app: &App) -> Cell {
     cells().find(|&c| !app.game.is_filled(c)).unwrap()
 }
 
+/// An empty cell, an empty peer and the digit v of the solution of the cell. No peer of the peer
+/// has v as a number, thus a tap adds the mark v to the peer.
+fn cell_and_peer(app: &App) -> (Cell, Cell, u8) {
+    let g = &app.game;
+    cells()
+        .filter(|&c| !g.is_filled(c))
+        .find_map(|c| {
+            let v = g.solution[c.0 as usize][c.1 as usize];
+            peers(c).find(|&p| !g.is_filled(p) && g.peer_digits(p) & mark_bit(v) == 0).map(|p| (c, p, v))
+        })
+        .unwrap()
+}
+
 fn given_cell(app: &App) -> Cell {
     cells().find(|&c| app.game.is_given(c)).unwrap()
 }
@@ -42,7 +55,7 @@ fn first_start() {
 fn tap_adds_and_removes_marks() {
     // INP-3, MRK-5, UND-1
     let mut d = Driver::new(2);
-    let cell = empty_cell(&d.app);
+    let cell = free_cell(&d.app, &[3, 7]);
     d.tap_micro(cell, 7);
     assert_eq!(d.app.game.marks_at(cell), mark_bit(7));
     d.tap_micro(cell, 3);
@@ -53,11 +66,9 @@ fn tap_adds_and_removes_marks() {
 
 #[test]
 fn writing_adds_a_number_after_the_pause() {
-    // INP-5, INP-6, MRK-4, BRD-4
+    // INP-5, INP-6, MRK-4, MRK-5, BRD-4
     let mut d = Driver::new(3);
-    let cell = empty_cell(&d.app);
-    let v = d.app.game.solution[cell.0 as usize][cell.1 as usize];
-    let peer = peers(cell).find(|&p| !d.app.game.is_filled(p)).unwrap();
+    let (cell, peer, v) = cell_and_peer(&d.app);
     d.tap_micro(peer, v);
     d.tap_micro(cell, v);
     d.write_strokes(&digit_ink(cell, v));
@@ -66,13 +77,14 @@ fn writing_adds_a_number_after_the_pause() {
     d.wait(d.app.pause_ms + 10);
     assert!(d.app.ui.pending_ink.is_none());
     assert_eq!(d.app.game.value_at(cell), v);
-    assert_eq!(d.app.game.marks_at(peer) & mark_bit(v), 0, "MRK-4: peer mark removed");
+    assert_eq!(d.app.game.visible_marks(peer, true) & mark_bit(v), 0, "MRK-4: the peer mark is hidden");
+    assert_ne!(d.app.game.marks_at(peer) & mark_bit(v), 0, "MRK-5: the peer mark is kept");
     assert_ne!(d.app.game.marks_at(cell) & mark_bit(v), 0, "the marks of the cell are hidden, not removed");
-    // UND-4: undo puts the peer mark back.
+    // UND-4: undo shows the peer mark again.
     d.button(Button::Menu);
     d.button(Button::Undo);
     assert_eq!(d.app.game.value_at(cell), 0);
-    assert_ne!(d.app.game.marks_at(peer) & mark_bit(v), 0);
+    assert_ne!(d.app.game.visible_marks(peer, true) & mark_bit(v), 0);
 }
 
 #[test]
@@ -140,12 +152,12 @@ fn writing_on_a_number_has_no_effect() {
 fn eraser_removes_only_entries() {
     // INP-8, MRK-6, MRK-8
     let mut d = Driver::new(7);
-    let cell = empty_cell(&d.app);
-    let peer = peers(cell).find(|&p| !d.app.game.is_filled(p)).unwrap();
-    d.tap_micro(cell, 1);
-    d.tap_micro(peer, 6);
-    d.write(cell, 6);
-    assert_eq!(d.app.game.value_at(cell), 6);
+    let (cell, peer, v) = cell_and_peer(&d.app);
+    let other = (1..=9u8).find(|&m| m != v && d.app.game.peer_digits(cell) & mark_bit(m) == 0).unwrap();
+    d.tap_micro(cell, other);
+    d.tap_micro(peer, v);
+    d.write(cell, v);
+    assert_eq!(d.app.game.value_at(cell), v);
     let undo_len = d.app.game.undo.len();
     let given = given_cell(&d.app);
     d.erase(given);
@@ -153,8 +165,8 @@ fn eraser_removes_only_entries() {
     assert_eq!(d.app.game.undo.len(), undo_len, "no effect on starting numbers and empty cells");
     d.erase(cell);
     assert_eq!(d.app.game.value_at(cell), 0);
-    assert_eq!(d.app.game.marks_at(cell), mark_bit(1), "MRK-6: hidden marks show again");
-    assert_eq!(d.app.game.marks_at(peer) & mark_bit(6), 0, "MRK-8: the eraser does not put marks back");
+    assert_eq!(d.app.game.visible_marks(cell, true), mark_bit(other), "MRK-6: hidden marks show again");
+    assert_ne!(d.app.game.visible_marks(peer, true) & mark_bit(v), 0, "MRK-8: the peer mark shows again");
 }
 
 #[test]
@@ -649,7 +661,9 @@ fn a_short_touch_while_ink_waits_is_writing() {
 fn a_touch_in_a_different_cell_reads_the_waiting_ink() {
     // INP-12
     let mut d = Driver::new(23);
-    let cells: Vec<Cell> = cells().filter(|&c| !d.app.game.is_filled(c)).take(2).collect();
+    let free = free_cell(&d.app, &[3]);
+    let first = cells().find(|&c| !d.app.game.is_filled(c) && c != free).unwrap();
+    let cells: Vec<Cell> = vec![first, free];
     d.write_strokes(&digit_ink(cells[0], 6));
     d.tap_micro(cells[1], 3);
     assert!(d.app.ui.pending_ink.is_none());

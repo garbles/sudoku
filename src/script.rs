@@ -307,5 +307,12 @@ pub fn verify(app: &App, c: Check) -> Result<(), String> {
         Check::Value(cell, d) => app.game.value_at(cell) == d,
         Check::Color(s, color) => app.settings.color(s) == color,
     };
-    if ok { Ok(()) } else { Err(format!("the app does not show the expected result: {c:?}")) }
+    if ok {
+        Ok(())
+    } else if let Check::Marks(cell, _) = c {
+        let (v, m) = (app.game.value_at(cell), app.game.marks_at(cell));
+        Err(format!("the app does not show the expected result: {c:?} (value {v}, marks {m})"))
+    } else {
+        Err(format!("the app does not show the expected result: {c:?}"))
+    }
 }

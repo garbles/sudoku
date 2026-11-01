@@ -46,5 +46,5 @@ mark r6c1 1
 wait 1.0
 
 # 7. The last obvious number: r5c2 can only be 5.
-write r5c2 5                  # automatic removal takes the 5 out of r4c2
+write r5c2 5                  # automatic hiding hides the 5 in r4c2
 wait 2.5

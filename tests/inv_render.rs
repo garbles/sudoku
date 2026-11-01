@@ -145,6 +145,8 @@ fn each_mark_is_at_its_keypad_position() {
     const MARK_POS: [f32; 3] = [24.0, 74.0, 122.0];
     let fonts = fonts();
     let mut d = Driver::new(71);
+    // All nine digits: with the switch on, a digit of a peer would have no mark (MRK-7).
+    d.app.settings.auto_hide_on = false;
     let cell = empty_cell(&d);
     let (x, y) = layout::cell_origin(cell);
     let (xf, yf) = (x as f32, y as f32);
@@ -225,7 +227,7 @@ fn undo_and_redo_are_black_only_when_they_operate() {
     let fonts = fonts();
     let mut d = Driver::new(73);
     d.button(Button::Menu);
-    let cell = empty_cell(&d);
+    let cell = free_cell(&d.app, &[1, 2]);
     let check = |d: &mut Driver, undo: bool, redo: bool| {
         assert_eq!((d.app.game.can_undo(), d.app.game.can_redo()), (undo, redo));
         let pm = draw_app(&d.app, &fonts);

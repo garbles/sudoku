@@ -92,8 +92,9 @@ pub struct Settings {
     /// does not have them: then they are on.
     #[serde(default = "on")]
     pub highlight_on: bool,
-    #[serde(default = "on")]
-    pub auto_remove_on: bool,
+    /// Hide pencil marks automatically (§6.1). Earlier versions saved it as `auto_remove_on`.
+    #[serde(default = "on", alias = "auto_remove_on")]
+    pub auto_hide_on: bool,
 }
 
 fn on() -> bool {
@@ -108,7 +109,7 @@ impl Default for Settings {
             color_highlight: Color::Green,
             last_mode: FIRST_MODE,
             highlight_on: true,
-            auto_remove_on: true,
+            auto_hide_on: true,
         }
     }
 }
@@ -166,8 +167,19 @@ mod tests {
         // PER-3 for the settings files of an earlier version.
         let s: Settings =
             serde_json::from_str(r#"{"color_starting":"Gray","color_clash":"Red","color_highlight":"Green","last_mode":3}"#).unwrap();
-        assert!(s.highlight_on && s.auto_remove_on);
+        assert!(s.highlight_on && s.auto_hide_on);
         assert_eq!(s.last_mode, 3);
+    }
+
+    #[test]
+    fn the_old_name_of_the_hiding_switch_is_read() {
+        // PER-3: earlier versions saved the second switch as `auto_remove_on`.
+        let s: Settings = serde_json::from_str(
+            r#"{"color_starting":"Gray","color_clash":"Red","color_highlight":"Green","last_mode":3,"auto_remove_on":false}"#,
+        )
+        .unwrap();
+        assert!(s.highlight_on && !s.auto_hide_on);
+        assert!(serde_json::to_string(&s).unwrap().contains("\"auto_hide_on\":false"));
     }
 
     #[test]

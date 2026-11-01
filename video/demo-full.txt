@@ -49,7 +49,7 @@ mark r6c1 1
 wait 1.0
 
 # 7. The last obvious number: r5c2 can only be 5.
-write r5c2 5                  # automatic removal takes the 5 out of r4c2
+write r5c2 5                  # automatic hiding hides the 5 in r4c2
 wait 2.5
 
 # The rest of the game. Above, the player wrote fast. Now the player thinks between the steps.
@@ -63,11 +63,9 @@ wait 1.5
 
 # 9. The top-left box: 6 and 9 are missing.
 mark r1c2 6 9
-mark r2c2 6 9
-wait 1.2
-mark r2c2 9                   # row 2 has a 9 (r2c9): the player removes the pencil mark
-wait 0.8
-write r2c2 6                  # automatic removal takes the 6 out of r1c2
+mark r2c2 6                   # row 2 has a 9 (r2c9): a tap on the 9 has no effect
+wait 2.0
+write r2c2 6                  # automatic hiding hides the 6 in r1c2
 wait 0.6
 write r1c2 9
 wait 1.5
@@ -89,18 +87,18 @@ write r1c4 6
 wait 1.5
 
 # 11. The top-middle box: 2, 3 and 8 are missing.
-write r2c4 8                  # automatic removal takes the 8 out of r7c4 and r9c4
+write r2c4 8                  # automatic hiding hides the 8 in r7c4 and r9c4
 wait 1.0
-mark r2c5 2 3
+mark r2c5 2                   # column 5 has a 3 (r6c5): the player does not tap it
 mark r2c6 2 3
-wait 1.5                      # column 5 has a 3 (r6c5), thus r2c5 is 2
-write r2c5 2                  # automatic removal takes the 2 out of r2c6
+wait 1.5
+write r2c5 2                  # automatic hiding hides the 2 in r2c6
 wait 0.5
 write r2c6 3
 wait 1.5
 
 # 12. Column 4: r7c4 shows only 1 now.
-write r7c4 1                  # automatic removal takes the 1 out of r9c4
+write r7c4 1                  # automatic hiding hides the 1 in r9c4
 wait 0.5
 write r9c4 4
 wait 1.5
@@ -108,10 +106,10 @@ wait 1.5
 # 13. The center box: 1, 4, 5 and 6 are missing.
 mark r4c5 6
 mark r4c6 1 5
-mark r5c5 4 8
+mark r5c5 4
 mark r5c6 1
 wait 1.2
-write r5c6 1                  # automatic removal takes the 1 out of r4c6
+write r5c6 1                  # automatic hiding hides the 1 in r4c6
 write r4c6 5
 write r4c5 6
 write r5c5 4
@@ -135,12 +133,10 @@ write r6c8 6
 wait 1.5
 
 # 16. Row 7 and column 2.
-mark r7c2 8 9
+mark r7c2 8                   # column 2 has a 9 (r1c2): the player does not tap it
 mark r9c2 7 8
-wait 1.2
-mark r7c2 9                   # column 2 has a 9 (r1c2)
-wait 0.6
-write r7c2 8                  # automatic removal takes the 8 out of r9c2
+wait 1.8
+write r7c2 8                  # automatic hiding hides the 8 in r9c2
 write r9c2 7
 write r7c3 2
 write r7c7 9
@@ -148,9 +144,9 @@ wait 1.5
 
 # 17. Column 7: 1 and 6 are missing.
 mark r8c7 6
-mark r9c7 1 6
+mark r9c7 1                   # a peer has a 6: the player does not tap it
 wait 1.0
-write r8c7 6                  # automatic removal takes the 6 out of r9c7
+write r8c7 6
 write r9c7 1
 wait 1.2
 

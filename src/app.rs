@@ -135,7 +135,7 @@ enum Target {
     Bin(usize),
     DialogCancel,
     DialogDelete,
-    /// A row of the Settings panel (0: highlight numbers, 1: remove pencil marks automatically).
+    /// A row of the Settings panel (0: highlight numbers, 1: hide pencil marks automatically).
     Switch(usize),
     /// The button "Update to v<version>" (§9.2).
     Update,
@@ -571,7 +571,7 @@ impl App {
             // highlight if the switch is off.
             self.ui.highlight = if !self.settings.highlight_on || prev_highlight == Some(v) { None } else { Some(v) };
         } else {
-            let o = self.game.toggle_mark(cell, digit);
+            let o = self.game.toggle_mark_with(cell, digit, self.settings.auto_hide_on);
             self.after_game_change(o);
         }
     }
@@ -600,7 +600,7 @@ impl App {
         }
         match result {
             Some(d) => {
-                let o = self.game.add_number_with(ink.cell, d, self.settings.auto_remove_on);
+                let o = self.game.add_number(ink.cell, d);
                 self.after_game_change(o);
             }
             None => self.ui.question = Some((ink.cell, now)),
@@ -763,7 +763,7 @@ impl App {
                 if i == 0 {
                     self.settings.highlight_on = !self.settings.highlight_on;
                 } else {
-                    self.settings.auto_remove_on = !self.settings.auto_remove_on;
+                    self.settings.auto_hide_on = !self.settings.auto_hide_on;
                 }
                 self.settings_dirty = true;
             }
@@ -945,7 +945,7 @@ impl App {
         (pending + live).hash(&mut h);
         (self.manual_page, self.list.filter, self.list.page, self.list.confirm.as_ref().map(|r| r.id)).hash(&mut h);
         (self.settings.color_starting, self.settings.color_clash, self.settings.color_highlight).hash(&mut h);
-        (self.settings.highlight_on, self.settings.auto_remove_on, self.confirm_all).hash(&mut h);
+        (self.settings.highlight_on, self.settings.auto_hide_on, self.confirm_all).hash(&mut h);
         (&self.update.current, &self.update.state, self.update.checking, self.update.row_text()).hash(&mut h);
         self.results.len().hash(&mut h);
         self.results.iter().for_each(|r| r.id.hash(&mut h));

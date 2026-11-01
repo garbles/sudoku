@@ -68,16 +68,19 @@ fn starting_numbers_do_not_change() {
 }
 
 #[test]
-fn a_mark_for_a_digit_in_a_peer_stays() {
-    // MRK-7: the app removes marks only when you add a number.
+fn a_tap_on_a_digit_of_a_peer_has_no_effect() {
+    // MRK-7: the mark would be hidden, thus the tap does not change the marks. With the switch off,
+    // the tap adds the mark.
     let mut d = Driver::new(32);
     let given = cells().find(|&c| d.app.game.is_given(c)).unwrap();
     let v = d.app.game.value_at(given);
     let cell = peers(given).find(|&p| !d.app.game.is_filled(p)).unwrap();
     d.tap_micro(cell, v);
-    assert_ne!(d.app.game.marks_at(cell) & mark_bit(v), 0);
-    d.wait(5000);
-    assert_ne!(d.app.game.marks_at(cell) & mark_bit(v), 0);
+    assert_eq!(d.app.game.marks_at(cell) & mark_bit(v), 0);
+    assert!(d.app.game.undo.is_empty());
+    d.app.settings.auto_hide_on = false;
+    d.tap_micro(cell, v);
+    assert_ne!(d.app.game.visible_marks(cell, false) & mark_bit(v), 0);
 }
 
 #[test]
@@ -213,7 +216,7 @@ fn each_change_marks_the_data_for_saving() {
     // PER-7: the platform saves the game after each change and the settings after each change.
     let mut d = Driver::new(37);
     d.app.game_dirty = false;
-    d.tap_micro(empty_cell(&d), 5);
+    d.tap_micro(free_cell(&d.app, &[5]), 5);
     assert!(d.app.game_dirty);
     d.app.game_dirty = false;
     d.button(Button::Menu);
@@ -238,7 +241,7 @@ fn the_landscape_layout_operates() {
     layout::set_orientation(layout::Orientation::Landscape);
     let mut d = Driver::new(38);
     d.app.ng_stops = sudoku::render::ng_stops(&fonts());
-    let cell = empty_cell(&d);
+    let cell = free_cell(&d.app, &[9]);
     d.tap_micro(cell, 9);
     assert_eq!(d.app.game.marks_at(cell), mark_bit(9));
     d.write(cell, 6);
@@ -369,21 +372,29 @@ fn the_menu_button_and_the_close_button_only_close_a_panel() {
 }
 
 #[test]
-fn a_number_removes_the_hidden_marks_of_filled_peers() {
-    // MRK-4: also the hidden marks of a peer with a number lose the digit.
+fn a_number_hides_the_digit_in_the_marks_of_peers() {
+    // MRK-4, MRK-5, MRK-8: a number hides its digit in the marks of the peers, also in the hidden
+    // marks of a filled peer. When the number goes, the marks show again.
     let mut d = Driver::new(43);
-    let a = empty_cell(&d);
-    let p = peers(a).find(|&c| !d.app.game.is_filled(c)).unwrap();
+    let g = &d.app.game;
+    let free = |c: Cell, ds: &[u8]| ds.iter().all(|&x| g.peer_digits(c) & mark_bit(x) == 0);
+    let (a, p) = cells()
+        .filter(|&c| !g.is_filled(c) && free(c, &[7]))
+        .find_map(|a| peers(a).find(|&p| !g.is_filled(p) && free(p, &[2, 7])).map(|p| (a, p)))
+        .unwrap();
     d.tap_micro(p, 7);
     d.tap_micro(p, 2);
     d.write(p, 3);
     assert_eq!(d.app.game.value_at(p), 3);
     d.write(a, 7);
     assert_eq!(d.app.game.value_at(a), 7);
-    assert!(peers(a).all(|c| d.app.game.marks_at(c) & mark_bit(7) == 0), "no peer has the mark 7");
-    // The erasure shows the hidden marks without the removed mark.
+    assert!(peers(a).all(|c| d.app.game.visible_marks(c, true) & mark_bit(7) == 0), "no peer shows the mark 7");
+    assert_eq!(d.app.game.marks_at(p), mark_bit(2) | mark_bit(7), "the marks are kept");
+    // The erasure of p shows its marks, but 7 stays hidden while a has the number 7.
     d.erase(p);
-    assert_eq!(d.app.game.marks_at(p), mark_bit(2));
+    assert_eq!(d.app.game.visible_marks(p, true), mark_bit(2));
+    d.erase(a);
+    assert_eq!(d.app.game.visible_marks(p, true), mark_bit(2) | mark_bit(7));
 }
 
 #[test]
@@ -562,10 +573,10 @@ fn switches_change_only_the_settings() {
     open_settings(&mut d);
     let (x, y) = switch_point(0);
     d.finger_tap(x, y);
-    assert!(!d.app.settings.highlight_on && d.app.settings.auto_remove_on);
+    assert!(!d.app.settings.highlight_on && d.app.settings.auto_hide_on);
     let (x, y) = switch_point(1);
     d.pen_tap(x, y);
-    assert!(!d.app.settings.auto_remove_on);
+    assert!(!d.app.settings.auto_hide_on);
     assert_eq!(d.app.ui.panel, Panel::Settings, "the panel stays open");
     assert!(d.app.settings_dirty);
     assert_eq!((d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len()), before);
@@ -808,28 +819,35 @@ fn the_settings_panel_closes_as_the_other_panels() {
 
 #[test]
 fn a_switch_does_not_change_the_changes_in_the_history() {
-    // NAV-14, UND-4: a number that removed marks while the switch was on keeps them in its change.
-    // When the switch is off, undo puts the marks back and redo removes them again.
+    // NAV-14, MRK-9: the switch does not change the history or the marks. When it is off, the
+    // hidden marks show again. Undo and redo of the number do not change the marks of the peer.
     let mut d = Driver::new(55);
-    let cell = empty_cell(&d);
-    let v = d.app.game.solution[cell.0 as usize][cell.1 as usize];
-    let peer = peers(cell).find(|&p| !d.app.game.is_filled(p)).unwrap();
+    let g = &d.app.game;
+    let (cell, peer, v) = cells()
+        .filter(|&c| !g.is_filled(c))
+        .find_map(|c| {
+            let v = g.solution[c.0 as usize][c.1 as usize];
+            peers(c).find(|&p| !g.is_filled(p) && g.peer_digits(p) & mark_bit(v) == 0).map(|p| (c, p, v))
+        })
+        .unwrap();
     d.tap_micro(peer, v);
     d.write(cell, v);
-    assert_eq!(d.app.game.marks_at(peer) & mark_bit(v), 0);
+    assert_eq!(d.app.game.visible_marks(peer, true) & mark_bit(v), 0);
+    let marks = d.app.game.marks;
     let history = (d.app.game.undo.clone(), d.app.game.redo.clone());
     open_settings(&mut d);
     for i in [1, 0] {
         let (x, y) = switch_point(i);
         d.finger_tap(x, y);
     }
-    assert!(!d.app.settings.highlight_on && !d.app.settings.auto_remove_on);
-    assert_eq!((d.app.game.undo.clone(), d.app.game.redo.clone()), history);
+    assert!(!d.app.settings.highlight_on && !d.app.settings.auto_hide_on);
+    assert_eq!((d.app.game.undo.clone(), d.app.game.redo.clone(), d.app.game.marks), (history.0, history.1, marks));
+    assert_ne!(d.app.game.visible_marks(peer, false) & mark_bit(v), 0, "MRK-9: the mark shows");
     d.button(Button::Settings);
     d.button(Button::Undo);
-    assert_ne!(d.app.game.marks_at(peer) & mark_bit(v), 0, "undo puts the mark back");
+    assert_eq!(d.app.game.value_at(cell), 0);
     d.button(Button::Redo);
-    assert_eq!(d.app.game.marks_at(peer) & mark_bit(v), 0, "redo removes it again");
+    assert_eq!((d.app.game.value_at(cell), d.app.game.marks), (v, marks), "the marks do not change");
 }
 
 #[test]
@@ -851,7 +869,7 @@ fn the_switches_are_kept_when_the_app_opens_again() {
         Box::new(TestEnv { time: 0, seed: 1 }),
     );
     std::fs::remove_dir_all(&dir).ok();
-    assert!(!app.settings.highlight_on && !app.settings.auto_remove_on);
+    assert!(!app.settings.highlight_on && !app.settings.auto_hide_on);
     assert_eq!(app.settings, d.app.settings);
 }
 

@@ -18,11 +18,11 @@ paper, and it does the work that paper cannot do.
 
 **Helpers**
 
-- When you add a number, the app removes that digit from the pencil marks in the same row, column
-  and box.
+- When you add a number, the app hides that digit in the pencil marks in the same row, column
+  and box. If you erase the number, the marks show again.
 - When the same digit is two times in a row, column or box, the two cells change color.
 - Tap a number to highlight all cells with that digit.
-- You can turn the pencil mark removal and the highlights off. You can also select the cell colors.
+- You can turn the pencil mark hiding and the highlights off. You can also select the cell colors.
 - Undo and redo for all changes on the board.
 
 **Puzzles**

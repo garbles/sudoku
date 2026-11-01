@@ -19,7 +19,7 @@ document does not include unknown behavior.
 3. [The game screen](#3-the-game-screen)
 4. [Cells](#4-cells)
 5. [Pen and touch input](#5-pen-and-touch-input)
-6. [Helpers: pencil mark removal, highlights, clashes](#6-helpers-pencil-mark-removal-highlights-clashes)
+6. [Helpers: pencil mark hiding, highlights, clashes](#6-helpers-pencil-mark-hiding-highlights-clashes)
 7. [Undo and redo](#7-undo-and-redo)
 8. [Puzzle states and the clock](#8-puzzle-states-and-the-clock)
 9. [The menu](#9-the-menu)
@@ -192,8 +192,8 @@ stateDiagram-v2
     Empty --> Marked: tap a micro-cell (adds its digit)
     Marked --> Marked: tap a micro-cell (adds or removes its digit)
     Marked --> Empty: tap removes the last mark
-    Marked --> Marked: a number in a peer cell removes a mark (if the switch is on)
-    Marked --> Empty: a number in a peer cell removes the last mark (if the switch is on)
+    Marked --> Marked: a number in a peer cell hides a mark (if the switch is on)
+    Marked --> Empty: a number in a peer cell hides the last mark (if the switch is on)
 
     Empty --> Entry: write a number from 1 to 9
     Marked --> Entry: write a number from 1 to 9 (marks hidden)
@@ -248,7 +248,7 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
 - The **eraser** is the other end of the pen. When you rub it on your number, the app removes the
   number. The micro-cells and the pencil marks of that cell show again.
 - The eraser has no effect on other cells. It does not change starting numbers. It does not change
-  empty cells. Only a tap or a new number (automatic removal, §6.1) removes a pencil mark.
+  empty cells. Only a tap removes a pencil mark. A number only hides the marks of its peers (§6.1).
 - Pen input on a completed puzzle has no effect ([§8](#8-puzzle-states-and-the-clock)).
 
 Images: [`manual-candidates.png`](images/manual-candidates.png),
@@ -279,29 +279,31 @@ flowchart TD
     H -- yes --> X4[Remove the ink, no other effect]
     H -- no --> I[Collect the strokes until a short pause after the pen lifts, then read them]
     I --> J{Is it a number from 1 to 9?}
-    J -- yes --> K[Add the number, hide the marks of the cell, if Remove pencil marks automatically is on, remove the digit from the marks of the peer cells, find clashes, find completion]
+    J -- yes --> K[Add the number, hide the marks of the cell, if Hide pencil marks automatically is on, hide the digit in the marks of the peer cells, find clashes, find completion]
     J -- no --> L[Show ? for approximately one second, then show the cell as before]
 ```
 
 Each action also removes a highlight before the app does the action. A tap on a different number
 then makes a new highlight.
 
-## 6. Helpers: pencil mark removal, highlights, clashes
+## 6. Helpers: pencil mark hiding, highlights, clashes
 
-### 6.1 Automatic pencil mark removal
+### 6.1 Automatic pencil mark hiding
 
-When you add a number, the app removes that digit from the pencil marks of all other cells in the same
-row, column and 3×3 box. This includes the hidden marks of cells that have a number. Thus, if you
-erase one of those numbers, an incorrect mark does not show again. Undo of the number puts all of
-those marks back. Image: [`manual-helpers.png`](images/manual-helpers.png) (top).
+A pencil mark does not show while a cell in the same row, column or 3×3 box has the same digit as a
+number (a starting number or your number). The app does not remove the mark: it keeps it. When the
+number goes (the eraser or undo), the mark shows again (owner decision 2026-10-31). Image:
+[`manual-helpers.png`](images/manual-helpers.png) (top).
 
-- The app removes marks **only when you add a number**. If you add a mark later for a digit that is
-  already in the row, column or box, the mark stays. The app does not compare pencil marks with the
-  board. Only a tap removes such a mark.
-- **The eraser does not put marks back.** When you erase a number, the app shows only the hidden marks
-  of that cell. Marks that the number removed from other cells come back only with undo.
-- The player can turn automatic removal off in the Settings panel ([§9.1](#91-settings-panel)). Then a
-  new number does not change the marks of other cells.
+- A number does not change the pencil marks of other cells. It only hides them. Thus, the change of a
+  number in the undo history has no pencil marks.
+- A **tap on a micro-cell whose digit is a number in a peer** has no effect. The mark would be hidden,
+  thus the app does not add it, and it does not remove a hidden mark (owner decision 2026-10-31).
+- The player can turn automatic hiding off in the Settings panel ([§9.1](#91-settings-panel)). Then
+  all pencil marks of the empty cells show, and a tap on each micro-cell adds or removes its mark.
+  When the player turns it on again, the marks of the digits of peers are hidden again.
+- A game that was saved by an earlier version can have numbers in its undo history that removed
+  marks. Undo and redo of these numbers still put back and remove those marks.
 
 ### 6.2 Highlights
 
@@ -349,7 +351,7 @@ stateDiagram-v2
 - **Undo** cancels the last change to the board. **Redo** makes the last canceled change again.
 - These changes are a part of undo:
   - Add or remove a pencil mark.
-  - Add a number. This change includes the pencil marks that the number removed.
+  - Add a number. (A number does not change the pencil marks of other cells: it only hides them.)
   - Erase a number.
 - These actions are not changes to the board and are not a part of undo: highlights, the "?",
   color changes, switch changes, and the panels and screens that you open.
@@ -519,7 +521,7 @@ A stable build (`v<version>`) has a fourth row for updates ([§9.2](#92-updates)
 | Row | Default | When the switch is off |
 |---|---|---|
 | **Highlight numbers** | On | A tap on a number does not make a highlight ([§6.2](#62-highlights)). |
-| **Remove pencil marks automatically** | On | When you add a number, the app does not remove that digit from the pencil marks of the peers ([§6.1](#61-automatic-pencil-mark-removal)). |
+| **Hide pencil marks automatically** | On | All pencil marks of the empty cells show, also the digits that are numbers in the peers ([§6.1](#61-automatic-pencil-mark-hiding)). |
 
 - A tap on a row changes its switch immediately. The panel stays open.
 - The version row has the name **Version** (reMarkable Sans Medium, 25 px, black) at the left. The
@@ -527,16 +529,17 @@ A stable build (`v<version>`) has a fourth row for updates ([§9.2](#92-updates)
   black; owner decision 2026-10-31). A release build shows the version of its GitHub release (`pre-<sha>` or `v<version>`,
   with the version of Cargo.toml). All other builds show `dev`. A tap on the version row has no effect, and the panel stays open
   (owner decision 2026-10-26).
-- A change of a switch does not change the board and is not a part of undo. It has an effect only on
-  the next actions. Changes that are already in the undo history do not change.
+- A change of a switch does not change the board and is not a part of undo. The highlight switch has
+  an effect only on the next actions. The hiding switch changes immediately which pencil marks show.
+  Changes that are already in the undo history do not change.
 - The app keeps the switches when you close the app ([§14.2](#142-settings-kept-when-the-app-closes)).
 - A switch that is on is a black track with a white knob at the right. A switch that is off is a white
   track with a black border and a black knob at the left. The track is 72×36 px with a 3 px border, and
   the knob has a diameter of 28 px. The switch ends 33 px from the right edge of the panel.
 - While the panel is open, the gear is white on a black square (as the button of each panel).
 - The switches are in a panel, and the menu removes the highlight when it opens. Thus a change of a
-  switch never changes a highlight that shows. When automatic removal is turned on again, the app does
-  not remove marks that are already on the board.
+  switch never changes a highlight that shows. A change of the hiding switch changes only which marks
+  show ([§6.1](#61-automatic-pencil-mark-hiding)). It does not change the marks.
 - The Highlighted numbers color stays available in the Cell colors panel when highlights are off.
 
 Image: [`settings-menu.png`](images/settings-menu.png).
@@ -728,7 +731,7 @@ stateDiagram-v2
 | 2 | [`manual-candidates.png`](images/manual-candidates.png) | Micro-cells and pencil marks: how to add and remove them. |
 | 3 | [`manual-pen.png`](images/manual-pen.png) | How to write and erase a number. |
 | 4 | [`manual-pen-rules.png`](images/manual-pen-rules.png) | Taps, finger touches, one number for each cell, writing with no effect, the "?". |
-| 5 | [`manual-helpers.png`](images/manual-helpers.png) | Automatic pencil mark removal and highlights. You can turn each helper off in the Settings panel. |
+| 5 | [`manual-helpers.png`](images/manual-helpers.png) | Automatic pencil mark hiding and highlights. You can turn each helper off in the Settings panel. |
 | 6 | [`manual-mistakes.png`](images/manual-mistakes.png) | Clashes and how to correct them. |
 | 7 | [`manual-menu.png`](images/manual-menu.png) | All the menu buttons, how to select colors and the two settings. |
 | 8 | [`manual-new-game.png`](images/manual-new-game.png) | How to start a new game, and the meter of the current difficulty. |
@@ -866,8 +869,9 @@ The app adds a row when a puzzle is complete. Only the bin in the games list and
 
 - The starting-number color, the clash color and the highlight color.
 - The last selected difficulty mode (default: mode 2).
-- The two switches of the Settings panel: highlight numbers (default: on) and remove pencil marks
-  automatically (default: on).
+- The two switches of the Settings panel: highlight numbers (default: on) and hide pencil marks
+  automatically (default: on). A settings file of an earlier version has the name `auto_remove_on`
+  for the second switch. The app reads it.
 
 ### 14.3 Game in progress (kept when the app closes)
 
@@ -1034,7 +1038,7 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`screen.png`](images/screen.png) | [§3](#3-the-game-screen) |
 | [`box.png`](images/box.png) | [§3.1](#31-layout) |
 | [`cell.png`](images/cell.png) | [§3.1](#31-layout) |
-| [`screen-in-progress.png`](images/screen-in-progress.png) | [§3.2](#32-game-screen-states), [§6](#6-helpers-pencil-mark-removal-highlights-clashes) |
+| [`screen-in-progress.png`](images/screen-in-progress.png) | [§3.2](#32-game-screen-states), [§6](#6-helpers-pencil-mark-hiding-highlights-clashes) |
 | [`screen-highlight.png`](images/screen-highlight.png) | [§6.2](#62-highlights) |
 | [`screen-unrecognized.png`](images/screen-unrecognized.png) | [§5](#5-pen-and-touch-input) |
 | [`screen-completed.png`](images/screen-completed.png) | [§8.3](#83-complete) |
@@ -1050,7 +1054,7 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`manual-candidates.png`](images/manual-candidates.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
 | [`manual-pen.png`](images/manual-pen.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
 | [`manual-pen-rules.png`](images/manual-pen-rules.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
-| [`manual-helpers.png`](images/manual-helpers.png) | [§6](#6-helpers-pencil-mark-removal-highlights-clashes), [§12](#12-manual-help) |
+| [`manual-helpers.png`](images/manual-helpers.png) | [§6](#6-helpers-pencil-mark-hiding-highlights-clashes), [§12](#12-manual-help) |
 | [`manual-mistakes.png`](images/manual-mistakes.png) | [§6.3](#63-clashes), [§12](#12-manual-help) |
 | [`manual-menu.png`](images/manual-menu.png) | [§9](#9-the-menu), [§12](#12-manual-help) |
 | [`manual-new-game.png`](images/manual-new-game.png) | [§11](#11-new-game-panel-and-difficulty), [§12](#12-manual-help) |

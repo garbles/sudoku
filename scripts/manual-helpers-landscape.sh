@@ -8,11 +8,11 @@ UI=$1
 
 text 72 170 84 black start "Helpers"
 
-text 72 290 50 black start "Automatic pencil mark removal"
-text 72 355 38 gray25 start "When you write a number, the app removes"
-text 72 405 38 gray25 start "that digit from the pencil marks in the"
+text 72 290 50 black start "Automatic pencil mark hiding"
+text 72 355 38 gray25 start "When you write a number, the app hides"
+text 72 405 38 gray25 start "that digit in the pencil marks in the"
 text 72 455 38 gray25 start "same row, column and box."
-text 72 505 38 gray25 start "Use undo to show the removed marks again."
+text 72 505 38 gray25 start "Erase the number to show them again."
 FIVE='M 95,30 L 50,30 L 45,68 C 70,58 100,68 98,92 C 96,118 62,124 42,108'
 Y=560
 cell 150 $Y "3 5" ""; ink 150 $Y "$FIVE"; cell 325 $Y "1 5 7" ""; cell 500 $Y "5 9" ""
@@ -20,7 +20,7 @@ text 412 $((Y+CW+45)) 34 gray25 middle "Write a 5 in a row"
 varrow 412 $((Y+CW+65)) $((Y+CW+145))
 Y=$((Y+CW+165))
 filled 150 $Y 5 "" gray35; cell 325 $Y "1 7" ""; cell 500 $Y "9" ""
-text 412 $((Y+CW+45)) 34 gray25 middle "The app removes the other 5s"
+text 412 $((Y+CW+45)) 34 gray25 middle "The app hides the other 5s"
 
 text 972 290 50 black start "Highlight a number"
 text 972 355 38 gray25 start "Tap a number with the pen. All cells with"

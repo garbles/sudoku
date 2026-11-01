@@ -105,7 +105,7 @@ fn settings_and_last_mode_are_kept_when_the_app_opens_again() {
     let s = d.app.settings.clone();
     assert_eq!((s.color_starting, s.color_clash, s.color_highlight), (Color::Yellow, Color::Red, Color::Magenta));
     assert_eq!(s.last_mode, 4);
-    assert!(!s.highlight_on && !s.auto_remove_on);
+    assert!(!s.highlight_on && !s.auto_hide_on);
     assert!(d.app.settings_dirty, "PER-7: Start new game changes the settings");
 
     let dir = data_dir("settings");
@@ -314,8 +314,9 @@ fn a_saved_game_whose_history_does_not_give_the_board_is_not_used() {
 
 #[test]
 fn a_saved_number_with_a_wrong_list_of_removed_marks_is_not_used() {
-    // PER-5, MRK-4, MRK-9: the `removed` list of AddNumber is all peers with the mark, or no cell.
-    // Here it also has a peer without the mark.
+    // PER-5, MRK-5: a new number has no `removed` list. A game of an earlier version can have one
+    // (the old automatic removal): then it is all peers with the mark. Here it also has a peer
+    // without the mark.
     let mut base = new_game(903, 2);
     let (cell, p1, p2) = cells()
         .filter(|&c| !base.is_filled(c))
@@ -327,18 +328,21 @@ fn a_saved_number_with_a_wrong_list_of_removed_marks_is_not_used() {
     let d = base.solution[cell.0 as usize][cell.1 as usize];
     base.toggle_mark(p1, d);
     base.add_number(cell, d);
-    assert_eq!(base.undo.last(), Some(&Change::AddNumber { cell, digit: d, removed: vec![p1] }));
+    assert_eq!(base.undo.last(), Some(&Change::AddNumber { cell, digit: d, removed: vec![] }));
+    assert_ne!(base.marks_at(p1) & mark_bit(d), 0, "MRK-5: the number keeps the peer mark");
     assert!(check_game(&base).is_ok());
-    let mut bad = base.clone();
-    *bad.undo.last_mut().unwrap() = Change::AddNumber { cell, digit: d, removed: vec![p1, p2] };
-    assert_rejected(&base, &bad, "MRK-4", "removed-list-wrong");
+    assert_eq!(open_app(Some(base.clone()), None, ResultsDb::in_memory(), 5).game, base);
 
-    // The same number with automatic removal off (MRK-9) is correct.
-    let mut off = new_game(903, 2);
-    off.toggle_mark(p1, d);
-    off.add_number_with(cell, d, false);
-    assert!(check_game(&off).is_ok());
-    assert_eq!(open_app(Some(off.clone()), None, ResultsDb::in_memory(), 5).game, off);
+    // A game of an earlier version: the number removed the mark of p1.
+    let mut old = base.clone();
+    *old.undo.last_mut().unwrap() = Change::AddNumber { cell, digit: d, removed: vec![p1] };
+    old.marks[p1.0 as usize][p1.1 as usize] &= !mark_bit(d);
+    assert!(check_game(&old).is_ok());
+    assert_eq!(open_app(Some(old.clone()), None, ResultsDb::in_memory(), 5).game, old);
+
+    let mut bad = old.clone();
+    *bad.undo.last_mut().unwrap() = Change::AddNumber { cell, digit: d, removed: vec![p1, p2] };
+    assert_rejected(&old, &bad, "MRK-4", "removed-list-wrong");
 }
 
 #[test]
@@ -416,7 +420,7 @@ fn each_change_of_the_board_and_the_settings_is_marked_for_saving() {
         d.app.game_dirty = false;
         d.app.settings_dirty = false;
     };
-    let cell = empty_cell(&d.app);
+    let cell = free_cell(&d.app, &[5]);
     type Step = (&'static str, fn(&mut Driver, Cell), bool, bool);
     let steps: [Step; 9] = [
         ("mark", |d, c| d.tap_micro(c, 5), true, false),
@@ -446,7 +450,7 @@ fn each_change_of_the_board_and_the_settings_is_marked_for_saving() {
         step(&mut d, cell);
         assert_eq!((d.app.game_dirty, d.app.settings_dirty), (game, settings), "{name}");
     }
-    assert_eq!((d.app.game.mode, d.app.settings.color_clash, d.app.settings.auto_remove_on), (0, Color::Orange, false));
+    assert_eq!((d.app.game.mode, d.app.settings.color_clash, d.app.settings.auto_hide_on), (0, Color::Orange, false));
     // A finger on the board and a tap on a starting number change nothing that is saved.
     clear(&mut d);
     let (x, y) = micro_center(empty_cell(&d.app), 5);

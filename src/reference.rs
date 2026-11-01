@@ -137,7 +137,7 @@ pub fn states() -> Vec<(&'static str, Setup)> {
         ("color-menu.png", |a| {
             // The image shows undo and redo in black: a change was undone.
             a.game = sample_game();
-            a.game.toggle_mark((8, 0), 1);
+            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
             a.game.undo();
             a.ui.menu_open = true;
             a.ui.panel = Panel::Colors
@@ -146,7 +146,7 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             // The same state as color-menu.png, for a right-handed player (REQUIREMENTS.md §3.1).
             crate::layout::set_right_handed(true);
             a.game = sample_game();
-            a.game.toggle_mark((8, 0), 1);
+            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
             a.game.undo();
             a.ui.menu_open = true;
             a.ui.panel = Panel::Colors
@@ -157,7 +157,7 @@ pub fn states() -> Vec<(&'static str, Setup)> {
         }),
         ("settings-menu.png", |a| {
             a.game = sample_game();
-            a.game.toggle_mark((8, 0), 1);
+            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
             a.game.undo();
             a.ui.menu_open = true;
             a.ui.panel = Panel::Settings
@@ -165,14 +165,14 @@ pub fn states() -> Vec<(&'static str, Setup)> {
         ("screen-toolbar-update.png", |a| {
             // REQUIREMENTS.md §9.2: an update is available, and the gear has the caution icon.
             a.game = sample_game();
-            a.game.toggle_mark((8, 0), 1);
+            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
             a.game.undo();
             a.update = update_state(true);
             a.ui.menu_open = true
         }),
         ("settings-update.png", |a| {
             a.game = sample_game();
-            a.game.toggle_mark((8, 0), 1);
+            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
             a.game.undo();
             a.update = update_state(true);
             a.ui.menu_open = true;
@@ -180,7 +180,7 @@ pub fn states() -> Vec<(&'static str, Setup)> {
         }),
         ("settings-up-to-date.png", |a| {
             a.game = sample_game();
-            a.game.toggle_mark((8, 0), 1);
+            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
             a.game.undo();
             a.update = update_state(false);
             a.ui.menu_open = true;
@@ -189,7 +189,7 @@ pub fn states() -> Vec<(&'static str, Setup)> {
         ("settings-check-updates.png", |a| {
             // UPD-9: the Settings panel closed after "Sudoku is up to date" and opened again.
             a.game = sample_game();
-            a.game.toggle_mark((8, 0), 1);
+            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
             a.game.undo();
             a.update = update_state(false);
             a.update.panel_closed();

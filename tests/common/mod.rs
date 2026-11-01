@@ -173,3 +173,12 @@ pub fn solve(d: &mut Driver) {
         }
     }
 }
+
+/// An empty cell where no peer has one of `digits` as a number. A tap adds a mark for each of these
+/// digits (MRK-7: a tap on a hidden mark has no effect).
+pub fn free_cell(app: &App, digits: &[u8]) -> Cell {
+    let g = &app.game;
+    sudoku::game::cells()
+        .find(|&c| !g.is_filled(c) && digits.iter().all(|&d| g.peer_digits(c) & sudoku::game::mark_bit(d) == 0))
+        .expect("an empty cell with these free digits")
+}

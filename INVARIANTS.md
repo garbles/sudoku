@@ -82,7 +82,7 @@ Settings
   color_starting, color_clash, color_highlight ∈ Palette
   last_mode       ∈ 0..6
   highlight_on    : bool                       (Settings panel; default true)
-  auto_remove_on  : bool                       (Settings panel; default true)
+  auto_hide_on    : bool                       (Settings panel; default true)
 
 Update
   current         : text                       (the version of the app: v<version>, pre-<sha> or dev)
@@ -135,12 +135,12 @@ Terms:
 | MRK-1 | `marks[r][c] ⊆ {1..9}`. Each mark is at its keypad position (1 at the top left, 9 at the bottom right). | R§3.1 |
 | MRK-2 | Marks **show only when the cell is empty**. A filled cell can have marks, but they are hidden. | R§4.1 |
 | MRK-3 | Starting numbers never have marks. You can add marks only to empty cells, and starting numbers are never empty. | R§4.1 |
-| MRK-4 | **Automatic removal:** if `auto_remove_on`, after you add a number d at (r, c), no peer of (r, c) has d in its marks. This applies to visible marks (empty peers) and to hidden marks (filled peers). | R§6.1 |
-| MRK-5 | Marks change only in these ways: a pen tap adds or removes one mark in an empty cell; a new number removes marks (MRK-4); undo and redo of these changes. The eraser never changes marks. | R§5.1, R§6.1, R§7 |
+| MRK-4 | **Automatic hiding:** if `auto_hide_on`, an empty cell shows the marks `marks[r][c]` minus the digits of the numbers in its peers. A filled peer keeps its hidden marks with no change. | R§6.1 |
+| MRK-5 | Marks change only in these ways: a pen tap adds or removes one mark in an empty cell; undo and redo of these changes. A new number, the eraser and the switches never change marks. Exception: undo and redo of a number of an earlier version that has a `removed` list (R§6.1). | R§5.1, R§6.1, R§7 |
 | MRK-6 | When you erase or undo a number, the hidden marks of that cell show again with no change. | R§4.1 |
-| MRK-7 | A mark does not have to be a possible digit. You can add a mark for a digit that is already in a peer. The app removes marks only when you add a number. | R§6.1 |
-| MRK-8 | When you erase a number, the app does not put back the marks that the number removed from other cells. Only undo puts them back (UND-4). | R§6.1 |
-| MRK-9 | If `¬auto_remove_on`, a new number does not change the marks of any other cell. The change has no removed marks, and its undo and redo change only that cell. | R§6.1, R§9.1 |
+| MRK-7 | If `auto_hide_on`, a tap on micro-cell d of a cell has no effect when a peer has the number d. If `¬auto_hide_on`, the tap adds or removes the mark d. A mark does not have to be a possible digit. | R§6.1 (owner decision 2026-10-31) |
+| MRK-8 | When you erase or undo a number d, the marks d of its peers show again, if no other peer of those cells has the number d. | R§6.1 (owner decision 2026-10-31) |
+| MRK-9 | If `¬auto_hide_on`, each empty cell shows all of `marks[r][c]`. A new number never has removed marks, and its undo and redo change only that cell. | R§6.1, R§9.1 |
 
 ## 4. Clashes
 
@@ -193,7 +193,7 @@ Terms:
 | UND-1 | Each change to the board is one of these: add or remove a mark; add a number (with the marks that it removes, as one change); erase a number. Each change adds one item to `undo` and empties `redo`. | R§7 |
 | UND-2 | No other action adds to `undo`. Highlights, the "?", color changes, switch changes, panels and screens never add to it. | R§7 |
 | UND-3 | Undo does the exact opposite of the top change and moves the change to `redo`. Redo does the change again and moves it back to `undo`. An undo and then a redo give the same board as before. A redo and then an undo also give the same board. | R§7 |
-| UND-4 | Undo of a number puts back all marks that the number removed (MRK-4). It also shows the hidden marks of that cell again. | R§6.1 |
+| UND-4 | Undo of a number shows the hidden marks of that cell again, and the marks of the peers that the number hid (MRK-8). For a number of an earlier version with a `removed` list, undo puts back those marks. | R§6.1 |
 | UND-5 | After each undo or redo, CLS-1 is true. The app calculates the clashes again. | R§6.3 |
 | UND-6 | A new game sets `undo = redo = ∅`. | R§7 |
 | UND-7 | The undo button is black only if `can_undo`. The redo button is black only if `can_redo`. In all other conditions, the button is gray and has no effect. | R§7 |
@@ -238,7 +238,7 @@ Terms:
 | NAV-10 | The closed menu never covers the board. The open toolbar (portrait x ≥ 1508, landscape x ≥ 2048) never covers the board (portrait x ≤ 1471, landscape x ≤ 1741). An open panel can cover a part of the board. | R§3.1, R§3.3 |
 | NAV-15 | When the device is right-handed, the game screen shows the toolbar, the menu button, the close button and the panels as a mirror image of the left-handed screen: the toolbar is at the left edge (x 0–112), the close button is at the top right, and the panels touch the toolbar at x 112. The icons other than the menu button and the contents of the panels are the same. The hit areas move with the buttons. | R§3.1 (owner request 2026-10-26) |
 | NAV-13 | A turn of the tablet does not change the game, the settings or the screen. It removes only the pending ink and the touches in progress. | R§3.3 (confirmed 2026-10-25) |
-| NAV-14 | The Settings panel opens from the gear (top slot 2). A tap on a row changes only its switch (`highlight_on` or `auto_remove_on`), immediately; the panel stays open. A tap on the version row (row 3) changes nothing, and the panel stays open. A change of a switch does not change the game or the undo and redo stacks, and it does not change the changes that are already in the stacks. | R§9.1 (version row: owner decision 2026-10-26) |
+| NAV-14 | The Settings panel opens from the gear (top slot 2). A tap on a row changes only its switch (`highlight_on` or `auto_hide_on`), immediately; the panel stays open. A tap on the version row (row 3) changes nothing, and the panel stays open. A change of a switch does not change the game or the undo and redo stacks, and it does not change the changes that are already in the stacks. | R§9.1 (version row: owner decision 2026-10-26) |
 | NAV-11 | When `panel ≠ None`, a tap outside the panel only sets `panel = None`. It does not change the game, also when the tap is on the board. When `menu = Open` and `panel = None`, the board operates as usual. | R§9 |
 | NAV-12 | When `panel ≠ None`, a tap on a toolbar button that is not the paint bucket, the gear or the + only closes the panel. A tap on the button of a different panel opens that panel. This includes the menu button and the close button. | R§9 (confirmed 2026-10-25) |
 
@@ -297,7 +297,7 @@ Terms:
 |---|---|---|
 | PER-1 | At each point where the app can close or be suspended, the saved game is equal to the game in memory: `seed`, `mode`, starting numbers, `value`, `marks`, the two stacks, `elapsed` and `completed`. | R§14.3 |
 | PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Closed`, `panel = None`, `highlight = None`, `question = None` and `pending_ink = None`. | R§14.3 |
-| PER-3 | The settings (`color_*`, `last_mode`, `highlight_on` and `auto_remove_on`) stay the same when the app closes and opens again. | R§14.2 |
+| PER-3 | The settings (`color_*`, `last_mode`, `highlight_on` and `auto_hide_on`) stay the same when the app closes and opens again. | R§14.2 |
 | PER-4 | `results` stays the same when the app closes and opens again. Only ANA-2 changes it. | R§14.1 |
 | PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. When the app opens, it does not use saved data that breaks a rule (PUZ-5, ANA-1). A saved history that play cannot make, but that agrees with UND-3, is correct: each undo and redo item still changes the board. | — (confirmed 2026-10-25) |
 | PER-6 | If the app closes during the recognition pause, the app removes the ink. The app never reads it later. | R§14.3 |
