@@ -217,7 +217,7 @@ impl Board {
         self.cand[i]
     }
 
-    pub fn is_solved(&self) -> bool {
+    fn is_solved(&self) -> bool {
         self.empty == 0
     }
 

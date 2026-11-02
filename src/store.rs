@@ -25,7 +25,7 @@ pub const RESULTS_FILE: &str = "results.sqlite";
 
 /// The seeds of the test results (`ResultsDb::test_results`). The generator never makes them for a
 /// player, because a player's seed is a random 64-bit value.
-pub const TEST_SEEDS: std::ops::RangeInclusive<i64> = 9_000_000_001..=9_000_000_014;
+const TEST_SEEDS: std::ops::RangeInclusive<i64> = 9_000_000_001..=9_000_000_014;
 
 /// A result before the database gives it an id.
 #[derive(Clone, Debug, PartialEq, Eq)]

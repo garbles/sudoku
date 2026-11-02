@@ -6,10 +6,11 @@ mod common;
 
 use common::*;
 use proptest::prelude::*;
-use sudoku::app::{Input, Panel, Screen};
+use sudoku::app::{Input, Menu, Panel, Screen};
 use sudoku::game::Game;
 use sudoku::invariants::check_app;
 use sudoku::layout::{self, Button};
+use sudoku::settings::{Color, Section, Switch};
 
 #[derive(Clone, Debug)]
 enum Act {
@@ -29,13 +30,13 @@ enum Act {
     /// Opens the New game panel, selects a mode and maybe starts a new game.
     NewGame(u8, bool),
     /// Opens the Cell colors panel and taps a color.
-    PickColor(u8, u8),
+    PickColor(Section, Color),
     /// A tap on a control of the analytics screens.
     ListControl(u8),
     /// Goes to the games list, taps a bin and maybe confirms the dialog.
     DeleteFlow(u8, Option<bool>),
     /// Opens the Settings panel and taps a switch.
-    Switch(u8),
+    Switch(Switch),
     /// Goes to the statistics, taps "Delete all games" and maybe confirms.
     DeleteAllFlow(Option<bool>),
 }
@@ -57,10 +58,11 @@ fn act() -> impl Strategy<Value = Act> {
         1 => Just(Act::Solve),
         1 => Just(Act::Suspend),
         1 => (0..5u8, any::<bool>()).prop_map(|(m, s)| Act::NewGame(m, s)),
-        2 => (0..3u8, 0..9u8).prop_map(|(s, i)| Act::PickColor(s, i)),
+        // u8 ranges, so that a seed in properties.proptest-regressions gives the same acts.
+        2 => (0..3u8, 0..9u8).prop_map(|(s, i)| Act::PickColor(Section::ALL[s as usize], Color::ALL[i as usize])),
         4 => (0..22u8).prop_map(Act::ListControl),
         1 => (0..12u8, proptest::option::of(any::<bool>())).prop_map(|(i, c)| Act::DeleteFlow(i, c)),
-        2 => (0..2u8).prop_map(Act::Switch),
+        2 => (0..2u8).prop_map(|i| Act::Switch(Switch::ALL[i as usize])),
         1 => proptest::option::of(any::<bool>()).prop_map(Act::DeleteAllFlow),
     ]
 }
@@ -104,7 +106,7 @@ fn run(d: &mut Driver, a: &Act) {
         Act::Swipe(left) => d.swipe(left),
         Act::Wait(ms) => d.wait(ms as u64),
         Act::UndoRedo => {
-            if d.app.screen == Screen::Game && d.app.ui.menu_open && d.app.ui.panel == Panel::None && d.app.ui.pending_ink.is_none() && d.app.game.can_undo() {
+            if d.app.screen == Screen::Game && d.app.ui.menu == Menu::Open(None) && d.app.ui.pending_ink.is_none() && d.app.game.can_undo() {
                 let before = board(&d.app.game);
                 d.button(Button::Undo);
                 d.button(Button::Redo);
@@ -113,9 +115,9 @@ fn run(d: &mut Driver, a: &Act) {
             }
         }
         Act::Solve => {
-            if d.app.screen == Screen::Game && d.app.ui.panel == Panel::None && !d.app.game.completed {
+            if d.app.screen == Screen::Game && d.app.ui.menu.panel().is_none() && !d.app.game.completed {
                 // Close the menu, so that no cell is below a panel.
-                if d.app.ui.menu_open {
+                if d.app.ui.menu.is_open() {
                     d.button(Button::Menu);
                 }
                 solve(d);
@@ -130,10 +132,10 @@ fn run(d: &mut Driver, a: &Act) {
             if d.app.screen != Screen::Game {
                 return;
             }
-            if !d.app.ui.menu_open {
+            if !d.app.ui.menu.is_open() {
                 d.button(Button::Menu);
             }
-            if d.app.ui.panel != Panel::NewGame {
+            if d.app.ui.menu.panel() != Some(Panel::NewGame) {
                 d.button(Button::NewGame);
             }
             let x = d.app.ng_stops[mode as usize];
@@ -142,78 +144,75 @@ fn run(d: &mut Driver, a: &Act) {
                 d.finger_tap(1100.0, (layout::tb_bottom_y() + 56) as f32);
             }
         }
-        Act::PickColor(section, i) => {
+        Act::PickColor(section, color) => {
             if d.app.screen != Screen::Game {
                 return;
             }
-            if !d.app.ui.menu_open {
+            if !d.app.ui.menu.is_open() {
                 d.button(Button::Menu);
             }
-            if d.app.ui.panel != Panel::Colors {
+            if d.app.ui.menu.panel() != Some(Panel::Colors) {
                 d.button(Button::Colors);
             }
-            let (gx, gy) = layout::color_cell(section as usize, i as usize);
-            d.pen_tap(gx as f32 + 56.0, gy as f32 + 40.0);
+            let (x, y) = color_point(section, color);
+            d.pen_tap(x, y);
         }
         Act::DeleteFlow(i, confirm) => {
-            let center = |r: layout::Rect| (((r.x0 + r.x1) / 2) as f32, ((r.y0 + r.y1) / 2) as f32);
             if d.app.screen == Screen::Game {
-                if d.app.ui.panel != Panel::None {
+                if d.app.ui.menu.panel().is_some() {
                     d.button(Button::Menu);
                 }
-                if !d.app.ui.menu_open {
+                if !d.app.ui.menu.is_open() {
                     d.button(Button::Menu);
                 }
                 d.button(Button::Statistics);
             }
             if d.app.screen == Screen::Statistics {
-                let (x, y) = center(layout::all_games_button());
+                let (x, y) = pixel_center(layout::all_games_button());
                 d.finger_tap(x, y);
             }
             if d.app.screen == Screen::GamesList && d.app.list.confirm.is_none() {
-                let (x, y) = center(layout::bin_button(i as usize));
+                let (x, y) = pixel_center(layout::bin_button(i as usize));
                 d.finger_tap(x, y);
             }
             if let Some(c) = confirm {
-                let (x, y) = center(if c { layout::dialog_delete() } else { layout::dialog_cancel() });
+                let (x, y) = pixel_center(if c { layout::dialog_delete() } else { layout::dialog_cancel() });
                 d.finger_tap(x, y);
             }
         }
-        Act::Switch(i) => {
+        Act::Switch(s) => {
             if d.app.screen != Screen::Game {
                 return;
             }
-            if !d.app.ui.menu_open {
+            if !d.app.ui.menu.is_open() {
                 d.button(Button::Menu);
             }
-            if d.app.ui.panel != Panel::Settings {
+            if d.app.ui.menu.panel() != Some(Panel::Settings) {
                 d.button(Button::Settings);
             }
-            let r = layout::settings_row(i as usize);
-            d.finger_tap((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0);
+            let (x, y) = switch_point(s);
+            d.finger_tap(x, y);
         }
         Act::DeleteAllFlow(confirm) => {
-            let center = |r: layout::Rect| (((r.x0 + r.x1) / 2) as f32, ((r.y0 + r.y1) / 2) as f32);
             if d.app.screen == Screen::Game {
-                if d.app.ui.panel != Panel::None {
+                if d.app.ui.menu.panel().is_some() {
                     d.button(Button::Menu);
                 }
-                if !d.app.ui.menu_open {
+                if !d.app.ui.menu.is_open() {
                     d.button(Button::Menu);
                 }
                 d.button(Button::Statistics);
             }
             if d.app.screen == Screen::Statistics {
-                let (x, y) = center(layout::delete_all_button());
+                let (x, y) = pixel_center(layout::delete_all_button());
                 d.finger_tap(x, y);
                 if let Some(c) = confirm {
-                    let (x, y) = center(if c { layout::dialog_delete() } else { layout::dialog_cancel() });
+                    let (x, y) = pixel_center(if c { layout::dialog_delete() } else { layout::dialog_cancel() });
                     d.finger_tap(x, y);
                 }
             }
         }
         Act::ListControl(k) => {
-            let center = |r: layout::Rect| (((r.x0 + r.x1) / 2) as f32, ((r.y0 + r.y1) / 2) as f32);
             let r = match k {
                 0 => layout::back_button(),
                 1 => layout::all_games_button(),
@@ -221,10 +220,10 @@ fn run(d: &mut Driver, a: &Act) {
                 3 => layout::next_arrow(),
                 4 => layout::dialog_cancel(),
                 5 => layout::dialog_delete(),
-                6..=11 => layout::filter_segment(k as usize - 6),
+                6..=11 => layout::filter_segment(layout::list_filters().nth(k as usize - 6).unwrap()),
                 _ => layout::bin_button(k as usize - 12),
             };
-            let (x, y) = center(r);
+            let (x, y) = pixel_center(r);
             d.finger_tap(x, y);
         }
     }
@@ -235,7 +234,7 @@ fn is_not_a_board_action(a: &Act, d: &Driver) -> bool {
     match a {
         Act::FingerBoard(..) | Act::Swipe(_) | Act::Suspend => true,
         Act::Button(i) => matches!(BUTTONS[*i as usize], Button::Menu | Button::Colors | Button::Help | Button::Statistics | Button::Close)
-            || (BUTTONS[*i as usize] == Button::NewGame && d.app.ui.panel != Panel::NewGame),
+            || (BUTTONS[*i as usize] == Button::NewGame && d.app.ui.menu.panel() != Some(Panel::NewGame)),
         Act::Wait(_) | Act::PickColor(..) | Act::Switch(_) => true,
         Act::DeleteAllFlow(_) => d.app.screen != Screen::Game || d.app.ui.pending_ink.is_none(),
         Act::ListControl(_) => d.app.screen != Screen::Game,
@@ -330,9 +329,9 @@ fn touch_with_two_fingers_uses_only_the_first() {
     d.send(Input::TouchDown { id: 1, x: 1563.0, y: 55.0 });
     d.send(Input::TouchDown { id: 2, x: 1563.0, y: 55.0 });
     d.send(Input::TouchUp { id: 2, x: 1563.0, y: 55.0 });
-    assert!(!d.app.ui.menu_open);
+    assert!(!d.app.ui.menu.is_open());
     d.send(Input::TouchUp { id: 1, x: 1563.0, y: 55.0 });
-    assert!(d.app.ui.menu_open);
+    assert!(d.app.ui.menu.is_open());
 }
 
 #[test]
@@ -353,9 +352,9 @@ fn coverage_of_states() {
             mark("completed", a.game.completed);
             mark("highlight", a.ui.highlight.is_some());
             mark("question", a.ui.question.is_some());
-            mark("menu", a.ui.menu_open);
-            mark("colors", a.ui.panel == Panel::Colors);
-            mark("newgame", a.ui.panel == Panel::NewGame);
+            mark("menu", a.ui.menu.is_open());
+            mark("colors", a.ui.menu.panel() == Some(Panel::Colors));
+            mark("newgame", a.ui.menu.panel() == Some(Panel::NewGame));
             mark("manual", a.screen == Screen::Manual);
             mark("manual>1", a.manual_page > 1);
             mark("analytics", a.screen == Screen::Statistics);
@@ -390,8 +389,7 @@ proptest! {
     /// the platform can skip the full drawing.
     #[test]
     fn no_redraw_means_no_change_on_the_screen(seed in any::<u64>(), acts in proptest::collection::vec(act(), 1..30)) {
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let fonts = sudoku::font::Fonts::from_files(&root.join("scripts/fonts/rmsans-400.ttf"), &root.join("scripts/fonts/rmsans-500.ttf")).unwrap();
+        let fonts = sudoku::font::Fonts::repo().unwrap();
         let mut d = Driver::new(seed);
         d.app.ng_stops = sudoku::render::ng_stops(&fonts);
         let mut last = render_without_ink(&mut d.app, &fonts);

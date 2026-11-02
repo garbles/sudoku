@@ -3,10 +3,10 @@
 //!
 //! Rules about a sequence of states (for example CLK-2 or UND-3) are in the tests.
 
-use crate::app::{App, Panel, Screen, MANUAL_PAGES};
+use crate::app::{App, Menu, Panel, Screen, MANUAL_PAGES};
 use crate::game::{cells, Change, Game};
 use crate::generator::{count_solutions, is_valid_solution, MODES, V1_MODES, VERSION};
-use crate::update::{has_updates, is_update, UpdateState};
+use crate::update::{has_updates, is_update, PatchChange, UpToDateRow, UpdateState};
 
 fn fail(rule: &str, msg: impl std::fmt::Display) -> Result<(), String> {
     Err(format!("{rule}: {msg}"))
@@ -117,7 +117,7 @@ pub fn check_app(app: &App) -> Result<(), String> {
     if let Some(h) = ui.highlight {
         ensure!((1..=9).contains(&h), "HLT-2", "highlight {h}");
         ensure!(!g.completed, "HLT-1", "highlight on a complete game");
-        ensure!(app.screen == Screen::Game && ui.panel == Panel::None, "HLT-4", "highlight with a panel or a different screen");
+        ensure!(app.screen == Screen::Game && ui.menu.panel().is_none(), "HLT-4", "highlight with a panel or a different screen");
     }
     if let Some((cell, _)) = ui.question {
         ensure!(!g.is_filled(cell), "QST-1", "the ? is on a filled cell");
@@ -131,12 +131,12 @@ pub fn check_app(app: &App) -> Result<(), String> {
     if g.completed {
         ensure!(ui.highlight.is_none() && ui.question.is_none() && ui.pending_ink.is_none(), "CMP-3", "overlay on a complete game");
     }
-    ensure!(ui.panel == Panel::None || ui.menu_open, "NAV-4", "a panel is open and the menu is closed");
+    // NAV-4: the type `Menu` keeps a panel only in `Menu::Open`.
     if app.screen != Screen::Game {
-        ensure!(!ui.menu_open && ui.panel == Panel::None, "NAV-5", "the menu is open on screen {:?}", app.screen);
+        ensure!(ui.menu == Menu::Closed, "NAV-5", "the menu is open on screen {:?}", app.screen);
     }
     ensure!(ui.slider < MODES && app.settings.last_mode < MODES, "DIF-1", "slider or last mode out of range");
-    if ui.panel != Panel::NewGame {
+    if ui.menu.panel() != Some(Panel::NewGame) {
         ensure!(ui.slider == app.settings.last_mode, "DIF-4", "the slider keeps a selection after the panel closed");
     }
     ensure!(app.settings.is_valid(), "COL-5", "settings {:?}", app.settings);
@@ -170,23 +170,19 @@ pub fn check_app(app: &App) -> Result<(), String> {
     if let UpdateState::Available(m) | UpdateState::Installing(m) | UpdateState::Failed(m, _) = &u.state {
         ensure!(is_update(&m.version, &u.current), "UPD-2", "{} is not an update for {}", m.version, u.current);
     }
+    // UPD-8 and the state parts of UPD-7 and UPD-9 (which states can have a request in progress or
+    // "Sudoku is up to date") are in the type `UpdateState`.
     if u.state == UpdateState::Off {
-        ensure!(!u.checking && u.request.is_none(), "UPD-1", "a request in a dev build");
+        ensure!(u.request.is_none(), "UPD-1", "a request in a dev build");
     }
-    if u.state == UpdateState::Unknown {
-        ensure!(u.checking, "UPD-8", "state Unknown with no request in progress");
+    if u.state == UpdateState::UpToDate(UpToDateRow::UpToDateText) {
+        ensure!(app.ui.menu.panel() == Some(Panel::Settings) && app.screen == Screen::Game, "UPD-9", "\"up to date\" kept after the panel closed");
     }
-    if u.up_to_date_shown {
-        ensure!(u.state == UpdateState::UpToDate && !u.checking, "UPD-9", "\"up to date\" in state {:?}", u.state);
-        ensure!(app.ui.panel == Panel::Settings && app.screen == Screen::Game, "UPD-9", "\"up to date\" kept after the panel closed");
+    // UPD-10: the type `PatchChange` keeps the restart dialog in `Installed { patch: true }`.
+    if app.restart_ui {
+        ensure!(matches!(u.state, UpdateState::Installed(PatchChange::Replaced { .. })), "UPD-10", "a restart in state {:?}", u.state);
     }
-    if u.checking {
-        ensure!(matches!(u.state, UpdateState::Unknown | UpdateState::CheckFailed | UpdateState::UpToDate), "UPD-9", "a request in progress in state {:?}", u.state);
-    }
-    if u.dialog || app.restart_ui {
-        ensure!(u.state == UpdateState::Installed { patch: true }, "UPD-10", "the restart dialog in state {:?}", u.state);
-    }
-    if u.dialog {
+    if u.dialog_shown() {
         ensure!(app.ui.pending_ink.is_none() && app.live_stroke.is_none(), "UPD-10", "ink under the restart dialog");
     }
     Ok(())

@@ -2,9 +2,14 @@
 #![allow(dead_code)]
 
 use sudoku::app::{App, Env, Input, Tool};
-use sudoku::game::Cell;
-use sudoku::layout::{self, cell_origin, CELL};
-use sudoku::store::ResultsDb;
+use sudoku::font::Fonts;
+use sudoku::game::{cells, Cell, Game};
+use sudoku::layout::{self, cell_origin, Rect, CELL};
+use sudoku::settings::{Color, Section, Switch};
+use sudoku::store::{NewResult, ResultsDb};
+
+/// The wall clock of `TestEnv` at the start of most tests (a Unix time).
+pub const START_TIME: i64 = 1_790_000_000;
 
 pub struct TestEnv {
     pub time: i64,
@@ -23,7 +28,27 @@ impl Env for TestEnv {
 }
 
 pub fn new_app(seed: u64) -> App {
-    App::new(None, None, ResultsDb::in_memory(), Box::new(TestEnv { time: 1_790_000_000, seed }))
+    App::new(None, None, ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed }), App::placeholder_ng_stops())
+}
+
+/// An app that opens with the saved game `game`, the default settings and no results.
+pub fn app_with_game(game: Game, time: i64, seed: u64) -> App {
+    App::new(Some(game), None, ResultsDb::in_memory(), Box::new(TestEnv { time, seed }), App::placeholder_ng_stops())
+}
+
+/// An app with `n` results in the results database (different modes, times and seeds).
+pub fn app_with_results(n: usize) -> App {
+    let mut db = ResultsDb::in_memory();
+    for i in 0..n {
+        db.insert(&NewResult { finished_at: 1_700_000_000 + i as i64 * 1000, mode: (i % 5) as u8, givens: 30, seconds: 100 + i as u64, seed: i as u64, generator: 2 })
+            .unwrap();
+    }
+    App::new(None, None, db, Box::new(TestEnv { time: START_TIME, seed: 1 }), App::placeholder_ng_stops())
+}
+
+/// The fonts of the tablet, from `scripts/fonts/`.
+pub fn fonts() -> Fonts {
+    Fonts::repo().unwrap()
 }
 
 /// A driver that keeps the time.
@@ -112,6 +137,37 @@ impl Driver {
         let (x, y) = button_center(b);
         self.finger_tap(x, y);
     }
+}
+
+/// The first empty cell of the board.
+pub fn empty_cell(g: &Game) -> Cell {
+    cells().find(|&c| !g.is_filled(c)).unwrap()
+}
+
+/// The first cell with a starting number.
+pub fn given_cell(g: &Game) -> Cell {
+    cells().find(|&c| g.is_given(c)).unwrap()
+}
+
+/// The center of an area, rounded down to a full pixel.
+pub fn pixel_center(r: Rect) -> (f32, f32) {
+    (((r.x0 + r.x1) / 2) as f32, ((r.y0 + r.y1) / 2) as f32)
+}
+
+/// The exact center of an area (it can be at a half pixel).
+pub fn exact_center(r: Rect) -> (f32, f32) {
+    ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0)
+}
+
+/// The point that a test taps to select `color` in `section` of the Cell colors panel.
+pub fn color_point(section: Section, color: Color) -> (f32, f32) {
+    let cell = layout::color_cell(section, color);
+    (cell.x0 as f32 + 56.0, cell.y0 as f32 + 40.0)
+}
+
+/// The point that a test taps to change the switch `s` in the Settings panel: the center of its row.
+pub fn switch_point(s: Switch) -> (f32, f32) {
+    exact_center(layout::settings_row(s.row()))
 }
 
 pub fn micro_center((r, c): Cell, digit: u8) -> (f32, f32) {

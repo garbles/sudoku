@@ -5,21 +5,17 @@
 mod common;
 
 use common::*;
-use sudoku::app::{App, Input, Panel, Screen, Tool};
+use sudoku::app::{App, Input, Menu, Panel, Screen, Tool};
 use sudoku::game::{cells, mark_bit, peers, Cell};
 use sudoku::layout::{self, Button};
-use sudoku::settings::{Color, Settings};
-use sudoku::store::{NewResult, ResultsDb};
+use sudoku::settings::{Color, Section, Settings};
+use sudoku::store::ResultsDb;
 
 /// The game without the clock.
 fn board(g: &sudoku::game::Game) -> sudoku::game::Game {
     let mut g = g.clone();
     g.elapsed_ms = 0;
     g
-}
-
-fn empty_cell(app: &App) -> Cell {
-    cells().find(|&c| !app.game.is_filled(c)).unwrap()
 }
 
 /// An empty cell, an empty peer and the digit v of the solution of the cell. No peer of the peer
@@ -35,10 +31,6 @@ fn cell_and_peer(app: &App) -> (Cell, Cell, u8) {
         .unwrap()
 }
 
-fn given_cell(app: &App) -> Cell {
-    cells().find(|&c| app.game.is_given(c)).unwrap()
-}
-
 #[test]
 fn first_start() {
     // DIF-2, NAV-1, PER-2
@@ -47,7 +39,7 @@ fn first_start() {
     assert_eq!(a.screen, Screen::Game);
     assert_eq!(a.game.mode, 2);
     assert_eq!(a.settings, Settings::default());
-    assert!(!a.ui.menu_open && a.ui.panel == Panel::None && a.ui.highlight.is_none());
+    assert!(a.ui.menu == Menu::Closed && a.ui.highlight.is_none());
     assert!(a.game.undo.is_empty() && a.game.redo.is_empty() && a.game.elapsed_ms == 0);
 }
 
@@ -93,7 +85,7 @@ fn handwritten_digits_are_read_through_the_pen() {
     for v in 1..=9u8 {
         for writer in [3u8, 17, 29, 44, 58] {
             let mut d = Driver::new(40 + v as u64);
-            let cell = empty_cell(&d.app);
+            let cell = empty_cell(&d.app.game);
             d.write_strokes(&digit_ink_by(cell, v, writer));
             d.wait(d.app.pause_ms + 10);
             assert_eq!(d.app.game.value_at(cell), v, "digit {v} of writer {writer}");
@@ -105,7 +97,7 @@ fn handwritten_digits_are_read_through_the_pen() {
 fn strokes_with_a_short_lift_are_one_number() {
     // §5.1: a number with more than one stroke (4) is correct.
     let mut d = Driver::new(4);
-    let cell = empty_cell(&d.app);
+    let cell = empty_cell(&d.app.game);
     let ink = digit_ink(cell, 4);
     assert_eq!(ink.len(), 2);
     d.write_strokes(&ink[..1]);
@@ -120,7 +112,7 @@ fn strokes_with_a_short_lift_are_one_number() {
 fn unreadable_writing_shows_a_question_mark() {
     // QST-1, QST-2
     let mut d = Driver::new(5);
-    let cell = empty_cell(&d.app);
+    let cell = empty_cell(&d.app.game);
     d.tap_micro(cell, 2);
     let before = d.app.game.clone();
     d.write_strokes(&scribble_ink(cell));
@@ -136,11 +128,11 @@ fn unreadable_writing_shows_a_question_mark() {
 fn writing_on_a_number_has_no_effect() {
     // INP-7, BRD-2, BRD-3
     let mut d = Driver::new(6);
-    let given = given_cell(&d.app);
+    let given = given_cell(&d.app.game);
     let before = d.app.game.clone();
     d.write(given, if before.value_at(given) == 1 { 2 } else { 1 });
     assert_eq!(board(&d.app.game), board(&before));
-    let cell = empty_cell(&d.app);
+    let cell = empty_cell(&d.app.game);
     d.write(cell, 5);
     let before = d.app.game.clone();
     d.write(cell, 3);
@@ -159,7 +151,7 @@ fn eraser_removes_only_entries() {
     d.write(cell, v);
     assert_eq!(d.app.game.value_at(cell), v);
     let undo_len = d.app.game.undo.len();
-    let given = given_cell(&d.app);
+    let given = given_cell(&d.app.game);
     d.erase(given);
     d.erase(peer);
     assert_eq!(d.app.game.undo.len(), undo_len, "no effect on starting numbers and empty cells");
@@ -173,7 +165,7 @@ fn eraser_removes_only_entries() {
 fn finger_on_board_has_no_effect() {
     // INP-1
     let mut d = Driver::new(8);
-    let cell = empty_cell(&d.app);
+    let cell = empty_cell(&d.app.game);
     let before = d.app.game.clone();
     let (x, y) = micro_center(cell, 5);
     d.finger_tap(x, y);
@@ -187,7 +179,7 @@ fn finger_on_board_has_no_effect() {
 fn highlights() {
     // HLT-1 to HLT-5
     let mut d = Driver::new(9);
-    let given = given_cell(&d.app);
+    let given = given_cell(&d.app.game);
     let v = d.app.game.value_at(given);
     let other = cells().find(|&c| d.app.game.is_filled(c) && d.app.game.value_at(c) != v).unwrap();
     let before = (d.app.game.value, d.app.game.marks, d.app.game.undo.len());
@@ -198,7 +190,7 @@ fn highlights() {
     d.tap_cell(other);
     assert_eq!(d.app.ui.highlight, None, "the same number removes it");
     d.tap_cell(given);
-    let (x, y) = micro_center(empty_cell(&d.app), 5);
+    let (x, y) = micro_center(empty_cell(&d.app.game), 5);
     d.finger_tap(x, y);
     assert_eq!(d.app.ui.highlight, None, "a finger touch removes it");
     d.tap_cell(given);
@@ -215,7 +207,7 @@ fn highlights() {
 fn clashes_are_found_after_each_change() {
     // CLS-1, CLS-2, UND-5, BRD-5
     let mut d = Driver::new(10);
-    let given = given_cell(&d.app);
+    let given = given_cell(&d.app.game);
     let v = d.app.game.value_at(given);
     let cell = peers(given).find(|&p| !d.app.game.is_filled(p)).unwrap();
     d.write(cell, v);
@@ -238,7 +230,7 @@ fn undo_and_redo() {
     let before = d.app.game.clone();
     d.button(Button::Undo);
     assert_eq!(board(&d.app.game), board(&before), "a gray button has no effect");
-    let c1 = empty_cell(&d.app);
+    let c1 = empty_cell(&d.app.game);
     d.tap_micro(c1, 1);
     d.write(c1, 4);
     let after = (d.app.game.value, d.app.game.marks);
@@ -255,7 +247,7 @@ fn undo_and_redo() {
     // UND-2: color changes, panels and screens do not add to undo.
     let n = d.app.game.undo.len();
     d.button(Button::Colors);
-    let (x, y) = color_point(0, 2);
+    let (x, y) = color_point(Section::Starting, Color::Yellow);
     d.finger_tap(x, y);
     d.button(Button::Colors);
     d.button(Button::Help);
@@ -266,11 +258,6 @@ fn undo_and_redo() {
     d.button(Button::NewGame);
     start_new_game(&mut d);
     assert!(d.app.game.undo.is_empty() && d.app.game.redo.is_empty());
-}
-
-fn color_point(section: usize, i: usize) -> (f32, f32) {
-    let (gx, gy) = layout::color_cell(section, i);
-    (gx as f32 + 56.0, gy as f32 + 40.0)
 }
 
 fn start_new_game(d: &mut Driver) {
@@ -290,7 +277,7 @@ fn completion_locks_the_board_and_saves_one_result() {
     let r = &d.app.results[0];
     assert_eq!((r.mode, r.givens, r.seconds, r.seed), (g.mode, g.givens_count(), g.seconds(), g.seed));
     // The lock.
-    let given = given_cell(&d.app);
+    let given = given_cell(&d.app.game);
     d.tap_cell(given);
     assert_eq!(d.app.ui.highlight, None, "HLT-1");
     d.erase(cells().find(|&c| d.app.game.is_entry(c)).unwrap());
@@ -340,30 +327,30 @@ fn menu_and_panels() {
     // NAV-4, NAV-8, NAV-11, NAV-12, §9 diagram
     let mut d = Driver::new(14);
     d.button(Button::Colors);
-    assert_eq!(d.app.ui.panel, Panel::None, "hidden buttons do not operate when the menu is closed");
+    assert_eq!(d.app.ui.menu.panel(), None, "hidden buttons do not operate when the menu is closed");
     d.button(Button::Menu);
-    assert!(d.app.ui.menu_open);
+    assert!(d.app.ui.menu.is_open());
     d.button(Button::Colors);
-    assert_eq!(d.app.ui.panel, Panel::Colors);
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors));
     d.button(Button::NewGame);
-    assert_eq!(d.app.ui.panel, Panel::NewGame);
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::NewGame));
     d.button(Button::Colors);
-    assert_eq!(d.app.ui.panel, Panel::Colors);
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors));
     d.button(Button::Colors);
-    assert_eq!(d.app.ui.panel, Panel::None);
+    assert_eq!(d.app.ui.menu.panel(), None);
     // A tap outside the panel only closes the panel, also on the board.
     d.button(Button::Colors);
     let cell = cells().find(|&c| !d.app.game.is_filled(c) && c.1 < 4).unwrap();
     let before = d.app.game.clone();
     d.tap_micro(cell, 1);
-    assert_eq!(d.app.ui.panel, Panel::None);
-    assert!(d.app.ui.menu_open);
+    assert_eq!(d.app.ui.menu.panel(), None);
+    assert!(d.app.ui.menu.is_open());
     assert_eq!(d.app.game.marks, before.marks);
     d.button(Button::NewGame);
     d.button(Button::Undo);
-    assert_eq!(d.app.ui.panel, Panel::None, "undo outside the panel only closes it");
+    assert_eq!(d.app.ui.menu.panel(), None, "undo outside the panel only closes it");
     d.button(Button::Menu);
-    assert!(!d.app.ui.menu_open);
+    assert!(!d.app.ui.menu.is_open());
     // The close button shows only with the open menu (NAV-6).
     d.finger_tap(layout::close_cx(), layout::CLOSE_CY);
     assert!(!d.app.quit);
@@ -378,23 +365,22 @@ fn cell_colors() {
     let mut d = Driver::new(15);
     d.button(Button::Menu);
     d.button(Button::Colors);
-    let red = 4;
-    let (x, y) = color_point(0, red);
+    let (x, y) = color_point(Section::Starting, Color::Red);
     d.finger_tap(x, y);
     assert_eq!(d.app.settings.color_starting, Color::Gray, "Red is taken by the clash section");
-    let (x, y) = color_point(0, 2);
+    let (x, y) = color_point(Section::Starting, Color::Yellow);
     d.finger_tap(x, y);
     assert_eq!(d.app.settings.color_starting, Color::Yellow);
     assert!(d.app.settings_dirty);
-    for s in 0..3 {
-        let (x, y) = color_point(s, 1);
+    for s in Section::ALL {
+        let (x, y) = color_point(s, Color::White);
         d.pen_tap(x, y);
     }
     assert_eq!(
         (d.app.settings.color_starting, d.app.settings.color_clash, d.app.settings.color_highlight),
         (Color::White, Color::White, Color::White)
     );
-    assert_eq!(d.app.ui.panel, Panel::Colors, "the panel stays open");
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors), "the panel stays open");
 }
 
 #[test]
@@ -403,7 +389,7 @@ fn new_game_panel_and_difficulty() {
     let mut d = Driver::new(16);
     let stops = d.app.ng_stops;
     let row_y = layout::ng_slider_y() as f32;
-    d.write(empty_cell(&d.app), 1);
+    d.write(empty_cell(&d.app.game), 1);
     d.button(Button::Menu);
     d.button(Button::NewGame);
     assert_eq!(d.app.ui.slider, 2, "DIF-3");
@@ -424,7 +410,7 @@ fn new_game_panel_and_difficulty() {
     assert_eq!((g.mode, d.app.settings.last_mode), (0, 0), "DIF-5");
     assert_ne!(g.seed, seed);
     assert!(cells().all(|c| g.is_given(c) || (!g.is_filled(c) && g.marks_at(c) == 0)));
-    assert!(!d.app.ui.menu_open && d.app.ui.panel == Panel::None, "NAV-9");
+    assert_eq!(d.app.ui.menu, Menu::Closed, "NAV-9");
     assert!(d.app.results.is_empty(), "DIF-7");
     d.button(Button::Menu);
     d.button(Button::NewGame);
@@ -438,17 +424,16 @@ fn manual() {
     d.button(Button::Menu);
     d.button(Button::Help);
     assert_eq!((d.app.screen, d.app.manual_page), (Screen::Manual, 1));
-    assert!(!d.app.ui.menu_open, "NAV-5");
+    assert!(!d.app.ui.menu.is_open(), "NAV-5");
     let prev = layout::prev_arrow();
     let next = layout::next_arrow();
-    let center = |r: layout::Rect| (((r.x0 + r.x1) / 2) as f32, ((r.y0 + r.y1) / 2) as f32);
-    d.finger_tap(center(prev).0, center(prev).1);
+    d.finger_tap(pixel_center(prev).0, pixel_center(prev).1);
     assert_eq!(d.app.manual_page, 1, "the gray arrow has no effect");
     for p in 2..=9 {
         if p % 2 == 0 {
             d.swipe(true);
         } else {
-            d.pen_tap(center(next).0, center(next).1);
+            d.pen_tap(pixel_center(next).0, pixel_center(next).1);
         }
         assert_eq!(d.app.manual_page, p);
     }
@@ -458,7 +443,7 @@ fn manual() {
     assert_eq!(d.app.manual_page, 8);
     d.finger_tap(40.0, 50.0);
     assert_eq!(d.app.screen, Screen::Game);
-    assert!(!d.app.ui.menu_open && d.app.ui.panel == Panel::None);
+    assert_eq!(d.app.ui.menu, Menu::Closed);
     d.button(Button::Menu);
     d.button(Button::Help);
     assert_eq!(d.app.manual_page, 1, "the manual always opens at page 1");
@@ -489,14 +474,6 @@ fn the_landscape_list_keeps_the_first_game_of_the_page() {
     sudoku::invariants::check_app(&d.app).unwrap();
 }
 
-fn app_with_results(n: usize) -> App {
-    let mut db = ResultsDb::in_memory();
-    for i in 0..n {
-        db.insert(&NewResult { finished_at: 1_700_000_000 + i as i64 * 1000, mode: (i % 5) as u8, givens: 30, seconds: 100 + i as u64, seed: i as u64, generator: 2 }).unwrap();
-    }
-    App::new(None, None, db, Box::new(TestEnv { time: 1_790_000_000, seed: 1 }))
-}
-
 #[test]
 fn analytics_and_list() {
     // ANA-3 to ANA-8, NAV-2
@@ -517,7 +494,7 @@ fn analytics_and_list() {
     assert_eq!(d.app.list.page, 3);
     assert_eq!(d.app.page_rows().len(), 6);
     // A change of filter shows page 1.
-    let seg = layout::filter_segment(3);
+    let seg = layout::filter_segment(Some(2));
     d.finger_tap((seg.x0 + 10) as f32, (seg.y0 + 10) as f32);
     assert_eq!((d.app.list.filter, d.app.list.page), (Some(2), 1));
     assert!(d.app.page_rows().iter().all(|r| r.mode == 2));
@@ -541,7 +518,7 @@ fn analytics_and_list() {
     assert_eq!(d.app.results.len(), 29);
     assert!(d.app.results.iter().all(|r| r.id != victim.id));
     // ANA-8: delete the last game on the last page; the list shows the page before it.
-    let seg = layout::filter_segment(0);
+    let seg = layout::filter_segment(None);
     d.finger_tap((seg.x0 + 10) as f32, (seg.y0 + 10) as f32);
     let matching = d.app.filtered().len();
     assert_eq!(matching, 29);
@@ -558,7 +535,7 @@ fn analytics_and_list() {
     assert_eq!(d.app.screen, Screen::Statistics);
     d.finger_tap(40.0, 50.0);
     assert_eq!(d.app.screen, Screen::Game);
-    assert!(!d.app.ui.menu_open);
+    assert!(!d.app.ui.menu.is_open());
 }
 
 #[test]
@@ -580,13 +557,13 @@ fn empty_results() {
 fn saved_game_opens_again_exactly() {
     // PER-1, PER-2, PER-3, PER-6
     let mut d = Driver::new(19);
-    let cell = empty_cell(&d.app);
+    let cell = empty_cell(&d.app.game);
     d.tap_micro(cell, 3);
     d.write(cell, 8);
     d.button(Button::Menu);
     d.button(Button::Undo);
     d.button(Button::Colors);
-    let (x, y) = color_point(2, 6);
+    let (x, y) = color_point(Section::Highlight, Color::Cyan);
     d.finger_tap(x, y);
     d.wait(4000);
     // Ink that waits when the app closes is removed.
@@ -601,12 +578,12 @@ fn saved_game_opens_again_exactly() {
     let sp = dir.join("settings.json");
     sudoku::store::save_json(&gp, &d.app.game).unwrap();
     sudoku::store::save_json(&sp, &d.app.settings).unwrap();
-    let app = App::new(sudoku::store::load_json(&gp), sudoku::store::load_json(&sp), ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 99 }));
+    let app = App::new(sudoku::store::load_json(&gp), sudoku::store::load_json(&sp), ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 99 }), App::placeholder_ng_stops());
     assert_eq!(app.game, d.app.game);
     assert_eq!(app.settings, d.app.settings);
     assert_eq!(app.settings.color_highlight, Color::Cyan);
     assert_eq!(app.screen, Screen::Game);
-    assert!(!app.ui.menu_open && app.ui.panel == Panel::None && app.ui.highlight.is_none() && app.ui.question.is_none() && app.ui.pending_ink.is_none());
+    assert!(app.ui.menu == Menu::Closed && app.ui.highlight.is_none() && app.ui.question.is_none() && app.ui.pending_ink.is_none());
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -615,12 +592,12 @@ fn a_wrong_saved_game_is_not_used() {
     // PER-5
     let d = Driver::new(20);
     let mut g = d.app.game.clone();
-    let given = given_cell(&d.app);
+    let given = given_cell(&d.app.game);
     g.value[given.0 as usize][given.1 as usize] = 0;
-    let app = App::new(Some(g.clone()), None, ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 5 }));
+    let app = app_with_game(g.clone(), 0, 5);
     assert_ne!(app.game, g);
     let s = Settings { color_clash: Color::Gray, ..Settings::default() };
-    let app = App::new(None, Some(s), ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 5 }));
+    let app = App::new(None, Some(s), ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 5 }), App::placeholder_ng_stops());
     assert_eq!(app.settings, Settings::default());
 }
 
@@ -648,7 +625,7 @@ fn eraser_stroke_across_cells() {
 fn a_short_touch_while_ink_waits_is_writing() {
     // INP-11: the bar of a 7 stays in one micro-cell, but it is a part of the number.
     let mut d = Driver::new(22);
-    let cell = empty_cell(&d.app);
+    let cell = empty_cell(&d.app.game);
     let ink = digit_ink_by(cell, 4, 9);
     d.write_strokes(&ink);
     let (x, y) = micro_center(cell, 5);
@@ -675,7 +652,7 @@ fn a_touch_in_a_different_cell_reads_the_waiting_ink() {
 fn each_press_removes_the_question_mark() {
     // QST-4
     let mut d = Driver::new(24);
-    let cell = empty_cell(&d.app);
+    let cell = empty_cell(&d.app.game);
     d.write_strokes(&scribble_ink(cell));
     d.wait(d.app.pause_ms + 10);
     assert!(d.app.ui.question.is_some());
@@ -705,7 +682,7 @@ fn only_ink_changes_while_the_pen_writes() {
     // The platform makes a full drawing only when `redraw` is true. While the pen writes, it draws only
     // the new ink, so that the ink follows the pen and the rest of the screen does not refresh.
     let mut d = Driver::new(26);
-    let cell = empty_cell(&d.app);
+    let cell = empty_cell(&d.app.game);
     let (x, y) = micro_center(cell, 1);
     d.app.redraw = false;
     d.send(Input::PenDown { x, y, tool: Tool::Pen });
@@ -739,7 +716,7 @@ fn only_ink_changes_while_the_pen_writes() {
 fn pen_touch_has_no_effect_after_a_finger_changes_the_screen() {
     let mut d = Driver::new(5);
     d.button(Button::Menu);
-    let cell = given_cell(&d.app);
+    let cell = given_cell(&d.app.game);
     let (x, y) = micro_center(cell, 5);
     d.send(Input::PenDown { x, y, tool: Tool::Pen });
     d.button(Button::Help);
@@ -755,7 +732,7 @@ fn pen_touch_has_no_effect_after_a_finger_changes_the_screen() {
 fn saved_history_with_a_cell_off_the_board_is_not_used() {
     let mut g = new_app(3).game.clone();
     g.redo.push(sudoku::game::Change::Erase { cell: (12, 0), digit: 3 });
-    let app = App::new(Some(g.clone()), None, ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 1 }));
+    let app = app_with_game(g.clone(), 0, 1);
     assert_ne!(app.game, g);
 }
 
@@ -763,7 +740,7 @@ fn saved_history_with_a_cell_off_the_board_is_not_used() {
 #[test]
 fn finger_on_the_board_does_not_read_the_ink() {
     let mut d = Driver::new(5);
-    let cell = empty_cell(&d.app);
+    let cell = empty_cell(&d.app.game);
     let ink = digit_ink(cell, 4);
     assert!(ink.len() >= 2, "a 4 with two strokes");
     d.write_strokes(&ink[..1]);

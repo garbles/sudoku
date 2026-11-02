@@ -133,19 +133,10 @@ fn wait_until(mut f: impl FnMut() -> bool) -> bool {
 #[test]
 fn the_executable_operates_through_qtfb() {
     let _lock = SERVER.lock().unwrap_or_else(|e| e.into_inner());
-    let root = env!("CARGO_MANIFEST_DIR");
     let data = std::env::temp_dir().join(format!("sudoku-e2e-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&data);
     let mut server = Server::new();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_sudoku"))
-        .env("QTFB_KEY", KEY.to_string())
-        .env("SUDOKU_DATA_DIR", &data)
-        .env("SUDOKU_FONT", format!("{root}/scripts/fonts/rmsans-400.ttf"))
-        .env("SUDOKU_FONT_MEDIUM", format!("{root}/scripts/fonts/rmsans-500.ttf"))
-        .env("SUDOKU_XOCHITL_CONF", format!("{root}/tests/fixtures/xochitl-left-handed.conf"))
-        .stderr(Stdio::inherit())
-        .spawn()
-        .expect("start the app");
+    let mut child = app_command(&data).stderr(Stdio::inherit()).spawn().expect("start the app");
     server.accept();
     assert!(server.wait_update(), "first frame");
 
@@ -186,14 +177,7 @@ fn the_executable_operates_through_qtfb() {
 
     // The app opens again with the same game, and SIGTERM (AppLoad closes the app) saves it.
     let mut server2 = Server::new();
-    let mut child = Command::new(env!("CARGO_BIN_EXE_sudoku"))
-        .env("QTFB_KEY", KEY.to_string())
-        .env("SUDOKU_DATA_DIR", &data)
-        .env("SUDOKU_FONT", format!("{root}/scripts/fonts/rmsans-400.ttf"))
-        .env("SUDOKU_FONT_MEDIUM", format!("{root}/scripts/fonts/rmsans-500.ttf"))
-        .env("SUDOKU_XOCHITL_CONF", format!("{root}/tests/fixtures/xochitl-left-handed.conf"))
-        .spawn()
-        .unwrap();
+    let mut child = app_command(&data).spawn().unwrap();
     server2.accept();
     assert!(server2.wait_update());
     std::thread::sleep(Duration::from_millis(1500));
@@ -205,19 +189,24 @@ fn the_executable_operates_through_qtfb() {
     let _ = std::fs::remove_dir_all(&data);
 }
 
-/// Starts the executable with the data folder `data`, and waits for its first frame.
-fn start(data: &Path) -> (Server, Child) {
+/// The command that starts the executable as AppLoad does, with the data folder `data`, the fonts of
+/// `scripts/fonts/` and the left-handed setting of the fixture.
+fn app_command(data: &Path) -> Command {
     let root = env!("CARGO_MANIFEST_DIR");
-    let mut server = Server::new();
-    let child = Command::new(env!("CARGO_BIN_EXE_sudoku"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sudoku"));
+    command
         .env("QTFB_KEY", KEY.to_string())
         .env("SUDOKU_DATA_DIR", data)
         .env("SUDOKU_FONT", format!("{root}/scripts/fonts/rmsans-400.ttf"))
         .env("SUDOKU_FONT_MEDIUM", format!("{root}/scripts/fonts/rmsans-500.ttf"))
-        .env("SUDOKU_XOCHITL_CONF", format!("{root}/tests/fixtures/xochitl-left-handed.conf"))
-        .stderr(Stdio::inherit())
-        .spawn()
-        .expect("start the app");
+        .env("SUDOKU_XOCHITL_CONF", format!("{root}/tests/fixtures/xochitl-left-handed.conf"));
+    command
+}
+
+/// Starts the executable with the data folder `data`, and waits for its first frame.
+fn start(data: &Path) -> (Server, Child) {
+    let mut server = Server::new();
+    let child = app_command(data).stderr(Stdio::inherit()).spawn().expect("start the app");
     server.accept();
     assert!(server.wait_update(), "first frame");
     (server, child)

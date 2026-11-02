@@ -3,23 +3,13 @@
 
 use tiny_skia::Pixmap;
 
-use crate::app::{App, Env, Panel, PendingInk, Screen};
+use crate::app::{App, Menu, Panel, PendingInk, Screen};
 use crate::font::Fonts;
 use crate::game::{peers, Game};
 use crate::render::{self, Canvas};
+use crate::script::FixedEnv;
 use crate::store::{NewResult, ResultsDb};
 use crate::update::{Manifest, Update};
-
-struct FixedEnv;
-
-impl Env for FixedEnv {
-    fn unix_time(&mut self) -> i64 {
-        1_792_900_000
-    }
-    fn new_seed(&mut self) -> u64 {
-        7
-    }
-}
 
 // The game of scripts/board-state.py.
 const SOLUTION: [&str; 9] =
@@ -32,7 +22,7 @@ const MARKED: [(u8, u8); 14] =
 
 /// The results of scripts/analytics.py (tests/fixtures/analytics-results.json), as (unix time in UTC,
 /// mode, seconds).
-pub fn analytics_results() -> Vec<(i64, u8, u64)> {
+fn analytics_results() -> Vec<(i64, u8, u64)> {
     let json: serde_json::Value =
         serde_json::from_str(include_str!("../tests/fixtures/analytics-results.json")).expect("fixture");
     json.as_array()
@@ -52,7 +42,6 @@ fn grid(rows: &[&str; 9]) -> [[u8; 9]; 9] {
     g
 }
 
-/// The game in progress of board-state.py, made with the same operations as a player.
 /// The update state of a stable build v0.1.0 (REQUIREMENTS.md §9.2): v0.2.0 is available, or the app
 /// is up to date (a request with the Settings panel open found no update).
 pub fn update_state(available: bool) -> Update {
@@ -66,15 +55,18 @@ pub fn update_state(available: bool) -> Update {
 
 /// The update v0.2.0 is installed and replaced the ink patch (§9.2, UPD-10). `dialog`: the dialog
 /// "Restart the interface?" shows (else the user tapped "Later").
-pub fn restart_state(dialog: bool) -> Update {
+fn restart_state(dialog: bool) -> Update {
     let mut u = update_state(true);
     u.tap();
     u.request = None;
     u.installed(Ok(true), 0);
-    u.dialog = dialog;
+    if !dialog {
+        u.close_dialog();
+    }
     u
 }
 
+/// The game in progress of board-state.py, made with the same operations as a player.
 pub fn sample_game() -> Game {
     let sol = grid(&SOLUTION);
     let mut g = Game::new(1, 2, sol, grid(&GIVENS));
@@ -93,6 +85,14 @@ pub fn sample_game() -> Game {
     g
 }
 
+/// The sample game with one undone change: undo and redo are available (black in the images).
+fn sample_game_with_redo() -> Game {
+    let mut g = sample_game();
+    g.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
+    g.undo();
+    g
+}
+
 pub fn completed_game() -> Game {
     let sol = grid(&SOLUTION);
     let mut g = Game::new(1, 2, sol, grid(&GIVENS));
@@ -104,7 +104,7 @@ pub fn completed_game() -> Game {
 }
 
 /// The empty board of screen.png. It is not a puzzle; only the images use it.
-pub fn empty_game() -> Game {
+fn empty_game() -> Game {
     let mut g = Game::new(1, 2, grid(&SOLUTION), [[0; 9]; 9]);
     g.completed = false;
     g
@@ -115,9 +115,7 @@ pub fn app(fonts: &Fonts) -> App {
     for (i, (t, mode, seconds)) in analytics_results().into_iter().enumerate() {
         db.insert(&NewResult { finished_at: t, mode, givens: 30, seconds, seed: i as u64, generator: 2 }).unwrap();
     }
-    let mut app = App::new(None, None, db, Box::new(FixedEnv));
-    app.ng_stops = render::ng_stops(fonts);
-    app
+    App::new(None, None, db, Box::new(FixedEnv(7)), render::ng_stops(fonts))
 }
 
 pub type Setup = fn(&mut App);
@@ -138,92 +136,64 @@ pub fn states() -> Vec<(&'static str, Setup)> {
         ("screen-completed.png", |a| a.game = completed_game()),
         ("screen-toolbar.png", |a| {
             a.game = empty_game();
-            a.ui.menu_open = true
+            a.ui.menu = Menu::Open(None)
         }),
         ("new-game-menu.png", |a| {
             a.game = empty_game();
-            a.ui.menu_open = true;
-            a.ui.panel = Panel::NewGame
+            a.ui.menu = Menu::Open(Some(Panel::NewGame))
         }),
         ("color-menu.png", |a| {
-            // The image shows undo and redo in black: a change was undone.
-            a.game = sample_game();
-            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
-            a.game.undo();
-            a.ui.menu_open = true;
-            a.ui.panel = Panel::Colors
+            a.game = sample_game_with_redo();
+            a.ui.menu = Menu::Open(Some(Panel::Colors))
         }),
         ("color-menu-right-handed.png", |a| {
             // The same state as color-menu.png, for a right-handed player (REQUIREMENTS.md §3.1).
             crate::layout::set_right_handed(true);
-            a.game = sample_game();
-            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
-            a.game.undo();
-            a.ui.menu_open = true;
-            a.ui.panel = Panel::Colors
+            a.game = sample_game_with_redo();
+            a.ui.menu = Menu::Open(Some(Panel::Colors))
         }),
         ("screen-completed-menu.png", |a| {
             a.game = completed_game();
-            a.ui.menu_open = true
+            a.ui.menu = Menu::Open(None)
         }),
         ("settings-menu.png", |a| {
-            a.game = sample_game();
-            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
-            a.game.undo();
-            a.ui.menu_open = true;
-            a.ui.panel = Panel::Settings
+            a.game = sample_game_with_redo();
+            a.ui.menu = Menu::Open(Some(Panel::Settings))
         }),
         ("screen-toolbar-update.png", |a| {
             // REQUIREMENTS.md §9.2: an update is available, and the gear has the caution icon.
-            a.game = sample_game();
-            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
-            a.game.undo();
+            a.game = sample_game_with_redo();
             a.update = update_state(true);
-            a.ui.menu_open = true
+            a.ui.menu = Menu::Open(None)
         }),
         ("settings-update.png", |a| {
-            a.game = sample_game();
-            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
-            a.game.undo();
+            a.game = sample_game_with_redo();
             a.update = update_state(true);
-            a.ui.menu_open = true;
-            a.ui.panel = Panel::Settings
+            a.ui.menu = Menu::Open(Some(Panel::Settings))
         }),
         ("settings-up-to-date.png", |a| {
-            a.game = sample_game();
-            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
-            a.game.undo();
+            a.game = sample_game_with_redo();
             a.update = update_state(false);
-            a.ui.menu_open = true;
-            a.ui.panel = Panel::Settings
+            a.ui.menu = Menu::Open(Some(Panel::Settings))
         }),
         ("settings-check-updates.png", |a| {
             // UPD-9: the Settings panel closed after "Sudoku is up to date" and opened again.
-            a.game = sample_game();
-            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
-            a.game.undo();
+            a.game = sample_game_with_redo();
             a.update = update_state(false);
             a.update.panel_closed();
-            a.ui.menu_open = true;
-            a.ui.panel = Panel::Settings
+            a.ui.menu = Menu::Open(Some(Panel::Settings))
         }),
         ("settings-restart.png", |a| {
             // UPD-10: the update replaced the ink patch, and the user tapped "Later" in the dialog.
-            a.game = sample_game();
-            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
-            a.game.undo();
+            a.game = sample_game_with_redo();
             a.update = restart_state(false);
-            a.ui.menu_open = true;
-            a.ui.panel = Panel::Settings
+            a.ui.menu = Menu::Open(Some(Panel::Settings))
         }),
         ("update-restart.png", |a| {
             // UPD-10: the installation is complete and replaced the ink patch.
-            a.game = sample_game();
-            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
-            a.game.undo();
+            a.game = sample_game_with_redo();
             a.update = restart_state(true);
-            a.ui.menu_open = true;
-            a.ui.panel = Panel::Settings
+            a.ui.menu = Menu::Open(Some(Panel::Settings))
         }),
         ("analytics.png", |a| a.screen = Screen::Statistics),
         ("analytics-delete-all.png", |a| {

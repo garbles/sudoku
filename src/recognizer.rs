@@ -72,7 +72,7 @@ fn default() -> &'static Recognizer {
 /// straight tail, and a 1 as a straight line, each in both directions of writing. Few writers of the
 /// database write these shapes (or write them from the bottom up), but players copy the digits of the
 /// board. The writer is 0 (not a writer of the database).
-pub fn typeface_examples() -> &'static [Sample] {
+fn typeface_examples() -> &'static [Sample] {
     static S: OnceLock<Vec<Sample>> = OnceLock::new();
     S.get_or_init(|| {
         // Strokes in a box of 100 x 140 (y down).
@@ -174,7 +174,7 @@ const LANES: usize = 16;
 /// The values of the distance are added in chunks of this size (the same sums for each lane).
 const CHUNK: usize = 64;
 
-pub struct Recognizer {
+struct Recognizer {
     classes: Vec<u8>,
     /// The features of block b, value j, lane l are at (b * DIM + j) * LANES + l. The lanes after the
     /// last example are zero.

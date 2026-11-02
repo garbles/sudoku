@@ -15,24 +15,16 @@ use sudoku::store::ResultsDb;
 
 type Grid = [[u8; 9]; 9];
 
-fn empty_cell(app: &App) -> Cell {
-    cells().find(|&c| !app.game.is_filled(c)).unwrap()
-}
-
-fn given_cell(app: &App) -> Cell {
-    cells().find(|&c| app.game.is_given(c)).unwrap()
-}
-
 fn start_new_game(d: &mut Driver) {
     d.finger_tap(1100.0, (layout::tb_bottom_y() + 56) as f32);
 }
 
 /// Opens the New game panel, selects `mode` on the slider and starts a new game.
 fn start_new_game_in_mode(d: &mut Driver, mode: u8) {
-    if !d.app.ui.menu_open {
+    if !d.app.ui.menu.is_open() {
         d.button(Button::Menu);
     }
-    if d.app.ui.panel != Panel::NewGame {
+    if d.app.ui.menu.panel() != Some(Panel::NewGame) {
         d.button(Button::NewGame);
     }
     let stops = d.app.ng_stops;
@@ -45,7 +37,7 @@ fn start_new_game_in_mode(d: &mut Driver, mode: u8) {
 /// An app that starts with no saved game and the last mode `mode`.
 fn app_in_mode(mode: u8, seed: u64) -> App {
     let s = Settings { last_mode: mode, ..Settings::default() };
-    App::new(None, Some(s), ResultsDb::in_memory(), Box::new(TestEnv { time: 1_790_000_000, seed }))
+    App::new(None, Some(s), ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed }), App::placeholder_ng_stops())
 }
 
 /// The 27 units (9 rows, 9 columns, 9 boxes) as lists of cells. This does not use the code of the app.
@@ -332,7 +324,7 @@ fn clashes_follow_the_values_after_each_change_and_a_new_game() {
     // of clashing cells is the set from the values. Each clash includes an entry.
     let mut d = Driver::new(44);
     assert_clashes_agree(&d.app.game, "the start");
-    let given = given_cell(&d.app);
+    let given = given_cell(&d.app.game);
     let v = d.app.game.value_at(given);
     let cells_v: Vec<Cell> = peers(given).filter(|&p| !d.app.game.is_filled(p)).take(2).collect();
     d.write(cells_v[0], v);
@@ -374,14 +366,14 @@ fn starting_numbers_never_clash() {
     }
     // Clashes made in the app with entries in each unit of a starting number.
     let mut d = Driver::new(45);
-    let given = given_cell(&d.app);
+    let given = given_cell(&d.app.game);
     let v = d.app.game.value_at(given);
     let row = cells().find(|&c| c.0 == given.0 && !d.app.game.is_filled(c)).unwrap();
     let col = cells().find(|&c| c.1 == given.1 && !d.app.game.is_filled(c)).unwrap();
     d.write(row, v);
     d.write(col, v);
     // An entry that clashes only with an entry.
-    let a = empty_cell(&d.app);
+    let a = empty_cell(&d.app.game);
     let free = (1..=9u8).find(|&x| peers(a).all(|p| d.app.game.value_at(p) != x)).unwrap();
     d.write(a, free);
     let b = peers(a).find(|&p| !d.app.game.is_filled(p)).unwrap();
@@ -400,7 +392,7 @@ fn each_cell_is_one_of_four_types() {
     let mut d = Driver::new(46);
     assert_cell_types(&d.app.game, "the start");
     let empties: Vec<Cell> = cells().filter(|&c| !d.app.game.is_filled(c)).take(3).collect();
-    let given = given_cell(&d.app);
+    let given = given_cell(&d.app.game);
     d.tap_micro(empties[0], 2);
     d.tap_micro(empties[0], 6);
     d.tap_micro(given, 3);
@@ -432,7 +424,7 @@ fn each_cell_is_one_of_four_types() {
     let dir = std::env::temp_dir().join(format!("sudoku-inv-puzzle-{}", std::process::id()));
     let gp = dir.join("game.json");
     sudoku::store::save_json(&gp, &d.app.game).unwrap();
-    let app = App::new(sudoku::store::load_json(&gp), None, ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 7 }));
+    let app = App::new(sudoku::store::load_json(&gp), None, ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 7 }), App::placeholder_ng_stops());
     std::fs::remove_dir_all(&dir).ok();
     assert_eq!(app.game, d.app.game);
     assert_cell_types(&app.game, "a save and a load");
@@ -452,7 +444,7 @@ fn each_cell_is_one_of_four_types() {
     bad.push(("mark bit 0", g));
     for (what, g) in bad {
         assert!(cells().any(|c| kind(&g, c).is_none()), "the corrupt game has a cell with no type: {what}");
-        let app = App::new(Some(g.clone()), None, ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 8 }));
+        let app = app_with_game(g.clone(), 0, 8);
         assert_ne!(app.game, g, "BRD-1: a saved game with {what} is used");
         assert_cell_types(&app.game, what);
     }

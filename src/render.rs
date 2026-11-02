@@ -8,12 +8,12 @@ use std::sync::OnceLock;
 
 use tiny_skia::{FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, PixmapPaint, Rect as SkRect, Stroke, Transform};
 
-use crate::app::{average_seconds, App, Panel, Screen, MANUAL_PAGES};
-use crate::font::{Anchor, Font, Fonts};
+use crate::app::{average_seconds, App, Menu, Panel, Screen, MANUAL_PAGES};
+use crate::font::{Anchor, Fonts, Weight};
 use crate::game::{cells, format_clock, Game};
 use crate::generator::MODES;
 use crate::layout::{self, *};
-use crate::settings::{Color, Section, Settings};
+use crate::settings::{Color, Section, Settings, Switch};
 use crate::store::ResultRow;
 use crate::update::{Update, UpdateButton};
 
@@ -23,7 +23,7 @@ pub type Rgb = [u8; 3];
 /// smallest difference to the reference images (the snapshot tool measures it).
 const TEXT_OFFSET: (f32, f32) = (-1.0, -1.0);
 /// The same offset (screen px) for the screens with a scale (the analytics screens).
-const TEXT_OFFSET_SCALED: (f32, f32) = (-0.5, -0.5);
+const TEXT_OFFSET_PAGE: (f32, f32) = (-0.5, -0.5);
 
 /// ImageMagick draws strokes a little wider than tiny-skia. This extra width (px) gives the smallest
 /// difference to the reference images.
@@ -32,7 +32,7 @@ const STROKE_EXTRA: f32 = 0.25;
 pub const BLACK: Rgb = [0, 0, 0];
 /// The width of the ink of the pen (px).
 pub const INK_WIDTH: f32 = 5.0;
-pub const WHITE: Rgb = [255, 255, 255];
+const WHITE: Rgb = [255, 255, 255];
 /// The caution icon on the gear (REQUIREMENTS.md §9.2).
 pub const CAUTION_RED: Rgb = [0xD6, 0x2D, 0x20];
 
@@ -42,11 +42,37 @@ pub const fn gray(n: u32) -> Rgb {
     [v, v, v]
 }
 
+/// The units of the coordinates that a [`Canvas`] gets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Units {
+    /// Screen pixels (the game screen and the menu).
+    Screen,
+    /// The layout units of the manual and the analytics pages: `layout::PAGE_SCALE` screen pixels.
+    Page,
+}
+
+impl Units {
+    /// The quantity of screen pixels in one unit.
+    fn scale(self) -> f32 {
+        match self {
+            Units::Screen => 1.0,
+            Units::Page => PAGE_SCALE,
+        }
+    }
+
+    /// The offset of the text (screen px) that gives the smallest difference to the reference images.
+    fn text_offset(self) -> (f32, f32) {
+        match self {
+            Units::Screen => TEXT_OFFSET,
+            Units::Page => TEXT_OFFSET_PAGE,
+        }
+    }
+}
+
 pub struct Canvas<'a> {
     pub pm: &'a mut Pixmap,
     pub fonts: &'a Fonts,
-    /// The scale of the layout units (1 on the game screen; `layout::page_scale` on the analytics).
-    scale: f32,
+    units: Units,
 }
 
 fn paint(c: Rgb) -> Paint<'static> {
@@ -67,11 +93,12 @@ fn stroke(w: f32, round: bool) -> Stroke {
 
 impl<'a> Canvas<'a> {
     pub fn new(pm: &'a mut Pixmap, fonts: &'a Fonts) -> Canvas<'a> {
-        Canvas { pm, fonts, scale: 1.0 }
+        Canvas { pm, fonts, units: Units::Screen }
     }
 
     fn tf(&self) -> Transform {
-        Transform::from_row(self.scale, 0.0, 0.0, self.scale, 0.5, 0.5)
+        let scale = self.units.scale();
+        Transform::from_row(scale, 0.0, 0.0, scale, 0.5, 0.5)
     }
 
     pub fn clear(&mut self) {
@@ -92,7 +119,7 @@ impl<'a> Canvas<'a> {
 
     /// ImageMagick `rectangle x0,y0 x1,y1` with a fill: the pixels from x0 to x1, x1 included.
     pub fn rect(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, c: Rgb) {
-        let h = 0.5 / self.scale;
+        let h = 0.5 / self.units.scale();
         if let Some(r) = SkRect::from_ltrb(x0 - h, y0 - h, x1 + h, y1 + h) {
             let tf = self.tf();
             self.pm.fill_rect(r, &paint(c), tf, None);
@@ -100,7 +127,7 @@ impl<'a> Canvas<'a> {
     }
 
     /// A rectangle with a transparent white fill (the pale list behind a dialog).
-    pub fn veil(&mut self, alpha: f32) {
+    fn veil(&mut self, alpha: f32) {
         let mut p = Paint::default();
         p.set_color(tiny_skia::Color::from_rgba(1.0, 1.0, 1.0, alpha).unwrap());
         // On an opaque screen, each channel of the result depends only on the same channel of the
@@ -141,7 +168,7 @@ impl<'a> Canvas<'a> {
         self.pm.fill_rect(r, &p, Transform::identity(), None);
     }
 
-    pub fn stroke_rect(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, w: f32, c: Rgb) {
+    fn stroke_rect(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, w: f32, c: Rgb) {
         if let Some(r) = SkRect::from_ltrb(x0, y0, x1, y1) {
             let path = PathBuilder::from_rect(r);
             let tf = self.tf();
@@ -166,7 +193,7 @@ impl<'a> Canvas<'a> {
     }
 
     /// A line with square ends (the thick lines of the board).
-    pub fn line_square(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, w: f32, c: Rgb) {
+    fn line_square(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, w: f32, c: Rgb) {
         let mut pb = PathBuilder::new();
         pb.move_to(x0, y0);
         pb.line_to(x1, y1);
@@ -178,7 +205,7 @@ impl<'a> Canvas<'a> {
     }
 
     /// A line with flat ends.
-    pub fn line_butt(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, w: f32, c: Rgb) {
+    fn line_butt(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, w: f32, c: Rgb) {
         self.polyline(&[(x0, y0), (x1, y1)], w, c, false);
     }
 
@@ -193,14 +220,14 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    pub fn path_stroke(&mut self, pb: PathBuilder, tf: Transform, w: f32, c: Rgb) {
+    fn path_stroke(&mut self, pb: PathBuilder, tf: Transform, w: f32, c: Rgb) {
         if let Some(path) = pb.finish() {
             let tf = tf.post_concat(self.tf());
             self.pm.stroke_path(&path, &paint(c), &stroke(w, true), tf, None);
         }
     }
 
-    pub fn path_fill(&mut self, pb: PathBuilder, tf: Transform, c: Rgb) {
+    fn path_fill(&mut self, pb: PathBuilder, tf: Transform, c: Rgb) {
         if let Some(path) = pb.finish() {
             let tf = tf.post_concat(self.tf());
             self.pm.fill_path(&path, &paint(c), FillRule::Winding, tf, None);
@@ -208,24 +235,26 @@ impl<'a> Canvas<'a> {
     }
 
     #[allow(clippy::too_many_arguments)]
-    pub fn text(&mut self, medium: bool, size: f32, x: f32, y: f32, anchor: Anchor, s: &str, c: Rgb) {
-        let font: &Font = if medium { &self.fonts.medium } else { &self.fonts.regular };
+    pub fn text(&mut self, weight: Weight, size: f32, x: f32, y: f32, anchor: Anchor, s: &str, c: Rgb) {
+        let font = self.fonts.get(weight);
         let tf = self.tf();
-        let (dx, dy) = if self.scale == 1.0 { TEXT_OFFSET } else { TEXT_OFFSET_SCALED };
-        font.draw(self.pm, size, x + dx / self.scale, y + dy / self.scale, anchor, s, c, tf);
+        let (dx, dy) = self.units.text_offset();
+        let scale = self.units.scale();
+        font.draw(self.pm, size, x + dx / scale, y + dy / scale, anchor, s, c, tf);
     }
 
-    pub fn text_width(&self, medium: bool, size: f32, s: &str) -> f32 {
-        let font = if medium { &self.fonts.medium } else { &self.fonts.regular };
-        font.width(size, s)
+    /// Sets the units of the coordinates of the next drawing operations.
+    pub fn set_units(&mut self, units: Units) {
+        self.units = units;
     }
 
-    /// Uses the layout units of the manual and the analytics pages (true) or screen pixels (false).
-    pub fn set_page_units(&mut self, on: bool) {
-        self.scale = if on { page_scale() } else { 1.0 };
+    /// Calls `draw` with page units, then sets screen units again.
+    fn in_page_units(&mut self, draw: impl FnOnce(&mut Self)) {
+        self.set_units(Units::Page);
+        draw(self);
+        self.set_units(Units::Screen);
     }
 
-    /// Puts an image with its top left at a screen pixel.
     /// Draws img with its top left at (x, y). `mirror` draws its mirror image (left to right).
     pub fn image(&mut self, img: &Pixmap, x: i32, y: i32, mirror: bool) {
         let tf = if mirror { Transform::from_row(-1.0, 0.0, 0.0, 1.0, (2 * x + img.width() as i32) as f32, 0.0) } else { Transform::identity() };
@@ -337,18 +366,33 @@ pub fn draw(c: &mut Canvas, app: &App) {
                 c.image(page, 0, 0, false);
             }
         }
-        Screen::Statistics => draw_summary(c, &app.results, app.confirm_all),
-        Screen::GamesList => draw_list(c, app),
+        Screen::Statistics => c.in_page_units(|c| draw_summary(c, &app.results, app.confirm_all)),
+        Screen::GamesList => c.in_page_units(|c| draw_list(c, app)),
     }
-    if app.update.dialog {
-        restart_dialog(c);
+    if app.update.dialog_shown() {
+        c.in_page_units(restart_dialog);
     }
+}
+
+/// The font and the size of the two labels of the difficulty slider.
+const SLIDER_LABEL_WEIGHT: Weight = Weight::Medium;
+const SLIDER_LABEL_SIZE: f32 = 25.0;
+
+/// The text widths of the labels "Easy" and "Hard" of the difficulty slider.
+pub fn slider_label_widths(fonts: &Fonts) -> (f32, f32) {
+    let font = fonts.get(SLIDER_LABEL_WEIGHT);
+    (font.width(SLIDER_LABEL_SIZE, "Easy"), font.width(SLIDER_LABEL_SIZE, "Hard"))
+}
+
+/// The x positions of the stops of a difficulty slider with its labels from `xl` to `xr`.
+pub fn slider_stops(fonts: &Fonts, xl: i32, xr: i32) -> [f32; STOPS as usize] {
+    let (easy_w, hard_w) = slider_label_widths(fonts);
+    layout::slider_stops(xl, xr, easy_w, hard_w)
 }
 
 /// The x positions of the stops of the New game slider (layout.rs).
 pub fn ng_stops(fonts: &Fonts) -> [f32; STOPS as usize] {
-    let (we, wi) = (fonts.medium.width(25.0, "Easy"), fonts.medium.width(25.0, "Hard"));
-    layout::slider_stops(ng_tx(), ng_tr(), we, wi)
+    slider_stops(fonts, ng_tx(), ng_tr())
 }
 
 fn draw_game(c: &mut Canvas, app: &App) {
@@ -368,16 +412,16 @@ fn draw_game(c: &mut Canvas, app: &App) {
     // The difficulty meter, or "Completed in" (CMP-4, DIF-6).
     if g.completed {
         let text = format!("Completed in {}", format_clock(g.seconds()));
-        c.text(true, 25.0, (board_x() + BOARD_SIZE / 2) as f32, (meter_y() + 9) as f32, Anchor::Middle, &text, BLACK);
+        c.text(Weight::Medium, 25.0, (board_x() + BOARD_SIZE / 2) as f32, (meter_y() + 9) as f32, Anchor::Middle, &text, BLACK);
     } else {
         labeled_slider(c, meter_xl(), meter_xr(), meter_y(), g.mode);
     }
 
     // The menu button. Its icon shows the menu state (NAV-7). The toolbar of a right-handed player
     // shows the mirror image of the icon.
-    c.image(toggle_icon(app.ui.menu_open), tb_x(), 0, layout::right_handed());
-    if app.ui.menu_open {
-        draw_toolbar(c, app);
+    c.image(toggle_icon(app.ui.menu.is_open()), tb_x(), 0, layout::right_handed());
+    if let Menu::Open(panel) = app.ui.menu {
+        draw_toolbar(c, app, panel);
     }
 }
 
@@ -497,14 +541,14 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
     // (MRK-2), gray15, at their keypad positions (MRK-1).
     const MARK_POS: [f32; 3] = [24.0, 74.0, 122.0];
     match look {
-        CellLook::Value(v, _, col) => c.text(false, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, &v.to_string(), col),
-        CellLook::Question => c.text(false, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, "?", gray(40)),
+        CellLook::Value(v, _, col) => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, &v.to_string(), col),
+        CellLook::Question => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, "?", gray(40)),
         CellLook::Empty(marks) => {
             for d in 1..=9u8 {
                 if marks & crate::game::mark_bit(d) != 0 {
                     let i = (d - 1) as usize;
                     let (cx, cy) = (xf + MARK_POS[i % 3], yf + MARK_POS[i / 3]);
-                    c.text(false, 31.0, cx, cy + 11.0, Anchor::Middle, &d.to_string(), gray(15));
+                    c.text(Weight::Regular, 31.0, cx, cy + 11.0, Anchor::Middle, &d.to_string(), gray(15));
                 }
             }
         }
@@ -591,7 +635,7 @@ fn put_cached(c: &mut Canvas, key: TileKey, x: usize, y: usize, w: usize, h: usi
 /// cell, then the lines at its four sides. The text of a cell does not touch the lines, and the lines
 /// cover the edge pixels of the tile fully, thus the pixels are the same as a drawing of all cells,
 /// then all lines, then all text. The band around the cells has only lines on white.
-pub fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, highlight: Option<u8>, question: Option<crate::game::Cell>) {
+fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, highlight: Option<u8>, question: Option<crate::game::Cell>) {
     let (bx, by) = (board_x(), board_y());
     let m = BOARD_MARGIN as i32;
     let Some(area) = board_area(c.pm) else {
@@ -711,10 +755,9 @@ fn cell_look(g: &Game, settings: &Settings, highlight: Option<u8>, question: Opt
 
 /// The difficulty slider with its labels (ui-lib.sh `labeled_slider`).
 fn labeled_slider(c: &mut Canvas, xl: i32, xr: i32, y: i32, level: u8) {
-    let (we, wi) = (c.text_width(true, 25.0, "Easy"), c.text_width(true, 25.0, "Hard"));
-    c.text(true, 25.0, xl as f32, (y + 9) as f32, Anchor::Start, "Easy", BLACK);
-    c.text(true, 25.0, xr as f32, (y + 9) as f32, Anchor::End, "Hard", BLACK);
-    let stops = layout::slider_stops(xl, xr, we, wi);
+    c.text(SLIDER_LABEL_WEIGHT, SLIDER_LABEL_SIZE, xl as f32, (y + 9) as f32, Anchor::Start, "Easy", BLACK);
+    c.text(SLIDER_LABEL_WEIGHT, SLIDER_LABEL_SIZE, xr as f32, (y + 9) as f32, Anchor::End, "Hard", BLACK);
+    let stops = slider_stops(c.fonts, xl, xr);
     slider(c, &stops, y as f32, level);
 }
 
@@ -731,8 +774,7 @@ fn slider(c: &mut Canvas, stops: &[f32; STOPS as usize], y: f32, level: u8) {
 }
 
 /// The open menu (toolbar.sh).
-fn draw_toolbar(c: &mut Canvas, app: &App) {
-    let panel = app.ui.panel;
+fn draw_toolbar(c: &mut Canvas, app: &App, panel: Option<Panel>) {
     // The close button (top left, or top right for a right-handed player).
     let (cx, cy) = (close_cx(), CLOSE_CY);
     c.circle(cx, cy, 17.5, None, Some((BLACK, 3.0)));
@@ -740,9 +782,9 @@ fn draw_toolbar(c: &mut Canvas, app: &App) {
     c.line(cx + 5.5, cy - 5.5, cx - 5.5, cy + 5.5, 3.0, BLACK);
 
     // A panel button is white on black while its panel is open (NAV-8).
-    let colors_active = panel == Panel::Colors;
-    let settings_active = panel == Panel::Settings;
-    let plus_active = panel == Panel::NewGame;
+    let colors_active = panel == Some(Panel::Colors);
+    let settings_active = panel == Some(Panel::Settings);
+    let plus_active = panel == Some(Panel::NewGame);
     if colors_active {
         active_slot(c, TB_SLOT);
     }
@@ -808,13 +850,13 @@ fn draw_toolbar(c: &mut Canvas, app: &App) {
     c.polyline(&[(x - 12.0, ay + 8.0), (x - 4.0, ay - 2.0), (x + 3.0, ay + 4.0), (x + 15.0, ay - 12.0)], 3.0, BLACK, true);
     let hy = (tb_bottom_y() - 168) as f32;
     c.circle(tb_cx(), hy, 19.0, None, Some((BLACK, 3.0)));
-    c.text(true, 26.0, tb_cx(), hy + 9.0, Anchor::Middle, "?", BLACK);
+    c.text(Weight::Medium, 26.0, tb_cx(), hy + 9.0, Anchor::Middle, "?", BLACK);
 
     match panel {
-        Panel::Colors => draw_colors_panel(c, &app.settings),
-        Panel::Settings => draw_settings_panel(c, &app.settings, &app.update),
-        Panel::NewGame => draw_new_game_panel(c, app.ui.slider),
-        Panel::None => {}
+        Some(Panel::Colors) => draw_colors_panel(c, &app.settings),
+        Some(Panel::Settings) => draw_settings_panel(c, &app.settings, &app.update),
+        Some(Panel::NewGame) => draw_new_game_panel(c, app.ui.slider),
+        None => {}
     }
 }
 
@@ -852,40 +894,37 @@ fn caution(c: &mut Canvas, x: f32, y: f32) {
     c.circle(x, y + 5.5, 1.6, Some(WHITE), None);
 }
 
-/// The Settings panel (REQUIREMENTS.md §9.1): two rows with a name and a switch, the version, and the
+/// The Settings panel (REQUIREMENTS.md §9.1): one row with a name and a switch for each `Switch`, the version, and the
 /// update row of a stable or a preview build (§9.2).
 fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
     let (pl, pr) = (colors_pl(), colors_pr());
     let p = layout::settings_panel(update.has_row());
     panel_frame(c, pl, pr, p.y0, p.y1 - 1);
-    let rows: [(&[&str], bool); 2] = [
-        (&["Highlight numbers"], settings.highlight_on),
-        (&["Hide pencil marks", "automatically"], settings.auto_hide_on),
-    ];
-    for (i, (name, on)) in rows.iter().enumerate() {
-        let r = layout::settings_row(i);
-        if i > 0 {
+    for s in Switch::ALL {
+        let r = layout::settings_row(s.row());
+        if s.row() > 0 {
             c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
         }
         let cy = (r.y0 + 56) as f32;
+        let name = s.label();
         let first = if name.len() == 1 { cy + 9.0 } else { cy - 7.0 };
         for (k, line) in name.iter().enumerate() {
-            c.text(true, 25.0, (pl + 33) as f32, first + 32.0 * k as f32, Anchor::Start, line, BLACK);
+            c.text(Weight::Medium, 25.0, (pl + 33) as f32, first + 32.0 * k as f32, Anchor::Start, line, BLACK);
         }
-        switch(c, (pr - 33) as f32, cy, *on);
+        switch(c, (pr - 33) as f32, cy, settings.is_on(s));
     }
     let r = layout::settings_row(layout::VERSION_ROW);
     c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
     let y = (r.y0 + 65) as f32;
-    c.text(true, 25.0, (pl + 33) as f32, y, Anchor::Start, "Version", BLACK);
-    c.text(false, 25.0, (pr - 33) as f32, y, Anchor::End, &update.current, BLACK);
+    c.text(Weight::Medium, 25.0, (pl + 33) as f32, y, Anchor::Start, "Version", BLACK);
+    c.text(Weight::Regular, 25.0, (pr - 33) as f32, y, Anchor::End, &update.current, BLACK);
     if !update.has_row() {
         return;
     }
     let r = layout::settings_row(layout::UPDATE_ROW);
     c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
     if let Some(text) = update.row_text() {
-        c.text(false, 25.0, (pl + 33) as f32, (r.y0 + 65) as f32, Anchor::Start, text, gray(40));
+        c.text(Weight::Regular, 25.0, (pl + 33) as f32, (r.y0 + 65) as f32, Anchor::Start, text, gray(40));
     } else if let Some(button) = update.button() {
         // A box with a 2 px border, the icon and the text.
         let b = layout::update_button();
@@ -932,7 +971,7 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
                 c.polyline(&[(ix, cy - 15.0), (ix, cy - 3.0)], 3.0, BLACK, true);
             }
         }
-        c.text(true, 25.0, x0 + 72.0, cy + 9.0, Anchor::Start, button.text(), BLACK);
+        c.text(Weight::Medium, 25.0, x0 + 72.0, cy + 9.0, Anchor::Start, button.text(), BLACK);
     }
 }
 
@@ -961,22 +1000,23 @@ fn switch(c: &mut Canvas, x1: f32, cy: f32, on: bool) {
 fn draw_colors_panel(c: &mut Canvas, settings: &Settings) {
     let (pl, pr) = (colors_pl(), colors_pr());
     panel_frame(c, pl, pr, COLORS_TOP, COLORS_TOP + 3 * COLOR_SECTION_H);
-    for (si, &section) in Section::ALL.iter().enumerate() {
-        let top = COLORS_TOP + si as i32 * COLOR_SECTION_H;
-        if si > 0 {
+    for section in Section::ALL {
+        let top = layout::color_section_top(section);
+        if section.panel_index() > 0 {
             c.rect(pl as f32, top as f32, pr as f32, (top + 1) as f32, BLACK);
         }
-        c.text(true, 25.0, (pl + 33) as f32, (top + 52) as f32, Anchor::Start, section.title(), BLACK);
+        c.text(Weight::Medium, 25.0, (pl + 33) as f32, (top + 52) as f32, Anchor::Start, section.title(), BLACK);
         let selected = settings.color(section);
-        for (i, &color) in Color::ALL.iter().enumerate() {
-            let (gx, gy) = layout::color_cell(si, i);
-            let (cx, cy) = ((gx + 56) as f32, (gy + 37) as f32);
-            let (gxf, gyf) = (gx as f32, gy as f32);
+        for color in Color::ALL {
+            let cell = layout::color_cell(section, color);
+            let (x0, y0) = (cell.x0 as f32, cell.y0 as f32);
+            // The swatch: centered in the width of the cell, above the name.
+            let (cx, cy) = (x0 + (COLOR_CELL / 2) as f32, y0 + 37.0);
             let mut fg = BLACK;
             let mut ring = BLACK;
             let taken = settings.is_taken(section, color);
             if color == selected {
-                c.rect(gxf, gyf, gxf + 111.0, gyf + 111.0, BLACK);
+                c.rect(x0, y0, (cell.x1 - 1) as f32, (cell.y1 - 1) as f32, BLACK);
                 fg = WHITE;
                 ring = WHITE;
             } else if taken {
@@ -987,7 +1027,7 @@ fn draw_colors_panel(c: &mut Canvas, settings: &Settings) {
             if taken && color != selected {
                 c.line(cx - 17.0, cy + 17.0, cx + 17.0, cy - 17.0, 2.5, gray(50));
             }
-            c.text(true, 25.0, cx, gyf + 88.0, Anchor::Middle, color.name(), fg);
+            c.text(Weight::Medium, 25.0, cx, y0 + 88.0, Anchor::Middle, color.name(), fg);
         }
     }
 }
@@ -996,15 +1036,35 @@ fn draw_new_game_panel(c: &mut Canvas, slider_level: u8) {
     panel_frame(c, ng_pl(), ng_pr(), ng_top(), screen_h() as i32);
     c.rect(ng_pl() as f32, tb_bottom_y() as f32, ng_pr() as f32, (tb_bottom_y() + 1) as f32, BLACK);
     labeled_slider(c, ng_tx(), ng_tr(), ng_slider_y(), slider_level);
-    c.text(true, 25.0, ng_tx() as f32, (ng_start_y() + 9) as f32, Anchor::Start, "Start new game", BLACK);
+    c.text(Weight::Medium, 25.0, ng_tx() as f32, (ng_start_y() + 9) as f32, Anchor::Start, "Start new game", BLACK);
 }
 
 // ---- Analytics (analytics.py)
 
+/// The colors of a difficulty meter. `on` is the line and the stops up to the level, and the frame of
+/// all stops. `hollow` is the inside of the stops after the level, and the ring of the knob. It is
+/// the color of the background.
+#[derive(Clone, Copy)]
+struct MeterStyle {
+    on: Rgb,
+    hollow: Rgb,
+}
+
+impl MeterStyle {
+    /// A black meter on a white background (the tables, a filter segment that is not selected).
+    const ON_WHITE: MeterStyle = MeterStyle { on: BLACK, hollow: WHITE };
+    /// A white meter on a black background (the selected filter segment).
+    const ON_BLACK: MeterStyle = MeterStyle { on: WHITE, hollow: BLACK };
+}
+
+/// The color of the meter line after the level, for all meter styles.
+const METER_TRACK: Rgb = gray(60);
+
 /// The difficulty meter of the analytics screens (no labels). `step` is the distance between the stops.
-fn meter(c: &mut Canvas, xa: f32, y: f32, step: f32, level: u8, on: Rgb, off: Rgb, hollow: Rgb) {
+fn meter(c: &mut Canvas, xa: f32, y: f32, step: f32, level: u8, style: MeterStyle) {
+    let MeterStyle { on, hollow } = style;
     let (xk, xb) = (xa + level as f32 * step, xa + (MODES - 1) as f32 * step);
-    c.line(xk, y, xb, y, 2.5, off);
+    c.line(xk, y, xb, y, 2.5, METER_TRACK);
     c.line(xa, y, xk, y, 4.5, on);
     for i in 0..MODES {
         let x = xa + i as f32 * step;
@@ -1016,11 +1076,11 @@ fn meter(c: &mut Canvas, xa: f32, y: f32, step: f32, level: u8, on: Rgb, off: Rg
 /// "< Back", the title and the page arrows.
 fn chrome(c: &mut Canvas, title: &str, page: Option<(usize, usize)>) {
     c.polyline(&[(48.0, 37.0), (38.0, 48.0), (48.0, 59.0)], 3.0, BLACK, true);
-    c.text(true, 22.0, 66.0, 56.0, Anchor::Start, "Back", BLACK);
-    c.text(true, 84.0, 72.0, 170.0, Anchor::Start, title, BLACK);
+    c.text(Weight::Medium, 22.0, 66.0, 56.0, Anchor::Start, "Back", BLACK);
+    c.text(Weight::Medium, 84.0, 72.0, 170.0, Anchor::Start, title, BLACK);
     if let Some((n, total)) = page {
         let (cx, ny) = page_number_pos();
-        c.text(false, 28.0, cx, ny, Anchor::Middle, &format!("{n} / {total}"), gray(50));
+        c.text(Weight::Regular, 28.0, cx, ny, Anchor::Middle, &format!("{n} / {total}"), gray(50));
         let prev = if n == 1 { gray(80) } else { BLACK };
         let next = if n == total { gray(80) } else { BLACK };
         c.polyline(&[(cx - 74.0, ny - 20.0), (cx - 84.0, ny - 10.0), (cx - 74.0, ny)], 3.0, prev, true);
@@ -1036,21 +1096,21 @@ fn avg_text(rows: &[&ResultRow]) -> String {
     average_seconds(rows.iter().copied()).map(format_clock).unwrap_or_else(|| "–".to_string())
 }
 
-pub fn draw_summary(c: &mut Canvas, results: &[ResultRow], confirm_all: bool) {
-    c.set_page_units(true);
+/// Draws the statistics page (in page units).
+fn draw_summary(c: &mut Canvas, results: &[ResultRow], confirm_all: bool) {
     chrome(c, "Statistics", None);
     let all: Vec<&ResultRow> = results.iter().collect();
     // ANA-3
     let (bw, right, count_x) = (summary_box_w(), page_right(), summary_count_x());
     for (x0, label, value) in [(72.0, "Puzzles completed", all.len().to_string()), (100.0 + bw, "Average time", avg_text(&all))] {
         c.stroke_rect(x0, 250.0, x0 + bw, 440.0, 1.7, BLACK);
-        c.text(false, 30.0, x0 + 30.0, 305.0, Anchor::Start, label, gray(40));
-        c.text(true, 84.0, x0 + 30.0, 405.0, Anchor::Start, &value, BLACK);
+        c.text(Weight::Regular, 30.0, x0 + 30.0, 305.0, Anchor::Start, label, gray(40));
+        c.text(Weight::Medium, 84.0, x0 + 30.0, 405.0, Anchor::Start, &value, BLACK);
     }
-    c.text(true, 50.0, 72.0, 550.0, Anchor::Start, "By difficulty", BLACK);
-    c.text(false, 30.0, 72.0, 615.0, Anchor::Start, "Difficulty", gray(40));
-    c.text(false, 30.0, count_x, 615.0, Anchor::End, "Completed", gray(40));
-    c.text(false, 30.0, right, 615.0, Anchor::End, "Average time", gray(40));
+    c.text(Weight::Medium, 50.0, 72.0, 550.0, Anchor::Start, "By difficulty", BLACK);
+    c.text(Weight::Regular, 30.0, 72.0, 615.0, Anchor::Start, "Difficulty", gray(40));
+    c.text(Weight::Regular, 30.0, count_x, 615.0, Anchor::End, "Completed", gray(40));
+    c.text(Weight::Regular, 30.0, right, 615.0, Anchor::End, "Average time", gray(40));
     let mut y = SUMMARY_TABLE_Y;
     hline(c, y, 72.0, right);
     // ANA-4
@@ -1063,10 +1123,10 @@ pub fn draw_summary(c: &mut Canvas, results: &[ResultRow], confirm_all: bool) {
             m if m == MODES - 1 => "Hard",
             _ => "",
         };
-        c.text(false, 34.0, 72.0, cy + 12.0, Anchor::Start, name, BLACK);
-        meter(c, 230.0, cy, METER_STEP, mode, BLACK, gray(60), WHITE);
-        c.text(false, 34.0, count_x, cy + 12.0, Anchor::End, &rows.len().to_string(), BLACK);
-        c.text(false, 34.0, right, cy + 12.0, Anchor::End, &avg_text(&rows), BLACK);
+        c.text(Weight::Regular, 34.0, 72.0, cy + 12.0, Anchor::Start, name, BLACK);
+        meter(c, 230.0, cy, METER_STEP, mode, MeterStyle::ON_WHITE);
+        c.text(Weight::Regular, 34.0, count_x, cy + 12.0, Anchor::End, &rows.len().to_string(), BLACK);
+        c.text(Weight::Regular, 34.0, right, cy + 12.0, Anchor::End, &avg_text(&rows), BLACK);
         y += row;
         hline(c, y, 72.0, right);
     }
@@ -1075,20 +1135,19 @@ pub fn draw_summary(c: &mut Canvas, results: &[ResultRow], confirm_all: bool) {
     let all_right = right - DELETE_ALL_W - 28.0;
     c.stroke_rect(72.0, y, all_right, y + ROW, 1.7, BLACK);
     let mid = y + (ROW / 2.0).floor();
-    c.text(true, 34.0, 102.0, mid + 12.0, Anchor::Start, "All completed games", BLACK);
+    c.text(Weight::Medium, 34.0, 102.0, mid + 12.0, Anchor::Start, "All completed games", BLACK);
     c.polyline(&[(all_right - 40.0, mid - 12.0), (all_right - 28.0, mid), (all_right - 40.0, mid + 12.0)], 3.0, BLACK, true);
     // "Delete all games": gray, with no effect, if there are no results (ANA-12).
     let col = if results.is_empty() { gray(70) } else { BLACK };
     let x0 = right - DELETE_ALL_W;
     c.stroke_rect(x0, y, right, y + ROW, 1.7, col);
-    bin_colored(c, x0 + 50.0, mid, col);
-    c.text(true, 34.0, x0 + 90.0, mid + 12.0, Anchor::Start, "Delete all games", col);
+    bin(c, x0 + 50.0, mid, col);
+    c.text(Weight::Medium, 34.0, x0 + 90.0, mid + 12.0, Anchor::Start, "Delete all games", col);
     if confirm_all {
         let n = results.len();
         let what = if n == 1 { "1 completed game is deleted.".to_string() } else { format!("All {n} completed games are deleted.") };
         confirm_dialog(c, "Delete all games?", &what);
     }
-    c.set_page_units(false);
 }
 
 /// A confirmation dialog at the center of the page (analytics.py): a title, one line, "You cannot
@@ -1099,13 +1158,12 @@ fn confirm_dialog(c: &mut Canvas, title: &str, line: &str) {
 
 /// The dialog "Restart the interface?" (§9.2, UPD-10), over all screens. The buttons are "Later" and
 /// "Restart".
-pub const RESTART_TITLE: &str = "Restart the interface?";
-pub const RESTART_LINES: [&str; 2] = ["The update has a new ink patch. To use it,", "the reMarkable interface must start again."];
+const RESTART_TITLE: &str = "Restart the interface?";
+const RESTART_LINES: [&str; 2] = ["The update has a new ink patch. To use it,", "the reMarkable interface must start again."];
 
+/// Draws the dialog (in page units).
 fn restart_dialog(c: &mut Canvas) {
-    c.set_page_units(true);
     dialog_box(c, RESTART_TITLE, RESTART_LINES, ["Later", "Restart"]);
-    c.set_page_units(false);
 }
 
 /// A dialog at the center of the page, on the pale screen (analytics.py): a title, two lines, and two
@@ -1115,15 +1173,15 @@ fn dialog_box(c: &mut Canvas, title: &str, lines: [&str; 2], buttons: [&str; 2])
     let (dx0, dy0, dx1, dy1) = dialog();
     c.rect(dx0, dy0, dx1, dy1, WHITE);
     c.stroke_rect(dx0, dy0, dx1, dy1, 1.7, BLACK);
-    c.text(true, 44.0, dx0 + 40.0, dy0 + 75.0, Anchor::Start, title, BLACK);
-    c.text(false, 34.0, dx0 + 40.0, dy0 + 140.0, Anchor::Start, lines[0], gray(25));
-    c.text(false, 34.0, dx0 + 40.0, dy0 + 190.0, Anchor::Start, lines[1], gray(25));
+    c.text(Weight::Medium, 44.0, dx0 + 40.0, dy0 + 75.0, Anchor::Start, title, BLACK);
+    c.text(Weight::Regular, 34.0, dx0 + 40.0, dy0 + 140.0, Anchor::Start, lines[0], gray(25));
+    c.text(Weight::Regular, 34.0, dx0 + 40.0, dy0 + 190.0, Anchor::Start, lines[1], gray(25));
     hline(c, dy1 - ROW, dx0, dx1);
     let mid = ((dx0 + dx1) / 2.0).floor();
     c.rect(mid, dy1 - ROW, dx1, dy1, BLACK);
     let by = dy1 - (ROW / 2.0).floor() + 12.0;
-    c.text(true, 34.0, ((dx0 * 3.0 + dx1) / 4.0).floor(), by, Anchor::Middle, buttons[0], BLACK);
-    c.text(true, 34.0, ((dx0 + dx1 * 3.0) / 4.0).floor(), by, Anchor::Middle, buttons[1], WHITE);
+    c.text(Weight::Medium, 34.0, ((dx0 * 3.0 + dx1) / 4.0).floor(), by, Anchor::Middle, buttons[0], BLACK);
+    c.text(Weight::Medium, 34.0, ((dx0 + dx1 * 3.0) / 4.0).floor(), by, Anchor::Middle, buttons[1], WHITE);
 }
 
 /// A date in local time, for example "22 Oct 2026, 20:22".
@@ -1146,30 +1204,29 @@ pub fn format_date(unix: i64) -> String {
     )
 }
 
+/// Draws the list of the completed games (in page units).
 fn draw_list(c: &mut Canvas, app: &App) {
-    c.set_page_units(true);
     let pages = app.page_count();
     chrome(c, "Completed games", Some((app.list.page, pages)));
     // The filter: All, then one segment for each mode. The selected segment is black.
     let seg = seg_w();
-    for i in 0..=MODES as usize {
-        let x = SEG_X + i as f32 * seg;
-        let selected = match app.list.filter {
-            None => i == 0,
-            Some(m) => i == m as usize + 1,
-        };
+    for filter in list_filters() {
+        let x = filter_segment_x(filter);
+        let selected = app.list.filter == filter;
         if selected {
             c.rect(x, SEG_Y, x + seg, SEG_Y + 80.0, BLACK);
         }
         c.stroke_rect(x, SEG_Y, x + seg, SEG_Y + 80.0, 1.7, BLACK);
-        // The meter is at the center of the segment (24.75 units from the left in portrait).
-        let mx = x + (seg - (MODES - 1) as f32 * FILTER_METER_STEP) / 2.0;
-        if i == 0 {
-            c.text(true, 32.0, x + seg / 2.0, SEG_Y + 52.0, Anchor::Middle, "All", if selected { WHITE } else { BLACK });
-        } else if selected {
-            meter(c, mx, SEG_Y + 40.0, FILTER_METER_STEP, i as u8 - 1, WHITE, gray(60), BLACK);
-        } else {
-            meter(c, mx, SEG_Y + 40.0, FILTER_METER_STEP, i as u8 - 1, BLACK, gray(60), WHITE);
+        match filter {
+            None => {
+                c.text(Weight::Medium, 32.0, x + seg / 2.0, SEG_Y + 52.0, Anchor::Middle, "All", if selected { WHITE } else { BLACK });
+            }
+            Some(mode) => {
+                // The meter is at the center of the segment (24.75 units from the left in portrait).
+                let mx = x + (seg - (MODES - 1) as f32 * FILTER_METER_STEP) / 2.0;
+                let style = if selected { MeterStyle::ON_BLACK } else { MeterStyle::ON_WHITE };
+                meter(c, mx, SEG_Y + 40.0, FILTER_METER_STEP, mode, style);
+            }
         }
     }
     // One table across the full width: 12 rows in portrait, 6 rows in landscape (layout.rs).
@@ -1177,31 +1234,27 @@ fn draw_list(c: &mut Canvas, app: &App) {
     let (x, w) = list_column();
     let rows = app.page_rows();
     debug_assert!(rows.len() <= list_rows());
-    c.text(false, 30.0, x, 395.0, Anchor::Start, "Date", gray(40));
-    c.text(false, 30.0, x + meter_dx, 395.0, Anchor::Start, "Difficulty", gray(40));
-    c.text(false, 30.0, x + time_dx, 395.0, Anchor::End, "Time", gray(40));
+    c.text(Weight::Regular, 30.0, x, 395.0, Anchor::Start, "Date", gray(40));
+    c.text(Weight::Regular, 30.0, x + meter_dx, 395.0, Anchor::Start, "Difficulty", gray(40));
+    c.text(Weight::Regular, 30.0, x + time_dx, 395.0, Anchor::End, "Time", gray(40));
     hline(c, LIST_Y, x, x + w);
     for (i, r) in rows.iter().enumerate() {
         let y = list_row(i);
         let cy = y + (ROW / 2.0).floor();
-        c.text(false, 34.0, x, cy + 12.0, Anchor::Start, &format_date(r.finished_at), BLACK);
-        meter(c, x + meter_dx, cy, METER_STEP, r.mode, BLACK, gray(60), WHITE);
-        c.text(false, 34.0, x + time_dx, cy + 12.0, Anchor::End, &format_clock(r.seconds), BLACK);
-        bin(c, x + bin_dx, cy);
+        c.text(Weight::Regular, 34.0, x, cy + 12.0, Anchor::Start, &format_date(r.finished_at), BLACK);
+        meter(c, x + meter_dx, cy, METER_STEP, r.mode, MeterStyle::ON_WHITE);
+        c.text(Weight::Regular, 34.0, x + time_dx, cy + 12.0, Anchor::End, &format_clock(r.seconds), BLACK);
+        bin(c, x + bin_dx, cy, BLACK);
         hline(c, y + ROW, x, x + w);
     }
     if let Some(r) = &app.list.confirm {
         let when = format!("{}, completed in {}.", format_date(r.finished_at), format_clock(r.seconds));
         confirm_dialog(c, "Delete this game?", &when);
     }
-    c.set_page_units(false);
 }
 
-fn bin(c: &mut Canvas, bx: f32, cy: f32) {
-    bin_colored(c, bx, cy, BLACK);
-}
-
-fn bin_colored(c: &mut Canvas, bx: f32, cy: f32, col: Rgb) {
+/// The bin icon of a delete button, with its center at (bx, cy).
+fn bin(c: &mut Canvas, bx: f32, cy: f32, col: Rgb) {
     let w = 2.6;
     c.line(bx - 14.0, cy - 11.0, bx + 14.0, cy - 11.0, w, col);
     c.polyline(&[(bx - 5.0, cy - 11.0), (bx - 5.0, cy - 15.0), (bx + 5.0, cy - 15.0), (bx + 5.0, cy - 11.0)], w, col, true);

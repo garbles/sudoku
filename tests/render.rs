@@ -3,18 +3,15 @@
 //! permitted only on the pixels at the edge of a line or a glyph (within 1 px; 2 px for a maximum of
 //! two pixels).
 
+mod common;
+
 use std::path::Path;
 
-use sudoku::font::Fonts;
+use common::fonts;
 use sudoku::game::cells;
 use sudoku::reference;
 use sudoku::render::{decode_png, rgb_at};
 use sudoku::settings::Color;
-
-fn fonts() -> Fonts {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    Fonts::from_files(&root.join("scripts/fonts/rmsans-400.ttf"), &root.join("scripts/fonts/rmsans-500.ttf")).unwrap()
-}
 
 #[test]
 fn screens_agree_with_the_reference_images() {

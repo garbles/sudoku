@@ -1,28 +1,31 @@
 //! The event scripts of the video tool and the bench (`video/*.txt`). A script gives timed pen, eraser
 //! and finger events. `src/bin/video.rs` gives the commands of the script.
 
-use crate::app::{App, Env, Input, Tool};
+use crate::app::{new_game, App, Env, Input, Tool};
+use crate::font::Fonts;
 use crate::game::{mark_bit, Cell, Marks};
 use crate::layout::{self, CELL};
+use crate::render;
 use crate::settings::{Color, Section};
+use crate::store::ResultsDb;
 
 /// The time that the pen stays in the air at a point before it touches the screen and after it lifts.
-pub const HOVER_MS: u64 = 250;
+const HOVER_MS: u64 = 250;
 /// The speed of the pen in the air and while it writes (px for each ms).
-pub const AIR_SPEED: f32 = 2.0;
-pub const INK_SPEED: f32 = 0.6;
+const AIR_SPEED: f32 = 2.0;
+const INK_SPEED: f32 = 0.6;
 /// The time between two pen or eraser events while the pen moves (the tablet sends more).
-pub const STEP_MS: u64 = 8;
-pub const TAP_MS: u64 = 80;
+const STEP_MS: u64 = 8;
+const TAP_MS: u64 = 80;
 /// The time between the taps of one `mark` line.
-pub const MARK_GAP_MS: u64 = 300;
+const MARK_GAP_MS: u64 = 300;
 /// The pen lifts for this time between the strokes of one digit (less than the recognition pause).
-pub const STROKE_GAP_MS: u64 = 150;
-pub const FINGER_MS: u64 = 120;
+const STROKE_GAP_MS: u64 = 150;
+const FINGER_MS: u64 = 120;
 /// The size of the handwriting in a cell (the same as the tests).
-pub const INK_BOX: f32 = 98.0;
+const INK_BOX: f32 = 98.0;
 
-/// A fixed clock and seed, thus each run is the same.
+/// A fixed clock and seed, thus each run is the same. The scripts and the reference states use it.
 pub struct FixedEnv(pub u64);
 
 impl Env for FixedEnv {
@@ -63,7 +66,7 @@ impl Timeline {
     }
 
     /// Moves the pen in the air to (x, y), and keeps it there for HOVER_MS.
-    pub fn approach(&mut self, x: f32, y: f32, tool: Tool) {
+    fn approach(&mut self, x: f32, y: f32, tool: Tool) {
         if let Some(from) = self.pen_at {
             for p in walk(&[from, (x, y)], AIR_SPEED) {
                 self.t += STEP_MS;
@@ -102,7 +105,7 @@ impl Timeline {
 }
 
 /// The points along a polyline at the speed, one for each STEP_MS (the first point is not included).
-pub fn walk(pts: &[(f32, f32)], speed: f32) -> Vec<(f32, f32)> {
+fn walk(pts: &[(f32, f32)], speed: f32) -> Vec<(f32, f32)> {
     let step = speed * STEP_MS as f32;
     let mut out = Vec::new();
     let mut carry = 0.0;
@@ -127,7 +130,7 @@ pub fn walk(pts: &[(f32, f32)], speed: f32) -> Vec<(f32, f32)> {
     out
 }
 
-pub fn parse_cell(s: &str) -> Result<Cell, String> {
+fn parse_cell(s: &str) -> Result<Cell, String> {
     let b = s.as_bytes();
     if b.len() == 4 && b[0] == b'r' && b[2] == b'c' && (b'1'..=b'9').contains(&b[1]) && (b'1'..=b'9').contains(&b[3]) {
         Ok((b[1] - b'1', b[3] - b'1'))
@@ -136,7 +139,7 @@ pub fn parse_cell(s: &str) -> Result<Cell, String> {
     }
 }
 
-pub fn parse_digit(s: &str) -> Result<u8, String> {
+fn parse_digit(s: &str) -> Result<u8, String> {
     match s.parse::<u8>() {
         Ok(d @ 1..=9) => Ok(d),
         _ => Err(format!("incorrect digit {s:?}")),
@@ -150,7 +153,7 @@ pub fn micro_center(cell: Cell, d: u8) -> (f32, f32) {
     (x as f32 + mid(ix), y as f32 + mid(iy))
 }
 
-pub fn button_point(name: &str) -> Result<(f32, f32), String> {
+fn button_point(name: &str) -> Result<(f32, f32), String> {
     let slot = match name {
         "menu" => 0,
         "colors" => 1,
@@ -167,6 +170,16 @@ pub struct Script {
     pub seed: u64,
     pub mode: u8,
     pub timeline: Timeline,
+}
+
+impl Script {
+    /// The app at the start of the script: the puzzle of the script, no saved settings, no results,
+    /// a fixed clock, and the slider at the mode of the puzzle.
+    pub fn app(&self, fonts: &Fonts) -> App {
+        let mut app = App::new(Some(new_game(self.seed, self.mode)), None, ResultsDb::in_memory(), Box::new(FixedEnv(self.seed)), render::ng_stops(fonts));
+        app.ui.slider = self.mode;
+        app
+    }
 }
 
 pub fn parse(text: &str, pause_ms: u64) -> Result<Script, String> {
@@ -270,14 +283,13 @@ pub fn parse(text: &str, pause_ms: u64) -> Result<Script, String> {
                     "highlighted" => Section::Highlight,
                     _ => return Err(err(format!("unknown section {section:?}"))),
                 };
-                let ci = Color::ALL
-                    .iter()
-                    .position(|c| c.name().eq_ignore_ascii_case(color))
+                let c = Color::ALL
+                    .into_iter()
+                    .find(|c| c.name().eq_ignore_ascii_case(color))
                     .ok_or_else(|| err(format!("unknown color {color:?}")))?;
-                let si = Section::ALL.iter().position(|&x| x == s).unwrap();
-                let (gx, gy) = layout::color_cell(si, ci);
-                finger(&mut tl, gx as f32 + 56.0, gy as f32 + 56.0);
-                tl.check(0, Check::Color(s, Color::ALL[ci]));
+                let cell = layout::color_cell(s, c);
+                finger(&mut tl, cell.x0 as f32 + 56.0, cell.y0 as f32 + 56.0);
+                tl.check(0, Check::Color(s, c));
             }
             ["tap", name] => {
                 need_puzzle()?;

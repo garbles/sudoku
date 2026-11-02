@@ -7,7 +7,7 @@
 use std::io;
 use std::os::fd::RawFd;
 
-pub const SOCKET_PATH: &str = "/tmp/qtfb.sock";
+const SOCKET_PATH: &str = "/tmp/qtfb.sock";
 
 const MESSAGE_INITIALIZE: u8 = 0;
 const MESSAGE_UPDATE: u8 = 1;

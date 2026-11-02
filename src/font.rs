@@ -7,7 +7,7 @@ use tiny_skia::{FillRule, Paint, PathBuilder, Pixmap, Transform};
 use ttf_parser::{Face, GlyphId, Tag};
 
 /// The font file of the device. It is a variable font (axes `wght` and `ital`).
-pub const DEVICE_FONT: &str = "/usr/share/remarkable/webui/reMarkableSans.woff2";
+const DEVICE_FONT: &str = "/usr/share/remarkable/webui/reMarkableSans.woff2";
 
 pub struct Font {
     face: Face<'static>,
@@ -15,9 +15,18 @@ pub struct Font {
 
 pub struct Fonts {
     /// reMarkable Sans Regular (weight 400): board digits and body text.
-    pub regular: Font,
+    regular: Font,
     /// reMarkable Sans Medium (weight 500): UI text.
-    pub medium: Font,
+    medium: Font,
+}
+
+/// The weight of reMarkable Sans that a text uses.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Weight {
+    /// Weight 400: board digits and body text.
+    Regular,
+    /// Weight 500: UI text.
+    Medium,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -37,9 +46,29 @@ impl Fonts {
         Ok(Fonts { regular: Font::load(Path::new(&regular), 400.0)?, medium: Font::load(Path::new(&medium), 500.0)? })
     }
 
-    /// Loads two static font files (for example scripts/fonts/rmsans-400.ttf and rmsans-500.ttf).
-    pub fn from_files(regular: &Path, medium: &Path) -> Result<Fonts, String> {
-        Ok(Fonts { regular: Font::load(regular, 400.0)?, medium: Font::load(medium, 500.0)? })
+    /// Loads the static fonts of the repository (scripts/fonts/rmsans-400.ttf and rmsans-500.ttf), for
+    /// the tests and the tools on a computer (refer to scripts/fonts/README.md).
+    pub fn repo() -> Result<Fonts, String> {
+        let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("scripts/fonts");
+        Ok(Fonts { regular: Font::load(&dir.join("rmsans-400.ttf"), 400.0)?, medium: Font::load(&dir.join("rmsans-500.ttf"), 500.0)? })
+    }
+
+    /// The fonts of the tools on a computer (bench, snapshot, video): the file of `SUDOKU_FONT` (as
+    /// `load`) if it is set, else the fonts of the repository.
+    pub fn for_tools() -> Result<Fonts, String> {
+        if std::env::var_os("SUDOKU_FONT").is_some() {
+            Fonts::load()
+        } else {
+            Fonts::repo()
+        }
+    }
+
+    /// The font of a weight.
+    pub fn get(&self, weight: Weight) -> &Font {
+        match weight {
+            Weight::Regular => &self.regular,
+            Weight::Medium => &self.medium,
+        }
     }
 }
 

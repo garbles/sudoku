@@ -6,13 +6,12 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use crate::app::{new_game, App, Input, DEFAULT_PAUSE_MS};
+use crate::app::{App, Input, DEFAULT_PAUSE_MS};
 use crate::font::Fonts;
 use crate::layout::{PHYSICAL_H, PHYSICAL_W};
 use crate::present::{self, Presenter, Update};
 use crate::render::{self, Canvas};
-use crate::script::{self, Ev, FixedEnv};
-use crate::store::ResultsDb;
+use crate::script::{self, Ev};
 
 /// The script of the bench: the extended demo, which plays a full game.
 pub const SCRIPT: &str = include_str!("../video/demo-full.txt");
@@ -129,9 +128,7 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
     // ---- The script.
     let script = script::parse(&opts.script, DEFAULT_PAUSE_MS)?;
     let t = Instant::now();
-    let mut app = App::new(Some(new_game(script.seed, script.mode)), None, ResultsDb::in_memory(), Box::new(FixedEnv(script.seed)));
-    app.ng_stops = render::ng_stops(&fonts);
-    app.ui.slider = script.mode;
+    let mut app = script.app(&fonts);
     phases.add("startup.app", t.elapsed());
     let t = Instant::now();
     let mut presenter = Presenter::new();

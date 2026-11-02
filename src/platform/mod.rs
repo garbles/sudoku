@@ -140,8 +140,8 @@ fn start_update(request: UpdateRequest, results: mpsc::Sender<UpdateResult>, sta
                 let app_dir = app_dir.ok_or("the folder of the app is not known")?;
                 eprintln!("sudoku: install {} from {} in {}", m.version, m.url, app_dir.display());
                 let archive = download(&m.url, Duration::from_secs(300))?;
-                let patch = match &m.patch_url {
-                    Some(url) => Some(download(url, Duration::from_secs(60))?),
+                let patch = match &m.patch {
+                    Some(p) => Some(download(&p.url, Duration::from_secs(60))?),
                     None => None,
                 };
                 let changed = update::install_release(&archive, patch.as_deref(), &m, &staging, &app_dir, Path::new(update::PATCH_DIR))?;
@@ -192,6 +192,19 @@ fn app_dir() -> Option<PathBuf> {
     std::env::current_exe().ok()?.parent().map(Path::to_path_buf)
 }
 
+/// A test setting with a value (the `remarkable-debug` skill, `techniques/app-settings.md`): the
+/// environment variable `env` if it is set, else the contents of the file `file` in the data folder.
+/// The caller trims and parses the text.
+fn test_setting(env: &str, file: &str) -> Option<String> {
+    std::env::var(env).ok().or_else(|| std::fs::read_to_string(store::data_dir().join(file)).ok())
+}
+
+/// A test switch: on when the environment variable `env` is set (to any value), or when the file
+/// `file` is in the data folder. The app does not read the file.
+fn test_switch(env: &str, file: &str) -> bool {
+    std::env::var_os(env).is_some() || store::data_dir().join(file).exists()
+}
+
 /// Converts a qtfb input message to an app input.
 fn to_input(m: &qtfb::UserInput, eraser: &evdev::Eraser) -> Option<Input> {
     let (x, y) = crate::layout::to_screen(m.x as f32, m.y as f32);
@@ -215,7 +228,8 @@ fn to_input(m: &qtfb::UserInput, eraser: &evdev::Eraser) -> Option<Input> {
 pub fn self_test(out: &str, seconds: u64) -> Result<(), String> {
     let t = Instant::now();
     let fonts = Fonts::load()?;
-    println!("self-test: font loaded in {:?} (Easy: {:.2} px, Hard: {:.2} px)", t.elapsed(), fonts.medium.width(25.0, "Easy"), fonts.medium.width(25.0, "Hard"));
+    let (easy_w, hard_w) = render::slider_label_widths(&fonts);
+    println!("self-test: font loaded in {:?} (Easy: {:.2} px, Hard: {:.2} px)", t.elapsed(), easy_w, hard_w);
     let t = Instant::now();
     let pm = crate::reference::render(&fonts, |a| a.game = crate::reference::sample_game());
     println!("self-test: screen drawn in {:?}", t.elapsed());
@@ -263,8 +277,7 @@ pub fn run() -> Result<(), String> {
     let db = ResultsDb::open(&paths.results).map_err(|e| format!("cannot open the results database: {e}"))?;
     let saved: Option<Game> = store::load_json(&paths.game);
     let settings: Option<Settings> = store::load_json(&paths.settings);
-    let mut app = App::new(saved, settings, db, Box::new(SystemEnv::new()));
-    app.ng_stops = render::ng_stops(&fonts);
+    let mut app = App::new(saved, settings, db, Box::new(SystemEnv::new()), render::ng_stops(&fonts));
     let game_path = paths.game.clone();
     // If the file `log-ink` is in the data folder, each reading of ink goes to `ink-log.jsonl` (one JSON
     // line: the strokes and the result). It is only for an examination of the recognizer.
@@ -330,20 +343,14 @@ pub fn run() -> Result<(), String> {
     write_pen_region(None);
     // For a test on the device: SUDOKU_INK_WAVE_MS, or the file `ink-wave-ms` in the data folder,
     // changes the time that the app gives an update to complete (default present::INK_WAVE_MS).
-    if let Some(ms) = std::env::var("SUDOKU_INK_WAVE_MS")
-        .ok()
-        .or_else(|| std::fs::read_to_string(store::data_dir().join("ink-wave-ms")).ok())
-        .and_then(|s| s.trim().parse::<u64>().ok())
-    {
+    if let Some(ms) = test_setting("SUDOKU_INK_WAVE_MS", "ink-wave-ms").and_then(|s| s.trim().parse::<u64>().ok()) {
         eprintln!("sudoku: ink wave time {ms} ms");
         presenter.set_wave_ms(ms);
     }
     // One refresh mode for the full time: a change of the mode makes AppLoad refresh the full window,
     // which shows as a flash. For a test on the device, SUDOKU_REFRESH_MODE, or the file
     // `refresh-mode` in the data folder, selects another mode (refer to `RefreshMode::from_name`).
-    let refresh_mode = std::env::var("SUDOKU_REFRESH_MODE")
-        .ok()
-        .or_else(|| std::fs::read_to_string(store::data_dir().join("refresh-mode")).ok())
+    let refresh_mode = test_setting("SUDOKU_REFRESH_MODE", "refresh-mode")
         .and_then(|name| qtfb::RefreshMode::from_name(&name))
         .unwrap_or(qtfb::RefreshMode::Ui);
     eprintln!("sudoku: refresh mode {refresh_mode:?}");
@@ -359,7 +366,7 @@ pub fn run() -> Result<(), String> {
     let mut last_clock_save = Instant::now();
     // SUDOKU_LOG_INPUT=1, or the file `log-input` in the data folder, writes each input message to the
     // system log (for an examination on the device).
-    let log_input = std::env::var_os("SUDOKU_LOG_INPUT").is_some() || store::data_dir().join("log-input").exists();
+    let log_input = test_switch("SUDOKU_LOG_INPUT", "log-input");
     // Updates (REQUIREMENTS.md §9.2). The folder of the program is found now: an installation renames
     // it. Each build deletes the folders that stay from an earlier installation.
     let app_dir = app_dir();

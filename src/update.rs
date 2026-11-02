@@ -24,7 +24,7 @@ pub const PUBLIC_KEY: [u8; 32] = [
 ];
 
 /// The time that "Update failed" shows (UPD-6).
-pub const FAILED_MS: u64 = 3000;
+const FAILED_MS: u64 = 3000;
 /// The largest archive that the app downloads.
 pub const MAX_ARCHIVE_BYTES: u64 = 64 << 20;
 
@@ -41,7 +41,7 @@ const ARCHIVE_NAME: &str = "sudoku.tar.gz";
 pub struct Version(pub u32, pub u32, pub u32);
 
 /// The stable version in a text, or `None` for `pre-<sha>`, `dev` and all other texts.
-pub fn parse_version(s: &str) -> Option<Version> {
+fn parse_version(s: &str) -> Option<Version> {
     let mut parts = s.strip_prefix('v')?.split('.');
     let mut next = || -> Option<u32> {
         let p = parts.next()?;
@@ -51,10 +51,15 @@ pub fn parse_version(s: &str) -> Option<Version> {
     parts.next().is_none().then_some(v)
 }
 
+/// True if `s` has only lowercase hexadecimal digits (the format of git commits and of `sha256_hex`).
+fn is_lower_hex(s: &str) -> bool {
+    s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+}
+
 /// True for the name of a preview build: `pre-` and the first 7 to 40 hexadecimal digits of the commit
 /// (release.yml).
-pub fn is_preview(s: &str) -> bool {
-    s.strip_prefix("pre-").is_some_and(|h| (7..=40).contains(&h.len()) && h.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+fn is_preview(s: &str) -> bool {
+    s.strip_prefix("pre-").is_some_and(|h| (7..=40).contains(&h.len()) && is_lower_hex(h))
 }
 
 /// True if the app of version `current` looks for updates: a stable build or a preview build, not a
@@ -74,21 +79,39 @@ pub fn is_update(remote: &str, current: &str) -> bool {
     }
 }
 
-/// The contents of `version.json`. A release with the ink patch also gives the URL and the checksum
-/// of `sudoku-penregion.qmd` (owner decision 2026-11-01). Older releases do not have these fields.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Deserialize)]
+/// The checked contents of `version.json` (`read_manifest`).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Manifest {
     pub version: String,
     pub url: String,
     pub sha256: String,
+    /// The ink patch `sudoku-penregion.qmd` of the release (owner decision 2026-11-01). Older releases
+    /// do not have it.
+    pub patch: Option<PatchRef>,
+}
+
+/// The download URL and the SHA-256 checksum of the ink patch of a release.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct PatchRef {
+    pub url: String,
+    pub sha256: String,
+}
+
+/// The JSON format of `version.json` (AGENTS.md, owner approval): the patch fields are optional,
+/// but a release gives the two or none of them. `read_manifest` makes a `Manifest` from it.
+#[derive(Deserialize)]
+struct VersionJson {
+    version: String,
+    url: String,
+    sha256: String,
     #[serde(default)]
-    pub patch_url: Option<String>,
+    patch_url: Option<String>,
     #[serde(default)]
-    pub patch_sha256: Option<String>,
+    patch_sha256: Option<String>,
 }
 
 fn is_sha256(s: &str) -> bool {
-    s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    s.len() == 64 && is_lower_hex(s)
 }
 
 /// The manifest in `json`, if `signature` is the ed25519 signature of these bytes with `key` (UPD-4).
@@ -96,33 +119,34 @@ pub fn read_manifest(json: &[u8], signature: &[u8], key: &[u8; 32]) -> Result<Ma
     let key = VerifyingKey::from_bytes(key).map_err(|e| format!("public key: {e}"))?;
     let signature: [u8; 64] = signature.try_into().map_err(|_| format!("the signature has {} bytes, not 64", signature.len()))?;
     key.verify_strict(json, &Signature::from_bytes(&signature)).map_err(|_| "the signature of version.json is not correct".to_string())?;
-    let m: Manifest = serde_json::from_slice(json).map_err(|e| format!("version.json: {e}"))?;
-    if parse_version(&m.version).is_none() {
-        return Err(format!("version.json: {:?} is not a stable version", m.version));
+    let raw: VersionJson = serde_json::from_slice(json).map_err(|e| format!("version.json: {e}"))?;
+    if parse_version(&raw.version).is_none() {
+        return Err(format!("version.json: {:?} is not a stable version", raw.version));
     }
-    if !m.url.starts_with("https://") {
-        return Err(format!("version.json: the URL {:?} is not HTTPS", m.url));
+    if !raw.url.starts_with("https://") {
+        return Err(format!("version.json: the URL {:?} is not HTTPS", raw.url));
     }
-    if !is_sha256(&m.sha256) {
-        return Err(format!("version.json: {:?} is not a SHA-256 checksum", m.sha256));
+    if !is_sha256(&raw.sha256) {
+        return Err(format!("version.json: {:?} is not a SHA-256 checksum", raw.sha256));
     }
-    match (&m.patch_url, &m.patch_sha256) {
-        (None, None) => {}
-        (Some(url), Some(sum)) => {
+    let patch = match (raw.patch_url, raw.patch_sha256) {
+        (None, None) => None,
+        (Some(url), Some(sha256)) => {
             if !url.starts_with("https://") {
                 return Err(format!("version.json: the patch URL {url:?} is not HTTPS"));
             }
-            if !is_sha256(sum) {
-                return Err(format!("version.json: {sum:?} is not a SHA-256 checksum"));
+            if !is_sha256(&sha256) {
+                return Err(format!("version.json: {sha256:?} is not a SHA-256 checksum"));
             }
+            Some(PatchRef { url, sha256 })
         }
         _ => return Err("version.json: patch_url and patch_sha256 must be together".to_string()),
-    }
-    Ok(m)
+    };
+    Ok(Manifest { version: raw.version, url: raw.url, sha256: raw.sha256, patch })
 }
 
 /// The SHA-256 checksum of `bytes` in lowercase hexadecimal.
-pub fn sha256_hex(bytes: &[u8]) -> String {
+fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
 }
 
@@ -195,7 +219,7 @@ pub const PATCH_DIR: &str = "/home/root/xovi/exthome/qt-resource-rebuilder";
 pub const PATCH_NAME: &str = "sudoku-penregion.qmd";
 /// The stamp file next to the patch: the version that installed the patch and the SHA-256 checksum
 /// of the patch, `{"version": "v<version>", "sha256": "<checksum>"}`. install.sh writes the same file.
-pub const PATCH_STAMP: &str = "sudoku-penregion.json";
+const PATCH_STAMP: &str = "sudoku-penregion.json";
 
 #[derive(Deserialize)]
 struct Stamp {
@@ -204,13 +228,13 @@ struct Stamp {
 
 /// The checksum in the stamp file of `dir`, or `None` if the file is missing or not correct. Then
 /// the patch must be replaced (owner decision 2026-11-01).
-pub fn stamp_sha256(dir: &Path) -> Option<String> {
+fn stamp_sha256(dir: &Path) -> Option<String> {
     let bytes = std::fs::read(dir.join(PATCH_STAMP)).ok()?;
     serde_json::from_slice::<Stamp>(&bytes).ok().map(|s| s.sha256).filter(|s| is_sha256(s))
 }
 
 /// The text of the stamp file.
-pub fn stamp_text(version: &str, sha256: &str) -> String {
+fn stamp_text(version: &str, sha256: &str) -> String {
     format!("{{\"version\": \"{version}\", \"sha256\": \"{sha256}\"}}\n")
 }
 
@@ -222,15 +246,16 @@ fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
 }
 
 /// Installs the release of the manifest `m` (REQUIREMENTS.md §9.2): the archive in place of the
-/// AppLoad folder `app_dir` (`install`), then the ink patch `patch` in `patch_dir`. The app examines
-/// the checksums of the two downloads before it changes a file. It replaces the patch only when the
-/// checksum is different from the checksum in the stamp file, or when the stamp file is missing.
-/// Returns true if it replaced the patch: then the interface must start again (xovi/start).
-pub fn install_release(archive: &[u8], patch: Option<&[u8]>, m: &Manifest, staging: &Path, app_dir: &Path, patch_dir: &Path) -> Result<bool, String> {
-    let patch = match (patch, &m.patch_sha256) {
+/// AppLoad folder `app_dir` (`install`), then the downloaded ink patch `patch_bytes` in `patch_dir`.
+/// The app examines the checksums of the two downloads before it changes a file. It replaces the
+/// patch only when the checksum is different from the checksum in the stamp file, or when the stamp
+/// file is missing. Returns true if it replaced the patch: then the interface must start again
+/// (xovi/start).
+pub fn install_release(archive: &[u8], patch_bytes: Option<&[u8]>, m: &Manifest, staging: &Path, app_dir: &Path, patch_dir: &Path) -> Result<bool, String> {
+    let patch = match (patch_bytes, &m.patch) {
         (_, None) => None,
         (None, Some(_)) => return Err("the patch was not downloaded".to_string()),
-        (Some(bytes), Some(want)) => {
+        (Some(bytes), Some(PatchRef { sha256: want, .. })) => {
             let sum = sha256_hex(bytes);
             if &sum != want {
                 return Err(format!("the checksum of the patch is {sum}, not {want}"));
@@ -299,33 +324,51 @@ fn copy_files(from: &Path, to: &Path) -> Result<(), String> {
     set_executable(&to.join("sudoku"))
 }
 
-/// Reads at most `MAX_ARCHIVE_BYTES` from `r`.
-pub fn read_limited(r: impl Read) -> Result<Vec<u8>, String> {
-    let mut bytes = Vec::new();
-    r.take(MAX_ARCHIVE_BYTES + 1).read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-    if bytes.len() as u64 > MAX_ARCHIVE_BYTES {
-        return Err("the download is too large".to_string());
-    }
-    Ok(bytes)
-}
-
-/// The update state (INVARIANTS.md §16).
+/// The update state (INVARIANTS.md §16). The fields `checking` and `up_to_date_shown` of INVARIANTS.md
+/// are in the variants, thus only their correct combinations can occur: a request is in progress only
+/// in `Unknown`, `CheckFailed` and `UpToDate` (UPD-7, UPD-9), `Unknown` always has its request in
+/// progress (UPD-8), and "Sudoku is up to date" shows only in `UpToDate` with no request (UPD-9).
+/// The field `dialog` of INVARIANTS.md is in `PatchChange::Replaced`, thus the dialog "Restart the
+/// interface?" can show only in `Installed { patch: true }` of INVARIANTS.md (UPD-10).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum UpdateState {
     /// A `dev` build (not a stable build and not a preview build): no requests and no update row (UPD-1).
     Off,
-    /// The first request is not complete.
+    /// The first request (when the app opens) is in progress (UPD-8).
     Unknown,
-    /// All requests failed.
-    CheckFailed,
-    UpToDate,
+    /// All requests failed. `checking`: a request from the button "Check for updates" is in progress.
+    CheckFailed { checking: bool },
+    /// The last result found no update.
+    UpToDate(UpToDateRow),
     Available(Manifest),
     Installing(Manifest),
     /// The installation failed at this time (ms). After `FAILED_MS`, the button shows again.
     Failed(Manifest, u64),
-    /// The new version operates after the next start of the app. `patch`: the installation replaced
-    /// the ink patch, thus the interface must start again (xovi/start).
-    Installed { patch: bool },
+    /// The new version operates after the next start of the app.
+    Installed(PatchChange),
+}
+
+/// What an installation did to the ink patch (UPD-10). `Unchanged` is `Installed { patch: false }`
+/// of INVARIANTS.md, and `Replaced` is `Installed { patch: true }`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum PatchChange {
+    /// The installation did not replace the ink patch: only Sudoku must start again.
+    Unchanged,
+    /// The installation replaced the ink patch, thus the interface must start again (xovi/start).
+    /// `dialog`: the dialog "Restart the interface?" shows.
+    Replaced { dialog: bool },
+}
+
+/// The update row in the state `UpToDate` (UPD-9).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum UpToDateRow {
+    /// The button "Check for updates".
+    CheckButton,
+    /// "Looking for updates...": a request from the button is in progress.
+    Checking,
+    /// "Sudoku is up to date": a request found no update while the Settings panel was open, and the
+    /// panel did not close after it.
+    UpToDateText,
 }
 
 /// The button of the update row (REQUIREMENTS.md §9.2).
@@ -365,15 +408,8 @@ pub struct Update {
     /// The version of the app (`crate::VERSION`).
     pub current: String,
     pub state: UpdateState,
-    /// A request for `version.json` is in progress (UPD-7).
-    pub checking: bool,
-    /// The row shows "Sudoku is up to date" in place of the button "Check for updates": a request
-    /// found no update while the Settings panel was open, and the panel did not close after it (UPD-9).
-    pub up_to_date_shown: bool,
     /// Work that the platform must start.
     pub request: Option<UpdateRequest>,
-    /// The dialog "Restart the interface?" shows (UPD-10).
-    pub dialog: bool,
 }
 
 impl Update {
@@ -384,10 +420,20 @@ impl Update {
         Update {
             current: current.to_string(),
             state: if on { UpdateState::Unknown } else { UpdateState::Off },
-            checking: on,
-            up_to_date_shown: false,
             request: on.then_some(UpdateRequest::Check),
-            dialog: false,
+        }
+    }
+
+    /// The dialog "Restart the interface?" shows (UPD-10).
+    pub fn dialog_shown(&self) -> bool {
+        self.state == UpdateState::Installed(PatchChange::Replaced { dialog: true })
+    }
+
+    /// Closes the dialog "Restart the interface?" ("Later", or xovi/start failed). The row continues to
+    /// show the button "Restart interface" (UPD-10).
+    pub fn close_dialog(&mut self) {
+        if let UpdateState::Installed(PatchChange::Replaced { dialog }) = &mut self.state {
+            *dialog = false;
         }
     }
 
@@ -398,20 +444,22 @@ impl Update {
 
     /// The gear has the caution icon (UPD-3).
     pub fn caution(&self) -> bool {
-        matches!(self.state, UpdateState::Available(_) | UpdateState::Installing(_) | UpdateState::Failed(..) | UpdateState::Installed { .. })
+        matches!(self.state, UpdateState::Available(_) | UpdateState::Installing(_) | UpdateState::Failed(..) | UpdateState::Installed(_))
     }
 
     /// The text of the update row, or `None` for a button (REQUIREMENTS.md §9.2).
     pub fn row_text(&self) -> Option<&'static str> {
         Some(match self.state {
-            UpdateState::Off | UpdateState::Available(_) | UpdateState::Installed { patch: true } => return None,
-            UpdateState::Unknown => "Looking for updates...",
-            UpdateState::CheckFailed | UpdateState::UpToDate if self.checking => "Looking for updates...",
-            UpdateState::UpToDate if self.up_to_date_shown => "Sudoku is up to date",
-            UpdateState::CheckFailed | UpdateState::UpToDate => return None,
+            UpdateState::Off
+            | UpdateState::CheckFailed { checking: false }
+            | UpdateState::UpToDate(UpToDateRow::CheckButton)
+            | UpdateState::Available(_)
+            | UpdateState::Installed(PatchChange::Replaced { .. }) => return None,
+            UpdateState::Unknown | UpdateState::CheckFailed { checking: true } | UpdateState::UpToDate(UpToDateRow::Checking) => "Looking for updates...",
+            UpdateState::UpToDate(UpToDateRow::UpToDateText) => "Sudoku is up to date",
             UpdateState::Installing(_) => "Installing update...",
             UpdateState::Failed(..) => "Update failed",
-            UpdateState::Installed { patch: false } => "Restart Sudoku to update",
+            UpdateState::Installed(PatchChange::Unchanged) => "Restart Sudoku to update",
         })
     }
 
@@ -419,9 +467,15 @@ impl Update {
     pub fn button(&self) -> Option<UpdateButton> {
         match &self.state {
             UpdateState::Available(m) => Some(UpdateButton::Install(format!("Update to {}", m.version))),
-            UpdateState::Installed { patch: true } => Some(UpdateButton::Restart),
-            UpdateState::CheckFailed | UpdateState::UpToDate if !self.checking && !self.up_to_date_shown => Some(UpdateButton::Check),
-            _ => None,
+            UpdateState::Installed(PatchChange::Replaced { .. }) => Some(UpdateButton::Restart),
+            UpdateState::CheckFailed { checking: false } | UpdateState::UpToDate(UpToDateRow::CheckButton) => Some(UpdateButton::Check),
+            UpdateState::Off
+            | UpdateState::Unknown
+            | UpdateState::CheckFailed { checking: true }
+            | UpdateState::UpToDate(UpToDateRow::Checking | UpToDateRow::UpToDateText)
+            | UpdateState::Installing(_)
+            | UpdateState::Failed(..)
+            | UpdateState::Installed(PatchChange::Unchanged) => None,
         }
     }
 
@@ -438,26 +492,39 @@ impl Update {
 
     /// The Settings panel closed: the row shows the button "Check for updates" again (UPD-9).
     pub fn panel_closed(&mut self) {
-        self.up_to_date_shown = false;
+        if self.state == UpdateState::UpToDate(UpToDateRow::UpToDateText) {
+            self.state = UpdateState::UpToDate(UpToDateRow::CheckButton);
+        }
     }
 
     /// The result of a request (UPD-2, UPD-7). `panel_open`: the Settings panel shows now. Then a
     /// result with no update shows "Sudoku is up to date" until the panel closes (UPD-9).
     pub fn checked(&mut self, result: Result<Manifest, String>, panel_open: bool) {
-        self.checking = false;
-        let can_change = matches!(self.state, UpdateState::Unknown | UpdateState::CheckFailed | UpdateState::UpToDate | UpdateState::Available(_));
+        let can_change = matches!(self.state, UpdateState::Unknown | UpdateState::CheckFailed { .. } | UpdateState::UpToDate(_) | UpdateState::Available(_));
         match result {
             Ok(m) => {
                 if can_change {
-                    let newer = is_update(&m.version, &self.current);
-                    self.state = if newer { UpdateState::Available(m) } else { UpdateState::UpToDate };
-                    self.up_to_date_shown = panel_open && self.state == UpdateState::UpToDate;
+                    self.state = if is_update(&m.version, &self.current) {
+                        UpdateState::Available(m)
+                    } else if panel_open {
+                        UpdateState::UpToDate(UpToDateRow::UpToDateText)
+                    } else {
+                        UpdateState::UpToDate(UpToDateRow::CheckButton)
+                    };
                 }
             }
             Err(e) => {
                 eprintln!("sudoku: cannot look for updates: {e}");
-                if self.state == UpdateState::Unknown {
-                    self.state = UpdateState::CheckFailed;
+                // The request is complete. A failure keeps the last result.
+                match self.state {
+                    UpdateState::Unknown | UpdateState::CheckFailed { .. } => self.state = UpdateState::CheckFailed { checking: false },
+                    UpdateState::UpToDate(UpToDateRow::Checking) => self.state = UpdateState::UpToDate(UpToDateRow::CheckButton),
+                    UpdateState::Off
+                    | UpdateState::UpToDate(UpToDateRow::CheckButton | UpToDateRow::UpToDateText)
+                    | UpdateState::Available(_)
+                    | UpdateState::Installing(_)
+                    | UpdateState::Failed(..)
+                    | UpdateState::Installed(_) => {}
                 }
             }
         }
@@ -467,21 +534,24 @@ impl Update {
     /// "Check for updates" sends a request. "Restart interface" changes nothing here: the app asks the
     /// platform to run xovi/start (`App::restart_ui`). True if the row changed.
     pub fn tap(&mut self) -> bool {
-        match self.button() {
-            Some(UpdateButton::Install(_)) => {
-                if let UpdateState::Available(m) = &self.state {
-                    self.request = Some(UpdateRequest::Install(m.clone()));
-                    self.state = UpdateState::Installing(m.clone());
-                }
-                true
-            }
-            Some(UpdateButton::Check) => {
-                self.checking = true;
-                self.request = Some(UpdateRequest::Check);
-                true
-            }
-            Some(UpdateButton::Restart) | None => false,
-        }
+        let (state, request) = match &self.state {
+            UpdateState::Available(m) => (UpdateState::Installing(m.clone()), UpdateRequest::Install(m.clone())),
+            UpdateState::CheckFailed { checking: false } => (UpdateState::CheckFailed { checking: true }, UpdateRequest::Check),
+            UpdateState::UpToDate(UpToDateRow::CheckButton) => (UpdateState::UpToDate(UpToDateRow::Checking), UpdateRequest::Check),
+            // "Restart interface": the app asks the platform for the restart.
+            UpdateState::Installed(PatchChange::Replaced { .. }) => return false,
+            // No button.
+            UpdateState::Off
+            | UpdateState::Unknown
+            | UpdateState::CheckFailed { checking: true }
+            | UpdateState::UpToDate(UpToDateRow::Checking | UpToDateRow::UpToDateText)
+            | UpdateState::Installing(_)
+            | UpdateState::Failed(..)
+            | UpdateState::Installed(PatchChange::Unchanged) => return false,
+        };
+        self.state = state;
+        self.request = Some(request);
+        true
     }
 
     /// The result of an installation (UPD-6, UPD-10). `Ok(true)`: the installation replaced the ink
@@ -489,10 +559,8 @@ impl Update {
     pub fn installed(&mut self, result: Result<bool, String>, now: u64) {
         if let UpdateState::Installing(m) = &self.state {
             self.state = match result {
-                Ok(patch) => {
-                    self.dialog = patch;
-                    UpdateState::Installed { patch }
-                }
+                Ok(true) => UpdateState::Installed(PatchChange::Replaced { dialog: true }),
+                Ok(false) => UpdateState::Installed(PatchChange::Unchanged),
                 Err(e) => {
                     eprintln!("sudoku: the update failed: {e}");
                     UpdateState::Failed(m.clone(), now)
@@ -539,11 +607,11 @@ mod tests {
         assert!(read_manifest(json, &sig, &other).is_err());
         let bad = br#"{"version": "pre-abc", "url": "https://x", "sha256": "00"}"#;
         assert!(read_manifest(bad, &key.sign(bad).to_bytes(), &public).is_err());
-        assert_eq!((m.patch_url, m.patch_sha256), (None, None), "a release with no patch");
+        assert_eq!(m.patch, None, "a release with no patch");
         let z = "0".repeat(64);
         let with_patch = format!(r#"{{"version": "v0.2.0", "url": "https://x/y.tar.gz", "sha256": "{z}", "patch_url": "https://x/p.qmd", "patch_sha256": "{z}"}}"#);
         let m = read_manifest(with_patch.as_bytes(), &key.sign(with_patch.as_bytes()).to_bytes(), &public).unwrap();
-        assert_eq!((m.patch_url.as_deref(), m.patch_sha256.as_deref()), (Some("https://x/p.qmd"), Some(z.as_str())));
+        assert_eq!(m.patch, Some(PatchRef { url: "https://x/p.qmd".to_string(), sha256: z.clone() }));
         for bad in [
             format!(r#"{{"version": "v0.2.0", "url": "https://x/y.tar.gz", "sha256": "{z}", "patch_url": "https://x/p.qmd"}}"#),
             format!(r#"{{"version": "v0.2.0", "url": "https://x/y.tar.gz", "sha256": "{z}", "patch_sha256": "{z}"}}"#),
@@ -608,7 +676,7 @@ mod tests {
         assert_eq!(u.request.take(), Some(UpdateRequest::Check));
         assert_eq!((u.row_text(), u.button()), (Some("Looking for updates..."), None));
         u.checked(Err("no network".into()), true);
-        assert_eq!(u.state, UpdateState::CheckFailed);
+        assert_eq!(u.state, UpdateState::CheckFailed { checking: false });
         assert!(!u.tick(u64::MAX / 2));
         assert_eq!(u.request, None, "no automatic request after the start");
         assert_eq!((u.row_text(), u.button()), (None, Some(UpdateButton::Check)));
@@ -618,7 +686,7 @@ mod tests {
         assert!(!u.tap(), "one request at a time");
         assert_eq!(u.request, None);
         u.checked(Ok(manifest("v0.1.0", b"")), true);
-        assert_eq!(u.state, UpdateState::UpToDate);
+        assert_eq!(u.state, UpdateState::UpToDate(UpToDateRow::UpToDateText));
         assert_eq!((u.row_text(), u.button()), (Some("Sudoku is up to date"), None), "the panel is open");
         assert!(!u.tap());
         u.panel_closed();
@@ -626,7 +694,7 @@ mod tests {
         assert!(u.tap());
         assert_eq!(u.request.take(), Some(UpdateRequest::Check));
         u.checked(Err("no network".into()), true);
-        assert_eq!(u.state, UpdateState::UpToDate, "a failure keeps the last result");
+        assert_eq!(u.state, UpdateState::UpToDate(UpToDateRow::CheckButton), "a failure keeps the last result");
         assert_eq!(u.button(), Some(UpdateButton::Check));
         assert!(u.tap());
         u.checked(Ok(manifest("v0.1.0", b"")), false);
@@ -662,7 +730,7 @@ mod tests {
         assert!(matches!(u.request.take(), Some(UpdateRequest::Install(_))));
         u.installed(Ok(false), 200);
         assert_eq!(u.row_text(), Some("Restart Sudoku to update"));
-        assert!(!u.dialog, "no dialog when the patch did not change (UPD-10)");
+        assert!(!u.dialog_shown(), "no dialog when the patch did not change (UPD-10)");
         assert!(u.caution());
         u.tick(u64::MAX / 2);
         assert_eq!(u.request, None, "no requests after the installation");
@@ -719,21 +787,20 @@ mod tests {
         let (app, patches) = (d.join("appload/sudoku"), d.join("patches"));
         let a = archive(&[("sudoku/sudoku", b"new"), ("sudoku/external.manifest.json", b"{}")]);
         let mut m = manifest("v0.2.0", &a);
-        m.patch_url = Some("https://example.com/p.qmd".to_string());
-        m.patch_sha256 = Some(sha256_hex(b"patch 2"));
+        m.patch = Some(PatchRef { url: "https://example.com/p.qmd".to_string(), sha256: sha256_hex(b"patch 2") });
         // No stamp file: the patch is replaced, also when the file has the same contents.
         std::fs::create_dir_all(&patches).unwrap();
         std::fs::write(patches.join(PATCH_NAME), b"patch 2").unwrap();
         assert_eq!(install_release(&a, Some(b"patch 2"), &m, &d.join("update"), &app, &patches), Ok(true));
         assert_eq!(std::fs::read(patches.join(PATCH_NAME)).unwrap(), b"patch 2");
         assert_eq!(std::fs::read_to_string(patches.join(PATCH_STAMP)).unwrap(), stamp_text("v0.2.0", &sha256_hex(b"patch 2")));
-        assert_eq!(stamp_sha256(&patches), m.patch_sha256);
+        assert_eq!(stamp_sha256(&patches), m.patch.as_ref().map(|p| p.sha256.clone()));
         // The same checksum as in the stamp: the patch does not change.
         std::fs::write(patches.join(PATCH_NAME), b"changed by hand").unwrap();
         assert_eq!(install_release(&a, Some(b"patch 2"), &m, &d.join("update"), &app, &patches), Ok(false));
         assert_eq!(std::fs::read(patches.join(PATCH_NAME)).unwrap(), b"changed by hand", "the stamp decides");
         // A different checksum: the patch is replaced.
-        m.patch_sha256 = Some(sha256_hex(b"patch 3"));
+        m.patch = Some(PatchRef { url: "https://example.com/p.qmd".to_string(), sha256: sha256_hex(b"patch 3") });
         assert_eq!(install_release(&a, Some(b"patch 3"), &m, &d.join("update"), &app, &patches), Ok(true));
         assert_eq!(std::fs::read(patches.join(PATCH_NAME)).unwrap(), b"patch 3");
         // A release with no patch does not change the patch.
@@ -753,8 +820,7 @@ mod tests {
         let (app, patches) = (d.join("appload/sudoku"), d.join("patches"));
         let a = archive(&[("sudoku/sudoku", b"new"), ("sudoku/external.manifest.json", b"{}")]);
         let mut m = manifest("v0.2.0", &a);
-        m.patch_url = Some("https://example.com/p.qmd".to_string());
-        m.patch_sha256 = Some(sha256_hex(b"patch"));
+        m.patch = Some(PatchRef { url: "https://example.com/p.qmd".to_string(), sha256: sha256_hex(b"patch") });
         assert!(install_release(&a, Some(b"other"), &m, &d.join("update"), &app, &patches).is_err());
         assert!(install_release(&a, None, &m, &d.join("update"), &app, &patches).is_err());
         assert_eq!(std::fs::read(app.join("sudoku")).unwrap(), b"old");
@@ -770,10 +836,10 @@ mod tests {
         assert!(u.tap());
         u.request = None;
         u.installed(Ok(true), 100);
-        assert_eq!(u.state, UpdateState::Installed { patch: true });
+        assert_eq!(u.state, UpdateState::Installed(PatchChange::Replaced { dialog: true }));
         assert_eq!((u.row_text(), u.button()), (None, Some(UpdateButton::Restart)));
         assert_eq!(UpdateButton::Restart.text(), "Restart interface");
-        assert!(u.dialog);
+        assert!(u.dialog_shown());
         assert!(!u.tap(), "the restart is work of the app, not of the update state");
         assert_eq!(u.request, None);
     }

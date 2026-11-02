@@ -27,11 +27,7 @@ fn main() {
     let out = PathBuf::from(std::env::args().nth(1).unwrap_or_else(|| "target/snapshots".into()));
     std::fs::create_dir_all(&out).unwrap();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let fonts = if std::env::var_os("SUDOKU_FONT").is_some() {
-        Fonts::load().expect("fonts")
-    } else {
-        Fonts::from_files(&root.join("scripts/fonts/rmsans-400.ttf"), &root.join("scripts/fonts/rmsans-500.ttf")).expect("fonts")
-    };
+    let fonts = Fonts::for_tools().expect("fonts");
     reference::use_utc();
 
     let mut worst: f64 = 0.0;

@@ -6,10 +6,9 @@
 mod common;
 
 use common::*;
-use sudoku::app::{new_game, App, Input, Panel, Screen, Tool, MAX_CLOCK_GAP_MS};
+use sudoku::app::{new_game, App, Input, Menu, Screen, Tool, MAX_CLOCK_GAP_MS};
 use sudoku::game::{cells, mark_bit, Cell, Change, Game, Marks};
-use sudoku::layout::{self, Button, Rect, SWIPE_MIN};
-use sudoku::store::{NewResult, ResultsDb};
+use sudoku::layout::{self, Button, SWIPE_MIN};
 
 /// The board state that input can change: values, marks and the lengths of the two histories.
 type BoardState = ([[u8; 9]; 9], [[Marks; 9]; 9], usize, usize);
@@ -23,16 +22,8 @@ fn empty_cells(d: &Driver) -> Vec<Cell> {
     cells().filter(|&c| !d.app.game.is_filled(c)).collect()
 }
 
-fn given_cell(d: &Driver) -> Cell {
-    cells().find(|&c| d.app.game.is_given(c)).unwrap()
-}
-
 fn solution_at(g: &Game, (r, c): Cell) -> u8 {
     g.solution[r as usize][c as usize]
-}
-
-fn center(r: Rect) -> (f32, f32) {
-    (((r.x0 + r.x1) / 2) as f32, ((r.y0 + r.y1) / 2) as f32)
 }
 
 fn check(d: &Driver) {
@@ -54,15 +45,6 @@ fn finger_move(d: &mut Driver, from: (f32, f32), to: (f32, f32)) {
     d.send(Input::TouchDown { id: 1, x: from.0, y: from.1 });
     d.send(Input::TouchMove { id: 1, x: (from.0 + to.0) / 2.0, y: (from.1 + to.1) / 2.0 });
     d.send(Input::TouchUp { id: 1, x: to.0, y: to.1 });
-}
-
-fn app_with_results(n: usize) -> App {
-    let mut db = ResultsDb::in_memory();
-    for i in 0..n {
-        db.insert(&NewResult { finished_at: 1_700_000_000 + i as i64 * 1000, mode: (i % 5) as u8, givens: 30, seconds: 100 + i as u64, seed: i as u64, generator: 2 })
-            .unwrap();
-    }
-    App::new(None, None, db, Box::new(TestEnv { time: 1_790_000_000, seed: 1 }))
 }
 
 /// Input on a cell that must not change the value of the cell (BRD-3, BRD-4) or any marks (MRK-5):
@@ -186,7 +168,7 @@ fn an_empty_cell_gets_a_value_only_from_reading_redo_or_undo_of_an_erasure() {
     d.wait(1100);
     still_empty(&d, "after the \"?\"");
     // A stroke that starts in a filled cell and goes into the empty cell is not writing in it.
-    let given = given_cell(&d);
+    let given = given_cell(&d.app.game);
     pen_stroke(&mut d, Tool::Pen, micro_center(given, 5), micro_center(cell, 5));
     d.wait(d.app.pause_ms + 50);
     still_empty(&d, "a stroke from a filled cell");
@@ -219,7 +201,7 @@ fn starting_numbers_never_get_marks() {
     // MRK-3: pen taps on all micro-cells of a starting number, with the menu closed, with the menu
     // open, with each panel open, and with undo and redo, give no marks.
     let mut d = Driver::new(103);
-    let given = given_cell(&d);
+    let given = given_cell(&d.app.game);
     let no_marks = |d: &Driver, why: &str| {
         for c in cells().filter(|&c| d.app.game.is_given(c)) {
             assert_eq!(d.app.game.marks_at(c), 0, "MRK-3: {why} at {c:?}");
@@ -265,7 +247,7 @@ fn starting_numbers_never_get_marks() {
     let mut g = new_game(77, 2);
     let gc = cells().find(|&c| g.is_given(c)).unwrap();
     g.marks[gc.0 as usize][gc.1 as usize] = mark_bit(3);
-    let app = App::new(Some(g.clone()), None, ResultsDb::in_memory(), Box::new(TestEnv { time: 1_790_000_000, seed: 5 }));
+    let app = app_with_game(g.clone(), START_TIME, 5);
     assert_ne!(app.game, g, "MRK-3: the app does not use a saved game with marks on a starting number");
     assert!(cells().filter(|&c| app.game.is_given(c)).all(|c| app.game.marks_at(c) == 0));
 }
@@ -295,7 +277,7 @@ fn the_eraser_and_other_input_do_not_change_marks() {
     d.erase(a);
     pen_stroke(&mut d, Tool::Eraser, micro_center(a, 1), micro_center(a, 9));
     same(&d, "eraser on an empty cell with marks");
-    d.erase(given_cell(&d));
+    d.erase(given_cell(&d.app.game));
     same(&d, "eraser on a starting number");
     input_without_effect_on(&mut d, a, other);
     input_without_effect_on(&mut d, b, other);
@@ -315,7 +297,7 @@ fn the_eraser_and_other_input_do_not_change_marks() {
     d.button(Button::Menu);
     d.button(Button::Colors);
     d.tap_micro(a, 1);
-    assert_eq!(d.app.ui.panel, Panel::None);
+    assert_eq!(d.app.ui.menu.panel(), None);
     same(&d, "pen tap that closes a panel");
     // The eraser over the entry with hidden marks: the marks show again and do not change.
     d.erase(b);
@@ -390,7 +372,7 @@ fn no_ink_stays_after_the_app_reads_or_removes_it() {
 
     d.write(e[0], 4);
     no_ink(&d, "writing on a filled cell");
-    d.write(given_cell(&d), 4);
+    d.write(given_cell(&d.app.game), 4);
     no_ink(&d, "writing on a starting number");
 
     // A press in a different cell reads the ink immediately.
@@ -425,7 +407,7 @@ fn no_ink_stays_after_the_app_reads_or_removes_it() {
 /// The point is not on a control of the manual or the games list, thus the touch is only a swipe.
 fn not_on_a_control(x: f32, y: f32) -> bool {
     let mut rects = vec![layout::back_button(), layout::prev_arrow(), layout::next_arrow()];
-    rects.extend((0..6).map(layout::filter_segment));
+    rects.extend(layout::list_filters().take(6).map(layout::filter_segment));
     rects.extend((0..12).map(layout::bin_button));
     !rects.iter().any(|r| r.contains(x, y))
 }
@@ -479,7 +461,7 @@ fn a_swipe_is_120_px_or_more_and_more_horizontal_than_vertical() {
     let mut d = Driver::from(app_with_results(30));
     d.button(Button::Menu);
     d.button(Button::Statistics);
-    let (x, y) = center(layout::all_games_button());
+    let (x, y) = pixel_center(layout::all_games_button());
     d.finger_tap(x, y);
     assert_eq!(d.app.screen, Screen::GamesList);
     assert_eq!(d.app.page_count(), 3);
@@ -545,7 +527,7 @@ fn no_question_mark_on_a_complete_game() {
     for undo_erasure in [true, false] {
         for finger in [true, false] {
             let (g, x) = last_cell_game(109, undo_erasure);
-            let app = App::new(Some(g.clone()), None, ResultsDb::in_memory(), Box::new(TestEnv { time: 1_790_000_000, seed: 3 }));
+            let app = app_with_game(g.clone(), START_TIME, 3);
             assert_eq!(app.game, g, "the app uses the saved game");
             let mut d = Driver::from(app);
             d.button(Button::Menu);
@@ -574,7 +556,7 @@ fn no_question_mark_on_a_complete_game() {
     // 3. A finger holds Undo while the pen writes a scribble. The release reads the ink ("?") and then
     // does the undo.
     let (g, x) = last_cell_game(110, true);
-    let mut d = Driver::from(App::new(Some(g), None, ResultsDb::in_memory(), Box::new(TestEnv { time: 1_790_000_000, seed: 3 })));
+    let mut d = Driver::from(app_with_game(g, START_TIME, 3));
     d.button(Button::Menu);
     let (bx, by) = button_center(Button::Undo);
     d.send(Input::TouchDown { id: 1, x: bx, y: by });
@@ -600,7 +582,7 @@ fn only_the_open_menu_opens_the_manual_and_statistics() {
         d.pen_tap(x, y);
         pen_stroke(&mut d, Tool::Eraser, (x, y), (x + 5.0, y + 5.0));
         assert_eq!(d.app.screen, Screen::Game, "NAV-2: {b:?} with the menu closed");
-        assert!(!d.app.ui.menu_open);
+        assert!(!d.app.ui.menu.is_open());
     }
     d.button(Button::Menu);
     for panel in [Button::Colors, Button::Settings, Button::NewGame] {
@@ -608,7 +590,7 @@ fn only_the_open_menu_opens_the_manual_and_statistics() {
             d.button(panel);
             d.button(b);
             assert_eq!(d.app.screen, Screen::Game, "NAV-2: {b:?} with the panel of {panel:?} only closes the panel");
-            assert_eq!((d.app.ui.panel, d.app.ui.menu_open), (Panel::None, true));
+            assert_eq!(d.app.ui.menu, Menu::Open(None));
         }
     }
     // A press on Help and a release at a different place does not open the manual.
@@ -617,7 +599,7 @@ fn only_the_open_menu_opens_the_manual_and_statistics() {
     assert_eq!(d.app.screen, Screen::Game);
 
     // Only Statistics opens the games list. The manual has no "All completed games" button.
-    let (ax, ay) = center(layout::all_games_button());
+    let (ax, ay) = pixel_center(layout::all_games_button());
     d.finger_tap(ax, ay);
     assert_ne!(d.app.screen, Screen::GamesList, "NAV-2: the game screen does not open the games list");
     d.button(Button::Help);
@@ -625,7 +607,7 @@ fn only_the_open_menu_opens_the_manual_and_statistics() {
     d.finger_tap(ax, ay);
     d.pen_tap(ax, ay);
     assert_eq!(d.app.screen, Screen::Manual, "NAV-2: the manual does not open the games list");
-    let (backx, backy) = center(layout::back_button());
+    let (backx, backy) = pixel_center(layout::back_button());
     d.finger_tap(backx, backy);
     assert_eq!(d.app.screen, Screen::Game, "Back: Manual to Game");
     d.button(Button::Menu);

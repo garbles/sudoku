@@ -10,37 +10,15 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use common::*;
-use sudoku::app::{new_game, App, Env, Panel, Screen};
+use sudoku::app::{new_game, App, Env, Screen};
 use sudoku::game::{cells, mark_bit, peers, Cell, Change, Game};
 use sudoku::generator::{count_solutions, generate_version, FIRST_MODE, MODES, VERSION};
 use sudoku::invariants::{check_app, check_game};
 use sudoku::layout::{self, Button};
-use sudoku::settings::{Color, Settings};
+use sudoku::settings::{Color, Section, Settings, Switch};
 use sudoku::store::{load_json, save_json, ResultsDb, RESULTS_FILE};
 
-// ---- Helpers (copies of the helpers in tests/behavior.rs and tests/rules.rs)
-
-fn empty_cell(app: &App) -> Cell {
-    cells().find(|&c| !app.game.is_filled(c)).unwrap()
-}
-
-fn given_cell(g: &Game) -> Cell {
-    cells().find(|&c| g.is_given(c)).unwrap()
-}
-
-fn color_point(section: usize, i: usize) -> (f32, f32) {
-    let (gx, gy) = layout::color_cell(section, i);
-    (gx as f32 + 56.0, gy as f32 + 40.0)
-}
-
-fn switch_point(i: usize) -> (f32, f32) {
-    let r = layout::settings_row(i);
-    ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0)
-}
-
-fn center(r: layout::Rect) -> (f32, f32) {
-    ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0)
-}
+// ---- Helpers of this file. The shared helpers are in tests/common.
 
 /// An empty data folder for one test.
 fn data_dir(name: &str) -> PathBuf {
@@ -53,7 +31,7 @@ fn data_dir(name: &str) -> PathBuf {
 /// The app opens with the saved data, as the platform does at the start. The wall clock of each open
 /// is later when `seed` is larger.
 fn open_app(game: Option<Game>, settings: Option<Settings>, db: ResultsDb, seed: u64) -> App {
-    App::new(game, settings, db, Box::new(TestEnv { time: 1_790_000_000 + seed as i64 * 1000, seed }))
+    App::new(game, settings, db, Box::new(TestEnv { time: START_TIME + seed as i64 * 1000, seed }), App::placeholder_ng_stops())
 }
 
 /// A game of `seed` and `mode` with all cells correct except one. The numbers go into the undo
@@ -90,13 +68,13 @@ fn settings_and_last_mode_are_kept_when_the_app_opens_again() {
     let mut d = Driver::new(61);
     d.button(Button::Menu);
     d.button(Button::Colors);
-    let (x, y) = color_point(0, 2);
+    let (x, y) = color_point(Section::Starting, Color::Yellow);
     d.finger_tap(x, y);
-    let (x, y) = color_point(2, 7);
+    let (x, y) = color_point(Section::Highlight, Color::Magenta);
     d.finger_tap(x, y);
     d.button(Button::Settings);
-    for i in [0, 1] {
-        let (x, y) = switch_point(i);
+    for s in Switch::ALL {
+        let (x, y) = switch_point(s);
         d.finger_tap(x, y);
     }
     d.button(Button::NewGame);
@@ -156,11 +134,11 @@ fn results_are_kept_when_the_app_opens_again() {
     let mut d = Driver::from(open_app(None, None, ResultsDb::open(&path).unwrap(), 82));
     d.button(Button::Menu);
     d.button(Button::Statistics);
-    let (x, y) = center(layout::all_games_button());
+    let (x, y) = exact_center(layout::all_games_button());
     d.finger_tap(x, y);
-    let (x, y) = center(layout::bin_button(0));
+    let (x, y) = exact_center(layout::bin_button(0));
     d.finger_tap(x, y);
-    let (x, y) = center(layout::dialog_delete());
+    let (x, y) = exact_center(layout::dialog_delete());
     d.finger_tap(x, y);
     assert_eq!(d.app.results.len(), 1);
     let after = d.app.results.clone();
@@ -431,12 +409,12 @@ fn each_change_of_the_board_and_the_settings_is_marked_for_saving() {
         ("redo", |d, _| d.button(Button::Redo), true, false),
         ("color", |d, _| {
             d.button(Button::Colors);
-            let (x, y) = color_point(1, 8);
+            let (x, y) = color_point(Section::Clash, Color::Orange);
             d.finger_tap(x, y);
         }, false, true),
         ("switch", |d, _| {
             d.button(Button::Settings);
-            let (x, y) = switch_point(1);
+            let (x, y) = switch_point(Switch::HideMarksAutomatically);
             d.pen_tap(x, y);
         }, false, true),
         ("start new game", |d, _| {
@@ -453,11 +431,11 @@ fn each_change_of_the_board_and_the_settings_is_marked_for_saving() {
     assert_eq!((d.app.game.mode, d.app.settings.color_clash, d.app.settings.auto_hide_on), (0, Color::Orange, false));
     // A finger on the board and a tap on a starting number change nothing that is saved.
     clear(&mut d);
-    let (x, y) = micro_center(empty_cell(&d.app), 5);
+    let (x, y) = micro_center(empty_cell(&d.app.game), 5);
     d.finger_tap(x, y);
     d.tap_cell(given_cell(&d.app.game));
     assert!(!d.app.game_dirty && !d.app.settings_dirty);
-    assert_eq!((d.app.screen, d.app.ui.panel), (Screen::Game, Panel::None));
+    assert_eq!((d.app.screen, d.app.ui.menu.panel()), (Screen::Game, None));
 }
 
 // ---- ANA-1
@@ -486,12 +464,12 @@ fn each_result_has_correct_values_and_a_unique_id() {
     let mut d = complete(&mut games, 3, 3);
     d.button(Button::Menu);
     d.button(Button::Statistics);
-    let (x, y) = center(layout::all_games_button());
+    let (x, y) = exact_center(layout::all_games_button());
     d.finger_tap(x, y);
-    let (x, y) = center(layout::bin_button(1));
+    let (x, y) = exact_center(layout::bin_button(1));
     d.finger_tap(x, y);
     let victim = d.app.list.confirm.clone().expect("the delete dialog");
-    let (x, y) = center(layout::dialog_delete());
+    let (x, y) = exact_center(layout::dialog_delete());
     d.finger_tap(x, y);
     assert!(d.app.results.iter().all(|r| r.id != victim.id));
     drop(d);

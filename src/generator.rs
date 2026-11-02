@@ -68,7 +68,7 @@ impl Rng {
         (self.next_u64() % n as u64) as usize
     }
 
-    pub fn shuffle<T>(&mut self, items: &mut [T]) {
+    fn shuffle<T>(&mut self, items: &mut [T]) {
         for i in (1..items.len()).rev() {
             let j = self.below(i + 1);
             items.swap(i, j);

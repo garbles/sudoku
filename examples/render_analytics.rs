@@ -11,10 +11,9 @@ fn main() {
         sudoku::layout::set_rotation(r);
     }
     sudoku::reference::use_utc();
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let fonts = sudoku::font::Fonts::from_files(&root.join("scripts/fonts/rmsans-400.ttf"), &root.join("scripts/fonts/rmsans-500.ttf")).unwrap();
+    let fonts = sudoku::font::Fonts::repo().unwrap();
     let db = sudoku::store::ResultsDb::open(Path::new(&a[1])).unwrap();
-    let mut app = App::new(None, None, db, Box::new(E));
+    let mut app = App::new(None, None, db, Box::new(E), App::placeholder_ng_stops());
     app.screen = if a[2] == "list" { Screen::GamesList } else { Screen::Statistics };
     let mut pm = tiny_skia::Pixmap::new(sudoku::layout::screen_w(), sudoku::layout::screen_h()).unwrap();
     sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &app);

@@ -4,26 +4,19 @@
 
 mod common;
 
-use std::path::Path;
-
 use common::*;
 use sudoku::app::{App, Panel, Screen};
-use sudoku::font::{Anchor, Fonts};
+use sudoku::font::{Anchor, Fonts, Weight};
 use sudoku::game::{cells, mark_bit, Cell};
 use sudoku::generator::MODES;
 use sudoku::layout::{self, Button, Rect, CELL};
 use sudoku::reference;
-use sudoku::render::{gray, rgb_at, Canvas, BLACK};
+use sudoku::render::{gray, rgb_at, Canvas, Units, BLACK};
 use sudoku::settings::{Color, Section};
 use sudoku::store::ResultRow;
 use tiny_skia::Pixmap;
 
-// ---- Helpers (copies of the helpers in tests/rules.rs and tests/behavior.rs).
-
-fn fonts() -> Fonts {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    Fonts::from_files(&root.join("scripts/fonts/rmsans-400.ttf"), &root.join("scripts/fonts/rmsans-500.ttf")).unwrap()
-}
+// ---- Helpers of this file. The shared helpers are in tests/common.
 
 /// The screen of an app.
 fn draw_app(app: &App, fonts: &Fonts) -> Pixmap {
@@ -32,23 +25,14 @@ fn draw_app(app: &App, fonts: &Fonts) -> Pixmap {
     pm
 }
 
-fn empty_cell(d: &Driver) -> Cell {
-    cells().find(|&c| !d.app.game.is_filled(c)).unwrap()
-}
-
-fn color_point(section: usize, i: usize) -> (f32, f32) {
-    let (gx, gy) = layout::color_cell(section, i);
-    (gx as f32 + 56.0, gy as f32 + 40.0)
-}
-
 /// A white screen with only the text `s` on it, at the same position as the app draws it.
 #[allow(clippy::too_many_arguments)]
-fn text_only(fonts: &Fonts, page_units: bool, medium: bool, size: f32, x: f32, y: f32, anchor: Anchor, s: &str) -> Pixmap {
+fn text_only(fonts: &Fonts, units: Units, weight: Weight, size: f32, x: f32, y: f32, anchor: Anchor, s: &str) -> Pixmap {
     let mut pm = Pixmap::new(layout::screen_w(), layout::screen_h()).unwrap();
     let mut c = Canvas::new(&mut pm, fonts);
     c.clear();
-    c.set_page_units(page_units);
-    c.text(medium, size, x, y, anchor, s, BLACK);
+    c.set_units(units);
+    c.text(weight, size, x, y, anchor, s, BLACK);
     pm
 }
 
@@ -130,7 +114,7 @@ fn starting_digits_are_black_and_entries_are_dark_gray() {
     }
     // An entry that the pen writes.
     let mut d = Driver::new(70);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     d.write(cell, 6);
     assert!(d.app.game.is_entry(cell));
     let pm = draw_app(&d.app, &fonts);
@@ -147,7 +131,7 @@ fn each_mark_is_at_its_keypad_position() {
     let mut d = Driver::new(71);
     // All nine digits: with the switch on, a digit of a peer would have no mark (MRK-7).
     d.app.settings.auto_hide_on = false;
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     let (x, y) = layout::cell_origin(cell);
     let (xf, yf) = (x as f32, y as f32);
     for digit in 1..=9u8 {
@@ -159,7 +143,7 @@ fn each_mark_is_at_its_keypad_position() {
         let mut want = Pixmap::new(layout::screen_w(), layout::screen_h()).unwrap();
         let mut c = Canvas::new(&mut want, &fonts);
         c.clear();
-        c.text(false, 31.0, xf + MARK_POS[i % 3], yf + MARK_POS[i / 3] + 11.0, Anchor::Middle, &digit.to_string(), gray(15));
+        c.text(Weight::Regular, 31.0, xf + MARK_POS[i % 3], yf + MARK_POS[i / 3] + 11.0, Anchor::Middle, &digit.to_string(), gray(15));
         // Each micro-cell without its edges (the board lines and the micro-cell lines).
         for m in 0..9 {
             let (mx, my) = (m % 3, m / 3);
@@ -195,7 +179,7 @@ fn the_marks_of_a_filled_cell_are_hidden() {
 
     // The pen puts marks in a cell, then writes a number in it.
     let mut d = Driver::new(72);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     for digit in [1, 5, 9] {
         d.tap_micro(cell, digit);
     }
@@ -270,7 +254,7 @@ fn undo_and_redo_are_gray_on_a_complete_game() {
     let digit = d.app.game.value_at(entry);
     d.app.game.redo.push(sudoku::game::Change::Erase { cell: entry, digit });
     d.button(Button::Menu);
-    assert!(d.app.ui.menu_open);
+    assert!(d.app.ui.menu.is_open());
     let pm = draw_app(&d.app, &fonts);
     for k in [3, 4] {
         assert_eq!(darkest(&pm, slot(k * layout::TB_SLOT)), gray(70)[0], "button {k} is not gray");
@@ -295,17 +279,17 @@ fn completed_in_replaces_the_meter() {
         app.game = reference::completed_game();
         app.game.elapsed_ms = seconds * 1000 + 999;
         let pm = draw_app(&app, &fonts);
-        let want = text_only(&fonts, false, true, 25.0, cx, ty, Anchor::Middle, &format!("Completed in {text}"));
+        let want = text_only(&fonts, Units::Screen, Weight::Medium, 25.0, cx, ty, Anchor::Middle, &format!("Completed in {text}"));
         assert_eq!(first_difference(&pm, &want, area), None, "{seconds} s: not \"Completed in {text}\" alone");
     }
 
     // Not complete: the meter shows, not the text.
     let mut d = Driver::new(75);
     let pm = draw_app(&d.app, &fonts);
-    let want = text_only(&fonts, false, true, 25.0, cx, ty, Anchor::Middle, "Completed in 0:01");
+    let want = text_only(&fonts, Units::Screen, Weight::Medium, 25.0, cx, ty, Anchor::Middle, "Completed in 0:01");
     assert!(first_difference(&pm, &want, area).is_some());
-    let (we, wi) = (fonts.medium.width(25.0, "Easy"), fonts.medium.width(25.0, "Hard"));
-    let stops = layout::slider_stops(layout::meter_xl(), layout::meter_xr(), we, wi);
+    let (we, wh) = (fonts.get(Weight::Medium).width(25.0, "Easy"), fonts.get(Weight::Medium).width(25.0, "Hard"));
+    let stops = layout::slider_stops(layout::meter_xl(), layout::meter_xr(), we, wh);
     let knob = stops[d.app.game.mode as usize];
     assert!(rgb_at(&pm, knob.round() as i32, layout::meter_y() - 8)[0] < 100, "no knob at the mode");
     // Pen and finger taps on the meter do not change it.
@@ -347,7 +331,7 @@ fn the_dot_of_the_menu_button_shows_the_menu_state() {
     let fonts = fonts();
     let mut d = Driver::new(76);
     for open in [false, true, false, true] {
-        assert_eq!(d.app.ui.menu_open, open);
+        assert_eq!(d.app.ui.menu.is_open(), open);
         let (dx, dy) = menu_dot(&draw_app(&d.app, &fonts));
         assert!(dx < -2.0, "open {open}: the dot is not at the left ({dx})");
         if open {
@@ -368,26 +352,26 @@ fn only_the_button_of_the_open_panel_is_white_on_black() {
     // NAV-8: the button of the open panel is white on black. The other buttons are black on white.
     let fonts = fonts();
     let slots = [
-        (Panel::Colors, layout::TB_SLOT),
-        (Panel::Settings, 2 * layout::TB_SLOT),
-        (Panel::None, 3 * layout::TB_SLOT),
-        (Panel::None, 4 * layout::TB_SLOT),
-        (Panel::None, layout::tb_bottom_y() - 2 * layout::TB_SLOT),
-        (Panel::None, layout::tb_bottom_y() - layout::TB_SLOT),
-        (Panel::NewGame, layout::tb_bottom_y()),
+        (Some(Panel::Colors), layout::TB_SLOT),
+        (Some(Panel::Settings), 2 * layout::TB_SLOT),
+        (None, 3 * layout::TB_SLOT),
+        (None, 4 * layout::TB_SLOT),
+        (None, layout::tb_bottom_y() - 2 * layout::TB_SLOT),
+        (None, layout::tb_bottom_y() - layout::TB_SLOT),
+        (Some(Panel::NewGame), layout::tb_bottom_y()),
     ];
     let mut d = Driver::new(77);
     d.button(Button::Menu);
-    for (button, panel) in [(None, Panel::None), (Some(Button::Colors), Panel::Colors), (Some(Button::Settings), Panel::Settings), (Some(Button::NewGame), Panel::NewGame), (Some(Button::NewGame), Panel::None)] {
+    for (button, panel) in [(None, None), (Some(Button::Colors), Some(Panel::Colors)), (Some(Button::Settings), Some(Panel::Settings)), (Some(Button::NewGame), Some(Panel::NewGame)), (Some(Button::NewGame), None)] {
         if let Some(b) = button {
             d.button(b);
         }
-        assert_eq!(d.app.ui.panel, panel);
+        assert_eq!(d.app.ui.menu.panel(), panel);
         let pm = draw_app(&d.app, &fonts);
         for &(p, y) in &slots {
             let s = slot(y);
             let corner = rgb_at(&pm, s.x0 + 4, s.y0 + 4);
-            let active = p != Panel::None && p == panel;
+            let active = p.is_some() && p == panel;
             if active {
                 assert_eq!(corner, [0, 0, 0], "panel {panel:?}: its button at y {y} is not black");
                 let light = (s.y0..s.y1).flat_map(|y| (s.x0..s.x1).map(move |x| (x, y))).any(|(x, y)| rgb_at(&pm, x, y)[0] > 200);
@@ -421,11 +405,11 @@ fn a_right_handed_player_has_the_toolbar_at_the_left() {
         layout::set_orientation(o);
         let w = layout::screen_w() as i32;
         let shift = w - layout::TB_SLOT;
-        for (button, panel) in [(Some(Button::Menu), Panel::None), (Some(Button::Colors), Panel::Colors), (Some(Button::Settings), Panel::Settings), (Some(Button::NewGame), Panel::NewGame)] {
+        for (button, panel) in [(Some(Button::Menu), None), (Some(Button::Colors), Some(Panel::Colors)), (Some(Button::Settings), Some(Panel::Settings)), (Some(Button::NewGame), Some(Panel::NewGame))] {
             if let Some(b) = button {
                 d.button(b);
             }
-            assert_eq!(d.app.ui.panel, panel);
+            assert_eq!(d.app.ui.menu.panel(), panel);
             let (left, right) = (draw_handed(&d.app, &fonts, false), draw_handed(&d.app, &fonts, true));
             let mirror = |x0: i32, y0: i32, x1: i32, y1: i32| (y0..y1).flat_map(move |y| (x0..x1).map(move |x| (x, y)));
             // The menu button and the close button: mirror images. The antialiasing of a curve is not
@@ -440,10 +424,10 @@ fn a_right_handed_player_has_the_toolbar_at_the_left() {
             }
             // The panel touches the toolbar and has the same contents.
             let p = match panel {
-                Panel::Colors => Some(layout::colors_panel()),
-                Panel::Settings => Some(layout::settings_panel(false)),
-                Panel::NewGame => Some(layout::ng_panel()),
-                Panel::None => None,
+                Some(Panel::Colors) => Some(layout::colors_panel()),
+                Some(Panel::Settings) => Some(layout::settings_panel(false)),
+                Some(Panel::NewGame) => Some(layout::ng_panel()),
+                None => None,
             };
             if let Some(p) = p {
                 let pw = p.x1 - p.x0;
@@ -455,7 +439,7 @@ fn a_right_handed_player_has_the_toolbar_at_the_left() {
         // The first tap only closes the panel (NAV-12).
         d.button(Button::Menu);
         d.button(Button::Menu);
-        assert!(!d.app.ui.menu_open);
+        assert!(!d.app.ui.menu.is_open());
     }
     layout::set_orientation(layout::Orientation::Portrait);
 }
@@ -470,48 +454,47 @@ fn a_color_of_a_different_section_is_not_available() {
     let mut d = Driver::new(78);
     d.button(Button::Menu);
     d.button(Button::Colors);
-    let taken = |d: &Driver, s: usize, color: Color| {
-        color != Color::White && Section::ALL.iter().enumerate().any(|(o, &sec)| o != s && d.app.settings.color(sec) == color)
+    let taken = |d: &Driver, s: Section, color: Color| {
+        color != Color::White && Section::ALL.iter().any(|&o| o != s && d.app.settings.color(o) == color)
     };
     let slash = gray(50);
     // A tap on each color of each section, from the default settings.
-    for (s, &section) in Section::ALL.iter().enumerate() {
-        for (i, &color) in Color::ALL.iter().enumerate() {
+    for section in Section::ALL {
+        for color in Color::ALL {
             let pm = draw_app(&d.app, &fonts);
-            for (s2, _) in Section::ALL.iter().enumerate() {
-                for (i2, &c2) in Color::ALL.iter().enumerate() {
-                    let (gx, gy) = layout::color_cell(s2, i2);
-                    let center = rgb_at(&pm, gx + 56, gy + 37);
-                    assert_eq!(center == slash, taken(&d, s2, c2), "section {s2}, color {c2:?}: the slash");
+            for s2 in Section::ALL {
+                for c2 in Color::ALL {
+                    let cell = layout::color_cell(s2, c2);
+                    let center = rgb_at(&pm, cell.x0 + 56, cell.y0 + 37);
+                    assert_eq!(center == slash, taken(&d, s2, c2), "section {s2:?}, color {c2:?}: the slash");
                 }
             }
             let before = d.app.settings.clone();
-            let is_taken = taken(&d, s, color);
-            let (x, y) = color_point(s, i);
+            let is_taken = taken(&d, section, color);
+            let (x, y) = color_point(section, color);
             d.finger_tap(x, y);
-            assert_eq!(d.app.ui.panel, Panel::Colors);
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors));
             if is_taken {
-                assert_eq!(d.app.settings, before, "a tap on {color:?} (not available) in section {s}");
+                assert_eq!(d.app.settings, before, "a tap on {color:?} (not available) in section {section:?}");
             } else {
-                assert_eq!(d.app.settings.color(section), color, "a tap on {color:?} in section {s}");
+                assert_eq!(d.app.settings.color(section), color, "a tap on {color:?} in section {section:?}");
             }
             let c = [d.app.settings.color_starting, d.app.settings.color_clash, d.app.settings.color_highlight];
             assert!((0..3).all(|a| (a + 1..3).all(|b| c[a] != c[b] || c[a] == Color::White)), "{c:?}");
         }
     }
     // All three White: no color is unavailable.
-    let white = Color::ALL.iter().position(|&c| c == Color::White).unwrap();
-    for s in 0..3 {
-        let (x, y) = color_point(s, white);
+    for s in Section::ALL {
+        let (x, y) = color_point(s, Color::White);
         d.finger_tap(x, y);
     }
     let s = &d.app.settings;
     assert_eq!((s.color_starting, s.color_clash, s.color_highlight), (Color::White, Color::White, Color::White));
     let pm = draw_app(&d.app, &fonts);
-    for s in 0..3 {
-        for i in 0..9 {
-            let (gx, gy) = layout::color_cell(s, i);
-            assert_ne!(rgb_at(&pm, gx + 56, gy + 37), slash, "section {s}, color {i}");
+    for s in Section::ALL {
+        for c in Color::ALL {
+            let cell = layout::color_cell(s, c);
+            assert_ne!(rgb_at(&pm, cell.x0 + 56, cell.y0 + 37), slash, "section {s:?}, color {c:?}");
         }
     }
 }
@@ -523,7 +506,7 @@ fn a_color_of_a_different_section_is_not_available() {
 fn check_summary(fonts: &Fonts, pm: &Pixmap, total: &str, average: &str, modes: &[(String, String); MODES as usize]) {
     let bw = layout::summary_box_w();
     for (x0, value) in [(72.0, total), (100.0 + bw, average)] {
-        let want = text_only(fonts, true, true, 84.0, x0 + 30.0, 405.0, Anchor::Start, value);
+        let want = text_only(fonts, Units::Page, Weight::Medium, 84.0, x0 + 30.0, 405.0, Anchor::Start, value);
         let area = layout::page_rect(x0 + 10.0, 320.0, x0 + bw - 10.0, 432.0);
         assert_eq!(first_difference(pm, &want, area), None, "the box at {x0} does not show only \"{value}\"");
     }
@@ -532,10 +515,10 @@ fn check_summary(fonts: &Fonts, pm: &Pixmap, total: &str, average: &str, modes: 
     for (mode, (count, avg)) in modes.iter().enumerate() {
         let row = layout::summary_row();
         let base = y + (row / 2.0).floor() + 12.0;
-        let want = text_only(fonts, true, false, 34.0, count_x, base, Anchor::End, count);
+        let want = text_only(fonts, Units::Page, Weight::Regular, 34.0, count_x, base, Anchor::End, count);
         let area = layout::page_rect(600.0, y + 5.0, count_x + 10.0, y + row - 5.0);
         assert_eq!(first_difference(pm, &want, area), None, "mode {mode}: the quantity is not \"{count}\"");
-        let want = text_only(fonts, true, false, 34.0, right, base, Anchor::End, avg);
+        let want = text_only(fonts, Units::Page, Weight::Regular, 34.0, right, base, Anchor::End, avg);
         let area = layout::page_rect(count_x + 50.0, y + 5.0, right + 10.0, y + row - 5.0);
         assert_eq!(first_difference(pm, &want, area), None, "mode {mode}: the average is not \"{avg}\"");
         y += row;
@@ -583,8 +566,7 @@ fn without_ink(d: &Driver) -> App {
     let mut a = new_app(1);
     a.game = d.app.game.clone();
     a.settings = d.app.settings.clone();
-    a.ui.menu_open = d.app.ui.menu_open;
-    a.ui.panel = d.app.ui.panel;
+    a.ui.menu = d.app.ui.menu;
     a.ui.highlight = d.app.ui.highlight;
     a.ui.question = d.app.ui.question;
     a.ui.slider = d.app.ui.slider;
@@ -602,7 +584,7 @@ fn no_ink_stays_on_the_board() {
     // same as the screen of an app that never got ink.
     let fonts = fonts();
     let mut d = Driver::new(80);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
 
     // While the ink waits, it shows.
     d.write_strokes(&digit_ink(cell, 7));
@@ -619,7 +601,7 @@ fn no_ink_stays_on_the_board() {
     assert_no_ink(&d, &fonts, "writing on a number");
 
     // Writing that the app cannot read: the "?" shows, without the ink.
-    let other = empty_cell(&d);
+    let other = empty_cell(&d.app.game);
     d.write_strokes(&scribble_ink(other));
     d.wait(d.app.pause_ms + 50);
     assert_eq!(d.app.ui.question.map(|q| q.0), Some(other));
@@ -631,7 +613,7 @@ fn no_ink_stays_on_the_board() {
 
     // The menu is open: the same rules.
     d.button(Button::Menu);
-    let third = empty_cell(&d);
+    let third = empty_cell(&d.app.game);
     d.write(third, 2);
     assert_eq!(d.app.game.value_at(third), 2);
     assert_no_ink(&d, &fonts, "a number with the open menu");

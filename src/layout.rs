@@ -12,6 +12,7 @@
 use std::cell::Cell as StdCell;
 
 use crate::game::Cell;
+use crate::settings::{Color, Section, Switch};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Orientation {
@@ -26,7 +27,7 @@ pub type Rotation = i32;
 /// of the app is at x = 1619 of the framebuffer). The other landscape rotation is the opposite. On the
 /// Paper Pro, AppLoad sends 2 for the orientation "InvertedLandscape" of xochitl, and this mapping is
 /// correct for it (examined on the device).
-pub const ROTATION_TOP_RIGHT: Rotation = 2;
+const ROTATION_TOP_RIGHT: Rotation = 2;
 
 thread_local! {
     static ROTATION: StdCell<Rotation> = const { StdCell::new(0) };
@@ -83,7 +84,7 @@ pub fn physical_steps() -> (i64, i64, i64) {
 }
 
 /// The physical point of a screen point.
-pub fn to_physical(x: i32, y: i32) -> (i32, i32) {
+fn to_physical(x: i32, y: i32) -> (i32, i32) {
     let (base, sx, sy) = physical_steps();
     let i = base + x as i64 * sx + y as i64 * sy;
     ((i % PHYSICAL_W as i64) as i32, (i / PHYSICAL_W as i64) as i32)
@@ -165,7 +166,7 @@ pub fn cell_origin((r, c): Cell) -> (i32, i32) {
 }
 
 /// The difficulty meter below the board (render.sh): "Easy" at `meter_xl`, "Hard" ends at `meter_xr`.
-pub const DIFF_W: i32 = 440;
+const DIFF_W: i32 = 440;
 pub const STOPS: i32 = crate::generator::MODES as i32;
 
 pub fn meter_y() -> i32 {
@@ -302,19 +303,29 @@ pub fn colors_panel() -> Rect {
     Rect::new(colors_pl(), COLORS_TOP, colors_pr() + 1, COLORS_TOP + 3 * COLOR_SECTION_H + 1)
 }
 
-/// The top left of the grid cell for palette index i (0..9) in a section.
-pub fn color_cell(section: usize, i: usize) -> (i32, i32) {
-    let top = COLORS_TOP + section as i32 * COLOR_SECTION_H;
-    (colors_pl() + 32 + (i as i32 % 3) * 112, top + 79 + (i as i32 / 3) * 112)
+/// The top of a section of the Cell colors panel.
+pub fn color_section_top(section: Section) -> i32 {
+    COLORS_TOP + section.panel_index() as i32 * COLOR_SECTION_H
 }
 
-/// The Settings panel (REQUIREMENTS.md §9.1): two rows of 112 px with a switch, one row with the
+/// The width and the height of a grid cell of the Cell colors panel.
+pub const COLOR_CELL: i32 = 112;
+
+/// The grid cell of a color in a section of the Cell colors panel: its tap area, and the black area
+/// when the color is selected.
+pub fn color_cell(section: Section, color: Color) -> Rect {
+    let i = color.grid_index() as i32;
+    let x = colors_pl() + 32 + (i % 3) * COLOR_CELL;
+    let y = color_section_top(section) + 79 + (i / 3) * COLOR_CELL;
+    Rect::new(x, y, x + COLOR_CELL, y + COLOR_CELL)
+}
+
+/// The Settings panel (REQUIREMENTS.md §9.1): one row of 112 px for each switch (`Switch::row`), one row with the
 /// version and, in a stable or a preview build, one row for updates (§9.2), from the top of the gear (y 224), with
 /// the width and the border of the Cell colors panel.
-pub const SETTINGS_TOP: i32 = 2 * TB_SLOT;
-pub const SETTINGS_ROWS: i32 = 2;
-/// The row of the version.
-pub const VERSION_ROW: usize = SETTINGS_ROWS as usize;
+const SETTINGS_TOP: i32 = 2 * TB_SLOT;
+/// The row of the version, below the switches.
+pub const VERSION_ROW: usize = Switch::ALL.len();
 /// The row for updates (only when `Update::has_row`).
 pub const UPDATE_ROW: usize = VERSION_ROW + 1;
 
@@ -324,8 +335,7 @@ pub fn settings_panel(update_row: bool) -> Rect {
     Rect::new(colors_pl(), SETTINGS_TOP, colors_pr() + 1, SETTINGS_TOP + rows * (TB_SLOT + 2) + 2)
 }
 
-/// A row of the Settings panel (0: highlight numbers, 1: hide pencil marks automatically, 2: the
-/// version, 3: updates).
+/// A row of the Settings panel: a switch (`Switch::row`), `VERSION_ROW` or `UPDATE_ROW`.
 pub fn settings_row(i: usize) -> Rect {
     let y = SETTINGS_TOP + 2 + i as i32 * (TB_SLOT + 2);
     Rect::new(colors_pl(), y, colors_pr() + 1, y + TB_SLOT)
@@ -345,21 +355,16 @@ pub fn update_button_area() -> Rect {
 }
 
 /// The switch at a point in the Settings panel.
-pub fn settings_at(x: f32, y: f32) -> Option<usize> {
-    (0..SETTINGS_ROWS as usize).find(|&i| settings_row(i).contains(x, y))
+pub fn settings_at(x: f32, y: f32) -> Option<Switch> {
+    Switch::ALL.into_iter().find(|s| settings_row(s.row()).contains(x, y))
 }
 
-/// The section and the palette index at a point in the Cell colors panel.
-pub fn color_at(x: f32, y: f32) -> Option<(usize, usize)> {
-    for s in 0..3 {
-        for i in 0..9 {
-            let (gx, gy) = color_cell(s, i);
-            if Rect::new(gx, gy, gx + 112, gy + 112).contains(x, y) {
-                return Some((s, i));
-            }
-        }
-    }
-    None
+/// The section and the color at a point in the Cell colors panel.
+pub fn color_at(x: f32, y: f32) -> Option<(Section, Color)> {
+    Section::ALL
+        .into_iter()
+        .flat_map(|s| Color::ALL.map(|c| (s, c)))
+        .find(|&(s, c)| color_cell(s, c).contains(x, y))
 }
 
 /// The New game panel (toolbar.sh): from the slot above the + to the bottom of the screen.
@@ -404,10 +409,10 @@ pub fn ng_start_row() -> Rect {
 }
 
 /// The x positions of the stops of a labeled slider from `xl` to `xr` (ui-lib.sh `labeled_slider`).
-/// `easy_w` and `insane_w` are the text widths of the two labels.
-pub fn slider_stops(xl: i32, xr: i32, easy_w: f32, insane_w: f32) -> [f32; STOPS as usize] {
+/// `easy_w` and `hard_w` are the text widths of the two labels ("Easy" and "Hard").
+pub fn slider_stops(xl: i32, xr: i32, easy_w: f32, hard_w: f32) -> [f32; STOPS as usize] {
     let xa = xl as f32 + easy_w.round() + 24.0;
-    let xb = xr as f32 - insane_w.round() - 24.0;
+    let xb = xr as f32 - hard_w.round() - 24.0;
     let step = (xb - xa) / (STOPS - 1) as f32;
     std::array::from_fn(|i| xa + i as f32 * step)
 }
@@ -427,17 +432,15 @@ pub fn nearest_stop(stops: &[f32; STOPS as usize], x: f32) -> u8 {
 
 /// The scale of the layout units of the manual and the analytics pages (manual-lib.sh). The pages are
 /// 1404 x 1872 units in portrait and 1872 x 1404 units in landscape.
-pub fn page_scale() -> f32 {
-    1.153846
-}
+pub const PAGE_SCALE: f32 = 1.153846;
 
 /// The width and the height of a page, in layout units.
-pub fn page_w() -> f32 {
-    screen_w() as f32 / page_scale()
+fn page_w() -> f32 {
+    screen_w() as f32 / PAGE_SCALE
 }
 
-pub fn page_h() -> f32 {
-    screen_h() as f32 / page_scale()
+fn page_h() -> f32 {
+    screen_h() as f32 / PAGE_SCALE
 }
 
 /// The right edge of the content of a page (1332 in portrait).
@@ -448,10 +451,10 @@ pub fn page_right() -> f32 {
 /// Converts a rectangle in the layout units of the manual to screen pixels.
 pub fn page_rect(x0: f32, y0: f32, x1: f32, y1: f32) -> Rect {
     Rect::new(
-        (x0 * page_scale()) as i32,
-        (y0 * page_scale()) as i32,
-        (x1 * page_scale()).ceil() as i32,
-        (y1 * page_scale()).ceil() as i32,
+        (x0 * PAGE_SCALE) as i32,
+        (y0 * PAGE_SCALE) as i32,
+        (x1 * PAGE_SCALE).ceil() as i32,
+        (y1 * PAGE_SCALE).ceil() as i32,
     )
 }
 
@@ -528,8 +531,20 @@ pub fn seg_w() -> f32 {
 pub const METER_STEP: f32 = 34.0;
 pub const FILTER_METER_STEP: f32 = 18.0;
 
-pub fn filter_segment(i: usize) -> Rect {
-    let x = SEG_X + i as f32 * seg_w();
+/// The filters of the games list, in the order of their segments from the left: All (`None`), then
+/// each mode (`Some(mode)`). The value is the filter that `ListUi::filter` keeps.
+pub fn list_filters() -> impl Iterator<Item = Option<u8>> {
+    std::iter::once(None).chain((0..crate::generator::MODES).map(Some))
+}
+
+/// The left x of the segment of a filter, in page units.
+pub fn filter_segment_x(filter: Option<u8>) -> f32 {
+    let position = filter.map_or(0, |mode| mode as usize + 1);
+    SEG_X + position as f32 * seg_w()
+}
+
+pub fn filter_segment(filter: Option<u8>) -> Rect {
+    let x = filter_segment_x(filter);
     page_rect(x, SEG_Y, x + seg_w(), SEG_Y + 80.0)
 }
 

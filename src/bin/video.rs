@@ -30,12 +30,11 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
-use sudoku::app::{new_game, App, Input, Tool};
+use sudoku::app::{Input, Tool};
 use sudoku::font::Fonts;
 use sudoku::layout;
 use sudoku::render::{self, Canvas};
-use sudoku::script::{parse, verify, Ev, FixedEnv, Script};
-use sudoku::store::ResultsDb;
+use sudoku::script::{parse, verify, Ev, Script};
 use tiny_skia::{FillRule, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
 /// The time that the bright markers stay after the finger lifts or the pen moves.
@@ -186,12 +185,7 @@ fn main() {
         eprintln!("the output file must end with .mp4");
         std::process::exit(2);
     }
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let fonts = if std::env::var_os("SUDOKU_FONT").is_some() {
-        Fonts::load().expect("fonts")
-    } else {
-        Fonts::from_files(&root.join("scripts/fonts/rmsans-400.ttf"), &root.join("scripts/fonts/rmsans-500.ttf")).expect("fonts")
-    };
+    let fonts = Fonts::for_tools().expect("fonts");
 
     let text = std::fs::read_to_string(script_path).expect("script");
     let script = match parse(&text, sudoku::app::DEFAULT_PAUSE_MS) {
@@ -201,11 +195,8 @@ fn main() {
             std::process::exit(1);
         }
     };
-    let Script { fps, seed, mode, timeline } = script;
-
-    let mut app = App::new(Some(new_game(seed, mode)), None, ResultsDb::in_memory(), Box::new(FixedEnv(seed)));
-    app.ng_stops = render::ng_stops(&fonts);
-    app.ui.slider = mode;
+    let mut app = script.app(&fonts);
+    let Script { fps, timeline, .. } = script;
 
     let (w, h) = (layout::screen_w(), layout::screen_h());
     let mut child = ffmpeg(Path::new(out), fps, w, h);

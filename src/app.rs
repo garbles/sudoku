@@ -5,23 +5,23 @@
 //! true. Refer to REQUIREMENTS.md §2, §3, §5, §8 to §13 and INVARIANTS.md.
 
 use crate::game::{Cell, Game, Outcome};
-use crate::generator::{generate, MODES};
+use crate::generator::generate;
 use crate::layout::{self, Button, Rect};
 use crate::recognizer::{self, Stroke};
-use crate::settings::{Color, Section, Settings};
+use crate::settings::{Color, Section, Settings, Switch};
 use crate::store::{NewResult, ResultRow, ResultsDb};
 use crate::update::{Manifest, Update};
 
 /// The recognition pause after the pen lifts (§5.1). `SUDOKU_RECOGNITION_PAUSE_MS` changes it.
 pub const DEFAULT_PAUSE_MS: u64 = 500;
 /// The time that the "?" shows (§5.1).
-pub const QUESTION_MS: u64 = 1000;
+const QUESTION_MS: u64 = 1000;
 /// A gap between two events that is longer than this is a suspension. The clock does not count it.
 pub const MAX_CLOCK_GAP_MS: u64 = 5000;
 
 pub const MANUAL_PAGES: u8 = 9;
 /// A finger touch with no event for this time is forgotten when a new touch starts (INP-15).
-pub const STALE_TOUCH_MS: u64 = 150;
+const STALE_TOUCH_MS: u64 = 150;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
@@ -33,10 +33,45 @@ pub enum Screen {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Panel {
-    None,
     Colors,
     Settings,
     NewGame,
+}
+
+/// The toolbar menu of the game screen (§9). A panel is open only when the menu is open: the
+/// type makes INVARIANTS.md NAV-4 true.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Menu {
+    Closed,
+    /// The menu is open, with the open panel (if there is one).
+    Open(Option<Panel>),
+}
+
+impl Menu {
+    pub fn is_open(self) -> bool {
+        matches!(self, Menu::Open(_))
+    }
+
+    /// The open panel, or `None` if no panel is open.
+    pub fn panel(self) -> Option<Panel> {
+        match self {
+            Menu::Open(panel) => panel,
+            Menu::Closed => None,
+        }
+    }
+}
+
+impl Panel {
+    /// The panel that a toolbar button opens and closes (§9), or `None` if the button does not
+    /// operate a panel.
+    fn of_button(b: Button) -> Option<Panel> {
+        match b {
+            Button::Colors => Some(Panel::Colors),
+            Button::Settings => Some(Panel::Settings),
+            Button::NewGame => Some(Panel::NewGame),
+            Button::Menu | Button::Undo | Button::Redo | Button::Help | Button::Statistics | Button::Close => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -66,8 +101,7 @@ pub struct PendingInk {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct GameUi {
-    pub menu_open: bool,
-    pub panel: Panel,
+    pub menu: Menu,
     pub highlight: Option<u8>,
     pub question: Option<(Cell, u64)>,
     pub pending_ink: Option<PendingInk>,
@@ -76,7 +110,7 @@ pub struct GameUi {
 
 impl GameUi {
     fn closed(slider: u8) -> GameUi {
-        GameUi { menu_open: false, panel: Panel::None, highlight: None, question: None, pending_ink: None, slider }
+        GameUi { menu: Menu::Closed, highlight: None, question: None, pending_ink: None, slider }
     }
 }
 
@@ -88,12 +122,19 @@ pub struct ListUi {
     pub confirm: Option<ResultRow>,
 }
 
+impl ListUi {
+    /// The start state of the games list: all modes, the first page, no question open.
+    fn start() -> ListUi {
+        ListUi { filter: None, page: 1, confirm: None }
+    }
+}
+
 /// Saves a game immediately; true if the save is done.
-pub type SaveGame = Box<dyn FnMut(&Game) -> bool>;
+type SaveGame = Box<dyn FnMut(&Game) -> bool>;
 
 /// Receives each reading of ink: the strokes and the result. Only an examination of the recognizer on
 /// a device uses it (`platform`, the file `log-ink` in the data folder).
-pub type InkLog = Box<dyn FnMut(&[Stroke], Option<u8>)>;
+type InkLog = Box<dyn FnMut(&[Stroke], Option<u8>)>;
 
 /// Things that the platform gives to the app: the wall clock and new seeds.
 pub trait Env {
@@ -122,21 +163,40 @@ enum Gesture {
     Swipe { x0: f32, y0: f32, target: Option<Target> },
 }
 
+/// The finger touch that the app follows (INP-15).
+#[derive(Debug)]
+struct FollowedTouch {
+    id: i32,
+    gesture: Gesture,
+    /// The time of the last event of this touch.
+    last_event_ms: u64,
+}
+
+impl FollowedTouch {
+    /// A new press replaces this touch if the press has the same id (a press that AppLoad sends
+    /// again), or if this touch has had no event for `STALE_TOUCH_MS` (a lost release).
+    fn is_replaced_by_press(&self, id: i32, now: u64) -> bool {
+        self.id == id || now.saturating_sub(self.last_event_ms) >= STALE_TOUCH_MS
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Target {
     Game(Button),
-    Color(usize, usize),
+    /// A color in a section of the Cell colors panel.
+    Color(Section, Color),
     StartNewGame,
     Back,
     Prev,
     Next,
     AllGames,
-    Filter(usize),
+    /// A filter segment of the games list: All (`None`) or one mode.
+    Filter(Option<u8>),
     Bin(usize),
     DialogCancel,
     DialogDelete,
-    /// A row of the Settings panel (0: highlight numbers, 1: hide pencil marks automatically).
-    Switch(usize),
+    /// A switch row of the Settings panel.
+    Switch(Switch),
     /// The button "Update to v<version>" (§9.2).
     Update,
     DeleteAll,
@@ -175,8 +235,7 @@ pub struct App {
     pub live_stroke_count: u64,
 
     pen: Option<Gesture>,
-    /// The finger touch that the app follows: its id, its gesture and the time of its last event.
-    touch: Option<(i32, Gesture, u64)>,
+    touch: Option<FollowedTouch>,
     last_clock: Option<u64>,
 
     pub game_dirty: bool,
@@ -198,7 +257,9 @@ pub struct App {
 impl App {
     /// Makes the app from the saved data (PER-2). If there is no saved game, or the saved game is
     /// not correct (PER-5), the app makes a new game of the last selected mode.
-    pub fn new(saved: Option<Game>, settings: Option<Settings>, db: ResultsDb, mut env: Box<dyn Env>) -> App {
+    /// `ng_stops` are the slider stops of the current layout: `render::ng_stops` with the fonts of
+    /// the tablet, or `App::placeholder_ng_stops` when there is no font.
+    pub fn new(saved: Option<Game>, settings: Option<Settings>, db: ResultsDb, mut env: Box<dyn Env>, ng_stops: [f32; layout::STOPS as usize]) -> App {
         let settings = settings.filter(Settings::is_valid).unwrap_or_default();
         let game = match saved.filter(|g| crate::invariants::check_game(g).is_ok() && is_generated(g)) {
             Some(g) => g,
@@ -211,7 +272,7 @@ impl App {
             game,
             ui: GameUi::closed(slider),
             manual_page: 1,
-            list: ListUi { filter: None, page: 1, confirm: None },
+            list: ListUi::start(),
             per_page: crate::layout::list_rows(),
             confirm_all: false,
             settings,
@@ -220,7 +281,7 @@ impl App {
             db,
             env,
             pause_ms: DEFAULT_PAUSE_MS,
-            ng_stops: layout::slider_stops(layout::ng_tx(), layout::ng_tr(), 50.0, 70.0),
+            ng_stops,
             live_stroke: None,
             live_stroke_count: 0,
             pen: None,
@@ -234,6 +295,14 @@ impl App {
             save_game_now: None,
             ink_log: None,
         }
+    }
+
+    /// The New game slider stops with approximate text widths of the labels "Easy" and "Hard", for
+    /// a caller that has no font (most tests). `render::ng_stops` uses the true widths of the font.
+    pub fn placeholder_ng_stops() -> [f32; layout::STOPS as usize] {
+        const EASY_LABEL_W: f32 = 50.0;
+        const HARD_LABEL_W: f32 = 70.0;
+        layout::slider_stops(layout::ng_tx(), layout::ng_tr(), EASY_LABEL_W, HARD_LABEL_W)
     }
 
     // ---- Time
@@ -337,13 +406,9 @@ impl App {
                 // app forgets the touch that it follows if the new press has the same id, or if that
                 // touch has had no event for STALE_TOUCH_MS. Thus a lost release never stops the next
                 // touches. A real second finger (an active touch) operates no item.
-                let stale = match self.touch {
-                    None => true,
-                    Some((tid, _, last)) => tid == id || now.saturating_sub(last) >= STALE_TOUCH_MS,
-                };
-                if stale {
-                    let g = self.press(x, y, None, now);
-                    self.touch = Some((id, g, now));
+                if self.touch.as_ref().is_none_or(|t| t.is_replaced_by_press(id, now)) {
+                    let gesture = self.press(x, y, None, now);
+                    self.touch = Some(FollowedTouch { id, gesture, last_event_ms: now });
                 } else {
                     // A second finger has no other effect. But it is an action: it removes the
                     // highlight and the "?" (HLT-2, QST-4).
@@ -352,17 +417,19 @@ impl App {
                 }
             }
             Input::TouchMove { id, x, y } => {
-                if let Some((tid, g, last)) = self.touch.take() {
-                    self.touch = Some(if tid == id { (tid, self.finger_move(g, x, y), now) } else { (tid, g, last) });
+                if let Some(t) = self.touch.take_if(|t| t.id == id) {
+                    let gesture = self.finger_move(t.gesture, x, y);
+                    self.touch = Some(FollowedTouch { id, gesture, last_event_ms: now });
                 }
             }
-            Input::TouchUp { id, x, y } => match self.touch.take() {
-                Some((tid, g, _)) if tid == id => self.finger_up(g, x, y, now),
-                other => self.touch = other,
-            },
+            Input::TouchUp { id, x, y } => {
+                if let Some(t) = self.touch.take_if(|t| t.id == id) {
+                    self.finger_up(t.gesture, x, y, now);
+                }
+            }
         }
         // §9.2: "Sudoku is up to date" shows only until the Settings panel closes.
-        if self.ui.panel != Panel::Settings || self.screen != Screen::Game {
+        if self.ui.menu.panel() != Some(Panel::Settings) || self.screen != Screen::Game {
             self.update.panel_closed();
         }
         if before.is_some_and(|b| self.view_key() != b) {
@@ -382,7 +449,7 @@ impl App {
 
         // The dialog "Restart the interface?" accepts only its two buttons (UPD-10). It covers all
         // screens, thus a pen or a finger has no other effect.
-        if self.update.dialog {
+        if self.update.dialog_shown() {
             return if layout::dialog_cancel().contains(x, y) {
                 Gesture::Control(Target::RestartLater)
             } else if layout::dialog_delete().contains(x, y) {
@@ -392,30 +459,32 @@ impl App {
             };
         }
 
-        // Ink that waits in a different cell is read now. Ink in the same cell gets the new stroke.
+        // A press on the cell of the waiting ink, on the game screen with no panel.
         let cell = layout::board_cell(x, y);
-        let continues_ink = self.screen == Screen::Game
-            && self.ui.panel == Panel::None
-            && tool == Some(Tool::Pen)
+        let on_pending_ink = self.screen == Screen::Game
+            && self.ui.menu.panel().is_none()
             && cell.is_some()
-            && self.ui.pending_ink.as_ref().map(|i| Some(i.cell) == cell).unwrap_or(false);
-        if continues_ink {
-            let ink = self.ui.pending_ink.as_mut().expect("pending ink");
-            ink.last_lift_at = None;
-            self.start_live_stroke(x, y);
-            return Gesture::Writing;
+            && self.ui.pending_ink.as_ref().is_some_and(|ink| Some(ink.cell) == cell);
+        if on_pending_ink {
+            match tool {
+                // The pen continues the ink: the ink gets the new stroke.
+                Some(Tool::Pen) => {
+                    let ink = self.ui.pending_ink.as_mut().expect("pending ink");
+                    ink.last_lift_at = None;
+                    self.start_live_stroke(x, y);
+                    return Gesture::Writing;
+                }
+                // The eraser removes the ink. The app does not read it, thus the board and the undo
+                // history do not change (INP-8). The press continues below, as a press on the board.
+                Some(Tool::Eraser) => {
+                    self.ui.pending_ink = None;
+                    self.live_stroke = None;
+                }
+                None => {}
+            }
         }
-        // The eraser on the cell of the waiting ink removes the ink. The app does not read it, thus the
-        // board and the undo history do not change (INP-8).
-        let erases_ink = self.screen == Screen::Game
-            && self.ui.panel == Panel::None
-            && tool == Some(Tool::Eraser)
-            && cell.is_some()
-            && self.ui.pending_ink.as_ref().map(|i| Some(i.cell) == cell).unwrap_or(false);
-        if erases_ink {
-            self.ui.pending_ink = None;
-            self.live_stroke = None;
-        }
+        // Ink that waits in a different cell is read now.
+        //
         // A finger on the board has no effect on the game (INP-1), thus it does not read the ink (for
         // example a palm on the screen between two strokes of a 4).
         let finger_on_board = tool.is_none() && self.screen == Screen::Game && cell.is_some();
@@ -437,24 +506,24 @@ impl App {
     }
 
     fn press_game(&mut self, x: f32, y: f32, tool: Option<Tool>, prev_highlight: Option<u8>) -> Gesture {
-        let button = layout::game_button(x, y, self.ui.menu_open);
+        let button = layout::game_button(x, y, self.ui.menu.is_open());
 
         // A panel is open: a tap outside the panel only closes the panel (NAV-11). The paint bucket and
         // the + also change the panel (§9).
-        if self.ui.panel != Panel::None {
-            if let Some(b @ (Button::Colors | Button::Settings | Button::NewGame)) = button {
+        if let Some(panel) = self.ui.menu.panel() {
+            if let Some(b) = button.filter(|&b| Panel::of_button(b).is_some()) {
                 return Gesture::Control(Target::Game(b));
             }
-            match self.ui.panel {
+            match panel {
                 Panel::Settings if layout::settings_panel(self.update.has_row()).contains(x, y) => {
                     if self.update.button().is_some() && layout::update_button_area().contains(x, y) {
                         return Gesture::Control(Target::Update);
                     }
-                    return layout::settings_at(x, y).map(|i| Gesture::Control(Target::Switch(i))).unwrap_or(Gesture::Ignored);
+                    return layout::settings_at(x, y).map(|s| Gesture::Control(Target::Switch(s))).unwrap_or(Gesture::Ignored);
                 }
                 Panel::Colors if layout::colors_panel().contains(x, y) => {
                     return layout::color_at(x, y)
-                        .map(|(s, i)| Gesture::Control(Target::Color(s, i)))
+                        .map(|(s, c)| Gesture::Control(Target::Color(s, c)))
                         .unwrap_or(Gesture::Ignored);
                 }
                 Panel::NewGame if layout::ng_panel().contains(x, y) => {
@@ -535,7 +604,8 @@ impl App {
                 self.ui.slider = layout::nearest_stop(&self.ng_stops, x);
                 g
             }
-            other => other,
+            // The pen motion has no effect: a control acts on the release, and a swipe is a finger gesture.
+            Gesture::Ignored | Gesture::Control(_) | Gesture::Swipe { .. } => g,
         }
     }
 
@@ -554,7 +624,8 @@ impl App {
             }
             Gesture::DiscardInk => self.live_stroke = None,
             Gesture::Control(t) => self.release_control(t, x, y, now),
-            _ => {}
+            // The erasure and the slider move occur during the motion. The release has no effect.
+            Gesture::Ignored | Gesture::Eraser | Gesture::Slider | Gesture::Swipe { .. } => {}
         }
     }
 
@@ -576,7 +647,13 @@ impl App {
                     self.release_control(t, x, y, now);
                 }
             }
-            _ => {}
+            // The slider moves during the motion. A finger cannot make the other gestures, or they have no effect.
+            Gesture::Ignored
+            | Gesture::Slider
+            | Gesture::BoardTap { .. }
+            | Gesture::Writing
+            | Gesture::DiscardInk
+            | Gesture::Eraser => {}
         }
     }
 
@@ -728,8 +805,8 @@ impl App {
                 if hit(layout::next_arrow()) {
                     return Some(Target::Next);
                 }
-                if let Some(i) = (0..=MODES as usize).find(|&i| hit(layout::filter_segment(i))) {
-                    return Some(Target::Filter(i));
+                if let Some(filter) = layout::list_filters().find(|&f| hit(layout::filter_segment(f))) {
+                    return Some(Target::Filter(filter));
                 }
                 let rows = self.page_rows().len();
                 (0..rows).find(|&i| hit(layout::bin_button(i))).map(Target::Bin)
@@ -739,14 +816,25 @@ impl App {
 
     fn target_rect_contains(&self, t: Target, x: f32, y: f32) -> bool {
         match t {
-            Target::Game(b) => layout::game_button(x, y, self.ui.menu_open) == Some(b),
-            Target::Color(s, i) => layout::color_at(x, y) == Some((s, i)),
+            Target::Game(b) => layout::game_button(x, y, self.ui.menu.is_open()) == Some(b),
+            Target::Color(s, c) => layout::color_at(x, y) == Some((s, c)),
             Target::StartNewGame => layout::ng_start_row().contains(x, y),
-            Target::Switch(i) => layout::settings_at(x, y) == Some(i),
+            Target::Switch(s) => layout::settings_at(x, y) == Some(s),
             Target::Update => layout::update_button_area().contains(x, y),
             Target::RestartLater => layout::dialog_cancel().contains(x, y),
             Target::RestartNow => layout::dialog_delete().contains(x, y),
-            _ => self.page_target(x, y) == Some(t),
+            // The controls of the manual, the statistics and the games list.
+            Target::Back
+            | Target::Prev
+            | Target::Next
+            | Target::AllGames
+            | Target::Filter(_)
+            | Target::Bin(_)
+            | Target::DialogCancel
+            | Target::DialogDelete
+            | Target::DeleteAll
+            | Target::AllCancel
+            | Target::AllDelete => self.page_target(x, y) == Some(t),
         }
     }
 
@@ -764,8 +852,8 @@ impl App {
         }
         match t {
             Target::Game(b) => self.game_button(b),
-            Target::Color(s, i) => {
-                if self.settings.select(Section::ALL[s], Color::ALL[i]) {
+            Target::Color(s, c) => {
+                if self.settings.select(s, c) {
                     self.settings_dirty = true;
                 }
             }
@@ -778,15 +866,11 @@ impl App {
             Target::Next => self.swipe(true),
             Target::AllGames => {
                 self.screen = Screen::GamesList;
-                self.list = ListUi { filter: None, page: 1, confirm: None };
+                self.list = ListUi::start();
             }
-            Target::Switch(i) => {
+            Target::Switch(s) => {
                 // NAV-14: only the switch changes; the game and the undo history do not.
-                if i == 0 {
-                    self.settings.highlight_on = !self.settings.highlight_on;
-                } else {
-                    self.settings.auto_hide_on = !self.settings.auto_hide_on;
-                }
+                self.settings.toggle(s);
                 self.settings_dirty = true;
             }
             // UPD-5, UPD-9: only the update state changes. UPD-10: "Restart interface" asks the
@@ -805,11 +889,11 @@ impl App {
                     eprintln!("sudoku: cannot delete the results: {e}");
                 }
                 self.refresh_results();
-                self.list = ListUi { filter: None, page: 1, confirm: None };
+                self.list = ListUi::start();
                 self.confirm_all = false;
             }
-            Target::Filter(i) => {
-                self.list.filter = if i == 0 { None } else { Some(i as u8 - 1) };
+            Target::Filter(filter) => {
+                self.list.filter = filter;
                 self.list.page = 1;
             }
             Target::Bin(i) => {
@@ -819,7 +903,7 @@ impl App {
             }
             Target::DialogCancel => self.list.confirm = None,
             // UPD-10: only the dialog changes. The row continues to show the button "Restart interface".
-            Target::RestartLater => self.update.dialog = false,
+            Target::RestartLater => self.update.close_dialog(),
             Target::RestartNow => self.request_restart(),
             Target::DialogDelete => {
                 if let Some(r) = self.list.confirm.take() {
@@ -837,21 +921,11 @@ impl App {
     fn game_button(&mut self, b: Button) {
         match b {
             Button::Menu => {
-                self.ui.menu_open = !self.ui.menu_open;
-                self.ui.panel = Panel::None;
+                self.ui.menu = if self.ui.menu.is_open() { Menu::Closed } else { Menu::Open(None) };
             }
-            Button::Colors | Button::Settings | Button::NewGame => {
-                let panel = match b {
-                    Button::Colors => Panel::Colors,
-                    Button::Settings => Panel::Settings,
-                    _ => Panel::NewGame,
-                };
-                let open = self.ui.panel != panel;
-                self.close_panel(); // DIF-3: the slider shows the last mode.
-                if open {
-                    self.ui.panel = panel;
-                }
-            }
+            Button::Colors => self.toggle_panel(Panel::Colors),
+            Button::Settings => self.toggle_panel(Panel::Settings),
+            Button::NewGame => self.toggle_panel(Panel::NewGame),
             Button::Undo => {
                 let o = self.game.undo();
                 self.after_game_change(o);
@@ -878,8 +952,20 @@ impl App {
         }
     }
 
+    /// Opens the panel, or closes it if it is open. An open panel of a different button closes.
+    fn toggle_panel(&mut self, panel: Panel) {
+        let open = self.ui.menu.panel() != Some(panel);
+        self.close_panel(); // DIF-3: the slider shows the last mode.
+        if open {
+            self.ui.menu = Menu::Open(Some(panel));
+        }
+    }
+
     fn close_panel(&mut self) {
-        self.ui.panel = Panel::None;
+        // The panel closes, and the menu stays as it is (open or closed).
+        if self.ui.menu.is_open() {
+            self.ui.menu = Menu::Open(None);
+        }
         self.ui.slider = self.settings.last_mode; // DIF-4: the selection is not kept.
         self.cancel_gestures();
     }
@@ -892,8 +978,8 @@ impl App {
             self.pen = Some(Gesture::Ignored);
             self.live_stroke = None;
         }
-        if let Some((id, _, last)) = self.touch {
-            self.touch = Some((id, Gesture::Ignored, last));
+        if let Some(t) = &mut self.touch {
+            t.gesture = Gesture::Ignored;
         }
     }
 
@@ -960,7 +1046,7 @@ impl App {
     /// ink (the platform draws those points without a full drawing). The key counts the strokes that
     /// show: a stroke with one point shows nothing, and a finished stroke shows the same as the pending
     /// ink that keeps it.
-    pub fn view_key(&self) -> u64 {
+    fn view_key(&self) -> u64 {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         let g = &self.game;
@@ -969,14 +1055,14 @@ impl App {
             g.seconds().hash(&mut h);
         }
         let ui = &self.ui;
-        (ui.menu_open, ui.panel, ui.highlight, ui.question.map(|q| q.0), ui.slider).hash(&mut h);
+        (ui.menu, ui.highlight, ui.question.map(|q| q.0), ui.slider).hash(&mut h);
         let pending = ui.pending_ink.as_ref().map_or(0, |i| i.strokes.len());
         let live = usize::from(self.live_stroke.as_ref().is_some_and(|s| s.len() >= 2));
         (pending + live).hash(&mut h);
         (self.manual_page, self.list.filter, self.list.page, self.list.confirm.as_ref().map(|r| r.id)).hash(&mut h);
         (self.settings.color_starting, self.settings.color_clash, self.settings.color_highlight).hash(&mut h);
         (self.settings.highlight_on, self.settings.auto_hide_on, self.confirm_all).hash(&mut h);
-        (&self.update.current, &self.update.state, self.update.checking, self.update.row_text(), self.update.dialog).hash(&mut h);
+        (&self.update.current, &self.update.state, self.update.row_text()).hash(&mut h);
         self.results.len().hash(&mut h);
         self.results.iter().for_each(|r| r.id.hash(&mut h));
         h.finish()
@@ -984,7 +1070,7 @@ impl App {
 
     /// The result of an update request from the platform (§9.2).
     pub fn update_checked(&mut self, result: Result<Manifest, String>) {
-        self.update.checked(result, self.ui.panel == Panel::Settings && self.screen == Screen::Game);
+        self.update.checked(result, self.ui.menu.panel() == Some(Panel::Settings) && self.screen == Screen::Game);
         self.redraw = true;
     }
 
@@ -993,7 +1079,7 @@ impl App {
     /// reads the waiting ink first, and the touches that are on the screen have no more effect.
     pub fn update_installed(&mut self, result: Result<bool, String>, now: u64) {
         self.update.installed(result, now);
-        if self.update.dialog {
+        if self.update.dialog_shown() {
             if self.ui.pending_ink.is_some() {
                 self.read_ink(now);
             }
@@ -1017,13 +1103,8 @@ impl App {
     /// button "Restart interface".
     pub fn restart_failed(&mut self) {
         self.restart_ui = false;
-        self.update.dialog = false;
+        self.update.close_dialog();
         self.redraw = true;
-    }
-
-    /// The pen or a finger is on the screen now.
-    pub fn is_touching(&self) -> bool {
-        self.pen.is_some() || self.touch.is_some()
     }
 }
 

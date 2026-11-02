@@ -6,22 +6,13 @@ mod common;
 use std::path::Path;
 
 use common::*;
-use sudoku::app::{Input, Panel, Screen, Tool};
-use sudoku::font::Fonts;
+use sudoku::app::{Input, Menu, Panel, Screen, Tool};
+use sudoku::font::{Fonts, Weight};
 use sudoku::game::{cells, mark_bit, peers, Cell};
 use sudoku::layout::{self, Button};
 use sudoku::reference;
 use sudoku::render::rgb_at;
-use sudoku::settings::{Color, Section};
-
-fn fonts() -> Fonts {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    Fonts::from_files(&root.join("scripts/fonts/rmsans-400.ttf"), &root.join("scripts/fonts/rmsans-500.ttf")).unwrap()
-}
-
-fn empty_cell(d: &Driver) -> Cell {
-    cells().find(|&c| !d.app.game.is_filled(c)).unwrap()
-}
+use sudoku::settings::{Color, Section, Switch};
 
 #[test]
 fn traceability() {
@@ -57,7 +48,7 @@ fn starting_numbers_do_not_change() {
     // PUZ-4: `given` changes only when a new puzzle replaces the game.
     let mut d = Driver::new(31);
     let given = d.app.game.given;
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     d.tap_micro(cell, 2);
     d.write(cell, 3);
     d.erase(cell);
@@ -121,7 +112,7 @@ fn a_tap_on_a_number_changes_only_the_highlight() {
 fn undo_and_redo_do_not_change_the_puzzle_or_the_clock() {
     // UND-9
     let mut d = Driver::new(34);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     d.write(cell, 2);
     d.button(Button::Menu);
     let key = |d: &Driver| (d.app.game.given, d.app.game.solution, d.app.game.seed, d.app.game.mode);
@@ -154,15 +145,14 @@ fn the_selected_color_of_each_section_has_the_black_box() {
         a.settings.color_starting = Color::Blue;
         a.settings.color_clash = Color::White;
         a.settings.color_highlight = Color::Magenta;
-        a.ui.menu_open = true;
-        a.ui.panel = Panel::Colors;
+        a.ui.menu = Menu::Open(Some(Panel::Colors));
     });
     let selected = [Color::Blue, Color::White, Color::Magenta];
-    for (s, _) in Section::ALL.iter().enumerate() {
-        for (i, &c) in Color::ALL.iter().enumerate() {
-            let (gx, gy) = layout::color_cell(s, i);
-            let corner = rgb_at(&pm, gx + 4, gy + 4);
-            assert_eq!(corner == [0, 0, 0], c == selected[s], "section {s}, color {c:?}");
+    for s in Section::ALL {
+        for c in Color::ALL {
+            let cell = layout::color_cell(s, c);
+            let corner = rgb_at(&pm, cell.x0 + 4, cell.y0 + 4);
+            assert_eq!(corner == [0, 0, 0], c == selected[s.panel_index()], "section {s:?}, color {c:?}");
         }
     }
 }
@@ -187,7 +177,7 @@ fn back_is_on_each_manual_page() {
 fn analytics_does_not_change_the_game_and_the_clock_continues() {
     // ANA-10
     let mut d = Driver::new(36);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     d.tap_micro(cell, 4);
     let before = (d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len());
     let t = d.app.game.elapsed_ms;
@@ -222,12 +212,12 @@ fn each_change_marks_the_data_for_saving() {
     d.button(Button::Menu);
     d.button(Button::Colors);
     assert!(!d.app.game_dirty, "a panel is not a change of the game");
-    let (gx, gy) = layout::color_cell(0, 2);
-    d.finger_tap(gx as f32 + 56.0, gy as f32 + 40.0);
+    let (x, y) = color_point(Section::Starting, Color::Yellow);
+    d.finger_tap(x, y);
     assert!(d.app.settings_dirty);
     // A pen stroke that is not complete is not saved (PER-6); suspend() removes it.
     d.button(Button::Colors);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     let (x, y) = micro_center(cell, 1);
     d.send(Input::PenDown { x, y, tool: Tool::Pen });
     d.send(Input::PenMove { x: x + 60.0, y: y + 60.0 });
@@ -250,14 +240,14 @@ fn the_landscape_layout_operates() {
     d.button(Button::Undo);
     assert_eq!(d.app.game.value_at(cell), 0);
     d.button(Button::Colors);
-    assert_eq!(d.app.ui.panel, Panel::Colors);
-    let (gx, gy) = layout::color_cell(1, 6);
-    d.finger_tap(gx as f32 + 56.0, gy as f32 + 40.0);
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors));
+    let (x, y) = color_point(Section::Clash, Color::Cyan);
+    d.finger_tap(x, y);
     assert_eq!(d.app.settings.color_clash, Color::Cyan);
     d.button(Button::NewGame);
     d.finger_tap(d.app.ng_stops[0], layout::ng_slider_y() as f32);
     d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_start_y() as f32);
-    assert_eq!((d.app.game.mode, d.app.ui.menu_open), (0, false));
+    assert_eq!((d.app.game.mode, d.app.ui.menu.is_open()), (0, false));
     // Manual: the arrows at the bottom center.
     d.button(Button::Menu);
     d.button(Button::Help);
@@ -272,7 +262,7 @@ fn the_landscape_layout_operates() {
     let all = layout::all_games_button();
     d.finger_tap((all.x1 - 30) as f32, (all.y0 + 20) as f32);
     assert_eq!(d.app.screen, Screen::GamesList);
-    let seg = layout::filter_segment(1);
+    let seg = layout::filter_segment(Some(0));
     d.finger_tap((seg.x0 + seg.x1) as f32 / 2.0, (seg.y0 + seg.y1) as f32 / 2.0);
     assert_eq!(d.app.list.filter, Some(0));
     let bin = layout::bin_button(0);
@@ -288,7 +278,7 @@ fn the_landscape_layout_operates() {
 fn turning_the_tablet_keeps_the_game() {
     // NAV-13: a rotation keeps the game and removes the ink that waits and the touches in progress.
     let mut d = Driver::new(39);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     d.tap_micro(cell, 3);
     d.write_strokes(&digit_ink(cell, 7));
     let before = (d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.seed);
@@ -309,7 +299,7 @@ fn undo_and_redo_do_not_put_a_number_under_the_question_mark() {
     // QST-1, QST-4: the press on Undo or Redo reads the waiting ink and can show the "?". If the undo or
     // the redo then puts a number in that cell, the "?" must go.
     let mut d = Driver::new(40);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     d.button(Button::Menu);
     d.write(cell, 7);
     assert_eq!(d.app.game.value_at(cell), 7);
@@ -336,7 +326,7 @@ fn a_second_finger_removes_the_highlight_and_the_question_mark() {
     // HLT-2, QST-4: each finger touch is an action, also when a different finger (for example a palm)
     // is already on the screen.
     let mut d = Driver::new(41);
-    let palm = empty_cell(&d);
+    let palm = empty_cell(&d.app.game);
     let (px, py) = micro_center(palm, 5);
     d.send(Input::TouchDown { id: 5, x: px, y: py });
     let given = cells().find(|&c| d.app.game.is_given(c)).unwrap();
@@ -360,14 +350,14 @@ fn the_menu_button_and_the_close_button_only_close_a_panel() {
     d.button(Button::Menu);
     for panel in [Button::Colors, Button::NewGame] {
         d.button(panel);
-        assert_ne!(d.app.ui.panel, Panel::None);
+        assert!(d.app.ui.menu.panel().is_some());
         d.button(Button::Menu);
-        assert_eq!(d.app.ui.panel, Panel::None);
-        assert!(d.app.ui.menu_open, "the menu stays open");
+        assert_eq!(d.app.ui.menu.panel(), None);
+        assert!(d.app.ui.menu.is_open(), "the menu stays open");
         d.button(panel);
         d.button(Button::Close);
-        assert_eq!(d.app.ui.panel, Panel::None);
-        assert!(d.app.ui.menu_open && !d.app.quit, "the app does not close");
+        assert_eq!(d.app.ui.menu.panel(), None);
+        assert!(d.app.ui.menu.is_open() && !d.app.quit, "the app does not close");
     }
 }
 
@@ -401,7 +391,7 @@ fn a_number_hides_the_digit_in_the_marks_of_peers() {
 fn a_press_on_a_button_reads_the_waiting_ink() {
     // INP-12: a press on a different item reads the waiting ink immediately.
     let mut d = Driver::new(44);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     d.write_strokes(&digit_ink(cell, 6));
     assert!(d.app.ui.pending_ink.is_some());
     let (x, y) = button_center(Button::Menu);
@@ -409,15 +399,15 @@ fn a_press_on_a_button_reads_the_waiting_ink() {
     assert!(d.app.ui.pending_ink.is_none());
     assert_eq!(d.app.game.value_at(cell), 6, "read at the press, before the pause");
     d.send(Input::TouchUp { id: 1, x, y });
-    assert!(d.app.ui.menu_open);
+    assert!(d.app.ui.menu.is_open());
 }
 
 #[test]
 fn the_meter_shows_the_mode_of_the_game() {
     // DIF-6: the large knob of the meter is at the stop of `game.mode`.
     let fonts = fonts();
-    let (we, wi) = (fonts.medium.width(25.0, "Easy"), fonts.medium.width(25.0, "Hard"));
-    let stops = layout::slider_stops(layout::meter_xl(), layout::meter_xr(), we, wi);
+    let (we, wh) = (fonts.get(Weight::Medium).width(25.0, "Easy"), fonts.get(Weight::Medium).width(25.0, "Hard"));
+    let stops = layout::slider_stops(layout::meter_xl(), layout::meter_xr(), we, wh);
     let y = layout::meter_y() - 8;
     for mode in 0..5u8 {
         let mut app = reference::app(&fonts);
@@ -441,9 +431,9 @@ fn colors_and_analytics_operate_on_a_complete_game() {
     let g = d.app.game.clone();
     d.button(Button::Menu);
     d.button(Button::Colors);
-    assert_eq!(d.app.ui.panel, Panel::Colors);
-    let (gx, gy) = layout::color_cell(0, 3);
-    d.finger_tap(gx as f32 + 56.0, gy as f32 + 40.0);
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors));
+    let (x, y) = color_point(Section::Starting, Color::Blue);
+    d.finger_tap(x, y);
     assert_eq!(d.app.settings.color_starting, Color::Blue);
     d.button(Button::Colors);
     d.button(Button::Statistics);
@@ -457,7 +447,7 @@ fn colors_and_analytics_operate_on_a_complete_game() {
 fn the_manual_does_not_change_the_game() {
     // MAN-4: pen, eraser and finger input on the manual do not change the game. The clock operates.
     let mut d = Driver::new(46);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     d.tap_micro(cell, 4);
     d.write(cells().filter(|&c| !d.app.game.is_filled(c)).nth(1).unwrap(), 2);
     let key = |d: &Driver| (d.app.game.value, d.app.game.marks, d.app.game.undo.clone(), d.app.game.redo.clone());
@@ -542,25 +532,20 @@ fn a_touch_without_a_release_does_not_stop_the_next_touches() {
     let (x, y) = button_center(Button::Menu);
     d.send(Input::TouchDown { id: 1387, x, y });
     d.send(Input::TouchUp { id: 1387, x, y });
-    assert!(d.app.ui.menu_open, "the tap operates");
+    assert!(d.app.ui.menu.is_open(), "the tap operates");
     // AppLoad also sends the press of the same touch again: the touch starts again.
     d.send(Input::TouchDown { id: 1390, x, y });
     d.send(Input::TouchDown { id: 1390, x, y });
     d.send(Input::TouchUp { id: 1390, x, y });
-    assert!(!d.app.ui.menu_open, "one tap, not two");
-}
-
-fn switch_point(i: usize) -> (f32, f32) {
-    let r = layout::settings_row(i);
-    ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0)
+    assert!(!d.app.ui.menu.is_open(), "one tap, not two");
 }
 
 fn open_settings(d: &mut Driver) {
-    if !d.app.ui.menu_open {
+    if !d.app.ui.menu.is_open() {
         d.button(Button::Menu);
     }
     d.button(Button::Settings);
-    assert_eq!(d.app.ui.panel, Panel::Settings);
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings));
 }
 
 #[test]
@@ -568,27 +553,27 @@ fn switches_change_only_the_settings() {
     // NAV-14, UND-2, PER-3: a switch changes its setting immediately; the panel stays open; the game
     // and the undo history do not change; the setting is kept for the next start.
     let mut d = Driver::new(41);
-    d.tap_micro(empty_cell(&d), 2);
+    d.tap_micro(empty_cell(&d.app.game), 2);
     let before = (d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len());
     open_settings(&mut d);
-    let (x, y) = switch_point(0);
+    let (x, y) = switch_point(Switch::HighlightNumbers);
     d.finger_tap(x, y);
     assert!(!d.app.settings.highlight_on && d.app.settings.auto_hide_on);
-    let (x, y) = switch_point(1);
+    let (x, y) = switch_point(Switch::HideMarksAutomatically);
     d.pen_tap(x, y);
     assert!(!d.app.settings.auto_hide_on);
-    assert_eq!(d.app.ui.panel, Panel::Settings, "the panel stays open");
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "the panel stays open");
     assert!(d.app.settings_dirty);
     assert_eq!((d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len()), before);
     let saved: sudoku::settings::Settings = serde_json::from_str(&serde_json::to_string(&d.app.settings).unwrap()).unwrap();
     assert_eq!(saved, d.app.settings);
     // The gear and the other panel buttons change the panel (NAV-12).
     d.button(Button::Colors);
-    assert_eq!(d.app.ui.panel, Panel::Colors);
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors));
     d.button(Button::Settings);
-    assert_eq!(d.app.ui.panel, Panel::Settings);
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings));
     d.button(Button::Settings);
-    assert_eq!(d.app.ui.panel, Panel::None);
+    assert_eq!(d.app.ui.menu.panel(), None);
 }
 
 #[test]
@@ -597,11 +582,12 @@ fn the_version_row_has_no_effect() {
     let mut d = Driver::new(43);
     open_settings(&mut d);
     let before = d.app.settings.clone();
-    let (x, y) = switch_point(layout::SETTINGS_ROWS as usize);
+    let r = layout::settings_row(layout::VERSION_ROW);
+    let (x, y) = ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0);
     d.finger_tap(x, y);
     d.pen_tap(x, y);
     assert_eq!(d.app.settings, before);
-    assert_eq!(d.app.ui.panel, Panel::Settings, "the panel stays open");
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "the panel stays open");
     assert!(!d.app.settings_dirty);
 }
 
@@ -610,14 +596,14 @@ fn no_highlight_when_highlights_are_off() {
     // HLT-6
     let mut d = Driver::new(42);
     open_settings(&mut d);
-    let (x, y) = switch_point(0);
+    let (x, y) = switch_point(Switch::HighlightNumbers);
     d.finger_tap(x, y);
     d.button(Button::Settings);
     let given = cells().find(|&c| d.app.game.is_given(c)).unwrap();
     d.tap_cell(given);
     assert_eq!(d.app.ui.highlight, None);
     // The tap still is an action: it removes a "?" (QST-4).
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     d.write_strokes(&scribble_ink(cell));
     d.wait(d.app.pause_ms + 10);
     assert!(d.app.ui.question.is_some());
@@ -630,12 +616,12 @@ fn no_automatic_removal_when_it_is_off() {
     // MRK-9, UND-4: with the switch off, a new number changes no other cell; undo and redo change only
     // that cell. With the switch on again, the next number removes marks (MRK-4).
     let mut d = Driver::new(43);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     let v = d.app.game.solution[cell.0 as usize][cell.1 as usize];
     let peer = peers(cell).find(|&p| !d.app.game.is_filled(p)).unwrap();
     d.tap_micro(peer, v);
     open_settings(&mut d);
-    let (x, y) = switch_point(1);
+    let (x, y) = switch_point(Switch::HideMarksAutomatically);
     d.finger_tap(x, y);
     d.button(Button::Settings);
     let marks = d.app.game.marks;
@@ -651,7 +637,7 @@ fn no_automatic_removal_when_it_is_off() {
     // On again: the next number removes the mark of a peer.
     d.button(Button::Undo);
     d.button(Button::Settings);
-    let (x, y) = switch_point(1);
+    let (x, y) = switch_point(Switch::HideMarksAutomatically);
     d.finger_tap(x, y);
     d.button(Button::Settings);
     d.write(cell, v);
@@ -671,26 +657,25 @@ fn delete_all_games() {
     d.button(Button::Menu);
     d.button(Button::Statistics);
     let b = layout::delete_all_button();
-    let center = |r: layout::Rect| ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0);
-    let (x, y) = center(b);
+    let (x, y) = exact_center(b);
     d.finger_tap(x, y);
     assert!(d.app.confirm_all);
     // The dialog accepts only its buttons.
     d.finger_tap(40.0, 50.0);
     assert_eq!(d.app.screen, Screen::Statistics);
-    let (cx, cy) = center(layout::dialog_cancel());
+    let (cx, cy) = exact_center(layout::dialog_cancel());
     d.finger_tap(cx, cy);
     assert!(!d.app.confirm_all);
     assert_eq!(d.app.results.len(), 2, "Cancel makes no change");
     d.finger_tap(x, y);
-    let (dx, dy) = center(layout::dialog_delete());
+    let (dx, dy) = exact_center(layout::dialog_delete());
     d.finger_tap(dx, dy);
     assert!(!d.app.confirm_all && d.app.results.is_empty());
     // With no results, the button has no effect.
     d.finger_tap(x, y);
     assert!(!d.app.confirm_all);
     // The list opens empty on page 1.
-    let (ax, ay) = center(layout::all_games_button());
+    let (ax, ay) = exact_center(layout::all_games_button());
     d.finger_tap(ax, ay);
     assert_eq!((d.app.screen, d.app.list.page, d.app.page_rows().len()), (Screen::GamesList, 1, 0));
 }
@@ -736,7 +721,7 @@ fn a_control_released_after_a_pen_tap_removes_the_highlight() {
     d.tap_cell(given);
     assert!(d.app.ui.highlight.is_some());
     d.send(Input::TouchUp { id: 1, x, y });
-    assert!(d.app.ui.menu_open);
+    assert!(d.app.ui.menu.is_open());
     assert_eq!(d.app.ui.highlight, None, "HLT-4: the menu opened with a highlight");
 }
 
@@ -745,7 +730,7 @@ fn undo_with_a_finger_while_the_pen_writes_keeps_no_ink_on_a_number() {
     // INP-5: a finger holds Undo and the pen writes in a cell. The undo puts a number back in that cell.
     // Then no ink can wait in the cell.
     let mut d = Driver::new(51);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     d.button(Button::Menu);
     d.write(cell, 7);
     assert_eq!(d.app.game.value_at(cell), 7);
@@ -771,11 +756,11 @@ fn a_panel_does_not_open_over_waiting_ink() {
     d.send(Input::TouchDown { id: 1, x, y });
     d.write_strokes(&digit_ink(cell, 6));
     d.send(Input::TouchUp { id: 1, x, y });
-    assert_eq!(d.app.ui.panel, Panel::Colors);
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors));
     assert!(d.app.ui.pending_ink.is_none(), "the release reads the ink");
     let g = d.app.game.clone();
     d.tap_micro(other, 1);
-    assert_eq!((d.app.ui.panel, d.app.ui.menu_open), (Panel::None, true));
+    assert_eq!(d.app.ui.menu, Menu::Open(None));
     assert_eq!((d.app.game.value, d.app.game.marks, d.app.game.undo.len()), (g.value, g.marks, g.undo.len()));
 }
 
@@ -783,7 +768,7 @@ fn a_panel_does_not_open_over_waiting_ink() {
 fn a_pen_touch_is_a_tap_only_if_it_stays_in_one_micro_cell() {
     // INP-2: a movement in the micro-cell is a tap. A movement out of it and back is writing.
     let mut d = Driver::new(53);
-    let cell = empty_cell(&d);
+    let cell = empty_cell(&d.app.game);
     let (x, y) = micro_center(cell, 5);
     d.send(Input::PenDown { x, y, tool: Tool::Pen });
     d.send(Input::PenMove { x: x + 10.0, y: y - 10.0 });
@@ -804,16 +789,16 @@ fn the_settings_panel_closes_as_the_other_panels() {
     d.button(Button::Menu);
     for b in [Button::Menu, Button::Close, Button::Undo, Button::Help, Button::Statistics] {
         d.button(Button::Settings);
-        assert_eq!(d.app.ui.panel, Panel::Settings);
+        assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings));
         d.button(b);
-        assert_eq!(d.app.ui.panel, Panel::None, "{b:?}");
-        assert!(d.app.ui.menu_open && !d.app.quit && d.app.screen == Screen::Game, "{b:?}");
+        assert_eq!(d.app.ui.menu.panel(), None, "{b:?}");
+        assert!(d.app.ui.menu.is_open() && !d.app.quit && d.app.screen == Screen::Game, "{b:?}");
     }
     d.button(Button::Settings);
     let cell = cells().find(|&c| !d.app.game.is_filled(c) && c.1 < 4).unwrap();
     let before = (d.app.game.marks, d.app.game.undo.len(), d.app.settings.clone());
     d.tap_micro(cell, 1);
-    assert_eq!((d.app.ui.panel, d.app.ui.menu_open), (Panel::None, true));
+    assert_eq!(d.app.ui.menu, Menu::Open(None));
     assert_eq!((d.app.game.marks, d.app.game.undo.len(), d.app.settings.clone()), before);
 }
 
@@ -836,8 +821,8 @@ fn a_switch_does_not_change_the_changes_in_the_history() {
     let marks = d.app.game.marks;
     let history = (d.app.game.undo.clone(), d.app.game.redo.clone());
     open_settings(&mut d);
-    for i in [1, 0] {
-        let (x, y) = switch_point(i);
+    for s in [Switch::HideMarksAutomatically, Switch::HighlightNumbers] {
+        let (x, y) = switch_point(s);
         d.finger_tap(x, y);
     }
     assert!(!d.app.settings.highlight_on && !d.app.settings.auto_hide_on);
@@ -855,8 +840,8 @@ fn the_switches_are_kept_when_the_app_opens_again() {
     // PER-3: the two switches go through the settings file.
     let mut d = Driver::new(56);
     open_settings(&mut d);
-    for i in [0, 1] {
-        let (x, y) = switch_point(i);
+    for s in Switch::ALL {
+        let (x, y) = switch_point(s);
         d.finger_tap(x, y);
     }
     let dir = std::env::temp_dir().join(format!("sudoku-switches-{}", std::process::id()));
@@ -867,6 +852,7 @@ fn the_switches_are_kept_when_the_app_opens_again() {
         sudoku::store::load_json(&path),
         sudoku::store::ResultsDb::in_memory(),
         Box::new(TestEnv { time: 0, seed: 1 }),
+        sudoku::app::App::placeholder_ng_stops(),
     );
     std::fs::remove_dir_all(&dir).ok();
     assert!(!app.settings.highlight_on && !app.settings.auto_hide_on);
@@ -926,7 +912,7 @@ fn the_update_button_starts_only_the_installation() {
     assert!(matches!(d.app.update.request.take(), Some(UpdateRequest::Install(m)) if m.version == "v0.2.0"));
     d.finger_tap(x, y);
     assert_eq!(d.app.update.request, None, "one installation at a time");
-    assert_eq!((d.app.ui.panel, d.app.screen), (Panel::Settings, Screen::Game));
+    assert_eq!((d.app.ui.menu.panel(), d.app.screen), (Some(Panel::Settings), Screen::Game));
     assert_eq!(board(&d), before);
     let now = d.now;
     d.app.update_installed(Err("no network".into()), now);
@@ -944,7 +930,7 @@ fn the_check_button_sends_a_request() {
     d.app.update = Update::new("v0.1.0");
     assert_eq!(d.app.update.request.take(), Some(UpdateRequest::Check));
     d.app.update_checked(Err("no network".into()));
-    assert_eq!(d.app.update.state, UpdateState::CheckFailed);
+    assert_eq!(d.app.update.state, UpdateState::CheckFailed { checking: false });
     open_settings(&mut d);
     d.wait(3000);
     assert_eq!(d.app.update.request, None, "no automatic request");
@@ -959,7 +945,7 @@ fn the_check_button_sends_a_request() {
     d.app.update_checked(Err("no network".into()));
     d.finger_tap(x, y);
     assert_eq!(d.app.update.request.take(), Some(UpdateRequest::Check));
-    assert_eq!((d.app.ui.panel, d.app.screen), (Panel::Settings, Screen::Game));
+    assert_eq!((d.app.ui.menu.panel(), d.app.screen), (Some(Panel::Settings), Screen::Game));
     assert_eq!(board(&d), before);
     // No update: "Sudoku is up to date" until the panel closes, then the button again.
     let m = sudoku::update::Manifest { version: "v0.1.0".into(), url: String::new(), sha256: String::new(), ..Default::default() };
@@ -970,7 +956,7 @@ fn the_check_button_sends_a_request() {
     d.wait(60_000);
     assert_eq!(d.app.update.row_text(), Some("Sudoku is up to date"), "the panel is still open");
     d.button(Button::Settings);
-    assert_eq!(d.app.ui.panel, Panel::None);
+    assert_eq!(d.app.ui.menu.panel(), None);
     open_settings(&mut d);
     assert_eq!((d.app.update.row_text(), d.app.update.button().is_some()), (None, true));
 }
@@ -980,7 +966,7 @@ fn the_restart_dialog_accepts_only_its_buttons() {
     // UPD-10: after an update that replaced the ink patch, the dialog "Restart the interface?" shows
     // over the screen. Only "Later" and "Restart" operate. "Later" closes it, and "Restart" asks the
     // platform to run xovi/start.
-    use sudoku::update::UpdateState;
+    use sudoku::update::{PatchChange, UpdateState};
     let mut d = Driver::new(58);
     d.app.update = reference::update_state(true);
     open_settings(&mut d);
@@ -988,68 +974,67 @@ fn the_restart_dialog_accepts_only_its_buttons() {
     d.app.update.request = None;
     let now = d.now;
     d.app.update_installed(Ok(true), now);
-    assert!(d.app.update.dialog);
-    assert_eq!(d.app.update.state, UpdateState::Installed { patch: true });
+    assert!(d.app.update.dialog_shown());
+    assert_eq!(d.app.update.state, UpdateState::Installed(PatchChange::Replaced { dialog: true }));
     let board = |d: &Driver| (d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len(), d.app.settings.clone());
     let before = board(&d);
     // A tap on a switch of the Settings panel (under the dialog) and on the menu button: no effect.
-    let center = |r: layout::Rect| ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0);
-    let (sx, sy) = center(layout::settings_row(0));
+    let (sx, sy) = switch_point(Switch::HighlightNumbers);
     d.finger_tap(sx, sy);
     d.button(Button::Menu);
     assert_eq!(board(&d), before);
-    assert_eq!((d.app.ui.menu_open, d.app.ui.panel), (true, Panel::Settings));
-    assert!(d.app.update.dialog && !d.app.restart_ui);
+    assert_eq!(d.app.ui.menu, Menu::Open(Some(Panel::Settings)));
+    assert!(d.app.update.dialog_shown() && !d.app.restart_ui);
     // "Later": the dialog closes, the row shows the button "Restart interface".
-    let (lx, ly) = center(layout::dialog_cancel());
+    let (lx, ly) = exact_center(layout::dialog_cancel());
     d.finger_tap(lx, ly);
-    assert!(!d.app.update.dialog && !d.app.restart_ui);
+    assert!(!d.app.update.dialog_shown() && !d.app.restart_ui);
     assert_eq!(d.app.update.row_text(), None);
     assert_eq!(d.app.update.button().map(|b| b.text().to_string()).as_deref(), Some("Restart interface"));
     // A tap on the button asks for the restart. The game, the settings and the panel do not change.
     d.app.game_dirty = false;
-    let (bx, by) = center(layout::update_button_area());
+    let (bx, by) = exact_center(layout::update_button_area());
     d.finger_tap(bx, by);
     assert!(d.app.restart_ui && d.app.game_dirty, "the game is saved before the restart");
     assert_eq!(board(&d), before);
-    assert_eq!((d.app.ui.menu_open, d.app.ui.panel), (true, Panel::Settings));
+    assert_eq!(d.app.ui.menu, Menu::Open(Some(Panel::Settings)));
     assert_eq!(d.app.update.request, None);
     d.app.restart_failed();
     assert!(!d.app.restart_ui);
     assert!(d.app.update.button().is_some(), "after a failed start, the button stays");
     // "Restart" in the dialog.
-    d.app.update.dialog = true;
-    let (rx, ry) = center(layout::dialog_delete());
+    d.app.update.state = UpdateState::Installed(PatchChange::Replaced { dialog: true });
+    let (rx, ry) = exact_center(layout::dialog_delete());
     d.pen_tap(rx, ry);
     assert!(d.app.restart_ui, "the pen also operates the buttons");
     assert!(d.app.game_dirty, "the game is saved before the restart");
     d.app.restart_failed();
-    assert!(!d.app.update.dialog && !d.app.restart_ui);
+    assert!(!d.app.update.dialog_shown() && !d.app.restart_ui);
     // An update with no patch change: no dialog.
     let mut d = Driver::new(59);
     d.app.update = reference::update_state(true);
     d.app.update.tap();
     let now = d.now;
     d.app.update_installed(Ok(false), now);
-    assert!(!d.app.update.dialog);
+    assert!(!d.app.update.dialog_shown());
     assert_eq!(d.app.update.row_text(), Some("Restart Sudoku to update"));
 }
 
 #[test]
 fn the_caution_icon_follows_the_update_state() {
     // UPD-3: the red icon on the gear shows only when an update is available, installs or is installed.
-    use sudoku::update::{Update, UpdateState};
+    use sudoku::update::{PatchChange, Update, UpdateState};
     let fonts = fonts();
     let (x, y) = ((layout::tb_cx() + 16.0 - 5.0) as i32, (layout::tb_cy(2) - 16.0) as i32);
     let available = reference::update_state(true);
     let mut installed = available.clone();
-    installed.state = UpdateState::Installed { patch: false };
+    installed.state = UpdateState::Installed(PatchChange::Unchanged);
     for (update, want) in [(available, true), (installed, true), (reference::update_state(false), false), (Update::new("dev"), false)] {
         let state = update.state.clone();
         sudoku::layout::set_right_handed(false);
         let mut a = reference::app(&fonts);
         a.update = update;
-        a.ui.menu_open = true;
+        a.ui.menu = Menu::Open(None);
         let mut pm = tiny_skia::Pixmap::new(layout::screen_w(), layout::screen_h()).unwrap();
         sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &a);
         assert_eq!(rgb_at(&pm, x, y) == sudoku::render::CAUTION_RED, want, "{state:?}");

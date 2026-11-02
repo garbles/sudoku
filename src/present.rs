@@ -2,6 +2,7 @@
 //! framebuffer and gives the rectangles to update. It has no input or output, thus the bench and the
 //! device use the same code.
 
+use std::marker::PhantomData;
 use std::time::{Duration, Instant};
 
 use tiny_skia::Pixmap;
@@ -12,7 +13,7 @@ use crate::layout::{screen_h, screen_w};
 use crate::render::{self, Canvas};
 
 /// The shortest time between two updates of the ink while the pen writes.
-pub const INK_UPDATE_INTERVAL_MS: u64 = 30;
+const INK_UPDATE_INTERVAL_MS: u64 = 30;
 
 /// The time that the app gives an update to complete on the panel (the UI waveform). An ink update
 /// that overlaps an update in progress waits until this time is over (refer to `Scheduler`).
@@ -20,16 +21,125 @@ pub const INK_WAVE_MS: u64 = 400;
 
 /// The time that the QML patch of AppLoad needs to apply a new pen region (it reads the region each
 /// 15 ms). Ink waits this time after the region starts, and a redraw after the region stops.
-pub const PEN_REGION_SETTLE_MS: u64 = 45;
+const PEN_REGION_SETTLE_MS: u64 = 45;
 
-/// A screen rectangle (x0, y0, x1, y1; all included).
-pub type Rect = (i32, i32, i32, i32);
-
-/// A physical rectangle (x, y, width, height).
+/// A physical rectangle to send to the screen (x, y, width, height). The platform gives it to qtfb.
 pub type Update = (i32, i32, i32, i32);
 
-/// A physical rectangle (x0, y0, x1, y1; all included).
-type PRect = (i32, i32, i32, i32);
+/// A rectangle with its corners (x0, y0, x1, y1; all included). `U` is the unit of the coordinates:
+/// `Screen` pixels, `Physical` pixels or 4 px cells of the panel grid (`PanelGrid`). Thus the compiler finds a mix of the units.
+#[derive(Debug, PartialEq, Eq)]
+struct Corners<U> {
+    x0: i32,
+    y0: i32,
+    x1: i32,
+    y1: i32,
+    unit: PhantomData<U>,
+}
+
+/// The pixels of the screen as the player sees it (with the rotation of the window).
+#[derive(Debug, PartialEq, Eq)]
+enum Screen {}
+/// The pixels of the framebuffer (always portrait).
+#[derive(Debug, PartialEq, Eq)]
+enum Physical {}
+/// The 4x4 px cells of the panel (refer to `PanelCells`).
+#[derive(Debug, PartialEq, Eq)]
+enum PanelGrid {}
+
+type ScreenRect = Corners<Screen>;
+type PhysicalRect = Corners<Physical>;
+
+/// The 4x4 px cells of the panel. The display controller of xochitl aligns each update to 4 px (x)
+/// and 2 px (y), and AppLoad adds 1 px at the right and at the bottom. Cells of 4 px in the two
+/// directions agree also with a rotated window.
+type PanelCells = Corners<PanelGrid>;
+
+// A derive would copy only when `U` is Copy.
+impl<U> Clone for Corners<U> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<U> Copy for Corners<U> {}
+
+impl<U> Corners<U> {
+    const fn new(x0: i32, y0: i32, x1: i32, y1: i32) -> Self {
+        Corners { x0, y0, x1, y1, unit: PhantomData }
+    }
+
+    fn point(x: i32, y: i32) -> Self {
+        Self::new(x, y, x, y)
+    }
+
+    /// The rectangle with `m` more at each side.
+    fn expand(self, m: i32) -> Self {
+        Self::new(self.x0 - m, self.y0 - m, self.x1 + m, self.y1 + m)
+    }
+
+    /// The rectangle, or `None` if it has no width or no height.
+    fn non_empty(self) -> Option<Self> {
+        (self.x0 <= self.x1 && self.y0 <= self.y1).then_some(self)
+    }
+
+    fn contains(&self, x: i32, y: i32) -> bool {
+        self.x0 <= x && x <= self.x1 && self.y0 <= y && y <= self.y1
+    }
+}
+
+impl ScreenRect {
+    /// The part of the rectangle that is on the screen.
+    fn clip_to_screen(self) -> ScreenRect {
+        let (w, h) = (screen_w() as i32, screen_h() as i32);
+        ScreenRect::new(self.x0.max(0), self.y0.max(0), self.x1.min(w - 1), self.y1.min(h - 1))
+    }
+
+    /// The same pixels in the framebuffer.
+    fn physical(self) -> PhysicalRect {
+        PhysicalRect::from_update(crate::layout::physical_rect((self.x0, self.y0, self.x1, self.y1)))
+    }
+}
+
+impl PhysicalRect {
+    fn from_update((x, y, w, h): Update) -> PhysicalRect {
+        PhysicalRect::new(x, y, x + w - 1, y + h - 1)
+    }
+
+    fn to_update(self) -> Update {
+        (self.x0, self.y0, self.x1 - self.x0 + 1, self.y1 - self.y0 + 1)
+    }
+
+    /// The cells that an update of the rectangle touches (with the extra pixel of AppLoad).
+    fn touched_cells(self) -> PanelCells {
+        PanelCells::new(self.x0 >> 2, self.y0 >> 2, (self.x1 + 1) >> 2, (self.y1 + 1) >> 2)
+    }
+
+    /// The cells that contain the pixels of the rectangle.
+    fn pixel_cells(self) -> PanelCells {
+        PanelCells::new(self.x0 >> 2, self.y0 >> 2, self.x1 >> 2, self.y1 >> 2)
+    }
+
+    /// The largest rectangle inside this one whose edges are on the 4 px grid of the panel (whole
+    /// cells only).
+    fn inner_cells(self) -> PhysicalRect {
+        PhysicalRect::new((self.x0 + 3) & !3, (self.y0 + 3) & !3, ((self.x1 + 1) & !3) - 1, ((self.y1 + 1) & !3) - 1)
+    }
+}
+
+impl PanelCells {
+    /// The physical rectangle to send for the cells: its update touches these cells and no other
+    /// cells. The last pixel column and row of the cells come from the extra pixel of AppLoad.
+    fn rect(self) -> PhysicalRect {
+        let (w, h) = (crate::layout::PHYSICAL_W as i32, crate::layout::PHYSICAL_H as i32);
+        PhysicalRect::new(self.x0 * 4, self.y0 * 4, (self.x1 * 4 + 2).min(w - 1), (self.y1 * 4 + 2).min(h - 1))
+    }
+
+    /// The (x, y) of each cell, row by row and then from left to right.
+    fn each(self) -> impl Iterator<Item = (i32, i32)> {
+        (self.y0..=self.y1).flat_map(move |y| (self.x0..=self.x1).map(move |x| (x, y)))
+    }
+}
 
 /// The time of each phase of the last `present` (zero if the phase did not occur).
 #[derive(Clone, Copy, Debug, Default)]
@@ -50,7 +160,7 @@ pub struct Presenter {
     ink_drawn: (u64, usize),
     /// The area of ink that is drawn in the frame but not yet sent. AppLoad repaints the screen for
     /// each update, thus the app sends at most one ink update each INK_UPDATE_INTERVAL_MS.
-    ink_box: Option<Rect>,
+    ink_box: Option<ScreenRect>,
     last_ink_update: u64,
     /// The time when new points of the live stroke were drawn.
     last_ink_draw: u64,
@@ -60,7 +170,7 @@ pub struct Presenter {
     pub use_pen_region: bool,
     /// The area (physical) where xochitl sends the updates with the fast pen waveform: the cell of
     /// the ink while the player writes. None: no area.
-    pen_region: Option<PRect>,
+    pen_region: Option<PhysicalRect>,
     /// The time of the last change of `pen_region`, and true if the platform must send it.
     region_since: u64,
     region_changed: bool,
@@ -107,7 +217,7 @@ impl Presenter {
         self.ink_box = None;
         // The full window is drawn again with the new size.
         self.scheduler = Scheduler::new(self.scheduler.wave_ms);
-        self.scheduler.fast = self.pen_region.map(pixel_cells);
+        self.scheduler.fast = self.pen_region.map(PhysicalRect::pixel_cells);
         self.shown = None;
     }
 
@@ -129,7 +239,7 @@ impl Presenter {
     /// The new pen region (physical x, y, width, height; None: no region), if it changed since the
     /// last call. The platform gives it to the QML patch of AppLoad.
     pub fn take_region_change(&mut self) -> Option<Option<Update>> {
-        std::mem::take(&mut self.region_changed).then(|| self.pen_region.map(to_update))
+        std::mem::take(&mut self.region_changed).then(|| self.pen_region.map(PhysicalRect::to_update))
     }
 
     /// The pen region for the ink of `app`: the inside of the cell of the pending ink, or of the cell
@@ -137,8 +247,8 @@ impl Presenter {
     /// touch is writing only when the pen leaves the micro-cell, and the first ink must also get the
     /// pen waveform. xochitl refreshes the full region when it starts and when it stops, thus the
     /// region must not touch the cells around it. Its edges go inward to the 4 px grid of the panel
-    /// (refer to `cells`).
-    fn wanted_region(&self, app: &App) -> Option<PRect> {
+    /// (refer to `PanelCells`).
+    fn wanted_region(&self, app: &App) -> Option<PhysicalRect> {
         if !self.use_pen_region {
             return None;
         }
@@ -148,7 +258,7 @@ impl Presenter {
         })?;
         let (x, y) = crate::layout::cell_origin(cell);
         let c = crate::layout::CELL;
-        Some(inner_cells(to_prect(crate::layout::physical_rect((x, y, x + c - 1, y + c - 1)))))
+        Some(ScreenRect::new(x, y, x + c - 1, y + c - 1).physical().inner_cells())
     }
 
     /// Draws the app, copies the changes into `fb` and calls `update` for each physical rectangle to
@@ -160,7 +270,7 @@ impl Presenter {
             self.pen_region = wanted;
             self.region_since = now;
             self.region_changed = true;
-            self.scheduler.fast = wanted.map(pixel_cells);
+            self.scheduler.fast = wanted.map(PhysicalRect::pixel_cells);
         }
         let settled = now.saturating_sub(self.region_since) >= PEN_REGION_SETTLE_MS;
         // While the player writes, a redraw waits: the player can write in many cells, one after the
@@ -174,12 +284,8 @@ impl Presenter {
                 .live_stroke
                 .as_ref()
                 .filter(|_| writing)
-                .and_then(|s| s.iter().fold(None, |b, &(x, y)| Some(union(b, (x as i32, y as i32, x as i32, y as i32)))))
-                .map(|b| {
-                    let m = render::INK_WIDTH.ceil() as i32 + 1;
-                    let (sw, sh) = (screen_w() as i32, screen_h() as i32);
-                    ((b.0 - m).max(0), (b.1 - m).max(0), (b.2 + m).min(sw - 1), (b.3 + m).min(sh - 1))
-                });
+                .and_then(|s| bounding_box(s.iter().map(|&(x, y)| (x as i32, y as i32))))
+                .map(|b: ScreenRect| b.expand(render::INK_WIDTH.ceil() as i32 + 1).clip_to_screen());
             let t = Instant::now();
             render::draw(&mut Canvas::new(&mut self.frame, fonts), app);
             self.times.draw = t.elapsed();
@@ -203,13 +309,14 @@ impl Presenter {
                 (a.min(x), b.min(y), c.max(x), d.max(y))
             });
             let m = render::INK_WIDTH;
-            let rect = (
-                ((x0 - m).floor() as i32).max(0),
-                ((y0 - m).floor() as i32).max(0),
-                ((x1 + m).ceil() as i32).min(screen_w() as i32 - 1),
-                ((y1 + m).ceil() as i32).min(screen_h() as i32 - 1),
-            );
-            self.ink_box = Some(union(self.ink_box, rect));
+            let rect = ScreenRect::new(
+                (x0 - m).floor() as i32,
+                (y0 - m).floor() as i32,
+                (x1 + m).ceil() as i32,
+                (y1 + m).ceil() as i32,
+            )
+            .clip_to_screen();
+            grow(&mut self.ink_box, rect);
             self.ink_drawn = (app.live_stroke_count, s.len());
             self.last_ink_draw = now;
         }
@@ -224,7 +331,7 @@ impl Presenter {
             if let Some(r) = changed {
                 // A change of the screen does not wait. The ink in progress that it stops is sent
                 // again later.
-                self.scheduler.send_now(to_prect(r), &spans, now, &mut update);
+                self.scheduler.send_now(r, &spans, now, &mut update);
             }
         }
         // Ink in a new pen region waits until the patch has applied it.
@@ -250,10 +357,7 @@ impl Presenter {
                 .map(|&(x, y)| {
                     let m = render::INK_WIDTH.ceil() as i32 + 2;
                     let (x, y) = (x.round() as i32, y.round() as i32);
-                    let r = (x - m, y - m, x + m, y + m);
-                    let (sw, sh) = (screen_w() as i32, screen_h() as i32);
-                    let r = (r.0.max(0), r.1.max(0), r.2.min(sw - 1), r.3.min(sh - 1));
-                    pixel_cells(to_prect(crate::layout::physical_rect(r)))
+                    ScreenRect::point(x, y).expand(m).clip_to_screen().physical().pixel_cells()
                 });
             if self.scheduler.send_ink(now, hold, &mut update) {
                 self.last_ink_update = now;
@@ -263,66 +367,23 @@ impl Presenter {
 
     /// Records the pixels of the screen rectangle `b` that differ from the screen as it is shown, and
     /// updates `shown`.
-    fn ink_changed(&mut self, b: Rect) {
+    fn ink_changed(&mut self, b: ScreenRect) {
         let Some(shown) = &mut self.shown else {
-            self.scheduler.changed(to_prect(crate::layout::physical_rect(b)));
+            self.scheduler.changed(b.physical());
             return;
         };
-        let (fw, w) = (shown.width() as usize, (b.2 - b.0 + 1) as usize);
-        for y in b.1 as usize..=b.3 as usize {
-            let o = (y * fw + b.0 as usize) * 4;
+        let (fw, w) = (shown.width() as usize, (b.x1 - b.x0 + 1) as usize);
+        for y in b.y0 as usize..=b.y1 as usize {
+            let o = (y * fw + b.x0 as usize) * 4;
             let (new, old) = (&self.frame.data()[o..o + w * 4], &mut shown.data_mut()[o..o + w * 4]);
-            if same(new, old) {
+            let Some((first, last)) = changed_span::<4>(new, old) else {
                 continue;
-            }
-            let first = new.chunks_exact(4).zip(old.chunks_exact(4)).position(|(p, q)| p != q).unwrap();
-            let last = w - 1 - new.chunks_exact(4).rev().zip(old.chunks_exact(4).rev()).position(|(p, q)| p != q).unwrap();
+            };
             old.copy_from_slice(new);
-            let (x0, x1) = (b.0 + first as i32, b.0 + last as i32);
-            self.scheduler.changed(to_prect(crate::layout::physical_rect((x0, y as i32, x1, y as i32))));
+            let (x0, x1) = (b.x0 + first as i32, b.x0 + last as i32);
+            self.scheduler.changed(ScreenRect::new(x0, y as i32, x1, y as i32).physical());
         }
     }
-}
-
-fn to_prect((x, y, w, h): Update) -> PRect {
-    (x, y, x + w - 1, y + h - 1)
-}
-
-fn to_update((x0, y0, x1, y1): PRect) -> Update {
-    (x0, y0, x1 - x0 + 1, y1 - y0 + 1)
-}
-
-/// The 4x4 px cells of the panel. The display controller of xochitl aligns each update to 4 px (x)
-/// and 2 px (y), and AppLoad adds 1 px at the right and at the bottom. Cells of 4 px in the two
-/// directions agree also with a rotated window. A cell rectangle is (cx0, cy0, cx1, cy1; all
-/// included).
-type Cells = (i32, i32, i32, i32);
-
-/// The cells that an update of the physical rectangle `r` touches (with the extra pixel of AppLoad).
-fn cells(r: PRect) -> Cells {
-    (r.0 >> 2, r.1 >> 2, (r.2 + 1) >> 2, (r.3 + 1) >> 2)
-}
-
-/// The cells that contain the pixels of `r`.
-fn pixel_cells(r: PRect) -> Cells {
-    (r.0 >> 2, r.1 >> 2, r.2 >> 2, r.3 >> 2)
-}
-
-/// The largest physical rectangle in `r` whose edges are on the 4 px grid of the panel (whole
-/// cells only).
-fn inner_cells(r: PRect) -> PRect {
-    ((r.0 + 3) & !3, (r.1 + 3) & !3, ((r.2 + 1) & !3) - 1, ((r.3 + 1) & !3) - 1)
-}
-
-/// The physical rectangle to send for the cells `c`: its update touches these cells and no other
-/// cells. The last pixel column and row of `c` come from the extra pixel of AppLoad.
-fn cell_rect(c: Cells) -> PRect {
-    let (w, h) = (crate::layout::PHYSICAL_W as i32, crate::layout::PHYSICAL_H as i32);
-    (c.0 * 4, c.1 * 4, (c.2 * 4 + 2).min(w - 1), (c.3 * 4 + 2).min(h - 1))
-}
-
-fn inside(c: Cells, x: i32, y: i32) -> bool {
-    c.0 <= x && x <= c.2 && c.1 <= y && y <= c.3
 }
 
 /// Sends the ink so that an update never contains a cell that an update in progress changes.
@@ -344,10 +405,10 @@ struct Scheduler {
     /// For each cell: the framebuffer has a change that is not sent yet.
     dirty: Vec<bool>,
     /// The cells that contain all the dirty cells (None: no dirty cell).
-    dirty_box: Option<Cells>,
+    dirty_box: Option<PanelCells>,
     /// The cells of the pen region: xochitl sends them with the fast pen waveform, which does not
     /// leave gaps. Thus their changes need no time to complete.
-    fast: Option<Cells>,
+    fast: Option<PanelCells>,
 }
 
 impl Scheduler {
@@ -358,14 +419,13 @@ impl Scheduler {
         Scheduler { wave_ms, w, h, busy: vec![0; n], dirty: vec![false; n], dirty_box: None, fast: None }
     }
 
-    fn clip(&self, c: Cells) -> Option<Cells> {
-        let c = (c.0.max(0), c.1.max(0), c.2.min(self.w - 1), c.3.min(self.h - 1));
-        (c.0 <= c.2 && c.1 <= c.3).then_some(c)
+    fn clip(&self, c: PanelCells) -> Option<PanelCells> {
+        PanelCells::new(c.x0.max(0), c.y0.max(0), c.x1.min(self.w - 1), c.y1.min(self.h - 1)).non_empty()
     }
 
     /// The time when a change of the cell (x, y) sent at `now` is complete.
     fn until(&self, x: i32, y: i32, now: u64) -> u64 {
-        if self.fast.is_some_and(|f| inside(f, x, y)) { now } else { now + self.wave_ms }
+        if self.fast.is_some_and(|f| f.contains(x, y)) { now } else { now + self.wave_ms }
     }
 
     fn at(&self, x: i32, y: i32) -> usize {
@@ -376,19 +436,17 @@ impl Scheduler {
     /// region does not wait: it can stop an older update there, because xochitl refreshes all the
     /// region with the UI waveform when the region stops.
     fn waits(&self, x: i32, y: i32, now: u64) -> bool {
-        self.busy[self.at(x, y)] > now && !self.fast.is_some_and(|f| inside(f, x, y))
+        self.busy[self.at(x, y)] > now && !self.fast.is_some_and(|f| f.contains(x, y))
     }
 
     /// Records changed pixels of the framebuffer that are not sent yet.
-    fn changed(&mut self, r: PRect) {
-        let Some(c) = self.clip(pixel_cells(r)) else { return };
-        for y in c.1..=c.3 {
-            for x in c.0..=c.2 {
-                let i = self.at(x, y);
-                self.dirty[i] = true;
-            }
+    fn changed(&mut self, r: PhysicalRect) {
+        let Some(c) = self.clip(r.pixel_cells()) else { return };
+        for (x, y) in c.each() {
+            let i = self.at(x, y);
+            self.dirty[i] = true;
         }
-        self.dirty_box = Some(union(self.dirty_box, c));
+        grow(&mut self.dirty_box, c);
     }
 
     fn has_dirty(&self) -> bool {
@@ -397,44 +455,32 @@ impl Scheduler {
 
     fn shrink_dirty_box(&mut self) {
         let Some(d) = self.dirty_box else { return };
-        let mut b: Option<Cells> = None;
-        for y in d.1..=d.3 {
-            for x in d.0..=d.2 {
-                if self.dirty[self.at(x, y)] {
-                    b = Some(union(b, (x, y, x, y)));
-                }
-            }
-        }
-        self.dirty_box = b;
+        self.dirty_box = bounding_box(d.each().filter(|&(x, y)| self.dirty[self.at(x, y)]));
     }
 
     /// Sends the update `r` at once (a change of the screen). `spans` are the changed pixels. The
     /// ink in progress that `r` stops is sent again later.
-    fn send_now(&mut self, r: PRect, spans: &[PRect], now: u64, update: &mut impl FnMut(Update)) {
-        if let Some(t) = self.clip(cells(r)) {
-            for y in t.1..=t.3 {
-                for x in t.0..=t.2 {
-                    let i = self.at(x, y);
-                    if self.busy[i] > now {
-                        // An update in progress stops here: send this cell again.
-                        self.dirty[i] = true;
-                        self.dirty_box = Some(union(self.dirty_box, (x, y, x, y)));
-                    } else if self.dirty[i] {
-                        // Ink that waited goes with this update.
-                        self.dirty[i] = false;
-                        self.busy[i] = self.until(x, y, now);
-                    }
+    fn send_now(&mut self, r: PhysicalRect, spans: &[PhysicalRect], now: u64, update: &mut impl FnMut(Update)) {
+        if let Some(t) = self.clip(r.touched_cells()) {
+            for (x, y) in t.each() {
+                let i = self.at(x, y);
+                if self.busy[i] > now {
+                    // An update in progress stops here: send this cell again.
+                    self.dirty[i] = true;
+                    grow(&mut self.dirty_box, PanelCells::point(x, y));
+                } else if self.dirty[i] {
+                    // Ink that waited goes with this update.
+                    self.dirty[i] = false;
+                    self.busy[i] = self.until(x, y, now);
                 }
             }
         }
-        update(to_update(r));
+        update(r.to_update());
         for &s in spans {
-            let Some(c) = self.clip(pixel_cells(s)) else { continue };
-            for y in c.1..=c.3 {
-                for x in c.0..=c.2 {
-                    let i = self.at(x, y);
-                    self.busy[i] = self.busy[i].max(self.until(x, y, now));
-                }
+            let Some(c) = self.clip(s.pixel_cells()) else { continue };
+            for (x, y) in c.each() {
+                let i = self.at(x, y);
+                self.busy[i] = self.busy[i].max(self.until(x, y, now));
             }
         }
         self.shrink_dirty_box();
@@ -442,23 +488,19 @@ impl Scheduler {
 
     /// Selects one rectangle of dirty cells that contains no cell in progress and no cell of `hold`
     /// (the pen tip), and sends it. Returns false if no cell can go now.
-    fn send_ink(&mut self, now: u64, hold: Option<Cells>, update: &mut impl FnMut(Update)) -> bool {
+    fn send_ink(&mut self, now: u64, hold: Option<PanelCells>, update: &mut impl FnMut(Update)) -> bool {
         let Some(d) = self.dirty_box else { return false };
-        let held = |x: i32, y: i32| hold.is_some_and(|h| inside(h, x, y));
+        let held = |x: i32, y: i32| hold.is_some_and(|h| h.contains(x, y));
         let free = |s: &Scheduler, x: i32, y: i32| {
             s.dirty[s.at(x, y)] && !s.waits(x, y, now) && !held(x, y)
         };
         let blocked = |s: &Scheduler, x: i32, y: i32| s.waits(x, y, now) || held(x, y);
         // The box of the free cells in `c`, and their number.
-        let free_box = |s: &Scheduler, c: Cells| {
-            let (mut b, mut n): (Option<Cells>, usize) = (None, 0);
-            for y in c.1..=c.3 {
-                for x in c.0..=c.2 {
-                    if free(s, x, y) {
-                        b = Some(union(b, (x, y, x, y)));
-                        n += 1;
-                    }
-                }
+        let free_box = |s: &Scheduler, c: PanelCells| {
+            let (mut b, mut n) = (None, 0usize);
+            for (x, y) in c.each().filter(|&(x, y)| free(s, x, y)) {
+                grow(&mut b, PanelCells::point(x, y));
+                n += 1;
             }
             b.map(|b| (b, n))
         };
@@ -466,52 +508,40 @@ impl Scheduler {
         // Make the rectangle smaller until it contains no blocked cell. Each step removes all the
         // blocked cells at one side, at the side that keeps the most free cells.
         for _ in 0..16 {
-            let mut bb: Option<Cells> = None;
-            for y in r.1..=r.3 {
-                for x in r.0..=r.2 {
-                    if blocked(self, x, y) {
-                        bb = Some(union(bb, (x, y, x, y)));
-                    }
-                }
-            }
-            let Some(b) = bb else { break };
-            let options = [(b.2 + 1, r.1, r.2, r.3), (r.0, r.1, b.0 - 1, r.3), (r.0, b.3 + 1, r.2, r.3), (r.0, r.1, r.2, b.1 - 1)];
+            let Some(b) = bounding_box::<PanelGrid>(r.each().filter(|&(x, y)| blocked(self, x, y))) else { break };
+            // The parts of `r` at the right, left, bottom and top of the blocked cells.
+            let options = [
+                PanelCells::new(b.x1 + 1, r.y0, r.x1, r.y1),
+                PanelCells::new(r.x0, r.y0, b.x0 - 1, r.y1),
+                PanelCells::new(r.x0, b.y1 + 1, r.x1, r.y1),
+                PanelCells::new(r.x0, r.y0, r.x1, b.y0 - 1),
+            ];
             let best = options
                 .iter()
-                .filter(|o| o.0 <= o.2 && o.1 <= o.3)
-                .filter_map(|&o| free_box(self, o))
+                .filter_map(|o| o.non_empty())
+                .filter_map(|o| free_box(self, o))
                 .max_by_key(|&(_, n)| n);
             match best {
                 Some((nr, _)) => r = nr,
                 None => {
                     // The free cells are all between blocked cells: send the first free cell.
-                    let mut one = None;
-                    'find: for y in r.1..=r.3 {
-                        for x in r.0..=r.2 {
-                            if free(self, x, y) && !blocked(self, x, y) {
-                                one = Some((x, y, x, y));
-                                break 'find;
-                            }
-                        }
-                    }
-                    match one {
-                        Some(o) => r = o,
+                    let first = r.each().find(|&(x, y)| free(self, x, y) && !blocked(self, x, y));
+                    match first {
+                        Some((x, y)) => r = PanelCells::point(x, y),
                         None => return false,
                     }
                 }
             }
         }
-        if (r.1..=r.3).any(|y| (r.0..=r.2).any(|x| blocked(self, x, y))) {
+        if r.each().any(|(x, y)| blocked(self, x, y)) {
             return false;
         }
-        update(to_update(cell_rect(r)));
-        for y in r.1..=r.3 {
-            for x in r.0..=r.2 {
-                let i = self.at(x, y);
-                if self.dirty[i] {
-                    self.dirty[i] = false;
-                    self.busy[i] = self.until(x, y, now);
-                }
+        update(r.rect().to_update());
+        for (x, y) in r.each() {
+            let i = self.at(x, y);
+            if self.dirty[i] {
+                self.dirty[i] = false;
+                self.busy[i] = self.until(x, y, now);
             }
         }
         self.shrink_dirty_box();
@@ -522,39 +552,36 @@ impl Scheduler {
 impl Presenter {
     /// Copies the changes of the frame into the framebuffer. Returns the changed physical rectangle,
     /// and adds the changed pixels of each row to `spans` (physical rectangles).
-    fn blit(&mut self, fb: &mut [u8], spans: &mut Vec<PRect>) -> Option<Update> {
+    fn blit(&mut self, fb: &mut [u8], spans: &mut Vec<PhysicalRect>) -> Option<PhysicalRect> {
         let frame = &self.frame;
         let Some(shown) = self.shown.as_mut().filter(|s| s.width() == frame.width() && s.height() == frame.height()) else {
-            let r = blit(frame, fb);
+            let r = blit(frame, fb).map(PhysicalRect::from_update);
             self.shown = Some(frame.clone());
-            spans.extend(r.map(to_prect));
+            spans.extend(r);
             return r;
         };
         let w = frame.width() as usize;
         let (base, sx, sy) = crate::layout::physical_steps();
-        let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
+        // The screen box of the changed pixels.
+        let mut changed: Option<ScreenRect> = None;
         let (new, old) = (frame.data(), shown.data_mut());
         for y in 0..frame.height() as usize {
             let row = y * w * 4..(y + 1) * w * 4;
             let (a, b) = (&new[row.clone()], &mut old[row]);
-            if same(a, b) {
+            let Some((first, last)) = changed_span::<4>(a, b) else {
                 continue;
-            }
-            let first = a.chunks_exact(4).zip(b.chunks_exact(4)).position(|(p, q)| p != q).unwrap();
-            let last = w - 1 - a.chunks_exact(4).rev().zip(b.chunks_exact(4).rev()).position(|(p, q)| p != q).unwrap();
+            };
             let mut i = base + y as i64 * sy + first as i64 * sx;
             for p in a[first * 4..(last + 1) * 4].chunks_exact(4) {
                 fb[i as usize * 3..i as usize * 3 + 3].copy_from_slice(&p[..3]);
                 i += sx;
             }
             b[first * 4..(last + 1) * 4].copy_from_slice(&a[first * 4..(last + 1) * 4]);
-            spans.push(to_prect(crate::layout::physical_rect((first as i32, y as i32, last as i32, y as i32))));
-            x0 = x0.min(first);
-            x1 = x1.max(last);
-            y0 = y0.min(y);
-            y1 = y1.max(y);
+            let row_span = ScreenRect::new(first as i32, y as i32, last as i32, y as i32);
+            spans.push(row_span.physical());
+            grow(&mut changed, row_span);
         }
-        (x0 != usize::MAX).then(|| crate::layout::physical_rect((x0 as i32, y0 as i32, x1 as i32, y1 as i32)))
+        changed.map(ScreenRect::physical)
     }
 }
 
@@ -570,11 +597,36 @@ fn same(a: &[u8], b: &[u8]) -> bool {
     ca.zip(cb).all(|(x, y)| (0..8).fold(0, |d, i| d | (word(x, i) ^ word(y, i))) == 0) && ra.iter().zip(rb).all(|(x, y)| x == y)
 }
 
-fn union(a: Option<Rect>, b: Rect) -> Rect {
-    match a {
-        None => b,
-        Some(a) => (a.0.min(b.0), a.1.min(b.1), a.2.max(b.2), a.3.max(b.3)),
+/// The first and the last pixel (indices; `BPP` bytes for each pixel) where the row `new` is not
+/// the same as the row `old`, or `None` if the two rows are the same. The fast comparison `same`
+/// examines the full row first, because most rows do not change.
+#[inline]
+fn changed_span<const BPP: usize>(new: &[u8], old: &[u8]) -> Option<(usize, usize)> {
+    if same(new, old) {
+        return None;
     }
+    let (new, old) = (new.chunks_exact(BPP), old.chunks_exact(BPP));
+    let first = new.clone().zip(old.clone()).position(|(p, q)| p != q)?;
+    let last = new.len() - 1 - new.rev().zip(old.rev()).position(|(p, q)| p != q)?;
+    Some((first, last))
+}
+
+/// Makes the box `b` larger so that it contains `r`. `None` is the empty box.
+#[inline]
+fn grow<U>(b: &mut Option<Corners<U>>, r: Corners<U>) {
+    *b = Some(match *b {
+        None => r,
+        Some(a) => Corners::new(a.x0.min(r.x0), a.y0.min(r.y0), a.x1.max(r.x1), a.y1.max(r.y1)),
+    });
+}
+
+/// The smallest box that contains all the `points`, or `None` if there are no points.
+fn bounding_box<U>(points: impl Iterator<Item = (i32, i32)>) -> Option<Corners<U>> {
+    let mut b = None;
+    for (x, y) in points {
+        grow(&mut b, Corners::point(x, y));
+    }
+    b
 }
 
 /// Copies the changed area of the frame (screen coordinates) into the framebuffer (physical
@@ -584,7 +636,8 @@ pub fn blit(frame: &Pixmap, fb: &mut [u8]) -> Option<Update> {
     let w = frame.width() as usize;
     let px = frame.data();
     let (base, sx, sy) = crate::layout::physical_steps();
-    let (mut x0, mut y0, mut x1, mut y1) = (usize::MAX, usize::MAX, 0, 0);
+    // The screen box of the changed pixels.
+    let mut changed: Option<ScreenRect> = None;
     if sx == 1 || sx == -1 {
         // A screen row is one framebuffer row (forward or reversed): convert the full row, and
         // compare it with one slice comparison.
@@ -604,18 +657,13 @@ pub fn blit(frame: &Pixmap, fb: &mut [u8]) -> Option<Update> {
                     d.copy_from_slice(&s[..3]);
                 }
             }
-            if same(dst, &rgb) {
-                continue;
-            }
             // The changed pixels of the row, in framebuffer order.
-            let first = dst.chunks_exact(3).zip(rgb.chunks_exact(3)).position(|(a, b)| a != b).unwrap();
-            let last = w - 1 - dst.chunks_exact(3).rev().zip(rgb.chunks_exact(3).rev()).position(|(a, b)| a != b).unwrap();
+            let Some((first, last)) = changed_span::<3>(&rgb, dst) else {
+                continue;
+            };
             dst[first * 3..=last * 3 + 2].copy_from_slice(&rgb[first * 3..=last * 3 + 2]);
             let (a, b) = if sx == 1 { (first, last) } else { (w - 1 - last, w - 1 - first) };
-            x0 = x0.min(a);
-            x1 = x1.max(b);
-            y0 = y0.min(y);
-            y1 = y1.max(y);
+            grow(&mut changed, ScreenRect::new(a as i32, y as i32, b as i32, y as i32));
         }
     } else {
         for y in 0..frame.height() as usize {
@@ -625,31 +673,27 @@ pub fn blit(frame: &Pixmap, fb: &mut [u8]) -> Option<Update> {
                 let o = &mut fb[i as usize * 3..i as usize * 3 + 3];
                 if *o != p[..3] {
                     o.copy_from_slice(&p[..3]);
-                    x0 = x0.min(x);
-                    x1 = x1.max(x);
-                    y0 = y0.min(y);
-                    y1 = y1.max(y);
+                    grow(&mut changed, ScreenRect::point(x as i32, y as i32));
                 }
                 i += sx;
             }
         }
     }
-    (x0 != usize::MAX).then(|| crate::layout::physical_rect((x0 as i32, y0 as i32, x1 as i32, y1 as i32)))
+    changed.map(|r| r.physical().to_update())
 }
 
-/// Copies a screen rectangle of the frame into the framebuffer. Returns the physical rectangle.
-pub fn blit_rect(frame: &Pixmap, fb: &mut [u8], r: Rect) -> Update {
+/// Copies a screen rectangle of the frame into the framebuffer.
+fn blit_rect(frame: &Pixmap, fb: &mut [u8], r: ScreenRect) {
     let w = frame.width() as usize;
     let px = frame.pixels();
     let (base, sx, sy) = crate::layout::physical_steps();
-    for y in r.1 as usize..=r.3 as usize {
-        for x in r.0 as usize..=r.2 as usize {
+    for y in r.y0 as usize..=r.y1 as usize {
+        for x in r.x0 as usize..=r.x1 as usize {
             let p = px[y * w + x];
             let i = (base + x as i64 * sx + y as i64 * sy) as usize * 3;
             fb[i..i + 3].copy_from_slice(&[p.red(), p.green(), p.blue()]);
         }
     }
-    crate::layout::physical_rect(r)
 }
 
 #[cfg(test)]
@@ -666,10 +710,6 @@ mod tests {
             self.0 ^= self.0 << 17;
             (self.0 % n as u64) as i32
         }
-    }
-
-    fn cell_set(c: Cells) -> impl Iterator<Item = (i32, i32)> {
-        (c.1..=c.3).flat_map(move |y| (c.0..=c.2).map(move |x| (x, y)))
     }
 
     /// Calls `send_ink` each 30 ms until no ink waits. Returns the updates and the time.
@@ -691,60 +731,60 @@ mod tests {
         let mut rng = Rng(7);
         for _ in 0..1000 {
             let (x0, y0) = (rng.next(w / 4), rng.next(h / 4));
-            let c = (x0, y0, x0 + rng.next(w / 4 - x0), y0 + rng.next(h / 4 - y0));
-            assert_eq!(cells(cell_rect(c)), c);
+            let c = PanelCells::new(x0, y0, x0 + rng.next(w / 4 - x0), y0 + rng.next(h / 4 - y0));
+            assert_eq!(c.rect().touched_cells(), c);
         }
         // An update touches the cells of the extra pixel of AppLoad too.
-        assert_eq!(cells((0, 0, 2, 2)), (0, 0, 0, 0));
-        assert_eq!(cells((0, 0, 3, 3)), (0, 0, 1, 1));
+        assert_eq!(PhysicalRect::new(0, 0, 2, 2).touched_cells(), PanelCells::new(0, 0, 0, 0));
+        assert_eq!(PhysicalRect::new(0, 0, 3, 3).touched_cells(), PanelCells::new(0, 0, 1, 1));
     }
 
     #[test]
     fn ink_over_cells_in_progress_waits_until_they_are_complete() {
         let mut s = Scheduler::new(400);
         let mut sent = Vec::new();
-        s.changed((10, 10, 40, 40));
+        s.changed(PhysicalRect::new(10, 10, 40, 40));
         assert!(s.send_ink(0, None, &mut |u| sent.push(u)));
         assert_eq!(sent, vec![(8, 8, 35, 35)]);
         sent.clear();
-        s.changed((30, 30, 70, 70));
+        s.changed(PhysicalRect::new(30, 30, 70, 70));
         assert!(s.send_ink(30, None, &mut |u| sent.push(u)));
         // One rectangle, outside the cells of the first update.
         assert_eq!(sent.len(), 1);
-        let c = cells(to_prect(sent[0]));
-        assert!(cell_set(c).all(|(x, y)| !(x <= 10 && y <= 10)), "{c:?}");
+        let c = PhysicalRect::from_update(sent[0]).touched_cells();
+        assert!(c.each().all(|(x, y)| !(x <= 10 && y <= 10)), "{c:?}");
         // The joint goes when the first update is complete.
         let (late, end) = drain(&mut s, 30);
         assert!(end >= 400 && end <= 460, "{end}");
-        assert!(late.iter().any(|&u| inside(cells(to_prect(u)), 9, 9)), "{late:?}");
+        assert!(late.iter().any(|&u| PhysicalRect::from_update(u).touched_cells().contains(9, 9)), "{late:?}");
     }
 
     #[test]
     fn the_inner_cells_are_on_the_grid_and_inside_the_rectangle() {
-        assert_eq!(inner_cells((148, 418, 294, 564)), (148, 420, 291, 563));
+        assert_eq!(PhysicalRect::new(148, 418, 294, 564).inner_cells(), PhysicalRect::new(148, 420, 291, 563));
         let mut rng = Rng(3);
         for _ in 0..1000 {
             let (x0, y0) = (rng.next(1000), rng.next(1000));
-            let r = (x0, y0, x0 + 8 + rng.next(200), y0 + 8 + rng.next(200));
-            let i = inner_cells(r);
-            assert!(i.0 >= r.0 && i.1 >= r.1 && i.2 <= r.2 && i.3 <= r.3, "{r:?} {i:?}");
-            assert!(i.0 % 4 == 0 && i.1 % 4 == 0 && (i.2 + 1) % 4 == 0 && (i.3 + 1) % 4 == 0, "{i:?}");
+            let r = PhysicalRect::new(x0, y0, x0 + 8 + rng.next(200), y0 + 8 + rng.next(200));
+            let i = r.inner_cells();
+            assert!(i.x0 >= r.x0 && i.y0 >= r.y0 && i.x1 <= r.x1 && i.y1 <= r.y1, "{r:?} {i:?}");
+            assert!(i.x0 % 4 == 0 && i.y0 % 4 == 0 && (i.x1 + 1) % 4 == 0 && (i.y1 + 1) % 4 == 0, "{i:?}");
         }
     }
 
     #[test]
     fn ink_in_the_pen_region_does_not_wait() {
         let mut s = Scheduler::new(400);
-        s.fast = Some(pixel_cells((0, 0, 99, 99)));
+        s.fast = Some(PhysicalRect::new(0, 0, 99, 99).pixel_cells());
         let mut sent = Vec::new();
-        s.changed((10, 10, 40, 40));
+        s.changed(PhysicalRect::new(10, 10, 40, 40));
         s.send_ink(0, None, &mut |u| sent.push(u));
-        s.changed((30, 30, 70, 70));
+        s.changed(PhysicalRect::new(30, 30, 70, 70));
         s.send_ink(30, None, &mut |u| sent.push(u));
         // The second update goes complete at once, over the first one.
         assert_eq!(sent.len(), 2);
         assert!(!s.has_dirty());
-        assert_eq!(cells(to_prect(sent[1])), pixel_cells((30, 30, 70, 70)));
+        assert_eq!(PhysicalRect::from_update(sent[1]).touched_cells(), PhysicalRect::new(30, 30, 70, 70).pixel_cells());
     }
 
     /// A redraw in UI mode covers the next cell, and the player writes in that cell at once: the
@@ -753,14 +793,15 @@ mod tests {
     fn ink_in_the_pen_region_does_not_wait_for_a_redraw() {
         let mut s = Scheduler::new(400);
         let mut sent = Vec::new();
-        s.send_now((0, 0, 199, 99), &[(0, 0, 199, 99)], 0, &mut |u| sent.push(u));
+        let all = PhysicalRect::new(0, 0, 199, 99);
+        s.send_now(all, &[all], 0, &mut |u| sent.push(u));
         sent.clear();
-        s.fast = Some(pixel_cells((100, 0, 199, 99)));
-        s.changed((130, 30, 170, 70));
+        s.fast = Some(PhysicalRect::new(100, 0, 199, 99).pixel_cells());
+        s.changed(PhysicalRect::new(130, 30, 170, 70));
         assert!(s.send_ink(30, None, &mut |u| sent.push(u)));
-        assert_eq!(cells(to_prect(sent[0])), pixel_cells((130, 30, 170, 70)));
+        assert_eq!(PhysicalRect::from_update(sent[0]).touched_cells(), PhysicalRect::new(130, 30, 170, 70).pixel_cells());
         // Outside the pen region, the ink waits.
-        s.changed((30, 30, 70, 70));
+        s.changed(PhysicalRect::new(30, 30, 70, 70));
         assert!(!s.send_ink(60, None, &mut |u| sent.push(u)));
         assert!(s.send_ink(400, None, &mut |u| sent.push(u)));
     }
@@ -771,9 +812,8 @@ mod tests {
     #[test]
     fn a_redraw_waits_while_the_player_writes_in_many_cells() {
         use crate::app::{new_game, Input, Tool};
-        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-        let fonts = Fonts::from_files(&root.join("scripts/fonts/rmsans-400.ttf"), &root.join("scripts/fonts/rmsans-500.ttf")).unwrap();
-        let mut app = App::new(Some(new_game(7, 0)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)));
+        let fonts = Fonts::repo().unwrap();
+        let mut app = App::new(Some(new_game(7, 0)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)), App::placeholder_ng_stops());
         let mut p = Presenter::new();
         p.use_pen_region = true;
         let mut fb = vec![0u8; (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize];
@@ -793,8 +833,8 @@ mod tests {
             if app.live_stroke.is_some() {
                 let r = p.pen_region.expect("the pen region is on while the pen writes");
                 for &u in &sent {
-                    let u = to_prect(u);
-                    assert!(u.0 >= r.0 && u.1 >= r.1 && u.2 <= r.2 + 1 && u.3 <= r.3 + 1, "{u:?} is not in {r:?}");
+                    let u = PhysicalRect::from_update(u);
+                    assert!(u.x0 >= r.x0 && u.y0 >= r.y0 && u.x1 <= r.x1 + 1 && u.y1 <= r.y1 + 1, "{u:?} is not in {r:?}");
                 }
             }
             sent
@@ -829,9 +869,9 @@ mod tests {
         let inside_cell = |u: Update, cell| {
             let (x, y) = crate::layout::cell_origin(cell);
             let c = crate::layout::CELL;
-            let r = to_prect(crate::layout::physical_rect((x, y, x + c - 1, y + c - 1)));
-            let u = to_prect(u);
-            u.0 >= r.0 - 4 && u.1 >= r.1 - 4 && u.2 <= r.2 + 4 && u.3 <= r.3 + 4
+            let r = ScreenRect::new(x, y, x + c - 1, y + c - 1).physical();
+            let u = PhysicalRect::from_update(u);
+            u.x0 >= r.x0 - 4 && u.y0 >= r.y0 - 4 && u.x1 <= r.x1 + 4 && u.y1 <= r.y1 + 4
         };
         for &(t, u) in &log {
             assert!(inside_cell(u, a) || inside_cell(u, b), "{t}: {u:?} is not ink; cells {a:?} {b:?}: {:?} {:?}", crate::layout::cell_origin(a), crate::layout::cell_origin(b));
@@ -855,31 +895,32 @@ mod tests {
     fn the_pen_tip_waits_while_the_pen_moves() {
         let mut s = Scheduler::new(400);
         let mut sent = Vec::new();
-        s.changed((100, 100, 140, 140));
-        let tip = pixel_cells((128, 128, 140, 140));
+        s.changed(PhysicalRect::new(100, 100, 140, 140));
+        let tip = PhysicalRect::new(128, 128, 140, 140).pixel_cells();
         assert!(s.send_ink(0, Some(tip), &mut |u| sent.push(u)));
         for &u in &sent {
-            let c = cells(to_prect(u));
-            assert!(cell_set(c).all(|(x, y)| !inside(tip, x, y)), "{c:?}");
+            let c = PhysicalRect::from_update(u).touched_cells();
+            assert!(c.each().all(|(x, y)| !tip.contains(x, y)), "{c:?}");
         }
         // When the pen stops, the tip goes.
         let (late, _) = drain(&mut s, 0);
-        assert!(late.iter().any(|&u| inside(cells(to_prect(u)), 34, 34)), "{late:?}");
+        assert!(late.iter().any(|&u| PhysicalRect::from_update(u).touched_cells().contains(34, 34)), "{late:?}");
     }
 
     #[test]
     fn a_change_of_the_screen_does_not_wait_and_the_stopped_ink_is_sent_again() {
         let mut s = Scheduler::new(400);
         let mut sent = Vec::new();
-        s.changed((10, 10, 40, 40));
+        s.changed(PhysicalRect::new(10, 10, 40, 40));
         s.send_ink(0, None, &mut |u| sent.push(u));
         sent.clear();
-        s.send_now((0, 0, 99, 19), &[(0, 0, 99, 19)], 10, &mut |u| sent.push(u));
+        let top = PhysicalRect::new(0, 0, 99, 19);
+        s.send_now(top, &[top], 10, &mut |u| sent.push(u));
         assert_eq!(sent, vec![(0, 0, 100, 20)]);
         assert!(s.has_dirty());
         let (late, end) = drain(&mut s, 10);
         assert!(end >= 410, "{end}");
-        assert!(late.iter().any(|&u| inside(cells(to_prect(u)), 3, 3)), "{late:?}");
+        assert!(late.iter().any(|&u| PhysicalRect::from_update(u).touched_cells().contains(3, 3)), "{late:?}");
     }
 
     /// Random strokes: each tick sends at most one rectangle; it never touches a cell that an update
@@ -893,15 +934,15 @@ mod tests {
             // The model of the test: the cells not sent yet, and the time when each cell is complete.
             let mut dirty: HashSet<(i32, i32)> = HashSet::new();
             let mut busy: HashMap<(i32, i32), u64> = HashMap::new();
-            let tick = |s: &mut Scheduler, now: u64, hold: Option<Cells>, dirty: &mut HashSet<(i32, i32)>, busy: &mut HashMap<(i32, i32), u64>| {
+            let tick = |s: &mut Scheduler, now: u64, hold: Option<PanelCells>, dirty: &mut HashSet<(i32, i32)>, busy: &mut HashMap<(i32, i32), u64>| {
                 let mut sent = Vec::new();
                 s.send_ink(now, hold, &mut |u| sent.push(u));
                 assert!(sent.len() <= 1);
                 for u in sent {
-                    let c = cells(to_prect(u));
-                    for p in cell_set(c) {
+                    let c = PhysicalRect::from_update(u).touched_cells();
+                    for p in c.each() {
                         assert!(busy.get(&p).copied().unwrap_or(0) <= now, "{p:?} in progress");
-                        assert!(!hold.is_some_and(|h| inside(h, p.0, p.1)), "{p:?} at the tip");
+                        assert!(!hold.is_some_and(|h| h.contains(p.0, p.1)), "{p:?} at the tip");
                         if dirty.remove(&p) {
                             busy.insert(p, now + wave);
                         }
@@ -915,12 +956,12 @@ mod tests {
                 let (nx, ny) = ((x + rng.next(25) - 12).clamp(5, 115), (y + rng.next(25) - 12).clamp(5, 115));
                 for k in 0..=4 {
                     let (px, py) = (x + (nx - x) * k / 4, y + (ny - y) * k / 4);
-                    let r = (px - 3, py - 3, px + 3, py + 3);
+                    let r = PhysicalRect::point(px, py).expand(3);
                     s.changed(r);
-                    dirty.extend(cell_set(pixel_cells(r)));
+                    dirty.extend(r.pixel_cells().each());
                 }
                 (x, y) = (nx, ny);
-                let hold = Some(pixel_cells((x - 7, y - 7, x + 7, y + 7)));
+                let hold = Some(PhysicalRect::point(x, y).expand(7).pixel_cells());
                 tick(&mut s, now, hold, &mut dirty, &mut busy);
             }
             for _ in 0..200 {

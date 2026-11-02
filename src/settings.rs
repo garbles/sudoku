@@ -32,6 +32,11 @@ impl Color {
         Color::Orange,
     ];
 
+    /// The position of the color in the 3x3 grid of the Cell colors panel (`Color::ALL`), from the top left.
+    pub fn grid_index(self) -> usize {
+        self as usize
+    }
+
     pub fn name(self) -> &'static str {
         match self {
             Color::Gray => "Gray",
@@ -73,11 +78,41 @@ pub enum Section {
 impl Section {
     pub const ALL: [Section; 3] = [Section::Starting, Section::Clash, Section::Highlight];
 
+    /// The position of the section in the Cell colors panel (`Section::ALL`), from the top.
+    pub fn panel_index(self) -> usize {
+        self as usize
+    }
+
     pub fn title(self) -> &'static str {
         match self {
             Section::Starting => "Starting numbers",
             Section::Clash => "Clashing numbers",
             Section::Highlight => "Highlighted numbers",
+        }
+    }
+}
+
+/// The switches of the Settings panel (REQUIREMENTS.md §9.1).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Switch {
+    HighlightNumbers,
+    HideMarksAutomatically,
+}
+
+impl Switch {
+    /// The order of the switch rows in the Settings panel, from the top.
+    pub const ALL: [Switch; 2] = [Switch::HighlightNumbers, Switch::HideMarksAutomatically];
+
+    /// The row of the switch in the Settings panel (`layout::settings_row`).
+    pub fn row(self) -> usize {
+        self as usize
+    }
+
+    /// The name in the Settings panel, one item for each line of text.
+    pub fn label(self) -> &'static [&'static str] {
+        match self {
+            Switch::HighlightNumbers => &["Highlight numbers"],
+            Switch::HideMarksAutomatically => &["Hide pencil marks", "automatically"],
         }
     }
 }
@@ -129,6 +164,21 @@ impl Settings {
         color != Color::White && Section::ALL.iter().any(|&o| o != s && self.color(o) == color)
     }
 
+    pub fn is_on(&self, s: Switch) -> bool {
+        match s {
+            Switch::HighlightNumbers => self.highlight_on,
+            Switch::HideMarksAutomatically => self.auto_hide_on,
+        }
+    }
+
+    pub fn toggle(&mut self, s: Switch) {
+        let on = match s {
+            Switch::HighlightNumbers => &mut self.highlight_on,
+            Switch::HideMarksAutomatically => &mut self.auto_hide_on,
+        };
+        *on = !*on;
+    }
+
     /// Selects a color for a section. Returns false if the color is not available.
     pub fn select(&mut self, s: Section, color: Color) -> bool {
         if self.is_taken(s, color) {
@@ -153,6 +203,16 @@ impl Settings {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_panel_positions_agree_with_the_order_of_all() {
+        for (i, s) in Section::ALL.into_iter().enumerate() {
+            assert_eq!(s.panel_index(), i);
+        }
+        for (i, c) in Color::ALL.into_iter().enumerate() {
+            assert_eq!(c.grid_index(), i);
+        }
+    }
 
     #[test]
     fn defaults() {
