@@ -81,7 +81,21 @@ The owner asked to see the strokes while writing. Findings on the device and the
 | A full drawing takes approximately 65 ms, and the app drew the full screen for each pen movement. The ink came 0.3 to 1 s late. | `App::redraw` and `App::view_key`: a full drawing only when the screen changes. New points of the stroke are drawn into the frame, and only their area is sent. The property test `no_redraw_means_no_change_on_the_screen` examines this. |
 | AppLoad repaints for each update. One update for each pen event made a long queue. | At most one ink update each 30 ms (`INK_UPDATE_INTERVAL`). |
 | A change of the refresh mode makes AppLoad refresh the full window (a flash). | One refresh mode (UI) for the full time. |
-| The panel skips pixels of an update that overlaps an update in progress. The ink had gaps until the next update of the area. A screenshot showed solid ink in the image of xochitl; a test with a grid of black dots showed that gray pixels are not the cause. | 400 ms after the last ink update, the app sends the full ink area again (`INK_REPAIR_DELAY`). The gaps fill in. |
+| The panel skips pixels of an update that overlaps an update in progress. The ink had gaps until the next update of the area. A screenshot showed solid ink in the image of xochitl; a test with a grid of black dots showed that gray pixels are not the cause. | 400 ms after the last ink update, the app sends the full ink area again (`INK_REPAIR_DELAY`). The gaps fill in. Replaced on 2026-11-01 (next row). |
+
+### Ink gaps while the pen writes, 2026-11-01
+
+The `remarkable-debug` skill gives the procedures (test settings, the screen update log of xochitl)
+and the lessons.
+
+| Finding | Change |
+|---|---|
+| Device test with refresh mode 0 (`ufast`): no gaps in the ink, but the colors do not refresh fully and a faded image of the old puzzle stays after a full change. Thus the gaps come from overlapping updates with the slow UI waveform. | Refresh mode UI stays. The setting `refresh-mode` selects another mode for a test. |
+| First try: the app sent only the parts of new ink outside the updates in progress (up to 4 rectangles in one tick). The gaps stayed. The update log of xochitl showed one update for each tick, with the bounding box of the parts. | — |
+| Second try: one rectangle for each tick. The gaps are fewer but not gone. The log shows new ink over older ink 400 to 560 ms after the older update: the UI waveform can take more than 400 ms. | `present::Scheduler`: one rectangle for each ink tick (4x4 px cells). It never touches a cell that an update in progress changes (`INK_WAVE_MS`; the setting `ink-wave-ms` changes it for a test). While the pen moves, the cells at the pen tip wait one tick, because the next segment starts there. A change of the screen does not wait; the ink that it stops is sent again later. The 400 ms repair is removed. |
+| Device test with `ink-wave-ms` = 1000: the holes fill in, but slowly. Content mode: worse than UI. | — |
+| Prototype: a QML patch of AppLoad (now `appload/sudoku/sudoku-penregion.qmd`) puts a Pen screen mode area over the board. Ink: no gaps. Colored cells in the area: ghosts. | — |
+| Pen area only on the cell of the ink, while the player writes. The app gives the area to the patch in `/tmp/sudoku-pen-region`; the patch reads it each 15 ms. Ink waits 45 ms after the area starts; the redraw waits 45 ms after it stops. Device test: ink looks great, no ghosts, no flash. The cells around the written cell refreshed, because the area had a margin. | The area is the inside of the cell, aligned inward to the 4 px grid. Device test: pending. |
 
 ### Owner changes, 2026-10-25
 

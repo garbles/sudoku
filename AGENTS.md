@@ -134,6 +134,9 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   archive. No network: `platform/` downloads the files on a background thread (ureq, rustls).
 - `platform/`: Linux only. The qtfb client, the eraser state (evdev) and the main loop.
 - `reference.rs`: the states of the images in `images/`, for the snapshot tool and `tests/render.rs`.
+- `appload/sudoku/sudoku-penregion.qmd` (not in `src/`): the ink patch, a QML patch of AppLoad that
+  gives the cell of the ink the fast pen waveform (REQUIREMENTS.md §14.4). It uses names of xochitl
+  and AppLoad: examine it after an update of the tablet software or of AppLoad (`remarkable-debug` skill).
 - `install.sh` (not in `src/`): the installer for the tablet. It runs on the computer of the user.
   `scripts/terminal.py` draws its output (`images/install-*.png`).
 - `script.rs`: the event scripts (`video/*.txt`) for the video tool and the bench.
@@ -150,6 +153,16 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   INVARIANTS.md.
 - `sudoku --self-test OUT.png SECONDS` examines a tablet without AppLoad (font, drawing, recognizer,
   eraser).
+- The `remarkable-debug` skill (`.claude/skills/remarkable-debug/`) tells how to examine the app on
+  the tablet: the procedure, the lessons about screen updates, and the techniques in `techniques/`
+  (the test settings of the app, the screen update log of xochitl, the pen area, tests that show a
+  screen problem). Read it before you change `present.rs`, the qtfb client or the ink patch. Add new
+  lessons to `SKILL.md` and new techniques to `techniques/`.
+- When the user asks you to debug something that does not operate correctly, first read the
+  `remarkable-debug` skill and its `techniques/`, and use the procedures that are there. When the
+  work is done, update the skill if you did something that it does not give yet: a new technique
+  (add a file to `techniques/`), a new lesson or cause (add it to the lessons in `SKILL.md`), or a
+  better step (change the step). Do not put xochitl internals (addresses, hashes) in the skill.
 - README.md must agree with the current state of the app (features, build, installation, data
   files). When a change makes README.md incorrect, update README.md in the same change.
 - README.md, `install.sh` and `site/` must always give the same instructions to the user: the
