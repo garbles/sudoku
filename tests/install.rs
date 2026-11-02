@@ -157,6 +157,40 @@ fn bad_patch_checksum_stops_the_installer() {
     assert!(!out.contains("3/10"), "{out}");
 }
 
+/// REMARKABLE_HOST gives a Wi-Fi address. The first connection fails, and the user tries again on
+/// Wi-Fi.
+#[test]
+fn wifi_address_is_used_and_can_be_tried_again() {
+    let (out, code) = run("wifi");
+    assert_eq!(code, 0, "{out}");
+    let s = step(&out, 3);
+    assert_has(&s, "REMARKABLE_HOST is set: the installer connects to 192.168.1.20.");
+    assert_has(&s, "No answer from the tablet at 192.168.1.20.");
+    assert_has(&s, "Connect the tablet on Wi-Fi");
+    assert_has(&s, "Try again on Wi-Fi.");
+    assert_has(&s, "Found the tablet at 192.168.1.20.");
+    assert!(!out.contains("Looking for the tablet at 10.11.99.1"), "{out}");
+}
+
+/// Wi-Fi does not operate. The user selects the USB cable, and the installer continues on USB.
+#[test]
+fn wifi_failure_can_continue_with_the_usb_cable() {
+    let (out, code) = run("wifi-usb");
+    assert_eq!(code, 0, "{out}");
+    let s = step(&out, 3);
+    assert_has(&s, "No answer from the tablet at 192.168.1.20.");
+    assert_has(&s, "The installer uses the USB cable.");
+    assert_has(&s, "Found the tablet at 10.11.99.1.");
+}
+
+/// Without REMARKABLE_HOST, the installer tells that it uses the USB cable.
+#[test]
+fn usb_is_the_default() {
+    let (out, _) = run("again");
+    assert_has(&step(&out, 3), "REMARKABLE_HOST is not set: the installer uses the USB cable.");
+    assert_has(&step(&out, 3), "Found the tablet at 10.11.99.1.");
+}
+
 #[test]
 fn incorrect_password_gives_help_and_a_new_try() {
     let (out, code) = run("password");
@@ -288,7 +322,7 @@ fn arrow_keys_select_a_version_in_a_terminal() {
 /// All boxes have the same width, and no line is wider than the 90 columns of the screenshots.
 #[test]
 fn output_fits_the_terminal() {
-    for scenario in ["first", "connect", "password", "hostkey", "offline", "download", "stop", "other", "patch", "stamp", "missing", "select", "typed"] {
+    for scenario in ["first", "connect", "password", "hostkey", "offline", "download", "stop", "other", "patch", "stamp", "missing", "select", "typed", "wifi", "wifi-usb"] {
         let (out, _) = run(scenario);
         for line in out.lines() {
             let width = line.chars().count();

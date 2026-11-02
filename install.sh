@@ -22,7 +22,10 @@
 #  10. Install the Sudoku folder in AppLoad.
 #
 # Environment variables:
-#   REMARKABLE_HOST     The address of the tablet. Default: 10.11.99.1 (the USB connection).
+#   REMARKABLE_HOST     The address of the tablet on Wi-Fi, for example 192.168.1.20. Default (not
+#                       set): 10.11.99.1, the USB connection. If the tablet does not answer on
+#                       Wi-Fi, the installer asks: try again, or use the USB cable. Export the
+#                       variable (`export REMARKABLE_HOST=...`), or set it before `bash`.
 #   SUDOKU_VERSION      The version to install, for example v0.1.2 or the preview version pre-1a2b3c4
 #                       (the name of a release on GitHub). Then the installer does not ask for the
 #                       version. Default (empty): the installer asks.
@@ -589,6 +592,11 @@ bad_checksum() {
 
 step_connect() {
   step 3 "Connect the tablet"
+  if [ -n "${REMARKABLE_HOST:-}" ]; then
+    info "REMARKABLE_HOST is set: the installer connects to $HOST."
+  else
+    info "REMARKABLE_HOST is not set: the installer uses the USB cable."
+  fi
   act "Looking for the tablet at $HOST..."
   while :; do
     probe
@@ -637,17 +645,29 @@ step_connect() {
             "Developer mode must be on. If it is off, turn it on first:" \
             "*Settings* > *General* > *Paper Tablet* > *Software* > *Advanced*" \
             "> *Developer mode*. CAUTION: this erases all data on the tablet."
+          pause "Is the tablet connected?"
         else
-          box "$YELLOW" "Connect the tablet" \
+          box "$YELLOW" "Connect the tablet on Wi-Fi" \
             "The installer uses the address $HOST (REMARKABLE_HOST)." \
             "" \
-            "1. Make sure that the tablet is on and in the same network." \
+            "1. Make sure that the tablet is on, unlocked and in the same" \
+            "   Wi-Fi network as this computer." \
             "2. SSH on Wi-Fi is off by default. To turn it on, connect" \
             "   with USB first and run \`rm-ssh-over-wlan on\` on the tablet." \
             "" \
-            "To use the USB cable, run the installer without REMARKABLE_HOST."
+            "You can also use the USB cable."
+          choose "What do you want to do?" \
+            "Try again"$'\t'"${GRAY}on Wi-Fi at $HOST${R}" \
+            "Use the USB cable"$'\t'"${GRAY}at 10.11.99.1${R}"
+          if [ "$CHOICE" = 1 ]; then
+            HOST=10.11.99.1
+            ok "The installer uses the USB cable."
+            info "Connect the tablet to this computer with a USB-C cable and unlock it."
+            act "Looking for the tablet at $HOST..."
+            continue
+          fi
+          ok "Try again on Wi-Fi."
         fi
-        pause "Is the tablet connected?"
         ;;
     esac
     act "Looking for the tablet at $HOST again..."

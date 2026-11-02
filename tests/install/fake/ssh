@@ -4,6 +4,8 @@
 #
 #   unreachable, refused, offline   Counters. While a counter is more than 0, each connection (or each
 #                                   internet check) fails and decreases it by 1.
+#   wifi-unreachable                A counter as above, only for an address that is not 10.11.99.1.
+#   wifi-down                       An address that is not 10.11.99.1 never answers.
 #   hostkey-changed                 SSH fails with a changed host key until `ssh-keygen -R`.
 #   password                        The root password.
 #   authorized                      The public keys in authorized_keys.
@@ -43,6 +45,10 @@ count() {
   echo $((n - 1)) >"$S/$1"
 }
 
+if [ "$h" != 10.11.99.1 ] && { [ -f "$S/wifi-down" ] || count wifi-unreachable; }; then
+  echo "ssh: connect to host $h port 22: Operation timed out" >&2
+  exit 255
+fi
 if count unreachable; then
   echo "ssh: connect to host $h port 22: Operation timed out" >&2
   exit 255

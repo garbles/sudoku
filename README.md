@@ -77,7 +77,10 @@ The installer skips each step that is done. Thus you can run it again at all tim
 - To install a new version. (Sudoku also tells you about new versions in its Settings panel.)
 
 To use Wi-Fi in place of the USB cable, set the address of the tablet:
-`curl -fsSL .../install.sh | REMARKABLE_HOST=192.168.1.20 bash`.
+`curl -fsSL .../install.sh | REMARKABLE_HOST=192.168.1.20 bash`, or
+`export REMARKABLE_HOST=192.168.1.20` before the command. The variable must be in the environment of
+`bash`: a variable that is not exported, or that is set only before `curl`, has no effect. If the
+tablet does not answer on Wi-Fi, the installer asks if you want to try again or use the USB cable.
 
 To select the version without the question, set its name from the
 [Releases](https://github.com/garbles/sudoku/releases) page:

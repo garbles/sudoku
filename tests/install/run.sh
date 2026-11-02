@@ -29,6 +29,9 @@
 #   select    All steps are done. The user selects "A different version", then types an incorrect
 #             number, a number that is not in the list and then pre-1a2b3c4 (number 3).
 #   typed     As "select", but GitHub does not give the list. The user types pre-1a2b3c4.
+#   wifi      All steps are done. REMARKABLE_HOST gives a Wi-Fi address. The first connection fails,
+#             and the user selects "Try again".
+#   wifi-usb  As "wifi", but Wi-Fi does not operate. The user selects "Use the USB cable".
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -57,7 +60,8 @@ APP="$(archive "$VERSION" "$SIM/web/sudoku-$VERSION.tar.gz")"
 printf '; fake ink patch\n' >"$SIM/web/sudoku-penregion.qmd"
 PATCH="$("${SUM[@]}" "$SIM/web/sudoku-penregion.qmd" | cut -d ' ' -f 1)"
 OLD_APP="$(archive v0.1.1 "$SIM/old.tar.gz")"
-WANT="" # SUDOKU_VERSION of the user
+WANT=""  # SUDOKU_VERSION of the user
+RHOST="" # REMARKABLE_HOST of the user
 SHA="$("${SUM[@]}" "$SIM/web/sudoku-$VERSION.tar.gz" | cut -d ' ' -f 1)"
 # The same replacement as release.yml.
 sed -e "s/@SUDOKU_VERSION@/$VERSION/" -e "s/@SUDOKU_SHA256@/$SHA/" -e "s/@SUDOKU_PATCH_SHA256@/$PATCH/" "$ROOT/install.sh" >"$SIM/install.sh"
@@ -101,11 +105,12 @@ input() { printf '%s\n' "$@" >"$SIM/input"; }
 run() {
   # The prompt line of the terminal.
   [ -z "$WANT" ] || printf '\033[38;5;114m$\033[0m export SUDOKU_VERSION=%s\n' "$WANT"
+  [ -z "$RHOST" ] || printf '\033[38;5;114m$\033[0m export REMARKABLE_HOST=%s\n' "$RHOST"
   printf '\033[38;5;114m$\033[0m curl -fsSL https://github.com/garbles/sudoku/releases/latest/download/install.sh | bash\n'
   # RUN_TTY=1 (tty.py): the answers come from the terminal, not from the file.
   local tty="$SIM/input"
   [ "${RUN_TTY:-}" = 1 ] && tty=/dev/tty
-  env -i PATH="$HERE/fake:$PATH" HOME="$SIM/home" SIM="$SIM" CLICOLOR_FORCE=1 ${NO_COLOR:+NO_COLOR=1} ${WANT:+SUDOKU_VERSION=$WANT} \
+  env -i PATH="$HERE/fake:$PATH" HOME="$SIM/home" SIM="$SIM" CLICOLOR_FORCE=1 ${NO_COLOR:+NO_COLOR=1} ${WANT:+SUDOKU_VERSION=$WANT} ${RHOST:+REMARKABLE_HOST=$RHOST} \
     SUDOKU_INSTALL_TTY="$tty" bash "$SIM/install.sh" 2>&1
 }
 
@@ -128,6 +133,8 @@ case "$SCENARIO" in
   missing) installed; WANT=v9.9.9; input ;;
   select) installed; preview; releases; input 2 x 5 3 ;;
   typed) installed; preview; input 2 "$PRE" ;;
+  wifi) installed; RHOST=192.168.1.20; echo 1 >"$S/wifi-unreachable"; input "" "" ;;
+  wifi-usb) installed; RHOST=192.168.1.20; touch "$S/wifi-down"; input "" 2 ;;
   *) echo "run.sh: unknown scenario: $SCENARIO" >&2; exit 2 ;;
 esac
 run
