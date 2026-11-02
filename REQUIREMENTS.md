@@ -915,10 +915,16 @@ The app gives the area in `/tmp/sudoku-pen-region` ("x y width height", or empty
 reads it each 15 ms:
 
 - While the player writes in a cell, the area is the inside of that cell, aligned inward to 4 px.
+  The area starts when the pen touches the cell, so that the first ink of each stroke also gets
+  the pen waveform.
   It does not touch the cells around it, because xochitl refreshes the full area when it starts and
   when it stops.
 - The ink waits until the patch can apply a new area (45 ms). A redraw waits until the area stopped
   (45 ms), so that colored cells get the UI waveform.
+- While the player writes (from the first stroke until the app reads the last ink, §5), a redraw
+  waits. Thus the player can write in many cells, one after the other: only the ink changes on the
+  screen, and an update with the UI waveform does not stop the ink in the next cell. Ink in the area
+  does not wait for an older update there.
 - xochitl reads the patch only when it starts. The app uses the area only if the patch was installed
   before xochitl started. Without the patch, the app sends the ink so that an update never touches
   changed pixels of an update in progress.

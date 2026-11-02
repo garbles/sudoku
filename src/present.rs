@@ -67,6 +67,8 @@ pub struct Presenter {
     /// A redraw that waits until the patch removed the pen region: else xochitl sends it with the pen
     /// waveform, which leaves ghosts on colored cells.
     deferred_blit: bool,
+    /// True while the player writes: a redraw waits until the app reads the last ink.
+    writing: bool,
     /// A copy of the frame as the framebuffer shows it (None: not known). A comparison of two RGBA
     /// rows is much faster than a comparison with the RGB framebuffer.
     shown: Option<Pixmap>,
@@ -93,6 +95,7 @@ impl Presenter {
             region_since: 0,
             region_changed: false,
             deferred_blit: false,
+            writing: false,
             shown: None,
             times: Times::default(),
         }
@@ -118,7 +121,8 @@ impl Presenter {
         let settle = (self.region_since + PEN_REGION_SETTLE_MS).saturating_sub(now);
         let ink = (self.ink_box.is_some() || self.scheduler.has_dirty())
             .then(|| (self.last_ink_update + INK_UPDATE_INTERVAL_MS).saturating_sub(now).max(if self.pen_region.is_some() { settle } else { 0 }));
-        let blit = self.deferred_blit.then_some(settle);
+        // A redraw that waits for the end of the writing goes after the next input or timer of the app.
+        let blit = (self.deferred_blit && !self.writing).then_some(settle);
         ink.into_iter().chain(blit).min()
     }
 
@@ -128,12 +132,21 @@ impl Presenter {
         std::mem::take(&mut self.region_changed).then(|| self.pen_region.map(to_update))
     }
 
-    /// The pen region for the ink of `app`: the inside of the cell of the pending ink. xochitl
-    /// refreshes the full region when it starts and when it stops, thus the region must not touch
-    /// the cells around it. Its edges go inward to the 4 px grid of the panel (refer to `cells`).
+    /// The pen region for the ink of `app`: the inside of the cell of the pending ink, or of the cell
+    /// where the pen touched the board. The region starts at the pen down: the app knows that the
+    /// touch is writing only when the pen leaves the micro-cell, and the first ink must also get the
+    /// pen waveform. xochitl refreshes the full region when it starts and when it stops, thus the
+    /// region must not touch the cells around it. Its edges go inward to the 4 px grid of the panel
+    /// (refer to `cells`).
     fn wanted_region(&self, app: &App) -> Option<PRect> {
-        let ink = app.ui.pending_ink.as_ref().filter(|_| self.use_pen_region)?;
-        let (x, y) = crate::layout::cell_origin(ink.cell);
+        if !self.use_pen_region {
+            return None;
+        }
+        let cell = app.ui.pending_ink.as_ref().map(|i| i.cell).or_else(|| {
+            let &(x, y) = app.live_stroke.as_ref()?.first()?;
+            crate::layout::board_cell(x, y)
+        })?;
+        let (x, y) = crate::layout::cell_origin(cell);
         let c = crate::layout::CELL;
         Some(inner_cells(to_prect(crate::layout::physical_rect((x, y, x + c - 1, y + c - 1)))))
     }
@@ -150,8 +163,23 @@ impl Presenter {
             self.scheduler.fast = wanted.map(pixel_cells);
         }
         let settled = now.saturating_sub(self.region_since) >= PEN_REGION_SETTLE_MS;
+        // While the player writes, a redraw waits: the player can write in many cells, one after the
+        // other, and only the ink changes on the screen. An update in UI mode over the next cell
+        // would stop the ink there. The redraw goes when the app has read the last ink.
+        let writing = self.use_pen_region && (app.live_stroke.is_some() || app.ui.pending_ink.is_some());
+        self.writing = writing;
         if app.redraw {
-            self.ink_box = None;
+            // The new drawing contains the ink of the stroke. If the redraw waits, send this ink now.
+            self.ink_box = app
+                .live_stroke
+                .as_ref()
+                .filter(|_| writing)
+                .and_then(|s| s.iter().fold(None, |b, &(x, y)| Some(union(b, (x as i32, y as i32, x as i32, y as i32)))))
+                .map(|b| {
+                    let m = render::INK_WIDTH.ceil() as i32 + 1;
+                    let (sw, sh) = (screen_w() as i32, screen_h() as i32);
+                    ((b.0 - m).max(0), (b.1 - m).max(0), (b.2 + m).min(sw - 1), (b.3 + m).min(sh - 1))
+                });
             let t = Instant::now();
             render::draw(&mut Canvas::new(&mut self.frame, fonts), app);
             self.times.draw = t.elapsed();
@@ -185,8 +213,9 @@ impl Presenter {
             self.ink_drawn = (app.live_stroke_count, s.len());
             self.last_ink_draw = now;
         }
-        // A redraw goes when the patch has applied the last change of the pen region.
-        if self.deferred_blit && (settled || !self.use_pen_region) {
+        // A redraw goes when the player stopped writing and the patch has applied the last change of
+        // the pen region.
+        if self.deferred_blit && !writing && (settled || !self.use_pen_region) {
             self.deferred_blit = false;
             let t = Instant::now();
             let mut spans = Vec::new();
@@ -200,7 +229,7 @@ impl Presenter {
         }
         // Ink in a new pen region waits until the patch has applied it.
         let region_ready = self.pen_region.is_none() || settled;
-        let due = now.saturating_sub(self.last_ink_update) >= INK_UPDATE_INTERVAL_MS && region_ready && !self.deferred_blit;
+        let due = now.saturating_sub(self.last_ink_update) >= INK_UPDATE_INTERVAL_MS && region_ready && (writing || !self.deferred_blit);
         if due && (self.ink_box.is_some() || self.scheduler.has_dirty()) {
             if let Some(b) = self.ink_box.take() {
                 let t = Instant::now();
@@ -343,6 +372,13 @@ impl Scheduler {
         (y * self.w + x) as usize
     }
 
+    /// True if new ink in the cell (x, y) must wait for an update in progress. Ink in the pen
+    /// region does not wait: it can stop an older update there, because xochitl refreshes all the
+    /// region with the UI waveform when the region stops.
+    fn waits(&self, x: i32, y: i32, now: u64) -> bool {
+        self.busy[self.at(x, y)] > now && !self.fast.is_some_and(|f| inside(f, x, y))
+    }
+
     /// Records changed pixels of the framebuffer that are not sent yet.
     fn changed(&mut self, r: PRect) {
         let Some(c) = self.clip(pixel_cells(r)) else { return };
@@ -410,10 +446,9 @@ impl Scheduler {
         let Some(d) = self.dirty_box else { return false };
         let held = |x: i32, y: i32| hold.is_some_and(|h| inside(h, x, y));
         let free = |s: &Scheduler, x: i32, y: i32| {
-            let i = s.at(x, y);
-            s.dirty[i] && s.busy[i] <= now && !held(x, y)
+            s.dirty[s.at(x, y)] && !s.waits(x, y, now) && !held(x, y)
         };
-        let blocked = |s: &Scheduler, x: i32, y: i32| s.busy[s.at(x, y)] > now || held(x, y);
+        let blocked = |s: &Scheduler, x: i32, y: i32| s.waits(x, y, now) || held(x, y);
         // The box of the free cells in `c`, and their number.
         let free_box = |s: &Scheduler, c: Cells| {
             let (mut b, mut n): (Option<Cells>, usize) = (None, 0);
@@ -710,6 +745,110 @@ mod tests {
         assert_eq!(sent.len(), 2);
         assert!(!s.has_dirty());
         assert_eq!(cells(to_prect(sent[1])), pixel_cells((30, 30, 70, 70)));
+    }
+
+    /// A redraw in UI mode covers the next cell, and the player writes in that cell at once: the
+    /// ink in the pen region does not wait until the redraw is complete.
+    #[test]
+    fn ink_in_the_pen_region_does_not_wait_for_a_redraw() {
+        let mut s = Scheduler::new(400);
+        let mut sent = Vec::new();
+        s.send_now((0, 0, 199, 99), &[(0, 0, 199, 99)], 0, &mut |u| sent.push(u));
+        sent.clear();
+        s.fast = Some(pixel_cells((100, 0, 199, 99)));
+        s.changed((130, 30, 170, 70));
+        assert!(s.send_ink(30, None, &mut |u| sent.push(u)));
+        assert_eq!(cells(to_prect(sent[0])), pixel_cells((130, 30, 170, 70)));
+        // Outside the pen region, the ink waits.
+        s.changed((30, 30, 70, 70));
+        assert!(!s.send_ink(60, None, &mut |u| sent.push(u)));
+        assert!(s.send_ink(400, None, &mut |u| sent.push(u)));
+    }
+
+    /// The player writes in one cell and at once in a second cell (pen region on). The ink of the
+    /// second cell goes while the pen moves, and the redraw of the first cell waits until the app
+    /// has read the last ink.
+    #[test]
+    fn a_redraw_waits_while_the_player_writes_in_many_cells() {
+        use crate::app::{new_game, Input, Tool};
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let fonts = Fonts::from_files(&root.join("scripts/fonts/rmsans-400.ttf"), &root.join("scripts/fonts/rmsans-500.ttf")).unwrap();
+        let mut app = App::new(Some(new_game(7, 0)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)));
+        let mut p = Presenter::new();
+        p.use_pen_region = true;
+        let mut fb = vec![0u8; (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize];
+        let empty: Vec<_> = (0..9u8).flat_map(|r| (0..9u8).map(move |c| (r, c))).filter(|&c| !app.game.is_filled(c)).take(2).collect();
+        let (a, b) = (empty[0], empty[1]);
+        let mut now = 1000;
+        app.tick(now);
+        let step = |app: &mut App, p: &mut Presenter, fb: &mut Vec<u8>, now: u64, input: Option<Input>| {
+            if let Some(i) = input {
+                app.handle(i, now);
+            }
+            app.tick(now);
+            let mut sent = Vec::new();
+            p.present(app, &fonts, fb, now, |u| sent.push(u));
+            // While the pen writes, the pen region is on from the pen down, and all the ink is in it
+            // (the first ink of a stroke also gets the pen waveform).
+            if app.live_stroke.is_some() {
+                let r = p.pen_region.expect("the pen region is on while the pen writes");
+                for &u in &sent {
+                    let u = to_prect(u);
+                    assert!(u.0 >= r.0 && u.1 >= r.1 && u.2 <= r.2 + 1 && u.3 <= r.3 + 1, "{u:?} is not in {r:?}");
+                }
+            }
+            sent
+        };
+        step(&mut app, &mut p, &mut fb, now, None);
+        // A vertical stroke in a cell, one point each 10 ms.
+        let stroke = |cell: crate::game::Cell| {
+            let (x, y) = crate::layout::cell_origin(cell);
+            let c = crate::layout::CELL as f32;
+            (0..=20).map(move |k| (x as f32 + c / 2.0, y as f32 + c * (0.2 + 0.6 * k as f32 / 20.0)))
+        };
+        let mut log: Vec<(u64, Update)> = Vec::new();
+        for cell in [a, b] {
+            let mut pts = stroke(cell);
+            let (x, y) = pts.next().unwrap();
+            now += 10;
+            log.extend(step(&mut app, &mut p, &mut fb, now, Some(Input::PenDown { x, y, tool: Tool::Pen })).into_iter().map(|u| (now, u)));
+            let mut last = (x, y);
+            for (x, y) in pts {
+                now += 10;
+                log.extend(step(&mut app, &mut p, &mut fb, now, Some(Input::PenMove { x, y })).into_iter().map(|u| (now, u)));
+                last = (x, y);
+            }
+            now += 10;
+            log.extend(step(&mut app, &mut p, &mut fb, now, Some(Input::PenUp { x: last.0, y: last.1 })).into_iter().map(|u| (now, u)));
+            // The writing in the first cell is done: the redraw of its digit must not go yet.
+            if cell == a {
+                assert!(app.ui.pending_ink.is_some());
+            }
+        }
+        // All the updates up to now are ink, inside one of the two cells.
+        let inside_cell = |u: Update, cell| {
+            let (x, y) = crate::layout::cell_origin(cell);
+            let c = crate::layout::CELL;
+            let r = to_prect(crate::layout::physical_rect((x, y, x + c - 1, y + c - 1)));
+            let u = to_prect(u);
+            u.0 >= r.0 - 4 && u.1 >= r.1 - 4 && u.2 <= r.2 + 4 && u.3 <= r.3 + 4
+        };
+        for &(t, u) in &log {
+            assert!(inside_cell(u, a) || inside_cell(u, b), "{t}: {u:?} is not ink; cells {a:?} {b:?}: {:?} {:?}", crate::layout::cell_origin(a), crate::layout::cell_origin(b));
+        }
+        assert!(log.iter().any(|&(_, u)| inside_cell(u, b)), "no ink in the second cell: {log:?}");
+        // After the recognition pause, the redraw goes and the framebuffer shows the frame.
+        let mut redraw = false;
+        for _ in 0..200 {
+            now += 30;
+            let sent = step(&mut app, &mut p, &mut fb, now, None);
+            redraw |= !sent.is_empty();
+        }
+        assert!(app.ui.pending_ink.is_none());
+        assert!(redraw);
+        let mut expect = vec![0u8; fb.len()];
+        blit(&p.frame, &mut expect);
+        assert!(fb == expect, "the framebuffer does not show the frame");
     }
 
     #[test]
