@@ -986,6 +986,17 @@ The installer has these requirements (owner decision, 2026-10-27):
 
 - **One script.** All steps are in one file. A copy from git (with no version) installs the latest
   stable release.
+- **Version.** In step 2, a menu asks for the version: "The latest version" (the default) or "A
+  different version". "A different version" shows a second menu with all releases from the GitHub
+  API, the newest first: the name, the type (`latest`, `stable` or `preview`) and the date (UTC).
+  More than 10 rows scroll. In a terminal, the user moves with the arrow keys (or `j` and `k`),
+  selects with Enter and stops with `q`. After the selection, the menu changes to one line with
+  the version. With an input file (the tests), the rows have numbers and the user types a number.
+  If GitHub does not give the list, the user types the name of the version.
+  `SUDOKU_VERSION` selects a release with no question, for example `v0.1.2` or the preview version
+  `pre-1a2b3c4` (`0.1.2` gets the prefix `v`). For a version that is not the latest, the installer
+  reads the checksum from `version.json` of that release. If GitHub does not have the release, the
+  installer stops. For a preview version, it shows a warning.
 - **Idempotent.** Each step examines the tablet or the computer first. If the step is done, the
   installer shows "(done already)" and does not change it. A second run changes nothing.
 - **Instructions.** When the user must do something, a box tells the user what to do, step by step.
@@ -994,14 +1005,15 @@ The installer has these requirements (owner decision, 2026-10-27):
   the colors off.
 - **Tests.** `tests/install/run.sh` runs the installer with fake `ssh`, `ssh-keygen` and `curl`
   programs. `tests/install.rs` examines the scenarios. `scripts/build.sh` makes the screenshots
-  `images/install-*.png` from them.
+  `images/install-*.png` from them. `tests/install/tty.py` runs a scenario in a terminal and
+  pushes keys, for the images of the version menus.
 
 The steps:
 
 | Step | Examination | Action |
 |---|---|---|
 | 1. Programs | `ssh`, `ssh-keygen`, `curl`, `tar` and `sha256sum` or `shasum` | If a program is missing, the installer tells how to install it and stops. |
-| 2. Download | – | Downloads `sudoku-<version>.tar.gz` and compares its SHA-256 checksum. If the checksum is not correct, the installer stops. |
+| 2. Download | – | Asks for the version (or uses `SUDOKU_VERSION`). For a version that is not the latest, downloads `version.json` of that release. Downloads `sudoku-<version>.tar.gz` and compares its SHA-256 checksum. If the checksum is not correct, the installer stops. |
 | 3. Connection | SSH to `10.11.99.1` (or `REMARKABLE_HOST`) | No answer: instructions for the USB cable. Connection refused: instructions for developer mode (with the caution that it erases the tablet). Changed host key: the installer removes the old key after a confirmation. |
 | 4. SSH key | `~/.ssh/id_ed25519_remarkable`, and the tablet accepts it | Makes the key (ed25519, no passphrase). Adds it to `/home/root/.ssh/authorized_keys`, with a different key of the computer or with the root password. The installer tells where the password is (Settings > General > Help > About > Copyrights and licenses). Shows the tablet model and software version. A tablet that is not a Paper Pro needs a confirmation. |
 | 5. Vellum | `/home/root/.vellum/bin/vellum` | Examines the internet connection of the tablet (instructions for Wi-Fi). Downloads the latest Vellum bootstrap script on the computer (curl examines the TLS certificate) and runs it on the tablet. The installer keeps no checksum of this script, because each Vellum release changes it. |

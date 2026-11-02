@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # A fake curl for the installer simulation (tests/install/run.sh). It gives the file of $SIM/web with
-# the last part of the URL as its name. While the counter $SIM/state/no-network is more than 0, each
+# the last part of the URL (without the query) as its name. While the counter $SIM/state/no-network is more than 0, each
 # download fails and decreases it by 1.
 out="" url=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
+    -H) shift 2 ;;
     -*) shift ;;
     *) url="$1"; shift ;;
   esac
@@ -16,7 +17,11 @@ if [ -f "$f" ] && [ "$(cat "$f")" -gt 0 ]; then
   echo "curl: (6) Could not resolve host: github.com" >&2
   exit 6
 fi
+# A file of one release (.../download/<version>/<file>) can also be in $SIM/web/<version>/.
+url="${url%%\?*}"
 src="$SIM/web/${url##*/}"
+dir="${url%/*}"
+[ -f "$SIM/web/${dir##*/}/${url##*/}" ] && src="$SIM/web/${dir##*/}/${url##*/}"
 if [ ! -f "$src" ]; then
   echo "curl: (22) The requested URL returned error: 404" >&2
   exit 22

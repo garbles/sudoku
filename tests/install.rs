@@ -184,10 +184,87 @@ fn other_tablet_needs_a_confirmation() {
     assert!(!out.contains(" 5/10 "), "{out}");
 }
 
+#[test]
+fn selected_version_replaces_the_version_of_the_installer() {
+    let (out, code) = run("preview");
+    assert_eq!(code, 0, "{out}");
+    assert_has(&out, "Installer · preview pre-1a2b3c4");
+    assert_has(&step(&out, 2), "pre-1a2b3c4 is a preview version.");
+    assert_has(&step(&out, 2), "Downloaded Sudoku pre-1a2b3c4. The checksum is correct.");
+    assert_has(&step(&out, 10), "Sudoku pre-1a2b3c4 is installed.");
+    assert!(!out.contains("Which version"), "SUDOKU_VERSION: no question:\n{out}");
+}
+
+#[test]
+fn latest_version_is_the_default() {
+    let (out, code) = run("again");
+    assert_eq!(code, 0, "{out}");
+    assert_has(&step(&out, 2), "Which version of Sudoku do you want to install?");
+    assert_has(&step(&out, 2), "Version: the latest version (v0.1.2).");
+}
+
+#[test]
+fn list_of_versions_selects_a_preview_version() {
+    let (out, code) = run("select");
+    assert_eq!(code, 0, "{out}");
+    let s = step(&out, 2);
+    // The newest first. The first stable release is the latest. The notes do not give a row.
+    let rows: Vec<&str> = s.lines().filter(|l| l.contains(" 2026-")).collect();
+    assert_eq!(rows.len(), 4, "{s}");
+    for (row, want) in rows.iter().zip([
+        "1. pre-9f8e7d6  preview  2026-11-02 09:12",
+        "2. v0.1.2       latest   2026-11-01 06:30",
+        "3. pre-1a2b3c4  preview  2026-11-01 05:35",
+        "4. v0.1.1       stable   2026-10-28 05:14",
+    ]) {
+        assert!(row.ends_with(want), "{row:?} is not {want:?}");
+    }
+    assert_eq!(s.matches("Type a number from 1 to 4.").count(), 2, "{s}");
+    assert_has(&s, "Version: pre-1a2b3c4.");
+    assert_has(&s, "Downloaded Sudoku pre-1a2b3c4. The checksum is correct.");
+    assert_has(&step(&out, 10), "Sudoku pre-1a2b3c4 is installed.");
+}
+
+#[test]
+fn no_list_of_versions_lets_the_user_type_the_version() {
+    let (out, code) = run("typed");
+    assert_eq!(code, 0, "{out}");
+    assert_has(&step(&out, 2), "GitHub did not give the list of versions.");
+    assert_has(&step(&out, 10), "Sudoku pre-1a2b3c4 is installed.");
+}
+
+#[test]
+fn unknown_version_stops_the_installer() {
+    let (out, code) = run("missing");
+    assert_eq!(code, 1, "{out}");
+    assert_has(&step(&out, 2), "Sudoku v9.9.9 is not available.");
+    assert!(!out.contains(" 3/10 "), "{out}");
+}
+
+/// The menus in a terminal (tests/install/tty.py pushes the keys). It needs python3.
+#[test]
+fn arrow_keys_select_a_version_in_a_terminal() {
+    let Ok(out) = Command::new("python3")
+        .args(["-I", concat!(env!("CARGO_MANIFEST_DIR"), "/tests/install/tty.py")])
+        .args(["select", "down", "enter", "down", "down", "enter"])
+        .output()
+    else {
+        eprintln!("python3 is not available: the test does not run");
+        return;
+    };
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let text = strip_ansi(&String::from_utf8(out.stdout).expect("UTF-8 output"));
+    assert_has(&text, "↑↓ move · Enter select · q stop");
+    // No echo of the keys.
+    assert!(!text.contains("^["), "{text}");
+    assert_has(&text, "Version: pre-1a2b3c4.");
+    assert_has(&text, "Sudoku pre-1a2b3c4 is installed.");
+}
+
 /// All boxes have the same width, and no line is wider than the 90 columns of the screenshots.
 #[test]
 fn output_fits_the_terminal() {
-    for scenario in ["first", "connect", "password", "hostkey", "offline", "download", "stop", "other", "patch"] {
+    for scenario in ["first", "connect", "password", "hostkey", "offline", "download", "stop", "other", "patch", "missing", "select", "typed"] {
         let (out, _) = run(scenario);
         for line in out.lines() {
             let width = line.chars().count();

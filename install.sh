@@ -9,7 +9,8 @@
 # version of Sudoku.
 #
 #   1. Examine the programs on this computer (ssh, ssh-keygen, curl, tar).
-#   2. Download the release archive and examine its SHA-256 checksum.
+#   2. Select the version (the latest version, or a version from a list of all releases). Download
+#      the release archive and examine its SHA-256 checksum.
 #   3. Find the tablet (USB cable, developer mode).
 #   4. Make an SSH key and add it to the tablet. The user types the root password one time.
 #   5. Install Vellum, the package manager.
@@ -21,6 +22,9 @@
 #
 # Environment variables:
 #   REMARKABLE_HOST     The address of the tablet. Default: 10.11.99.1 (the USB connection).
+#   SUDOKU_VERSION      The version to install, for example v0.1.2 or the preview version pre-1a2b3c4
+#                       (the name of a release on GitHub). Then the installer does not ask for the
+#                       version. Default (empty): the installer asks.
 #   SUDOKU_SSH_KEY      The SSH key of the installer. Default: ~/.ssh/id_ed25519_remarkable.
 #   NO_COLOR            No colors. CLICOLOR_FORCE=1 gives colors also when the output is not a terminal.
 #   SUDOKU_INSTALL_TTY  The input of the user. Default: /dev/tty. tests/install/run.sh gives a file.
@@ -36,6 +40,8 @@ main() {
 set -u
 
 REPO="https://github.com/garbles/sudoku"
+# The version that the user selects (SUDOKU_VERSION). Empty: the installer asks.
+WANT_VERSION="${SUDOKU_VERSION:-}"
 # release.yml replaces these two values with the version and the checksum of its archive. A copy
 # from git installs the latest stable release.
 SUDOKU_VERSION="@SUDOKU_VERSION@"
@@ -57,13 +63,16 @@ PATCH_DIR=/home/root/xovi/exthome/qt-resource-rebuilder
 PATCH_NAME=sudoku-penregion.qmd
 
 setup_colors
+select_version
 if ! exec 3<"$TTY"; then
   bad "The installer needs a terminal for your answers."
   exit 1
 fi
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/sudoku-install.XXXXXX")" || exit 1
 trap 'rm -rf "$WORK"' EXIT
-trap 'printf "\n"; stop' INT
+MENU_CURSOR=0 # 1 while a menu hides the cursor of the terminal
+MENU_STTY=""  # the terminal settings before the menu
+trap 'cursor_on; printf "\n"; stop' INT
 SSH_OPTS=(-o ConnectTimeout=10 -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR
   -o ServerAliveInterval=10 -o ServerAliveCountMax=3)
 
@@ -153,7 +162,7 @@ grid_row() {
 
 banner() {
   local version="$SUDOKU_VERSION"
-  case "$version" in *@*) version="latest version" ;; esac
+  case "$version" in *@*) version="latest version" ;; pre-*) version="preview $version" ;; esac
   printf '\n   %s┏━━━━━━━┯━━━━━━━┯━━━━━━━┓%s\n' "$GRAY" "$R"
   printf '%s    %sS U D O K U%s\n' "$(grid_row G5 G3 . "|" . G7 . "|" . U1 G2)" "${B}${MAGENTA}" "$R"
   printf '%s    for reMarkable Paper Pro\n' "$(grid_row G6 . . "|" G1 G9 G5 "|" . H4 .)"
@@ -162,6 +171,18 @@ banner() {
   printf '  This installer puts Sudoku on your reMarkable Paper Pro. At each step it\n'
   printf '  tells you what to do. It skips the steps that are done already.\n'
   printf '  %sTo stop at any time, push Ctrl+C.%s\n' "$GRAY" "$R"
+}
+
+# The user selects a version with SUDOKU_VERSION. A version without a prefix (0.1.2) gets the "v".
+select_version() {
+  case "$WANT_VERSION" in
+    "") ;;
+    [0-9]*) WANT_VERSION="v$WANT_VERSION" ;;
+  esac
+  if [ -n "$WANT_VERSION" ] && [ "$WANT_VERSION" != "$SUDOKU_VERSION" ]; then
+    SUDOKU_VERSION="$WANT_VERSION"
+    SUDOKU_SHA256="" # step_download reads it from version.json of the release.
+  fi
 }
 
 # --- Input ----------------------------------------------------------------------------------------
@@ -193,6 +214,125 @@ confirm() { # question, default (y or n). Returns 0 for yes.
     "") [ "$2" = y ] ;;
     *) return 1 ;;
   esac
+}
+
+# Shows the cursor again and restores the terminal settings after a menu.
+cursor_on() {
+  if [ "$MENU_CURSOR" = 1 ]; then
+    printf '\033[?25h'
+    [ -n "$MENU_STTY" ] && stty "$MENU_STTY" <&3 2>/dev/null
+  fi
+  MENU_CURSOR=0
+}
+
+# A menu. Each row is "label<TAB>detail". Sets CHOICE to the index of the selected row (0 is the
+# first row). In a terminal, the user moves with the arrow keys (or j and k) and pushes Enter. With
+# an input file (tests/install/run.sh), the menu shows numbers, and the user types a number.
+MENU_SIZE=10 # the maximum number of rows on the screen. More rows scroll.
+MENU_GAP=1   # 0: no blank line above the next question
+choose() { # question, rows...
+  local question="$1" pad=0 row label
+  shift
+  local rows=("$@")
+  for row in "${rows[@]}"; do
+    label="${row%%$'\t'*}"
+    [ "${#label}" -gt "$pad" ] && pad="${#label}"
+  done
+  # Directly after the title of a step, the blank line is there already.
+  MENU_TOP=4 # the lines above the rows: the blank line, the question and the blank line after it
+  if [ "$MENU_GAP" = 1 ]; then printf '\n'; else MENU_TOP=3; fi
+  MENU_GAP=1
+  printf '  %s?%s %s%s%s\n\n' "$MAGENTA" "$R" "$B" "$question" "$R"
+  if [ -t 3 ]; then
+    menu_keys "$pad" "${rows[@]}"
+  else
+    menu_numbers "$pad" "${rows[@]}"
+  fi
+}
+
+menu_row() { # selected (1 or 0), label width, number (empty in a terminal), row
+  local label="${4%%$'\t'*}" detail="" num=""
+  case "$4" in *$'\t'*) detail="${4#*$'\t'}" ;; esac
+  [ -n "$3" ] && num="$(printf '%3s. ' "$3")"
+  if [ "$1" = 1 ]; then
+    printf '  %s❯%s %s%s%s%-*s%s  %s\n' "$CYAN" "$R" "$num" "$B" "$CYAN" "$2" "$label" "$R" "$detail"
+  else
+    printf '    %s%-*s  %s\n' "$num" "$2" "$label" "$detail"
+  fi
+}
+
+menu_keys() { # label width, rows...
+  local pad="$1" sel=0 top=0 key rest i n size hint
+  shift
+  n=$#
+  size=$n
+  [ "$size" -gt "$MENU_SIZE" ] && size="$MENU_SIZE"
+  local rows=("$@")
+  # No echo during all of the menu: a key that comes between two reads must not show (for example
+  # when the user holds an arrow key).
+  MENU_STTY="$(stty -g <&3 2>/dev/null)"
+  stty -echo -icanon <&3 2>/dev/null
+  printf '\033[?25l'
+  MENU_CURSOR=1
+  while :; do
+    for ((i = top; i < top + size; i++)); do
+      printf '\033[2K'
+      menu_row "$([ "$i" = "$sel" ] && echo 1 || echo 0)" "$pad" "" "${rows[$i]}"
+    done
+    hint="↑↓ move · Enter select · q stop"
+    [ "$n" -gt "$size" ] && hint="$hint · $((sel + 1)) of $n"
+    printf '\033[2K\n\033[2K    %s%s%s\n' "$GRAY" "$hint" "$R"
+    IFS= read -rsn1 key <&3 || key=q
+    case "$key" in
+      $'\033')
+        rest=""
+        IFS= read -rsn2 -t 1 rest <&3
+        case "$rest" in
+          "[A" | OA) key=k ;;
+          "[B" | OB) key=j ;;
+          *) key="" ;;
+        esac
+        [ -z "$key" ] && key=none
+        ;;
+    esac
+    case "$key" in
+      k) [ "$sel" -gt 0 ] && sel=$((sel - 1)) ;;
+      j) [ "$sel" -lt $((n - 1)) ] && sel=$((sel + 1)) ;;
+      "") break ;;
+      q | Q)
+        cursor_on
+        stop
+        ;;
+    esac
+    [ "$sel" -lt "$top" ] && top="$sel"
+    [ "$sel" -ge $((top + size)) ] && top=$((sel - size + 1))
+    printf '\033[%dA' $((size + 2))
+  done
+  # Remove the menu and the question. The caller shows the selection.
+  printf '\033[%dA\033[J' $((size + MENU_TOP + 1))
+  cursor_on
+  CHOICE="$sel"
+}
+
+menu_numbers() { # label width, rows...
+  local pad="$1" i=0 row
+  shift
+  for row in "$@"; do
+    menu_row "$([ "$i" = 0 ] && echo 1 || echo 0)" "$pad" "$((i + 1))" "$row"
+    i=$((i + 1))
+  done
+  while :; do
+    printf '\n  %s?%s Type a number. %s[Enter: 1, q: stop]%s ' "$MAGENTA" "$R" "$GRAY" "$R"
+    read_reply
+    case "$REPLY" in
+      "") CHOICE=0 ;;
+      q | Q) stop ;;
+      *[!0-9]* | 0) CHOICE=-1 ;;
+      *) CHOICE=$((REPLY - 1)) ;;
+    esac
+    [ "$CHOICE" -ge 0 ] && [ "$CHOICE" -lt "$#" ] && return
+    bad "Type a number from 1 to $#."
+  done
 }
 
 stop() {
@@ -286,8 +426,15 @@ step_tools() {
   ok "ssh, ssh-keygen, curl and tar are available."
 }
 
-fetch() { # url, file
-  while ! curl -fsSL -o "$2" "$1" 2>"$WORK/curl.err"; do
+# Downloads a file. If the network fails, the user can try again. With "soft", returns 1 if the
+# server answers with an error (for example 404: no such file).
+fetch() { # url, file, [soft]
+  local code
+  while :; do
+    curl -fsSL -o "$2" "$1" 2>"$WORK/curl.err"
+    code=$?
+    [ "$code" = 0 ] && return 0
+    [ "$code" = 22 ] && [ "${3:-}" = soft ] && return 1
     bad "The download failed: $(tail -n 1 "$WORK/curl.err")"
     box "$YELLOW" "What to do" \
       "Make sure that this computer is connected to the internet." \
@@ -297,15 +444,104 @@ fetch() { # url, file
   done
 }
 
-step_download() {
-  step 2 "Download Sudoku"
+json_value() { sed -n 's/.*"'"$1"'": *"\([^"]*\)".*/\1/p' "$WORK/version.json"; }
+
+# The releases of Sudoku on GitHub, the newest first. Sets LIST to rows for choose and TAGS to the
+# names of the releases. Returns 1 if GitHub does not give the list.
+RELEASES_API="https://api.github.com/repos/garbles/sudoku/releases?per_page=100"
+list_releases() {
+  local tag="" pre="" when kind latest=""
+  LIST=() TAGS=()
+  fetch "$RELEASES_API" "$WORK/releases.json" soft || return 1
+  # grep -o finds the three values in compact and in indented JSON. Text in the release notes has
+  # \" in place of ", thus it does not agree with the pattern.
+  while IFS= read -r line; do
+    case "$line" in
+      '"tag_name"'*) tag="$(printf '%s' "$line" | sed 's/.*: *"\(.*\)"/\1/')" ;;
+      '"prerelease"'*) pre="${line##* }" pre="${pre##*:}" ;;
+      '"published_at"'*)
+        [ -n "$tag" ] || continue
+        when="$(printf '%s' "$line" | sed 's/.*: *"\([0-9-]*\)T\([0-9]*:[0-9]*\).*/\1 \2/')"
+        if [ "$pre" = true ]; then
+          kind="${YELLOW}preview${R}"
+        elif [ -z "$latest" ]; then
+          kind="${GREEN}latest ${R}"
+          latest="$tag"
+        else
+          kind="stable "
+        fi
+        TAGS+=("$tag")
+        LIST+=("$tag"$'\t'"$kind  $GRAY$when$R")
+        tag="" pre=""
+        ;;
+    esac
+  done < <(grep -oE '"(tag_name|prerelease|published_at)": *("[^"]*"|true|false)' "$WORK/releases.json")
+  [ "${#TAGS[@]}" -gt 0 ]
+}
+
+# A copy from git has no version. Then version.json of the latest release gives it.
+latest_version() {
   case "$SUDOKU_VERSION" in
     *@*)
       act "Looking for the latest version of Sudoku..."
       fetch "$REPO/releases/latest/download/version.json" "$WORK/version.json"
-      SUDOKU_VERSION="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' "$WORK/version.json")"
-      SUDOKU_SHA256="$(sed -n 's/.*"sha256": *"\([^"]*\)".*/\1/p' "$WORK/version.json")"
+      SUDOKU_VERSION="$(json_value version)"
+      SUDOKU_SHA256="$(json_value sha256)"
       ;;
+  esac
+}
+
+# Asks for the version. Sets SUDOKU_VERSION, and SUDOKU_SHA256 if the user selects the latest version.
+ask_version() {
+  case "$SUDOKU_VERSION" in *@*) latest_version ;; *) MENU_GAP=0 ;; esac
+  choose "Which version of Sudoku do you want to install?" \
+    "The latest version"$'\t'"$SUDOKU_VERSION" \
+    "A different version"$'\t'"${GRAY}a preview version or an earlier version${R}"
+  if [ "$CHOICE" = 0 ]; then
+    ok "Version: the latest version ($SUDOKU_VERSION)."
+    return
+  fi
+  act "Looking for the versions of Sudoku..."
+  if list_releases; then
+    choose "Select a version. The newest is at the top." "${LIST[@]}"
+    SUDOKU_VERSION="${TAGS[$CHOICE]}"
+  else
+    bad "GitHub did not give the list of versions."
+    info "The versions are also at $REPO/releases"
+    printf '\n  %s?%s Type the name of the version, for example pre-1a2b3c4. %s[q: stop]%s ' "$MAGENTA" "$R" "$GRAY" "$R"
+    read_reply
+    case "$REPLY" in "" | q | Q) stop ;; esac
+    WANT_VERSION="$REPLY"
+    select_version
+  fi
+  SUDOKU_SHA256=""
+  ok "Version: $SUDOKU_VERSION."
+}
+
+step_download() {
+  step 2 "Download Sudoku"
+  [ -n "$WANT_VERSION" ] || ask_version
+  if [ -z "$SUDOKU_SHA256" ]; then
+    act "Looking for Sudoku $SUDOKU_VERSION..."
+    if ! fetch "$REPO/releases/download/$SUDOKU_VERSION/version.json" "$WORK/version.json" soft; then
+      bad "Sudoku $SUDOKU_VERSION is not available."
+      box "$RED" "What to do" \
+        "1. Make sure that the version is correct, for example \`v0.1.2\` or" \
+        "   \`pre-1a2b3c4\`. The releases are on GitHub:" \
+        "   $REPO/releases" \
+        "2. To install the latest version, run the installer again and" \
+        "   select the latest version."
+      printf '\n'
+      exit 1
+    fi
+    if [ "$(json_value version)" != "$SUDOKU_VERSION" ]; then
+      bad "The release $SUDOKU_VERSION has an incorrect version.json."
+      exit 1
+    fi
+    SUDOKU_SHA256="$(json_value sha256)"
+  fi
+  case "$SUDOKU_VERSION" in
+    pre-*) warn "$SUDOKU_VERSION is a preview version. It can have errors." ;;
   esac
   act "Downloading Sudoku $SUDOKU_VERSION from GitHub..."
   fetch "$REPO/releases/download/$SUDOKU_VERSION/sudoku-$SUDOKU_VERSION.tar.gz" "$WORK/sudoku.tar.gz"

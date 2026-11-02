@@ -5,7 +5,7 @@
 #
 # The fake programs in fake/ (ssh, ssh-keygen, curl) take the place of the real programs. The fake
 # ssh simulates the tablet (refer to fake/ssh). A file gives the answers of the user. The exit code
-# is the exit code of install.sh. tests/install.rs runs all scenarios, and scripts/build.sh makes the
+# is the exit code of install.sh. tty.py runs a scenario in a terminal and pushes keys. tests/install.rs runs all scenarios, and scripts/build.sh makes the
 # images install-*.png from some of them.
 #
 # Scenarios:
@@ -21,6 +21,11 @@
 #   stop      The tablet is not connected, and the user types q.
 #   other     The tablet is a Paper Pro Move, and the user does not continue.
 #   patch     All steps are done, but the ink patch is old: the installer copies it and starts xovi again.
+#   preview   All steps are done. SUDOKU_VERSION selects the preview version pre-1a2b3c4.
+#   missing   SUDOKU_VERSION selects a version that GitHub does not have.
+#   select    All steps are done. The user selects "A different version", then types an incorrect
+#             number, a number that is not in the list and then pre-1a2b3c4 (number 3).
+#   typed     As "select", but GitHub does not give the list. The user types pre-1a2b3c4.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -48,6 +53,7 @@ archive() { # version, archive file
 APP="$(archive "$VERSION" "$SIM/web/sudoku-$VERSION.tar.gz")"
 PATCH="$("${SUM[@]}" "$SIM/pkg-$VERSION/sudoku/sudoku-penregion.qmd" | cut -d ' ' -f 1)"
 OLD_APP="$(archive v0.1.1 "$SIM/old.tar.gz")"
+WANT="" # SUDOKU_VERSION of the user
 SHA="$("${SUM[@]}" "$SIM/web/sudoku-$VERSION.tar.gz" | cut -d ' ' -f 1)"
 # The same replacement as release.yml.
 sed -e "s/@SUDOKU_VERSION@/$VERSION/" -e "s/@SUDOKU_SHA256@/$SHA/" "$ROOT/install.sh" >"$SIM/install.sh"
@@ -66,27 +72,54 @@ installed() {
   printf '%s\n' "$APP" >"$S/app"
   printf '%s\n' "$PATCH" >"$S/patch"
 }
+# The release of the preview version $PRE, with its version.json.
+PRE=pre-1a2b3c4
+preview() {
+  mkdir -p "$SIM/web/$PRE"
+  archive "$PRE" "$SIM/web/sudoku-$PRE.tar.gz" >/dev/null
+  printf '{"version": "%s", "url": "x", "sha256": "%s"}\n' "$PRE" \
+    "$("${SUM[@]}" "$SIM/web/sudoku-$PRE.tar.gz" | cut -d ' ' -f 1)" >"$SIM/web/$PRE/version.json"
+}
+# The list of releases of the GitHub API (compact JSON, the newest first).
+releases() {
+  local t sep="" json="["
+  for t in "pre-9f8e7d6 true 2026-11-02T09:12:40Z" "v0.1.2 false 2026-11-01T06:30:29Z" \
+    "$PRE true 2026-11-01T05:35:31Z" "v0.1.1 false 2026-10-28T05:14:30Z"; do
+    set -- $t
+    json="$json$sep{\"tag_name\":\"$1\",\"name\":\"$1\",\"draft\":false,\"prerelease\":$2,\"published_at\":\"$3\",\"assets\":[{\"name\":\"version.json\"}],\"body\":\"Notes with \\\"tag_name\\\": \\\"x\\\"\"}"
+    sep=","
+  done
+  printf '%s]\n' "$json" >"$SIM/web/releases"
+}
 input() { printf '%s\n' "$@" >"$SIM/input"; }
 run() {
   # The prompt line of the terminal.
+  [ -z "$WANT" ] || printf '\033[38;5;114m$\033[0m export SUDOKU_VERSION=%s\n' "$WANT"
   printf '\033[38;5;114m$\033[0m curl -fsSL https://github.com/garbles/sudoku/releases/latest/download/install.sh | bash\n'
-  env -i PATH="$HERE/fake:$PATH" HOME="$SIM/home" SIM="$SIM" CLICOLOR_FORCE=1 ${NO_COLOR:+NO_COLOR=1} \
-    SUDOKU_INSTALL_TTY="$SIM/input" bash "$SIM/install.sh" 2>&1
+  # RUN_TTY=1 (tty.py): the answers come from the terminal, not from the file.
+  local tty="$SIM/input"
+  [ "${RUN_TTY:-}" = 1 ] && tty=/dev/tty
+  env -i PATH="$HERE/fake:$PATH" HOME="$SIM/home" SIM="$SIM" CLICOLOR_FORCE=1 ${NO_COLOR:+NO_COLOR=1} ${WANT:+SUDOKU_VERSION=$WANT} \
+    SUDOKU_INSTALL_TTY="$tty" bash "$SIM/install.sh" 2>&1
 }
 
 case "$SCENARIO" in
-  first) input "$PASSWORD" "" ;;
-  connect) installed; echo 1 >"$S/unreachable"; echo 1 >"$S/refused"; input "" "" ;;
-  again) installed; input ;;
-  restart) installed; rm "$S/xovi"; printf '%s\n' "$OLD_APP" >"$S/app"; input "" ;;
-  twice) input "$PASSWORD" ""; run >/dev/null; input ;;
-  password) input wrong1 wrong2 wrong3 "" "$PASSWORD" "" ;;
-  hostkey) installed; touch "$S/hostkey-changed"; input y ;;
-  offline) installed; rm "$S/vellum" "$S/appload"; echo 1 >"$S/offline"; input "" ;;
-  download) installed; echo 1 >"$S/no-network"; input "" ;;
-  stop) echo 9 >"$S/unreachable"; input q ;;
-  other) installed; printf 'reMarkable Chiappa\n' >"$S/model"; input "" ;;
-  patch) installed; printf 'old\n' >"$S/patch"; input "" ;;
+  first) input "" "$PASSWORD" "" ;;
+  connect) installed; echo 1 >"$S/unreachable"; echo 1 >"$S/refused"; input "" "" "" ;;
+  again) installed; input "" ;;
+  restart) installed; rm "$S/xovi"; printf '%s\n' "$OLD_APP" >"$S/app"; input "" "" ;;
+  twice) input "" "$PASSWORD" ""; run >/dev/null; input "" ;;
+  password) input "" wrong1 wrong2 wrong3 "" "$PASSWORD" "" ;;
+  hostkey) installed; touch "$S/hostkey-changed"; input "" y ;;
+  offline) installed; rm "$S/vellum" "$S/appload"; echo 1 >"$S/offline"; input "" "" ;;
+  download) installed; echo 1 >"$S/no-network"; input "" "" ;;
+  stop) echo 9 >"$S/unreachable"; input "" q ;;
+  other) installed; printf 'reMarkable Chiappa\n' >"$S/model"; input "" "" ;;
+  patch) installed; printf 'old\n' >"$S/patch"; input "" "" ;;
+  preview) installed; WANT=$PRE; preview; input ;;
+  missing) installed; WANT=v9.9.9; input ;;
+  select) installed; preview; releases; input 2 x 5 3 ;;
+  typed) installed; preview; input 2 "$PRE" ;;
   *) echo "run.sh: unknown scenario: $SCENARIO" >&2; exit 2 ;;
 esac
 run

@@ -25,6 +25,12 @@ for scenario in first connect restart again; do
   T=$(mktemp); bash ../tests/install/run.sh $scenario > $T || true
   python3 -I terminal.py $T "$OUT/install-$scenario.png"; rm -f $T
 done
+# The version menus in a terminal (tests/install/tty.py pushes the keys): the list of versions is
+# open, then the complete run after the selection of a preview version.
+T=$(mktemp); python3 -I ../tests/install/tty.py select down enter down down wait > $T
+python3 -I terminal.py $T "$OUT/install-menu.png"
+python3 -I ../tests/install/tty.py select down enter down down enter > $T
+python3 -I terminal.py $T "$OUT/install-select.png"; rm -f $T
 # The AppLoad icon. AppLoad shows icon.png at 150x150 and does not read SVG files.
 I=$(mktemp); rsvg-convert -w 150 -h 150 ../icon.svg -o $I
 magick $I -colorspace gray -define png:exclude-chunks=date,time "$HERE/../appload/sudoku/icon.png"; rm -f $I

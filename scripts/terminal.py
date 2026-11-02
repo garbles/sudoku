@@ -3,8 +3,10 @@
 #   python3 -I terminal.py IN.ansi OUT.png
 #
 # scripts/build.sh uses it for the images of the installer (images/install-*.png). The input comes
-# from tests/install/run.sh. The script knows these SGR codes: 0, 1, 2, 22, 30-37, 39, 40-47, 49,
-# 90-97, 100-107, 38;5;n and 48;5;n. It ignores all other escape sequences.
+# from tests/install/run.sh (or tests/install/tty.py). The script knows these SGR codes: 0, 1, 2, 22,
+# 30-37, 39, 40-47, 49, 90-97, 100-107, 38;5;n and 48;5;n. It also knows the cursor movements of the
+# menus of the installer: CR, ESC[nA (up), ESC[2K (erase the line) and ESC[J (erase to the end). It
+# ignores all other escape sequences.
 # The font is DejaVu Sans Mono (fonts/dejavu-mono-*.ttf). Each character has its own cell of the grid.
 import os, re, subprocess, sys, tempfile
 
@@ -48,10 +50,19 @@ def mix(a, b, t):
 
 def parse(text):
     """The rows of cells (char, fg, bg, bold, dim) of the text."""
-    rows, row = [], []
+    rows, r, col = [[]], 0, 0  # the screen and the cursor (row, column)
     fg, bg, bold, dim = None, None, False, False
+    blank = (" ", None, None, False, False)
     for token in re.split(r"(\x1b\[[0-9;?]*[A-Za-z])", text):
         if token.startswith("\x1b["):
+            arg = token[2:-1]
+            if token.endswith("A") and arg.isdigit():
+                r = max(0, r - int(arg))
+            elif token == "\x1b[2K":
+                rows[r] = []
+            elif token in ("\x1b[J", "\x1b[0J"):
+                del rows[r + 1:]
+                del rows[r][col:]
             if not token.endswith("m"):
                 continue
             codes = [int(c) if c else 0 for c in token[2:-1].split(";")]
@@ -88,14 +99,20 @@ def parse(text):
             continue
         for ch in token:
             if ch == "\n":
-                rows.append(row)
-                row = []
-            elif ch == "\t":
-                row.extend([(" ", fg, bg, bold, dim)] * (8 - len(row) % 8))
-            elif ch != "\r":
-                row.append((ch, fg, bg, bold, dim))
-    if row:
-        rows.append(row)
+                r, col = r + 1, 0
+                if r == len(rows):
+                    rows.append([])
+                continue
+            if ch == "\r":
+                col = 0
+                continue
+            cells = [(ch, fg, bg, bold, dim)]
+            if ch == "\t":
+                cells = [(" ", fg, bg, bold, dim)] * (8 - col % 8)
+            row = rows[r]
+            row.extend([blank] * (col - len(row)))
+            row[col:col + len(cells)] = cells
+            col += len(cells)
     while rows and not rows[-1]:
         rows.pop()
     return rows

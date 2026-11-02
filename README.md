@@ -52,7 +52,9 @@ curl -fsSL https://github.com/garbles/sudoku/releases/latest/download/install.sh
 
 The installer tells you what to do at each step:
 
-1. It downloads the latest release and examines its checksum.
+1. It asks which version you want: the latest version (push Enter), or a different version from a
+   list of all releases, for example a preview version. Then it downloads the release and examines
+   its checksum.
 2. It finds the tablet on the USB cable. If developer mode is off, it tells you how to turn it on.
 
    **Developer mode erases all data on the tablet.** Sync your notebooks to the cloud first.
@@ -76,6 +78,10 @@ The installer skips each step that is done. Thus you can run it again at all tim
 
 To use Wi-Fi in place of the USB cable, set the address of the tablet:
 `curl -fsSL .../install.sh | REMARKABLE_HOST=192.168.1.20 bash`.
+
+To select the version without the question, set its name from the
+[Releases](https://github.com/garbles/sudoku/releases) page:
+`curl -fsSL .../install.sh | SUDOKU_VERSION=pre-1a2b3c4 bash`.
 
 ### Manual installation
 

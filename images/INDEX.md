@@ -98,7 +98,8 @@ next page, next to the page number.
 ## Installer
 
 The terminal output of `install.sh` (REQUIREMENTS.md §14.6), in the simulation of
-`tests/install/run.sh`. `scripts/terminal.py` draws each image (width 1549 px, the height changes
+`tests/install/run.sh`. For the version menus, `tests/install/tty.py` runs the scenario in a
+terminal and pushes the arrow keys. `scripts/terminal.py` draws each image (width 1549 px, the height changes
 with the output). The font is DejaVu Sans Mono (`scripts/fonts/`).
 
 | Image | Scenario | Content |
@@ -107,6 +108,8 @@ with the output). The font is DejaVu Sans Mono (`scripts/fonts/`).
 | `install-connect.png` | `connect` | The tablet does not answer (instructions for the USB cable), then SSH is off (instructions for developer mode). All other steps are done already. |
 | `install-restart.png` | `restart` | After a restart of the tablet with an earlier version of Sudoku: the installer starts xovi and replaces the app. |
 | `install-again.png` | `again` | All steps are done already. The installer changes nothing. |
+| `install-menu.png` | `select` (in a terminal) | The user selected "A different version". The list of versions is open: the newest first, the type (`latest`, `stable` or `preview`) and the date. The arrow is on the preview version `pre-1a2b3c4`. |
+| `install-select.png` | `select` (in a terminal) | The complete run after the selection of `pre-1a2b3c4`: the menus changed to the line "Version: pre-1a2b3c4.", with the warning for a preview version. |
 
 ## Behavior summary
 
