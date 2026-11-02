@@ -53,8 +53,8 @@ curl -fsSL https://github.com/garbles/sudoku/releases/latest/download/install.sh
 The installer tells you what to do at each step:
 
 1. It asks which version you want: the latest version (push Enter), or a different version from a
-   list of all releases, for example a preview version. Then it downloads the release and examines
-   its checksum.
+   list of all releases, for example a preview version. Then it downloads the release and its ink
+   patch, and examines their checksums.
 2. It finds the tablet on the USB cable. If developer mode is off, it tells you how to turn it on.
 
    **Developer mode erases all data on the tablet.** Sync your notebooks to the cloud first.
@@ -92,11 +92,11 @@ To select the version without the question, set its name from the
      /home/root/xovi/rebuild_hashtable
    ```
 
-2. Download `sudoku-<version>.tar.gz` from the
+2. Download `sudoku-<version>.tar.gz` and the ink patch `sudoku-penregion.qmd` from the
 
-   [Releases](https://github.com/garbles/sudoku/releases) page, and extract it to `dist/`
+   [Releases](https://github.com/garbles/sudoku/releases) page. Extract the archive to `dist/`
    (`mkdir -p dist && tar -xzf sudoku-<version>.tar.gz -C dist`). Or build the app (refer to
-   [Build](#build)).
+   [Build](#build)): then the ink patch is `dist/sudoku/sudoku-penregion.qmd`.
 
 3. Copy the `dist/sudoku` folder to the tablet and make the program executable:
 
@@ -108,12 +108,18 @@ To select the version without the question, set its name from the
    `10.11.99.1` is the address of the tablet on a USB connection. On Wi-Fi, use the IP address of
    the tablet.
 
-4. Copy the ink patch and start xovi. The user interface of the tablet starts again:
+4. Copy the ink patch, write its stamp file (the version and the SHA-256 checksum of the patch) and
+   start xovi. The user interface of the tablet starts again:
 
    ```bash
-     scp dist/sudoku/sudoku-penregion.qmd root@10.11.99.1:/home/root/xovi/exthome/qt-resource-rebuilder/
+     scp sudoku-penregion.qmd root@10.11.99.1:/home/root/xovi/exthome/qt-resource-rebuilder/
+     ssh root@10.11.99.1 'cd /home/root/xovi/exthome/qt-resource-rebuilder && printf "{\"version\": \"%s\", \"sha256\": \"%s\"}\n" v<version> "$(sha256sum sudoku-penregion.qmd | cut -d " " -f 1)" > sudoku-penregion.json'
      ssh root@10.11.99.1 /home/root/xovi/start
    ```
+
+   An update in the app replaces the ink patch only when its checksum is different from the
+   checksum in `sudoku-penregion.json`, or when this file is missing. Then the app asks you to start
+   the interface again.
 
    After a restart of the tablet, run `/home/root/xovi/start` again.
 

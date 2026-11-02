@@ -340,6 +340,9 @@ pub fn draw(c: &mut Canvas, app: &App) {
         Screen::Statistics => draw_summary(c, &app.results, app.confirm_all),
         Screen::GamesList => draw_list(c, app),
     }
+    if app.update.dialog {
+        restart_dialog(c);
+    }
 }
 
 /// The x positions of the stops of the New game slider (layout.rs).
@@ -916,6 +919,18 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
                 let wing = |deg: f32| (ex + 8.0 * deg.to_radians().cos(), ey + 8.0 * deg.to_radians().sin());
                 c.polyline(&[wing(195.0), (ex, ey), wing(285.0)], 3.0, BLACK, true);
             }
+            UpdateButton::Restart => {
+                // A power symbol: an arc (radius 12 px) clockwise from 300 to 600 (240) degrees, with
+                // the gap at the top, and a line from 15 px to 3 px above the center.
+                let arc: Vec<(f32, f32)> = (0..=20)
+                    .map(|k| {
+                        let a = (300.0 + 15.0 * k as f32).to_radians();
+                        (ix + 12.0 * a.cos(), cy + 12.0 * a.sin())
+                    })
+                    .collect();
+                c.polyline(&arc, 3.0, BLACK, true);
+                c.polyline(&[(ix, cy - 15.0), (ix, cy - 3.0)], 3.0, BLACK, true);
+            }
         }
         c.text(true, 25.0, x0 + 72.0, cy + 9.0, Anchor::Start, button.text(), BLACK);
     }
@@ -1079,19 +1094,36 @@ pub fn draw_summary(c: &mut Canvas, results: &[ResultRow], confirm_all: bool) {
 /// A confirmation dialog at the center of the page (analytics.py): a title, one line, "You cannot
 /// undo this action.", Cancel and Delete.
 fn confirm_dialog(c: &mut Canvas, title: &str, line: &str) {
+    dialog_box(c, title, [line, "You cannot undo this action."], ["Cancel", "Delete"]);
+}
+
+/// The dialog "Restart the interface?" (§9.2, UPD-10), over all screens. The buttons are "Later" and
+/// "Restart".
+pub const RESTART_TITLE: &str = "Restart the interface?";
+pub const RESTART_LINES: [&str; 2] = ["The update has a new ink patch. To use it,", "the reMarkable interface must start again."];
+
+fn restart_dialog(c: &mut Canvas) {
+    c.set_page_units(true);
+    dialog_box(c, RESTART_TITLE, RESTART_LINES, ["Later", "Restart"]);
+    c.set_page_units(false);
+}
+
+/// A dialog at the center of the page, on the pale screen (analytics.py): a title, two lines, and two
+/// buttons in the last row. The right button is white on black.
+fn dialog_box(c: &mut Canvas, title: &str, lines: [&str; 2], buttons: [&str; 2]) {
     c.veil(0.6);
     let (dx0, dy0, dx1, dy1) = dialog();
     c.rect(dx0, dy0, dx1, dy1, WHITE);
     c.stroke_rect(dx0, dy0, dx1, dy1, 1.7, BLACK);
     c.text(true, 44.0, dx0 + 40.0, dy0 + 75.0, Anchor::Start, title, BLACK);
-    c.text(false, 34.0, dx0 + 40.0, dy0 + 140.0, Anchor::Start, line, gray(25));
-    c.text(false, 34.0, dx0 + 40.0, dy0 + 190.0, Anchor::Start, "You cannot undo this action.", gray(25));
+    c.text(false, 34.0, dx0 + 40.0, dy0 + 140.0, Anchor::Start, lines[0], gray(25));
+    c.text(false, 34.0, dx0 + 40.0, dy0 + 190.0, Anchor::Start, lines[1], gray(25));
     hline(c, dy1 - ROW, dx0, dx1);
     let mid = ((dx0 + dx1) / 2.0).floor();
     c.rect(mid, dy1 - ROW, dx1, dy1, BLACK);
     let by = dy1 - (ROW / 2.0).floor() + 12.0;
-    c.text(true, 34.0, ((dx0 * 3.0 + dx1) / 4.0).floor(), by, Anchor::Middle, "Cancel", BLACK);
-    c.text(true, 34.0, ((dx0 + dx1 * 3.0) / 4.0).floor(), by, Anchor::Middle, "Delete", WHITE);
+    c.text(true, 34.0, ((dx0 * 3.0 + dx1) / 4.0).floor(), by, Anchor::Middle, buttons[0], BLACK);
+    c.text(true, 34.0, ((dx0 + dx1 * 3.0) / 4.0).floor(), by, Anchor::Middle, buttons[1], WHITE);
 }
 
 /// A date in local time, for example "22 Oct 2026, 20:22".

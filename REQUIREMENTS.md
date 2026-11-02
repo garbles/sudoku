@@ -553,7 +553,12 @@ build do not look for updates and do not have the update row.
 **Look for an update.** The app reads two files of the latest stable release:
 
 - `https://github.com/garbles/sudoku/releases/latest/download/version.json`:
-  `{"version": "v<version>", "url": "<archive URL>", "sha256": "<checksum of the archive>"}`.
+  `{"version": "v<version>", "url": "<archive URL>", "sha256": "<checksum of the archive>",
+  "patch_url": "<ink patch URL>", "patch_sha256": "<checksum of the ink patch>"}`. The ink patch
+  ([§14.4](#144-launcher)) is a separate file of the release (`sudoku-penregion.qmd`), not a file in
+  the archive (owner decision 2026-11-01). A release before this decision does not have `patch_url`
+  and `patch_sha256`. The two fields are together or not at all, the URL must be HTTPS, and the
+  checksum must be a SHA-256 checksum.
 - `https://github.com/garbles/sudoku/releases/latest/download/version.json.sig`: the ed25519
   signature (64 bytes) of the bytes of `version.json`.
 
@@ -586,7 +591,8 @@ other rows. It shows one of these:
 | An update is available | The button **Update to v\<version\>** |
 | The update installs | "Installing update..." |
 | The installation failed | "Update failed" for 3 seconds, then the button again |
-| The update is installed | "Restart to apply update" |
+| The update is installed, and the ink patch did not change | "Restart Sudoku to update" |
+| The update is installed, and it replaced the ink patch | The button **Restart interface** |
 
 - The text of a state is reMarkable Sans Regular, 25 px, `gray40`, at the left (33 px from the left
   edge of the panel). The baseline is 65 px below the top of the row.
@@ -611,15 +617,45 @@ other rows. It shows one of these:
   updates** or **Update to v\<version\>**. A failed attempt does not remove an earlier result. After
   a failed attempt, the row shows the button that it showed before the attempt (**Check for
   updates** if no attempt was successful).
-- "Restart to apply update" is only a text. The user closes the app and opens it again from
-  AppLoad. Then the new version operates.
+- "Restart Sudoku to update" is only a text. The user closes the app and opens it again from
+  AppLoad. Then the new version operates (owner decision 2026-11-01).
+- **Restart interface** has the same design as the other two buttons. Its icon is a power symbol:
+  an arc with a radius of 12 px, with a gap at the top (from 300 degrees clockwise to 240 degrees),
+  and a line from 15 px to 3 px above the center. Image:
+  [`settings-restart.png`](images/settings-restart.png). xochitl reads the ink patch only when it
+  starts, thus the reMarkable interface must start again (`/home/root/xovi/start`). A restart of
+  the tablet is not sufficient, because it stops xovi ([§14.6](#146-installer)). A tap on the
+  button does the same as **Restart** in the restart dialog (below), with no dialog.
 
-**Installation.** The app runs as root. Thus it installs only an archive that agrees with the signed
-`version.json`:
+**Restart dialog** (owner decision 2026-11-01). When the installation replaced the ink patch, a
+dialog shows over the screen (also over a panel, the manual or the statistics). It has the same
+design and position as the delete dialogs of the statistics ([§13](#13-statistics)):
+
+- Title: "Restart the interface?". Text: "The update has a new ink patch. To use it," and "the
+  reMarkable interface must start again.".
+- Buttons: **Later** (black on white, left) and **Restart** (white on black, right).
+- Before the dialog shows, the app reads the waiting ink. The highlight and the "?" go away. A pen
+  or a finger that is on the screen has no more effect.
+- While the dialog shows, only its two buttons operate (with the pen or a finger). All other taps
+  and strokes have no effect.
+- **Later** closes the dialog. The update row shows the button **Restart interface**.
+- **Restart** saves the game. Then the app runs `/home/root/xovi/start` in a systemd unit of its own
+  (`systemd-run`), because the stop of xochitl stops all processes of the xochitl service. The
+  interface starts again with xovi and the new patch. The new version of the app operates when the
+  user opens it again from AppLoad. If the app cannot start the script, the dialog closes, and the
+  row shows the button **Restart interface**.
+
+Images: [`update-restart.png`](images/update-restart.png) (the dialog),
+[`settings-restart.png`](images/settings-restart.png) (the button after **Later**).
+
+**Installation.** The app runs as root. Thus it installs only an archive and an ink patch that agree
+with the signed `version.json`:
 
 1. The app downloads the archive to `update/` in the data folder ([§14](#14-data-that-the-app-keeps)),
-   not to `/tmp`.
-2. The SHA-256 checksum of the archive must be equal to `sha256` in `version.json`.
+   not to `/tmp`. If `version.json` has `patch_url`, it also downloads the ink patch.
+2. The SHA-256 checksum of the archive must be equal to `sha256` in `version.json`. The checksum of
+   the ink patch must be equal to `patch_sha256`. The app examines the two checksums before it
+   changes a file.
 3. The app extracts the archive in `update/`. The archive must have the folder `sudoku/` with the
    program `sudoku` and `external.manifest.json`. It must not have links, or paths that go out of
    the folder.
@@ -629,8 +665,14 @@ other rows. It shows one of these:
    operates. The program that operates continues with its old files.
 5. The app deletes `sudoku.old` and `update/`. When the app opens, it also deletes a `sudoku.old`,
    a `sudoku.new` and an `update/` that stay from an earlier installation.
+6. The app compares `patch_sha256` with the checksum in the stamp file of the ink patch
+   ([§14.4](#144-launcher)). If the two are different, or the stamp file is missing or not correct,
+   the app writes the new patch and then the stamp file with the new version and `patch_sha256`
+   (each file with one rename). Then the dialog "Restart the interface?" shows. If the two are
+   equal, the patch does not change. A release with no `patch_url` does not change the patch.
 
-If a step fails, the app folder does not change, and the row shows "Update failed".
+If step 1, 2, 3 or 4 fails, the app folder does not change, and the row shows "Update failed". If
+step 6 fails, the row also shows "Update failed", and a new tap installs the release again.
 
 ## 10. Cell colors panel
 
@@ -902,7 +944,8 @@ package manager **Vellum**:
    `lockscreen_hook` supports only OS versions before 3.28.
 2. `/home/root/xovi/rebuild_hashtable`.
 3. Copy the ink patch `dist/sudoku/sudoku-penregion.qmd` to
-   `/home/root/xovi/exthome/qt-resource-rebuilder/`.
+   `/home/root/xovi/exthome/qt-resource-rebuilder/`, and write its stamp file
+   `sudoku-penregion.json` next to it.
 4. `/home/root/xovi/start`. After a restart of the tablet, run `/home/root/xovi/start` again.
 5. Copy the folder `dist/sudoku` (from the Dockerfile) to `/home/root/xovi/exthome/appload/`.
 
@@ -930,6 +973,14 @@ reads it each 15 ms:
   changed pixels of an update in progress.
 - An update of the tablet software or of AppLoad can stop the patch. Then the window opens, but the
   ink can have gaps.
+
+**Stamp file** (owner decision 2026-11-01). Next to the patch, the file
+`/home/root/xovi/exthome/qt-resource-rebuilder/sudoku-penregion.json` gives the version that
+installed the patch and the SHA-256 checksum of the patch:
+`{"version": "v<version>", "sha256": "<checksum>"}`. The installer (§14.6) and the update of the app
+(§9.2) write it each time that they install the patch. The update compares the checksum of the new
+patch only with the checksum in this file. A missing stamp file means that the patch must be
+replaced.
 
 The close button shows the reMarkable interface again. AppLoad draws a black line of 2 px around the
 window of each app, also in full screen. The app cannot remove it. The app does not put content at
@@ -976,7 +1027,8 @@ app opens a results database of version 1, it moves the rows to the new table wi
 ### 14.6 Installer
 
 `install.sh` installs the app on the tablet from a computer (macOS or Linux). Each release has this
-file. It installs the archive of its release. The command for the latest stable release is:
+file. It installs the archive and the ink patch of its release. release.yml writes the version and
+the two checksums into it. The command for the latest stable release is:
 
 ```bash
 curl -fsSL https://github.com/garbles/sudoku/releases/latest/download/install.sh | bash
@@ -992,10 +1044,11 @@ The installer has these requirements (owner decision, 2026-10-27):
   More than 10 rows scroll. In a terminal, the user moves with the arrow keys (or `j` and `k`),
   selects with Enter and stops with `q`. After the selection, the menu changes to one line with
   the version. With an input file (the tests), the rows have numbers and the user types a number.
-  If GitHub does not give the list, the user types the name of the version.
+  If GitHub does not give the list, the user types the name of the version. A name with characters
+  other than letters, digits, `.`, `_` and `-` stops the installer.
   `SUDOKU_VERSION` selects a release with no question, for example `v0.1.2` or the preview version
   `pre-1a2b3c4` (`0.1.2` gets the prefix `v`). For a version that is not the latest, the installer
-  reads the checksum from `version.json` of that release. If GitHub does not have the release, the
+  reads the two checksums (archive and ink patch) from `version.json` of that release. If GitHub does not have the release, the
   installer stops. For a preview version, it shows a warning.
 - **Idempotent.** Each step examines the tablet or the computer first. If the step is done, the
   installer shows "(done already)" and does not change it. A second run changes nothing.
@@ -1013,14 +1066,14 @@ The steps:
 | Step | Examination | Action |
 |---|---|---|
 | 1. Programs | `ssh`, `ssh-keygen`, `curl`, `tar` and `sha256sum` or `shasum` | If a program is missing, the installer tells how to install it and stops. |
-| 2. Download | – | Asks for the version (or uses `SUDOKU_VERSION`). For a version that is not the latest, downloads `version.json` of that release. Downloads `sudoku-<version>.tar.gz` and compares its SHA-256 checksum. If the checksum is not correct, the installer stops. |
+| 2. Download | – | Asks for the version (or uses `SUDOKU_VERSION`). For a version that is not the latest, downloads `version.json` of that release. Downloads `sudoku-<version>.tar.gz` and the ink patch `sudoku-penregion.qmd` of the release, and compares their SHA-256 checksums. If a checksum is not correct, the installer stops. A release with no `patch_sha256` has no separate patch: then step 8 does nothing. |
 | 3. Connection | SSH to `10.11.99.1` (or `REMARKABLE_HOST`) | No answer: instructions for the USB cable. Connection refused: instructions for developer mode (with the caution that it erases the tablet). Changed host key: the installer removes the old key after a confirmation. |
 | 4. SSH key | `~/.ssh/id_ed25519_remarkable`, and the tablet accepts it | Makes the key (ed25519, no passphrase). Adds it to `/home/root/.ssh/authorized_keys`, with a different key of the computer or with the root password. The installer tells where the password is (Settings > General > Help > About > Copyrights and licenses). Shows the tablet model and software version. A tablet that is not a Paper Pro needs a confirmation. |
 | 5. Vellum | `/home/root/.vellum/bin/vellum` | Examines the internet connection of the tablet (instructions for Wi-Fi). Downloads the latest Vellum bootstrap script on the computer (curl examines the TLS certificate) and runs it on the tablet. The installer keeps no checksum of this script, because each Vellum release changes it. |
 | 6. AppLoad | `/home/root/xovi/extensions.d/appload.so` | `vellum update`, then `vellum add appload`. |
 | 7. Hashtable | `/home/root/xovi/exthome/qt-resource-rebuilder/hashtab` | Tells the user that the screen stops for 1 to 2 minutes, then runs `xovi/rebuild_hashtable`. |
-| 8. Ink patch | The SHA-256 checksum of `sudoku-penregion.qmd` in `xovi/exthome/qt-resource-rebuilder` is equal to the checksum of the copy in the archive | Copies the ink patch (§14.4) from the archive to the tablet. |
-| 9. xovi | `xochitl` has `xovi.so`, and step 8 did not copy the patch | Runs `xovi/start` (the user interface starts again). The patch operates only after this start. |
+| 8. Ink patch | The SHA-256 checksum of `sudoku-penregion.qmd` in `xovi/exthome/qt-resource-rebuilder` and the checksum in its stamp file `sudoku-penregion.json` are equal to the checksum of the downloaded patch | Copies the ink patch (§14.4) to the tablet. The tablet examines the checksum before it replaces the patch. Then it writes the stamp file with the version of the installer and the checksum. If only the stamp file is missing or different, the installer writes it, and step 9 does not start xovi again. |
+| 9. xovi | `xochitl` has `xovi.so`, and step 8 did not replace the patch | Runs `xovi/start` (the user interface starts again). The patch operates only after this start. |
 | 10. Sudoku | The SHA-256 checksum of the installed `sudoku` is equal to the checksum in the archive | Copies the archive to the tablet and replaces the AppLoad folder `sudoku` only after all checks. The saved data (§14.1–14.3) does not change. |
 
 At the end, a box tells how to open the app. A restart of the tablet stops xovi. To start it again,
@@ -1102,6 +1155,8 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`settings-update.png`](images/settings-update.png) | [§9.2](#92-updates) |
 | [`settings-up-to-date.png`](images/settings-up-to-date.png) | [§9.2](#92-updates) |
 | [`settings-check-updates.png`](images/settings-check-updates.png) | [§9.2](#92-updates) |
+| [`settings-restart.png`](images/settings-restart.png) | [§9.2](#92-updates) |
+| [`update-restart.png`](images/update-restart.png) | [§9.2](#92-updates) |
 | [`screen-toolbar-update.png`](images/screen-toolbar-update.png) | [§9.2](#92-updates) |
 | [`analytics-delete-all.png`](images/analytics-delete-all.png) | [§13.1](#131-summary) |
 | `analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png` | [§3.3](#33-landscape), [§13](#13-statistics) |

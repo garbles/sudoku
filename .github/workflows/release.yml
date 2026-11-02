@@ -11,10 +11,11 @@
 # 1. media: Dockerfile.imagegen makes the images, the AppLoad icon and the demo videos again. They
 #    must be the same as the files in git.
 # 2. release: the Dockerfile runs all tests on aarch64 Linux and builds the app. Then the job makes
-#    a GitHub release with the AppLoad folder (sudoku-<version>.tar.gz), version.json,
-#    version.json.sig and install.sh. install.sh has the version and the checksum of the archive of
-#    its release. version.json gives the version, the download URL and the SHA-256 checksum of the
-#    archive. version.json.sig is the ed25519 signature of version.json with the private key in the
+#    a GitHub release with the AppLoad folder (sudoku-<version>.tar.gz), the ink patch
+#    (sudoku-penregion.qmd, not in the archive), version.json, version.json.sig and install.sh.
+#    install.sh has the version, the checksum of the archive and the checksum of the patch of its
+#    release. version.json gives the version, the download URL and the SHA-256 checksum of the
+#    archive, and the download URL and the SHA-256 checksum of the patch. version.json.sig is the ed25519 signature of version.json with the private key in the
 #    secret SUDOKU_SIGNING_KEY (PEM). The app installs an update only with a correct signature
 #    (REQUIREMENTS.md §9.2). A stable release fails without the secret.
 name: Release
@@ -189,21 +190,28 @@ jobs:
           SIGNING_KEY: ${{ secrets.SUDOKU_SIGNING_KEY }}
           REPLACE_OLD: ${{ steps.tag.outputs.replace }}
         run: |
+          # The ink patch is a separate file of the release (REQUIREMENTS.md §9.2, §14.6). The
+          # installer and the app download it, and do not read it from the archive.
+          patch=sudoku-penregion.qmd
+          mv "dist/sudoku/$patch" "$patch"
+          patch_sha256="$(sha256sum "$patch" | cut -d ' ' -f 1)"
+          base="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$VERSION"
           archive="sudoku-$VERSION.tar.gz"
           tar -C dist -czf "$archive" sudoku
           sha256="$(sha256sum "$archive" | cut -d ' ' -f 1)"
-          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/download/$VERSION/$archive"
-          jq -n --arg version "$VERSION" --arg url "$url" --arg sha256 "$sha256" \
-            '{version: $version, url: $url, sha256: $sha256}' > version.json
+          jq -n --arg version "$VERSION" --arg url "$base/$archive" --arg sha256 "$sha256" \
+            --arg patch_url "$base/$patch" --arg patch_sha256 "$patch_sha256" \
+            '{version: $version, url: $url, sha256: $sha256, patch_url: $patch_url, patch_sha256: $patch_sha256}' > version.json
           cat version.json
-          # install.sh of this release installs this archive (REQUIREMENTS.md §14.6).
+          # install.sh of this release installs this archive and this patch (REQUIREMENTS.md §14.6).
           mkdir -p installer
-          sed -e "s/@SUDOKU_VERSION@/$VERSION/" -e "s/@SUDOKU_SHA256@/$sha256/" install.sh > installer/install.sh
+          sed -e "s/@SUDOKU_VERSION@/$VERSION/" -e "s/@SUDOKU_SHA256@/$sha256/" -e "s/@SUDOKU_PATCH_SHA256@/$patch_sha256/" \
+            install.sh > installer/install.sh
           if grep -q '@SUDOKU_' installer/install.sh; then
             echo "::error::install.sh still has a placeholder."
             exit 1
           fi
-          files=("$archive" version.json installer/install.sh)
+          files=("$archive" "$patch" version.json installer/install.sh)
           if [ -n "$SIGNING_KEY" ]; then
             key="$RUNNER_TEMP/signing-key.pem"
             (umask 077 && printf '%s\n' "$SIGNING_KEY" > "$key")

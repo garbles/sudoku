@@ -3,6 +3,8 @@
 #   analytics-games.png  table of completed games (with a difficulty filter). Each game has a delete button.
 #   analytics-delete.png the same list after a tap on a bin: a confirmation dialog
 #   analytics-delete-all.png the summary after a tap on "Delete all games": a confirmation dialog
+#   update-restart.png   settings-restart.png (toolbar.sh) with the dialog "Restart the interface?" of
+#                        an update that replaced the ink patch (REQUIREMENTS.md §9.2)
 # and the same three screens for landscape (analytics-landscape.png, analytics-games-landscape.png,
 # analytics-delete-landscape.png): 1872x1404 units with the same scale, on 2160x1620. The positions
 # are the same as in src/layout.rs.
@@ -85,11 +87,13 @@ def chrome(out, P, title, page=None):
 def hline(out, y, x0=72, x1=1332, w=1.7):
     out.append(f"stroke none fill black rectangle {n(x0)},{n(y)} {n(x1)},{n(y+w)}")
 
-def render(out, P, name):
+def render(out, P, name, base=None):
+    """Draws the MVG on a white page, or on the image `base` of OUT."""
     mvg = os.path.join(OUT, f".{name}.mvg")
     with open(mvg, "w") as f:
         f.write(f"push graphic-context\nscale {SCALE},{SCALE}\n" + "\n".join(out) + "\npop graphic-context\n")
-    subprocess.run(["magick", "-size", P.size, "xc:white", "-draw", f"@{mvg}",
+    start = [os.path.join(OUT, base)] if base else ["-size", P.size, "xc:white"]
+    subprocess.run(["magick", *start, "-draw", f"@{mvg}",
                     "-units", "PixelsPerInch", "-density", "229", os.path.join(OUT, P.suffix(name))], check=True)
     os.remove(mvg)
 
@@ -181,19 +185,25 @@ def screens(P):
 
 DELETE_ALL_W = 400   # the width of "Delete all games" (src/layout.rs)
 
-def dialog(out, P, title, line):
-    """A confirmation dialog at the center of the page, on the pale screen."""
+def dialog(out, P, title, line, line2="You cannot undo this action.", buttons=("Cancel", "Delete")):
+    """A dialog at the center of the page, on the pale screen. The right button is white on black."""
     out.append(f"stroke none fill rgba(255,255,255,0.6) rectangle 0,0 {P.w},{P.h}")
     dx0, dy0, dx1, dy1 = (n(v) for v in P.dialog)
     out.append(f"fill white stroke black stroke-width 1.7 rectangle {dx0},{dy0} {dx1},{dy1}")
     text(out, dx0+40, dy0+75, 44, "black", "start", title, HEAD)
     text(out, dx0+40, dy0+140, 34, "gray25", "start", line)
-    text(out, dx0+40, dy0+190, 34, "gray25", "start", "You cannot undo this action.")
+    text(out, dx0+40, dy0+190, 34, "gray25", "start", line2)
     hline(out, dy1-ROW, dx0, dx1)
     out.append(f"stroke none fill black rectangle {(dx0+dx1)//2},{dy1-ROW} {dx1},{dy1}")
     out.append(f"stroke none fill black rectangle {(dx0+dx1)//2},{dy1-ROW} {(dx0+dx1)//2+1.7},{dy1}")
-    text(out, (dx0*3+dx1)//4, dy1-ROW//2+12, 34, "black", "middle", "Cancel", HEAD)
-    text(out, (dx0+dx1*3)//4, dy1-ROW//2+12, 34, "white", "middle", "Delete", HEAD)
+    text(out, (dx0*3+dx1)//4, dy1-ROW//2+12, 34, "black", "middle", buttons[0], HEAD)
+    text(out, (dx0+dx1*3)//4, dy1-ROW//2+12, 34, "white", "middle", buttons[1], HEAD)
 
 screens(Page(False))
 screens(Page(True))
+
+# --- the dialog of an update that replaced the ink patch, over the Settings panel (src/render.rs)
+out = []
+dialog(out, Page(False), "Restart the interface?", "The update has a new ink patch. To use it,",
+       "the reMarkable interface must start again.", ("Later", "Restart"))
+render(out, Page(False), "update-restart.png", base="settings-restart.png")

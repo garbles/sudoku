@@ -12,6 +12,7 @@
 #   vellum, appload, hashtab, xovi  The parts that are installed or on.
 #   app                             The SHA-256 checksum of the installed executable.
 #   patch                           The SHA-256 checksum of the installed ink patch.
+#   stamp                           The SHA-256 checksum in the stamp file of the ink patch.
 #
 # install.sh starts each remote command with ": name;". This file finds the command from the name.
 S="$SIM/state"
@@ -148,10 +149,18 @@ EOF
   make-hashtab) touch "$S/hashtab"; rm -f "$S/xovi" ;; # rebuild_hashtable stops the user interface
   start-xovi) touch "$S/xovi" ;;
   app-hash) cat "$S/app" 2>/dev/null; true ;;
-  patch-hash) cat "$S/patch" 2>/dev/null; true ;;
+  patch-hash)
+    echo "patch=$(cat "$S/patch" 2>/dev/null)"
+    echo "stamp=$(cat "$S/stamp" 2>/dev/null)"
+    ;;
   install-patch)
+    # The real command examines the checksum on the tablet: it is the word after '" = ' in the command.
     if command -v sha256sum >/dev/null; then sum=(sha256sum); else sum=(shasum -a 256); fi
-    "${sum[@]}" | cut -d ' ' -f 1 >"$S/patch"
+    got="$("${sum[@]}" | cut -d ' ' -f 1)"
+    want="$(printf '%s' "$cmd" | sed -n 's/.*" = \([0-9a-f]\{64\}\) ].*/\1/p')"
+    [ "$got" = "$want" ] || exit 1
+    printf '%s\n' "$got" >"$S/patch"
+    printf '%s\n' "$got" >"$S/stamp"
     ;;
   install-app)
     t="$(mktemp -d)"

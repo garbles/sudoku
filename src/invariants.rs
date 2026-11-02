@@ -164,7 +164,7 @@ pub fn check_app(app: &App) -> Result<(), String> {
         ensure!(app.screen == Screen::GamesList, "ANA-7", "the delete dialog on screen {:?}", app.screen);
     }
 
-    // Updates (UPD-1, UPD-2, UPD-7, UPD-8, UPD-9).
+    // Updates (UPD-1, UPD-2, UPD-7, UPD-8, UPD-9, UPD-10).
     let u = &app.update;
     let current = parse_version(&u.current);
     ensure!((u.state == UpdateState::Off) == current.is_none(), "UPD-1", "state {:?} for version {}", u.state, u.current);
@@ -183,6 +183,12 @@ pub fn check_app(app: &App) -> Result<(), String> {
     }
     if u.checking {
         ensure!(matches!(u.state, UpdateState::Unknown | UpdateState::CheckFailed | UpdateState::UpToDate), "UPD-9", "a request in progress in state {:?}", u.state);
+    }
+    if u.dialog || app.restart_ui {
+        ensure!(u.state == UpdateState::Installed { patch: true }, "UPD-10", "the restart dialog in state {:?}", u.state);
+    }
+    if u.dialog {
+        ensure!(app.ui.pending_ink.is_none() && app.live_stroke.is_none(), "UPD-10", "ink under the restart dialog");
     }
     Ok(())
 }

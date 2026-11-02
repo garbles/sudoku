@@ -962,7 +962,7 @@ fn the_check_button_sends_a_request() {
     assert_eq!((d.app.ui.panel, d.app.screen), (Panel::Settings, Screen::Game));
     assert_eq!(board(&d), before);
     // No update: "Sudoku is up to date" until the panel closes, then the button again.
-    let m = sudoku::update::Manifest { version: "v0.1.0".into(), url: String::new(), sha256: String::new() };
+    let m = sudoku::update::Manifest { version: "v0.1.0".into(), url: String::new(), sha256: String::new(), ..Default::default() };
     d.app.update_checked(Ok(m));
     assert_eq!(d.app.update.row_text(), Some("Sudoku is up to date"));
     d.finger_tap(x, y);
@@ -976,6 +976,66 @@ fn the_check_button_sends_a_request() {
 }
 
 #[test]
+fn the_restart_dialog_accepts_only_its_buttons() {
+    // UPD-10: after an update that replaced the ink patch, the dialog "Restart the interface?" shows
+    // over the screen. Only "Later" and "Restart" operate. "Later" closes it, and "Restart" asks the
+    // platform to run xovi/start.
+    use sudoku::update::UpdateState;
+    let mut d = Driver::new(58);
+    d.app.update = reference::update_state(true);
+    open_settings(&mut d);
+    d.app.update.tap();
+    d.app.update.request = None;
+    let now = d.now;
+    d.app.update_installed(Ok(true), now);
+    assert!(d.app.update.dialog);
+    assert_eq!(d.app.update.state, UpdateState::Installed { patch: true });
+    let board = |d: &Driver| (d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len(), d.app.settings.clone());
+    let before = board(&d);
+    // A tap on a switch of the Settings panel (under the dialog) and on the menu button: no effect.
+    let center = |r: layout::Rect| ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0);
+    let (sx, sy) = center(layout::settings_row(0));
+    d.finger_tap(sx, sy);
+    d.button(Button::Menu);
+    assert_eq!(board(&d), before);
+    assert_eq!((d.app.ui.menu_open, d.app.ui.panel), (true, Panel::Settings));
+    assert!(d.app.update.dialog && !d.app.restart_ui);
+    // "Later": the dialog closes, the row shows the button "Restart interface".
+    let (lx, ly) = center(layout::dialog_cancel());
+    d.finger_tap(lx, ly);
+    assert!(!d.app.update.dialog && !d.app.restart_ui);
+    assert_eq!(d.app.update.row_text(), None);
+    assert_eq!(d.app.update.button().map(|b| b.text().to_string()).as_deref(), Some("Restart interface"));
+    // A tap on the button asks for the restart. The game, the settings and the panel do not change.
+    d.app.game_dirty = false;
+    let (bx, by) = center(layout::update_button_area());
+    d.finger_tap(bx, by);
+    assert!(d.app.restart_ui && d.app.game_dirty, "the game is saved before the restart");
+    assert_eq!(board(&d), before);
+    assert_eq!((d.app.ui.menu_open, d.app.ui.panel), (true, Panel::Settings));
+    assert_eq!(d.app.update.request, None);
+    d.app.restart_failed();
+    assert!(!d.app.restart_ui);
+    assert!(d.app.update.button().is_some(), "after a failed start, the button stays");
+    // "Restart" in the dialog.
+    d.app.update.dialog = true;
+    let (rx, ry) = center(layout::dialog_delete());
+    d.pen_tap(rx, ry);
+    assert!(d.app.restart_ui, "the pen also operates the buttons");
+    assert!(d.app.game_dirty, "the game is saved before the restart");
+    d.app.restart_failed();
+    assert!(!d.app.update.dialog && !d.app.restart_ui);
+    // An update with no patch change: no dialog.
+    let mut d = Driver::new(59);
+    d.app.update = reference::update_state(true);
+    d.app.update.tap();
+    let now = d.now;
+    d.app.update_installed(Ok(false), now);
+    assert!(!d.app.update.dialog);
+    assert_eq!(d.app.update.row_text(), Some("Restart Sudoku to update"));
+}
+
+#[test]
 fn the_caution_icon_follows_the_update_state() {
     // UPD-3: the red icon on the gear shows only when an update is available, installs or is installed.
     use sudoku::update::{Update, UpdateState};
@@ -983,7 +1043,7 @@ fn the_caution_icon_follows_the_update_state() {
     let (x, y) = ((layout::tb_cx() + 16.0 - 5.0) as i32, (layout::tb_cy(2) - 16.0) as i32);
     let available = reference::update_state(true);
     let mut installed = available.clone();
-    installed.state = UpdateState::Installed;
+    installed.state = UpdateState::Installed { patch: false };
     for (update, want) in [(available, true), (installed, true), (reference::update_state(false), false), (Update::new("dev"), false)] {
         let state = update.state.clone();
         sudoku::layout::set_right_handed(false);

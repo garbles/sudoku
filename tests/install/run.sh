@@ -21,6 +21,9 @@
 #   stop      The tablet is not connected, and the user types q.
 #   other     The tablet is a Paper Pro Move, and the user does not continue.
 #   patch     All steps are done, but the ink patch is old: the installer copies it and starts xovi again.
+#   stamp     All steps are done, but the stamp file of the ink patch is missing (an installer before the
+#             stamp file): the installer writes the stamp file and does not start xovi again.
+#   badpatch  The ink patch on GitHub does not agree with its checksum: the installer stops at step 2.
 #   preview   All steps are done. SUDOKU_VERSION selects the preview version pre-1a2b3c4.
 #   missing   SUDOKU_VERSION selects a version that GitHub does not have.
 #   select    All steps are done. The user selects "A different version", then types an incorrect
@@ -46,17 +49,18 @@ archive() { # version, archive file
   mkdir -p "$d/sudoku"
   printf 'fake sudoku %s\n' "$1" >"$d/sudoku/sudoku"
   printf '{"name": "Sudoku"}\n' >"$d/sudoku/external.manifest.json"
-  printf '; fake ink patch\n' >"$d/sudoku/sudoku-penregion.qmd"
   tar -C "$d" -czf "$2" sudoku
   "${SUM[@]}" "$d/sudoku/sudoku" | cut -d ' ' -f 1
 }
 APP="$(archive "$VERSION" "$SIM/web/sudoku-$VERSION.tar.gz")"
-PATCH="$("${SUM[@]}" "$SIM/pkg-$VERSION/sudoku/sudoku-penregion.qmd" | cut -d ' ' -f 1)"
+# The ink patch is a separate file of each release.
+printf '; fake ink patch\n' >"$SIM/web/sudoku-penregion.qmd"
+PATCH="$("${SUM[@]}" "$SIM/web/sudoku-penregion.qmd" | cut -d ' ' -f 1)"
 OLD_APP="$(archive v0.1.1 "$SIM/old.tar.gz")"
 WANT="" # SUDOKU_VERSION of the user
 SHA="$("${SUM[@]}" "$SIM/web/sudoku-$VERSION.tar.gz" | cut -d ' ' -f 1)"
 # The same replacement as release.yml.
-sed -e "s/@SUDOKU_VERSION@/$VERSION/" -e "s/@SUDOKU_SHA256@/$SHA/" "$ROOT/install.sh" >"$SIM/install.sh"
+sed -e "s/@SUDOKU_VERSION@/$VERSION/" -e "s/@SUDOKU_SHA256@/$SHA/" -e "s/@SUDOKU_PATCH_SHA256@/$PATCH/" "$ROOT/install.sh" >"$SIM/install.sh"
 
 printf '#!/bin/sh\n# Fake Vellum bootstrap\n' >"$SIM/web/bootstrap.sh"
 printf '%s\n' "$PASSWORD" >"$S/password"
@@ -71,14 +75,16 @@ installed() {
   touch "$S/vellum" "$S/appload" "$S/hashtab" "$S/xovi"
   printf '%s\n' "$APP" >"$S/app"
   printf '%s\n' "$PATCH" >"$S/patch"
+  printf '%s\n' "$PATCH" >"$S/stamp"
 }
 # The release of the preview version $PRE, with its version.json.
 PRE=pre-1a2b3c4
 preview() {
   mkdir -p "$SIM/web/$PRE"
   archive "$PRE" "$SIM/web/sudoku-$PRE.tar.gz" >/dev/null
-  printf '{"version": "%s", "url": "x", "sha256": "%s"}\n' "$PRE" \
-    "$("${SUM[@]}" "$SIM/web/sudoku-$PRE.tar.gz" | cut -d ' ' -f 1)" >"$SIM/web/$PRE/version.json"
+  printf '; fake ink patch\n' >"$SIM/web/$PRE/sudoku-penregion.qmd"
+  printf '{"version": "%s", "url": "x", "sha256": "%s", "patch_url": "x", "patch_sha256": "%s"}\n' "$PRE" \
+    "$("${SUM[@]}" "$SIM/web/sudoku-$PRE.tar.gz" | cut -d ' ' -f 1)" "$PATCH" >"$SIM/web/$PRE/version.json"
 }
 # The list of releases of the GitHub API (compact JSON, the newest first).
 releases() {
@@ -115,7 +121,9 @@ case "$SCENARIO" in
   download) installed; echo 1 >"$S/no-network"; input "" "" ;;
   stop) echo 9 >"$S/unreachable"; input "" q ;;
   other) installed; printf 'reMarkable Chiappa\n' >"$S/model"; input "" "" ;;
-  patch) installed; printf 'old\n' >"$S/patch"; input "" "" ;;
+  patch) installed; printf 'old\n' >"$S/patch"; printf 'old\n' >"$S/stamp"; input "" "" ;;
+  stamp) installed; rm "$S/stamp"; input "" ;;
+  badpatch) installed; printf 'changed\n' >"$SIM/web/sudoku-penregion.qmd"; input "" ;;
   preview) installed; WANT=$PRE; preview; input ;;
   missing) installed; WANT=v9.9.9; input ;;
   select) installed; preview; releases; input 2 x 5 3 ;;

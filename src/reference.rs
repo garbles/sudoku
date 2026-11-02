@@ -59,8 +59,19 @@ pub fn update_state(available: bool) -> Update {
     let mut u = Update::new("v0.1.0");
     u.request = None;
     let version = if available { "v0.2.0" } else { "v0.1.0" };
-    let m = Manifest { version: version.to_string(), url: String::new(), sha256: String::new() };
+    let m = Manifest { version: version.to_string(), url: String::new(), sha256: String::new(), ..Manifest::default() };
     u.checked(Ok(m), true);
+    u
+}
+
+/// The update v0.2.0 is installed and replaced the ink patch (§9.2, UPD-10). `dialog`: the dialog
+/// "Restart the interface?" shows (else the user tapped "Later").
+pub fn restart_state(dialog: bool) -> Update {
+    let mut u = update_state(true);
+    u.tap();
+    u.request = None;
+    u.installed(Ok(true), 0);
+    u.dialog = dialog;
     u
 }
 
@@ -193,6 +204,24 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             a.game.undo();
             a.update = update_state(false);
             a.update.panel_closed();
+            a.ui.menu_open = true;
+            a.ui.panel = Panel::Settings
+        }),
+        ("settings-restart.png", |a| {
+            // UPD-10: the update replaced the ink patch, and the user tapped "Later" in the dialog.
+            a.game = sample_game();
+            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
+            a.game.undo();
+            a.update = restart_state(false);
+            a.ui.menu_open = true;
+            a.ui.panel = Panel::Settings
+        }),
+        ("update-restart.png", |a| {
+            // UPD-10: the installation is complete and replaced the ink patch.
+            a.game = sample_game();
+            a.game.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
+            a.game.undo();
+            a.update = restart_state(true);
             a.ui.menu_open = true;
             a.ui.panel = Panel::Settings
         }),

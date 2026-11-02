@@ -45,14 +45,16 @@ impl Paths {
 }
 
 /// The ink patch: a QML patch of AppLoad that shows the pen region (`appload/sudoku/sudoku-penregion.qmd`).
-/// install.sh copies it here.
-const PEN_REGION_PATCH: &str = "/home/root/xovi/exthome/qt-resource-rebuilder/sudoku-penregion.qmd";
+/// install.sh and the update (§9.2) copy it to `update::PATCH_DIR`.
+fn pen_region_patch() -> PathBuf {
+    Path::new(update::PATCH_DIR).join(update::PATCH_NAME)
+}
 
 /// True if xochitl applied the ink patch: the patch is installed, and xochitl (the parent process,
 /// because AppLoad starts the app) started after the patch was copied. xochitl reads the patches only
 /// when it starts. If the parent is not xochitl, the file is sufficient.
 fn pen_region_patch_active() -> bool {
-    let Ok(modified) = std::fs::metadata(PEN_REGION_PATCH).and_then(|m| m.modified()) else { return false };
+    let Ok(modified) = std::fs::metadata(pen_region_patch()).and_then(|m| m.modified()) else { return false };
     // SAFETY: getppid has no preconditions.
     let ppid = unsafe { libc::getppid() };
     let comm = std::fs::read_to_string(format!("/proc/{ppid}/comm")).unwrap_or_default();
@@ -114,7 +116,8 @@ fn save(app: &mut App, paths: &Paths) {
 /// The result of update work on a background thread (REQUIREMENTS.md §9.2).
 enum UpdateResult {
     Checked(Result<Manifest, String>),
-    Installed(Result<(), String>),
+    /// `Ok(true)`: the installation replaced the ink patch.
+    Installed(Result<bool, String>),
 }
 
 /// Gets a file over HTTPS. GitHub sends a redirect to the file.
@@ -137,11 +140,51 @@ fn start_update(request: UpdateRequest, results: mpsc::Sender<UpdateResult>, sta
                 let app_dir = app_dir.ok_or("the folder of the app is not known")?;
                 eprintln!("sudoku: install {} from {} in {}", m.version, m.url, app_dir.display());
                 let archive = download(&m.url, Duration::from_secs(300))?;
-                update::install(&archive, &m, &staging, &app_dir)
+                let patch = match &m.patch_url {
+                    Some(url) => Some(download(url, Duration::from_secs(60))?),
+                    None => None,
+                };
+                let changed = update::install_release(&archive, patch.as_deref(), &m, &staging, &app_dir, Path::new(update::PATCH_DIR))?;
+                eprintln!("sudoku: installed {} (ink patch {})", m.version, if changed { "replaced" } else { "not changed" });
+                Ok(changed)
             })()),
         };
         let _ = results.send(result);
     });
+}
+
+/// The script of xovi that starts xochitl again with the extensions and the patches.
+const XOVI_START: &str = "/home/root/xovi/start";
+
+/// Starts the reMarkable interface again with xovi, so that xochitl reads the new ink patch (§9.2,
+/// "Restart"). xovi/start stops xochitl, and systemd then stops all processes of the xochitl
+/// service, also this app and its children. Thus systemd-run starts the script in a unit of its own.
+/// If systemd-run is not available, the script starts in a new session.
+fn restart_interface() -> Result<(), String> {
+    use std::process::{Command, Stdio};
+    let log = || std::fs::File::create("/tmp/sudoku-xovi.log").map(Stdio::from).unwrap_or_else(|_| Stdio::null());
+    let unit = Command::new("systemd-run")
+        .args(["--collect", "--unit", "sudoku-xovi-start", XOVI_START])
+        .stdin(Stdio::null())
+        .stdout(log())
+        .stderr(log())
+        .status();
+    match unit {
+        Ok(s) if s.success() => return Ok(()),
+        Ok(s) => eprintln!("sudoku: systemd-run {XOVI_START}: {s}"),
+        Err(e) => eprintln!("sudoku: systemd-run {XOVI_START}: {e}"),
+    }
+    use std::os::unix::process::CommandExt;
+    let mut cmd = Command::new(XOVI_START);
+    cmd.stdin(Stdio::null()).stdout(log()).stderr(log());
+    // SAFETY: setsid is async-signal-safe and has no preconditions.
+    unsafe {
+        cmd.pre_exec(|| {
+            libc::setsid();
+            Ok(())
+        });
+    }
+    cmd.spawn().map(|_| ()).map_err(|e| format!("{XOVI_START}: {e}"))
 }
 
 /// The AppLoad folder of the app: the folder of the program.
@@ -389,6 +432,15 @@ pub fn run() -> Result<(), String> {
             last_clock_save = Instant::now();
         }
         save(&mut app, &paths);
+        // "Restart" in the dialog "Restart the interface?": the game is saved now. The app continues
+        // until xovi/start stops xochitl.
+        if app.restart_ui {
+            app.restart_ui = false;
+            if let Err(e) = restart_interface() {
+                eprintln!("sudoku: cannot restart the interface: {e}");
+                app.restart_failed();
+            }
+        }
 
         let mut updates = Vec::new();
         presenter.present(&mut app, &fonts, conn.pixels(), now_ms(), |u| updates.push(u));

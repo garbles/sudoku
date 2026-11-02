@@ -133,6 +133,30 @@ fn new_ink_patch_starts_xovi_again() {
     assert_has(&step(&out, 10), "(done already)");
 }
 
+/// The ink patch is installed, but an earlier installer did not write the stamp file. The installer
+/// writes the stamp file. The patch did not change, thus xovi does not start again.
+#[test]
+fn missing_stamp_file_is_written_without_a_restart() {
+    let (out, code) = run("stamp");
+    assert_eq!(code, 0, "{out}");
+    assert_has(&step(&out, 8), "Writing the stamp file of the ink patch...");
+    assert_has(&step(&out, 8), "The ink patch is installed.");
+    assert!(!step(&out, 8).contains("Copying the ink patch"), "{out}");
+    assert_has(&step(&out, 9), "xovi is on. (done already)");
+    assert_has(&step(&out, 10), "(done already)");
+}
+
+/// A patch that does not agree with the checksum of the release stops the installer before it
+/// connects to the tablet.
+#[test]
+fn bad_patch_checksum_stops_the_installer() {
+    let (out, code) = run("badpatch");
+    assert_ne!(code, 0, "{out}");
+    assert_has(&step(&out, 2), "Downloading the ink patch...");
+    assert_has(&step(&out, 2), "The checksum of the download is not correct.");
+    assert!(!out.contains("3/10"), "{out}");
+}
+
 #[test]
 fn incorrect_password_gives_help_and_a_new_try() {
     let (out, code) = run("password");
@@ -165,7 +189,7 @@ fn failed_download_tries_again() {
     let (out, code) = run("download");
     assert_eq!(code, 0, "{out}");
     assert_has(&step(&out, 2), "The download failed: curl: (6) Could not resolve host: github.com");
-    assert_has(&step(&out, 2), "The checksum is correct.");
+    assert_has(&step(&out, 2), "The checksums are correct.");
 }
 
 #[test]
@@ -190,7 +214,7 @@ fn selected_version_replaces_the_version_of_the_installer() {
     assert_eq!(code, 0, "{out}");
     assert_has(&out, "Installer · preview pre-1a2b3c4");
     assert_has(&step(&out, 2), "pre-1a2b3c4 is a preview version.");
-    assert_has(&step(&out, 2), "Downloaded Sudoku pre-1a2b3c4. The checksum is correct.");
+    assert_has(&step(&out, 2), "Downloaded Sudoku pre-1a2b3c4 and the ink patch. The checksums are correct.");
     assert_has(&step(&out, 10), "Sudoku pre-1a2b3c4 is installed.");
     assert!(!out.contains("Which version"), "SUDOKU_VERSION: no question:\n{out}");
 }
@@ -221,7 +245,7 @@ fn list_of_versions_selects_a_preview_version() {
     }
     assert_eq!(s.matches("Type a number from 1 to 4.").count(), 2, "{s}");
     assert_has(&s, "Version: pre-1a2b3c4.");
-    assert_has(&s, "Downloaded Sudoku pre-1a2b3c4. The checksum is correct.");
+    assert_has(&s, "Downloaded Sudoku pre-1a2b3c4 and the ink patch. The checksums are correct.");
     assert_has(&step(&out, 10), "Sudoku pre-1a2b3c4 is installed.");
 }
 
@@ -264,7 +288,7 @@ fn arrow_keys_select_a_version_in_a_terminal() {
 /// All boxes have the same width, and no line is wider than the 90 columns of the screenshots.
 #[test]
 fn output_fits_the_terminal() {
-    for scenario in ["first", "connect", "password", "hostkey", "offline", "download", "stop", "other", "patch", "missing", "select", "typed"] {
+    for scenario in ["first", "connect", "password", "hostkey", "offline", "download", "stop", "other", "patch", "stamp", "missing", "select", "typed"] {
         let (out, _) = run(scenario);
         for line in out.lines() {
             let width = line.chars().count();
@@ -276,11 +300,11 @@ fn output_fits_the_terminal() {
     }
 }
 
-/// release.yml replaces the two values with sed. Each must be in install.sh exactly one time.
+/// release.yml replaces the three values with sed. Each must be in install.sh exactly one time.
 #[test]
 fn release_placeholders() {
     let script = include_str!("../install.sh");
-    for p in ["@SUDOKU_VERSION@", "@SUDOKU_SHA256@"] {
+    for p in ["@SUDOKU_VERSION@", "@SUDOKU_SHA256@", "@SUDOKU_PATCH_SHA256@"] {
         assert_eq!(script.matches(p).count(), 1, "{p}");
     }
     let status = Command::new("bash").arg("-n").arg(concat!(env!("CARGO_MANIFEST_DIR"), "/install.sh")).status().unwrap();

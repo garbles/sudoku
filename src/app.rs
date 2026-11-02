@@ -142,6 +142,10 @@ enum Target {
     DeleteAll,
     AllCancel,
     AllDelete,
+    /// "Later" in the dialog "Restart the interface?" (§9.2).
+    RestartLater,
+    /// "Restart" in the dialog "Restart the interface?" (§9.2).
+    RestartNow,
 }
 
 pub struct App {
@@ -178,6 +182,9 @@ pub struct App {
     pub game_dirty: bool,
     pub settings_dirty: bool,
     pub quit: bool,
+    /// The user tapped "Restart" in the dialog "Restart the interface?" or the button "Restart
+    /// interface" (§9.2). The platform saves the game and runs xovi/start. If the start fails, it calls `restart_failed`.
+    pub restart_ui: bool,
     /// Saves the game immediately. The app calls it when a puzzle becomes complete, before it adds the
     /// result: thus a power loss can never record the same game two times (CMP-5).
     pub save_game_now: Option<SaveGame>,
@@ -222,6 +229,7 @@ impl App {
             game_dirty: true,
             settings_dirty: false,
             quit: false,
+            restart_ui: false,
             redraw: true,
             save_game_now: None,
             ink_log: None,
@@ -371,6 +379,18 @@ impl App {
         // Each action removes the highlight before the app does the action (HLT-2).
         let prev_highlight = self.ui.highlight.take();
         self.ui.question = None;
+
+        // The dialog "Restart the interface?" accepts only its two buttons (UPD-10). It covers all
+        // screens, thus a pen or a finger has no other effect.
+        if self.update.dialog {
+            return if layout::dialog_cancel().contains(x, y) {
+                Gesture::Control(Target::RestartLater)
+            } else if layout::dialog_delete().contains(x, y) {
+                Gesture::Control(Target::RestartNow)
+            } else {
+                Gesture::Ignored
+            };
+        }
 
         // Ink that waits in a different cell is read now. Ink in the same cell gets the new stroke.
         let cell = layout::board_cell(x, y);
@@ -724,6 +744,8 @@ impl App {
             Target::StartNewGame => layout::ng_start_row().contains(x, y),
             Target::Switch(i) => layout::settings_at(x, y) == Some(i),
             Target::Update => layout::update_button_area().contains(x, y),
+            Target::RestartLater => layout::dialog_cancel().contains(x, y),
+            Target::RestartNow => layout::dialog_delete().contains(x, y),
             _ => self.page_target(x, y) == Some(t),
         }
     }
@@ -767,9 +789,14 @@ impl App {
                 }
                 self.settings_dirty = true;
             }
-            // UPD-5, UPD-9: only the update state changes.
+            // UPD-5, UPD-9: only the update state changes. UPD-10: "Restart interface" asks the
+            // platform to run xovi/start, after the game is saved.
             Target::Update => {
-                self.update.tap();
+                if self.update.button() == Some(crate::update::UpdateButton::Restart) {
+                    self.request_restart();
+                } else {
+                    self.update.tap();
+                }
             }
             Target::DeleteAll => self.confirm_all = true,
             Target::AllCancel => self.confirm_all = false,
@@ -791,6 +818,9 @@ impl App {
                 }
             }
             Target::DialogCancel => self.list.confirm = None,
+            // UPD-10: only the dialog changes. The row continues to show the button "Restart interface".
+            Target::RestartLater => self.update.dialog = false,
+            Target::RestartNow => self.request_restart(),
             Target::DialogDelete => {
                 if let Some(r) = self.list.confirm.take() {
                     if let Err(e) = self.db.delete(r.id) {
@@ -946,7 +976,7 @@ impl App {
         (self.manual_page, self.list.filter, self.list.page, self.list.confirm.as_ref().map(|r| r.id)).hash(&mut h);
         (self.settings.color_starting, self.settings.color_clash, self.settings.color_highlight).hash(&mut h);
         (self.settings.highlight_on, self.settings.auto_hide_on, self.confirm_all).hash(&mut h);
-        (&self.update.current, &self.update.state, self.update.checking, self.update.row_text()).hash(&mut h);
+        (&self.update.current, &self.update.state, self.update.checking, self.update.row_text(), self.update.dialog).hash(&mut h);
         self.results.len().hash(&mut h);
         self.results.iter().for_each(|r| r.id.hash(&mut h));
         h.finish()
@@ -958,9 +988,36 @@ impl App {
         self.redraw = true;
     }
 
-    /// The result of an installation from the platform (§9.2).
-    pub fn update_installed(&mut self, result: Result<(), String>, now: u64) {
+    /// The result of an installation from the platform (§9.2). `Ok(true)`: the installation replaced
+    /// the ink patch. Then the dialog "Restart the interface?" shows over the screen (UPD-10): the app
+    /// reads the waiting ink first, and the touches that are on the screen have no more effect.
+    pub fn update_installed(&mut self, result: Result<bool, String>, now: u64) {
         self.update.installed(result, now);
+        if self.update.dialog {
+            if self.ui.pending_ink.is_some() {
+                self.read_ink(now);
+            }
+            self.ui.highlight = None;
+            self.ui.question = None;
+            self.live_stroke = None;
+            self.cancel_gestures();
+        }
+        self.redraw = true;
+    }
+
+    /// "Restart" in the dialog or the button "Restart interface" (UPD-10): the platform saves the game
+    /// and runs xovi/start.
+    fn request_restart(&mut self) {
+        eprintln!("sudoku: restart the interface (xovi/start)");
+        self.game_dirty = true;
+        self.restart_ui = true;
+    }
+
+    /// The platform could not run xovi/start: the dialog closes, and the row continues to show the
+    /// button "Restart interface".
+    pub fn restart_failed(&mut self) {
+        self.restart_ui = false;
+        self.update.dialog = false;
         self.redraw = true;
     }
 

@@ -21,3 +21,6 @@ scripts/fonts/rmsans-*.ttf
 .review
 
 .claude/worktrees
+
+# Bench marks
+bench/history.jsonl

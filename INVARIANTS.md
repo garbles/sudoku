@@ -86,9 +86,10 @@ Settings
 
 Update
   current         : text                       (the version of the app: v<version>, pre-<sha> or dev)
-  state           ∈ {Off, Unknown, CheckFailed, UpToDate, Available(v), Installing(v), Failed(v, at), Installed}
+  state           ∈ {Off, Unknown, CheckFailed, UpToDate, Available(v), Installing(v), Failed(v, at), Installed { patch }}
   checking        : bool                       (a request for version.json is in progress)
   up_to_date_shown : bool                      (the row shows "Sudoku is up to date"; UPD-9)
+  dialog          : bool                       (the dialog "Restart the interface?" shows; UPD-10)
 
 Palette = {Gray, White, Yellow, Blue, Red, Green, Cyan, Magenta, Orange}
 
@@ -310,12 +311,13 @@ Terms:
 | UPD-1 | `state = Off` exactly when `current` is not a stable version (`v<major>.<minor>.<patch>`). When `state = Off`, the app never sends a request, and the Settings panel has only three rows. In all other states, the Settings panel has four rows. | R§9.2 |
 | UPD-2 | `Available(v)`, `Installing(v)` and `Failed(v, at)` only when `v` is newer than `current`. | R§9.2 |
 | UPD-3 | The gear has the caution icon exactly when `state ∈ {Available, Installing, Failed, Installed}`. | R§9.2 |
-| UPD-4 | The app uses a `version.json` only when its ed25519 signature is correct for the public key of the app. It installs an archive only when its SHA-256 checksum is equal to the checksum in that `version.json`. | R§9.2 |
+| UPD-4 | The app uses a `version.json` only when its ed25519 signature is correct for the public key of the app. It installs an archive only when its SHA-256 checksum is equal to the checksum in that `version.json`. When `version.json` has `patch_sha256`, it changes no file unless the checksum of the downloaded ink patch is equal to `patch_sha256`. | R§9.2 |
 | UPD-5 | Only a tap on the button in `state = Available(v)` starts an installation. The tap sets `state = Installing(v)`, and it does not change the game, the settings, the screen or the panel. At most one installation is in progress. | R§9.2 |
 | UPD-6 | When an installation fails, the app folder is the same as before the installation. `Failed(v, at)` becomes `Available(v)` 3 seconds after `at`. | R§9.2 |
 | UPD-7 | A result of a request changes only `Unknown`, `CheckFailed`, `UpToDate` and `Available`. A failed request changes only `Unknown` (to `CheckFailed`). At most one request is in progress (`checking`). | R§9.2 |
 | UPD-8 | The app does not keep `update`. When it opens, `state` is `Off` or `Unknown`, and a stable build sends a request. `state = Unknown` only while this request is in progress. The app never sends a request by itself after this request. | R§9.2 (owner decision 2026-10-31) |
 | UPD-9 | The text "Sudoku is up to date" shows exactly when `up_to_date_shown`. `up_to_date_shown` becomes true only when a request finds no update while the Settings panel is open, and it becomes false when the panel closes (or the screen changes). It is true only when `state = UpToDate`, `checking` is false and the Settings panel is open. The button "Check for updates" shows exactly when `state ∈ {CheckFailed, UpToDate}`, `checking` is false and `up_to_date_shown` is false. A tap on it sets `checking` and sends one request. It does not change the game, the settings, the screen or the panel. `checking` is true only when `state ∈ {Unknown, CheckFailed, UpToDate}`. | R§9.2 (owner decision 2026-10-31) |
+| UPD-10 | An installation replaces the ink patch exactly when `version.json` has a patch and the stamp file next to the patch is missing, is not correct, or has a different checksum. Then `state = Installed { patch: true }`, else `Installed { patch: false }`. `dialog` ("Restart the interface?") becomes true only when an installation replaced the patch, and it is true only in `Installed { patch: true }`. While `dialog` is true, no ink waits, no stroke is live, and only "Later" and "Restart" have an effect: "Later" sets `dialog` to false, and "Restart" asks the platform to run xovi/start after the game is saved. The button "Restart interface" shows exactly when `state = Installed { patch: true }`. A tap on it asks the platform to run xovi/start after the game is saved, and it does not change the game, the settings, the screen or the panel. The app asks for xovi/start only in `Installed { patch: true }`. | R§9.2 (owner decision 2026-11-01) |
 
 ## 17. Rules to confirm
 

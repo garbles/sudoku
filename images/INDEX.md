@@ -47,6 +47,8 @@ open, the close button shows at the top left.
 | `settings-update.png` | The Settings panel of the stable build v0.1.0 when v0.2.0 is available. The Version row shows "v0.1.0". The fourth row has the button "Update to v0.2.0" with the update icon. The gear has the caution icon. | The update button (REQUIREMENTS.md §9.2). |
 | `settings-up-to-date.png` | The Settings panel of the stable build v0.1.0 just after a check that found no update. The fourth row shows "Sudoku is up to date" (Regular, gray40). No caution icon. | The text states of the update row (REQUIREMENTS.md §9.2). The other texts have the same position and font. |
 | `settings-check-updates.png` | The same panel after it closed and opened again. The fourth row has the button "Check for updates" with a circular arrow icon. | The check button (REQUIREMENTS.md §9.2). |
+| `settings-restart.png` | The Settings panel of the stable build v0.1.0 after the update v0.2.0 is installed and replaced the ink patch, and the user tapped "Later". The fourth row has the button "Restart interface" with a power icon. The gear has the caution icon. | The restart button (REQUIREMENTS.md §9.2, UPD-10). The text "Restart Sudoku to update" (no patch change) has the same position and font as "Sudoku is up to date". |
+| `update-restart.png` | `settings-restart.png` with the dialog "Restart the interface?" on the pale screen: two lines of text, "Later" (left) and "Restart" (white on black, right). | The restart dialog (REQUIREMENTS.md §9.2, UPD-10). Same design and position as `analytics-delete.png`. |
 | `screen-completed-menu.png` | The menu is open on a complete puzzle. Undo and redo are gray. | Shows that a complete puzzle is locked. |
 
 ## Statistics

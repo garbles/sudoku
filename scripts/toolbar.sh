@@ -7,8 +7,8 @@
 #   screen-completed-menu.png menu open on a complete (locked) puzzle: undo and redo not available
 #   color-menu-right-handed.png  color-menu.png for a right-handed player (toolbar on the left)
 #   settings-menu.png         the Settings panel of a development build
-#   screen-toolbar-update.png, settings-update.png, settings-up-to-date.png, settings-check-updates.png
-#                                                                             updates (stable build v0.1.0)
+#   screen-toolbar-update.png, settings-update.png, settings-up-to-date.png, settings-check-updates.png,
+#   settings-restart.png                                                      updates (stable build v0.1.0)
 # Top of the menu: menu button, cell colors, undo, redo. Bottom, from the bottom to the top: + (new game),
 # Analytics, Help.
 set -e
@@ -179,17 +179,24 @@ caution() {
     printf "stroke none fill white circle %.1f,%.1f %.1f,%.1f\n", x, y+5.5, x+1.6, y+5.5 }' >> $M
 }
 
-# update_button TEXT [check] : the button in the fourth row (top 568): a box with a 2 px border, 33 px from
+# update_button TEXT [check|restart] : the button in the fourth row (top 568): a box with a 2 px border, 33 px from
 # the sides of the panel and from 22 px to 90 px below the top of the row, the icon 40 px from the left of the
 # box, and the text 72 px from the left of the box. The icon of "Update to v<version>" is a down arrow into a
 # tray. The icon of "Check for updates" (check) is a circular arrow: an arc (radius 12 px) clockwise from
 # 0 to 255 degrees, a gap, and an arrow head on the circle at 330 degrees that points clockwise (two 8 px
-# strokes, 45 degrees to each side of the line back from its tip).
+# strokes, 45 degrees to each side of the line back from its tip). The icon of "Restart interface"
+# (restart) is a power symbol: an arc (radius 12 px) clockwise from 300 to 600 degrees, with the gap at
+# the top, and a line from 15 px to 3 px above the center.
 update_button() {
   bx0=$((PL+33)); bx1=$((PR-33)); by0=$((568+22)); by1=$((568+90)); ix=$((bx0+40)); cy=$((568+56))
   echo "stroke none fill black rectangle $bx0,$by0 $bx1,$((by0+1)) rectangle $bx0,$((by1-1)) $bx1,$by1" >> $M
   echo "rectangle $bx0,$by0 $((bx0+1)),$by1 rectangle $((bx1-1)),$by0 $bx1,$by1" >> $M
-  if [ "$2" = check ]; then
+  if [ "$2" = restart ]; then
+    awk -v x=$ix -v y=$cy 'BEGIN{
+      r = atan2(0, -1) / 180; s = "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round polyline"
+      for (k = 0; k <= 20; k++) { a = (300 + 15*k) * r; s = s sprintf(" %.2f,%.2f", x + 12*cos(a), y + 12*sin(a)) }
+      print s; printf "line %.2f,%.2f %.2f,%.2f\n", x, y-15, x, y-3 }' >> $M
+  elif [ "$2" = check ]; then
     awk -v x=$ix -v y=$cy 'BEGIN{
       r = atan2(0, -1) / 180; s = "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round polyline"
       for (k = 0; k <= 17; k++) { a = 15*k * r; s = s sprintf(" %.2f,%.2f", x + 12*cos(a), y + 12*sin(a)) }
@@ -223,6 +230,12 @@ compose screen-in-progress.png settings-up-to-date.png
 settings_panel v0.1.0 681; update_button "Check for updates" check
 toolbar black settings
 compose screen-in-progress.png settings-check-updates.png
+# The update v0.2.0 is installed and replaced the ink patch. The user tapped "Later" in the dialog
+# "Restart the interface?", and the row has the button "Restart interface" (analytics.py draws the
+# dialog on this image: update-restart.png).
+settings_panel v0.1.0 681; update_button "Restart interface" restart
+toolbar black settings; caution
+compose screen-in-progress.png settings-restart.png
 
 # --- complete puzzle: the board is locked, so undo and redo are not available
 toolbar gray70 ""

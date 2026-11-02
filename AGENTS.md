@@ -104,16 +104,22 @@ installs it on the tablet at `REMARKABLE_HOST` (`.env`), or on USB.
   AppLoad reads only `icon.png` and shows it at 150x150, thus `scripts/build.sh` (rsvg-convert)
   makes `appload/sudoku/icon.png` from the SVG. Do not edit the PNG. The imagegen build makes it,
   and the GitHub workflow compares it with the file in git.
-- Each release has `install.sh` (REQUIREMENTS.md §14.6). release.yml replaces `@SUDOKU_VERSION@`
-  and `@SUDOKU_SHA256@` with the version and the checksum of the archive. Thus the installer of a
-  release installs that release. `tests/install/run.sh SCENARIO` runs the installer with fake `ssh`,
+- Each release has `install.sh` (REQUIREMENTS.md §14.6). release.yml replaces `@SUDOKU_VERSION@`,
+  `@SUDOKU_SHA256@` and `@SUDOKU_PATCH_SHA256@` with the version, the checksum of the archive and
+  the checksum of the ink patch. Thus the installer of a release installs that release. `tests/install/run.sh SCENARIO` runs the installer with fake `ssh`,
   `ssh-keygen` and `curl` (`tests/install/fake/`). The fake ssh finds each remote command from its
   first word (`: name;`). When you add or change a remote command in `install.sh`, change the fake
   ssh also.
+- Each release has the ink patch `sudoku-penregion.qmd` as a separate file. release.yml moves it
+  out of `dist/sudoku/`, thus the archive does not contain it. The installer and the update of the
+  app download it, examine its checksum and write the stamp file `sudoku-penregion.json` next to
+  it (REQUIREMENTS.md §14.4).
 - Each release has `version.json`, with the version, the download URL of the archive and its
-  SHA-256 checksum: `{"version": "<version>", "url": "<url>", "sha256": "<checksum>"}`. Do not
-  change this format without approval from the owner. The version has the `v` prefix
-  (`v0.1.0`), and the archive is `sudoku-v<version>.tar.gz`.
+  SHA-256 checksum, and the download URL of the ink patch and its SHA-256 checksum:
+  `{"version": "<version>", "url": "<url>", "sha256": "<checksum>", "patch_url": "<url>",
+  "patch_sha256": "<checksum>"}` (the patch fields: owner approval 2026-11-01). Do not change
+  this format without approval from the owner. The version has the `v` prefix (`v0.1.0`), and the
+  archive is `sudoku-v<version>.tar.gz`.
 - Each release also has `version.json.sig`: the ed25519 signature (64 bytes) of `version.json`.
   release.yml makes it with the private key in the secret `SUDOKU_SIGNING_KEY` (PEM). The public
   key is `PUBLIC_KEY` in `src/update.rs`. A stable release fails without the secret. If the key

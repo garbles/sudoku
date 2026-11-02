@@ -10,13 +10,14 @@
 #
 #   1. Examine the programs on this computer (ssh, ssh-keygen, curl, tar).
 #   2. Select the version (the latest version, or a version from a list of all releases). Download
-#      the release archive and examine its SHA-256 checksum.
+#      the release archive and the ink patch of the release, and examine their SHA-256 checksums.
 #   3. Find the tablet (USB cable, developer mode).
 #   4. Make an SSH key and add it to the tablet. The user types the root password one time.
 #   5. Install Vellum, the package manager.
 #   6. Install AppLoad (with xovi) with Vellum.
 #   7. Make the hashtable of xovi.
-#   8. Install the ink patch (a QML patch that xovi applies when it starts).
+#   8. Install the ink patch (a QML patch that xovi applies when it starts) and its stamp file (the
+#      version that installed the patch and the checksum of the patch).
 #   9. Start xovi (again, if the ink patch changed).
 #  10. Install the Sudoku folder in AppLoad.
 #
@@ -42,10 +43,11 @@ set -u
 REPO="https://github.com/garbles/sudoku"
 # The version that the user selects (SUDOKU_VERSION). Empty: the installer asks.
 WANT_VERSION="${SUDOKU_VERSION:-}"
-# release.yml replaces these two values with the version and the checksum of its archive. A copy
-# from git installs the latest stable release.
+# release.yml replaces these three values with the version, the checksum of its archive and the
+# checksum of its ink patch. A copy from git installs the latest stable release.
 SUDOKU_VERSION="@SUDOKU_VERSION@"
 SUDOKU_SHA256="@SUDOKU_SHA256@"
+PATCH_SHA256="@SUDOKU_PATCH_SHA256@"
 # The bootstrap script of Vellum. Each Vellum release changes it, thus the installer does not keep a
 # checksum. curl on the computer examines the TLS certificate of GitHub (the tablet does not), and the
 # script examines the checksums of its own downloads.
@@ -58,9 +60,12 @@ STEPS=10
 WIDTH=66 # the width of the text in a box. All box text is ASCII.
 UI_WARNED=0
 PATCH_CHANGED=0
-# The ink patch: AppLoad shows the ink of Sudoku with the fast pen waveform (no gaps).
+# The ink patch: AppLoad shows the ink of Sudoku with the fast pen waveform (no gaps). Each release
+# has the patch as a separate file. The stamp file next to it gives the version that installed the
+# patch and the checksum of the patch (the same file as src/update.rs writes).
 PATCH_DIR=/home/root/xovi/exthome/qt-resource-rebuilder
 PATCH_NAME=sudoku-penregion.qmd
+PATCH_STAMP=sudoku-penregion.json
 
 setup_colors
 select_version
@@ -177,11 +182,16 @@ banner() {
 select_version() {
   case "$WANT_VERSION" in
     "") ;;
+    *[!A-Za-z0-9._-]*)
+      bad "The version $WANT_VERSION is not correct. Use only letters, digits, \".\", \"_\" and \"-\"."
+      exit 1
+      ;;
     [0-9]*) WANT_VERSION="v$WANT_VERSION" ;;
   esac
   if [ -n "$WANT_VERSION" ] && [ "$WANT_VERSION" != "$SUDOKU_VERSION" ]; then
     SUDOKU_VERSION="$WANT_VERSION"
-    SUDOKU_SHA256="" # step_download reads it from version.json of the release.
+    SUDOKU_SHA256="" # step_download reads the two checksums from version.json of the release.
+    PATCH_SHA256=""
   fi
 }
 
@@ -487,6 +497,7 @@ latest_version() {
       fetch "$REPO/releases/latest/download/version.json" "$WORK/version.json"
       SUDOKU_VERSION="$(json_value version)"
       SUDOKU_SHA256="$(json_value sha256)"
+      PATCH_SHA256="$(json_value patch_sha256)"
       ;;
   esac
 }
@@ -514,7 +525,7 @@ ask_version() {
     WANT_VERSION="$REPLY"
     select_version
   fi
-  SUDOKU_SHA256=""
+  SUDOKU_SHA256="" PATCH_SHA256=""
   ok "Version: $SUDOKU_VERSION."
 }
 
@@ -539,20 +550,19 @@ step_download() {
       exit 1
     fi
     SUDOKU_SHA256="$(json_value sha256)"
+    PATCH_SHA256="$(json_value patch_sha256)"
   fi
   case "$SUDOKU_VERSION" in
     pre-*) warn "$SUDOKU_VERSION is a preview version. It can have errors." ;;
   esac
   act "Downloading Sudoku $SUDOKU_VERSION from GitHub..."
   fetch "$REPO/releases/download/$SUDOKU_VERSION/sudoku-$SUDOKU_VERSION.tar.gz" "$WORK/sudoku.tar.gz"
-  if [ "$(sha_of "$WORK/sudoku.tar.gz")" != "$SUDOKU_SHA256" ]; then
-    bad "The checksum of the download is not correct."
-    box "$RED" "What to do" \
-      "Do not install this file. Run the installer again later." \
-      "If the problem continues, tell the developer:" \
-      "$REPO/issues"
-    printf '\n'
-    exit 1
+  [ "$(sha_of "$WORK/sudoku.tar.gz")" = "$SUDOKU_SHA256" ] || bad_checksum
+  # A release before the ink patch was a separate file has no patch_sha256. Then step 8 does nothing.
+  if [ -n "$PATCH_SHA256" ]; then
+    act "Downloading the ink patch..."
+    fetch "$REPO/releases/download/$SUDOKU_VERSION/$PATCH_NAME" "$WORK/$PATCH_NAME"
+    [ "$(sha_of "$WORK/$PATCH_NAME")" = "$PATCH_SHA256" ] || bad_checksum
   fi
   mkdir "$WORK/app" && tar -xzf "$WORK/sudoku.tar.gz" -C "$WORK/app" 2>/dev/null
   if [ ! -f "$WORK/app/sudoku/sudoku" ]; then
@@ -560,7 +570,21 @@ step_download() {
     exit 1
   fi
   APP_HASH="$(sha_of "$WORK/app/sudoku/sudoku")"
-  ok "Downloaded Sudoku $SUDOKU_VERSION. The checksum is correct."
+  if [ -n "$PATCH_SHA256" ]; then
+    ok "Downloaded Sudoku $SUDOKU_VERSION and the ink patch. The checksums are correct."
+  else
+    ok "Downloaded Sudoku $SUDOKU_VERSION. The checksum is correct."
+  fi
+}
+
+bad_checksum() {
+  bad "The checksum of the download is not correct."
+  box "$RED" "What to do" \
+    "Do not install this file. Run the installer again later." \
+    "If the problem continues, tell the developer:" \
+    "$REPO/issues"
+  printf '\n'
+  exit 1
 }
 
 step_connect() {
@@ -800,27 +824,40 @@ step_hashtable() {
   ok "The hashtable is available."
 }
 
+# Sets HAVE_PATCH to the checksum of the installed patch and HAVE_STAMP to the checksum in its stamp
+# file. Each is empty if the file is missing.
+patch_state() {
+  local out
+  out="$(remote ': patch-hash; d='"$PATCH_DIR"'; echo "patch=$(sha256sum "$d/'"$PATCH_NAME"'" 2>/dev/null | cut -d " " -f 1)"; echo "stamp=$(sed -n "s/.*\"sha256\": *\"\([0-9a-f]*\)\".*/\1/p" "$d/'"$PATCH_STAMP"'" 2>/dev/null)"')" || lost
+  HAVE_PATCH="$(printf '%s\n' "$out" | sed -n 's/^patch=//p')"
+  HAVE_STAMP="$(printf '%s\n' "$out" | sed -n 's/^stamp=//p')"
+}
+
 step_patch() {
   step 8 "Ink patch"
-  local file="$WORK/app/sudoku/$PATCH_NAME" want have
-  if [ ! -f "$file" ]; then
+  local file="$WORK/$PATCH_NAME" want="$PATCH_SHA256"
+  if [ -z "$want" ]; then
     info "This version of Sudoku has no ink patch."
     return
   fi
-  want="$(sha_of "$file")"
-  have="$(remote ': patch-hash; sha256sum '"$PATCH_DIR/$PATCH_NAME"' 2>/dev/null | cut -d " " -f 1')" || lost
-  if [ "$have" = "$want" ]; then
+  patch_state
+  if [ "$HAVE_PATCH" = "$want" ] && [ "$HAVE_STAMP" = "$want" ]; then
     skip "The ink patch is installed."
     return
   fi
-  info "With the ink patch, the ink has no gaps while you write."
-  info "xovi applies the patch when it starts."
-  act "Copying the ink patch to the tablet..."
-  ssh_key ': install-patch; set -e; d='"$PATCH_DIR"'; mkdir -p "$d"; cat > "$d/'"$PATCH_NAME"'.new"; mv "$d/'"$PATCH_NAME"'.new" "$d/'"$PATCH_NAME"'"' \
+  if [ "$HAVE_PATCH" = "$want" ]; then
+    act "Writing the stamp file of the ink patch..."
+  else
+    info "With the ink patch, the ink has no gaps while you write."
+    info "xovi applies the patch when it starts."
+    act "Copying the ink patch to the tablet..."
+  fi
+  # The tablet examines the checksum before it replaces the patch. Then it writes the stamp file.
+  ssh_key ': install-patch; set -e; d='"$PATCH_DIR"'; mkdir -p "$d"; cat > "$d/'"$PATCH_NAME"'.new"; [ "$(sha256sum "$d/'"$PATCH_NAME"'.new" | cut -d " " -f 1)" = '"$want"' ] || { rm -f "$d/'"$PATCH_NAME"'.new"; exit 1; }; mv "$d/'"$PATCH_NAME"'.new" "$d/'"$PATCH_NAME"'"; printf "{\"version\": \"%s\", \"sha256\": \"%s\"}\n" '"$SUDOKU_VERSION $want"' > "$d/'"$PATCH_STAMP"'.new"; mv "$d/'"$PATCH_STAMP"'.new" "$d/'"$PATCH_STAMP"'"' \
     <"$file" || failed "The installer could not copy the ink patch to the tablet."
-  have="$(remote ': patch-hash; sha256sum '"$PATCH_DIR/$PATCH_NAME"' 2>/dev/null | cut -d " " -f 1')" || lost
-  [ "$have" = "$want" ] || failed "The installed copy of the ink patch is not correct."
-  PATCH_CHANGED=1
+  [ "$HAVE_PATCH" = "$want" ] || PATCH_CHANGED=1
+  patch_state
+  [ "$HAVE_PATCH" = "$want" ] && [ "$HAVE_STAMP" = "$want" ] || failed "The installed copy of the ink patch is not correct."
   ok "The ink patch is installed."
 }
 

@@ -21,6 +21,7 @@ SSH := ssh -o ConnectTimeout=5 -o BatchMode=yes -o IdentitiesOnly=yes \
 APPLOAD := /home/root/xovi/exthome/appload
 PATCH_DIR := /home/root/xovi/exthome/qt-resource-rebuilder
 PATCH_NAME := sudoku-penregion.qmd
+PATCH_STAMP := sudoku-penregion.json
 
 SNAPSHOT_DIR ?= target/snapshots
 NOTE ?=
@@ -104,7 +105,8 @@ install-dev: dist ## Build and install dist/sudoku/ on the tablet (REMARKABLE_HO
 	@want=$$(shasum -a 256 dist/sudoku/$(PATCH_NAME) | cut -d' ' -f1); \
 		have=$$($(SSH) 'sha256sum $(PATCH_DIR)/$(PATCH_NAME) 2>/dev/null' | cut -d' ' -f1); \
 		if [ "$$want" = "$$have" ]; then echo "The ink patch is installed."; else \
-		$(SSH) 'set -e; d=$(PATCH_DIR); mkdir -p "$$d"; cat > "$$d/$(PATCH_NAME).new"; mv "$$d/$(PATCH_NAME).new" "$$d/$(PATCH_NAME)"' \
+		$(SSH) 'set -e; d=$(PATCH_DIR); mkdir -p "$$d"; cat > "$$d/$(PATCH_NAME).new"; mv "$$d/$(PATCH_NAME).new" "$$d/$(PATCH_NAME)"; \
+			printf "{\"version\": \"dev\", \"sha256\": \"%s\"}\n" '"$$want"' > "$$d/$(PATCH_STAMP)"' \
 			< dist/sudoku/$(PATCH_NAME); \
 		echo "The ink patch changed. xovi applies it when it starts: run make xovi-restart."; fi
 
