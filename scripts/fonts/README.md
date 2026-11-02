@@ -5,20 +5,8 @@ the font. Do not put the font in version control, and do not include it in the a
 the font from the tablet when the app starts.
 
 To make `rmsans-400.ttf` (Regular) and `rmsans-500.ttf` (Medium) again from a tablet in developer
-mode, do these steps:
-
-```sh
-scp root@10.11.99.1:/usr/share/remarkable/webui/reMarkableSans.woff2 .
-python3 -m venv venv && venv/bin/pip install fonttools brotli
-venv/bin/python - <<'PY'
-from fontTools.ttLib import TTFont
-from fontTools.varLib.instancer import instantiateVariableFont
-for w in (400, 500):
-    f = TTFont("reMarkableSans.woff2"); f.flavor = None
-    instantiateVariableFont(f, {"wght": w, "ital": 0}, inplace=True)
-    f.save(f"rmsans-{w}.ttf")
-PY
-```
+mode, run `make fonts` from the root of the repository. It uses the tablet at `REMARKABLE_HOST`
+(`.env`), or USB, and the SSH key of the installer.
 
 ## Terminal font
 

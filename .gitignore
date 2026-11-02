@@ -20,3 +20,4 @@ scripts/fonts/rmsans-*.ttf
 # Pedantic review files.
 .review
 
+.claude/worktrees

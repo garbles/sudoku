@@ -28,6 +28,10 @@ docker build --platform linux/arm64 -f Dockerfile.imagegen --output type=local,d
 docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + static aarch64 build
 ```
 
+The `Makefile` gives a target for each of these commands, and more (`make help` shows them). If
+`docker` is not on `PATH`, it uses the docker of OrbStack. `make install-dev` builds `dist/` and
+installs it on the tablet at `REMARKABLE_HOST` (`.env`), or on USB.
+
 `dist/sudoku/` is the AppLoad folder. Copy it to `/home/root/xovi/exthome/appload/` on the tablet.
 
 ## Performance
