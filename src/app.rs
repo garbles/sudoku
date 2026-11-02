@@ -336,7 +336,7 @@ impl App {
                 // touch that the system cancels), and sometimes sends the press of a touch again. The
                 // app forgets the touch that it follows if the new press has the same id, or if that
                 // touch has had no event for STALE_TOUCH_MS. Thus a lost release never stops the next
-                // touches. A real second finger (an active touch) has no effect.
+                // touches. A real second finger (an active touch) operates no item.
                 let stale = match self.touch {
                     None => true,
                     Some((tid, _, last)) => tid == id || now.saturating_sub(last) >= STALE_TOUCH_MS,

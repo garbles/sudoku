@@ -18,7 +18,7 @@ slot() { shot "$UI/screen-toolbar.png" 112x112+1508+$1; }
 slot_on() { shot "$UI/color-menu.png" 112x112+1508+$1; }
 row 300  "$(slot 0)" "Menu"                   "Opens and closes the menu."
 row 420  "$(slot 112)" "Cell colors"            "Sets the colors for starting, clashing and highlighted numbers."
-row 540  "$(slot 224)" "Settings"               "Turns highlights and automatic pencil mark removal on or off."
+row 540  "$(slot 224)" "Settings"               "Turns highlights and automatic pencil mark hiding on or off."
 row 660  "$(slot_on 336)" "Undo"                   "Cancels your last change to the board."
 row 780  "$(slot_on 448)" "Redo"                   "Makes the last canceled change again."
 row 900  "$(slot 1824)" "Help"                   "Opens this manual."

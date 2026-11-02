@@ -33,6 +33,9 @@ const ARCHIVE_DIR: &str = "sudoku";
 /// The files that the folder in the archive must have.
 const REQUIRED_FILES: [&str; 2] = ["sudoku", "external.manifest.json"];
 
+/// The file name of the release archive in `update/`.
+const ARCHIVE_NAME: &str = "sudoku.tar.gz";
+
 /// A stable version: `v<major>.<minor>.<patch>`. The order of the fields is the order of the versions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Version(pub u32, pub u32, pub u32);
@@ -152,9 +155,15 @@ pub fn install(archive: &[u8], m: &Manifest, staging: &Path, app_dir: &Path) -> 
     let new = sibling(app_dir, "new")?;
     let old = sibling(app_dir, "old")?;
     clean(staging, app_dir);
+    // The archive goes to `update/` in the data folder (REQUIREMENTS.md §9.2, step 1). The app
+    // extracts that file.
+    let archive_file = staging.join(ARCHIVE_NAME);
+    std::fs::create_dir_all(staging).map_err(|e| format!("cannot make {}: {e}", staging.display()))?;
+    std::fs::write(&archive_file, archive).map_err(|e| format!("cannot write {}: {e}", archive_file.display()))?;
     let extract = staging.join("extract");
     std::fs::create_dir_all(&extract).map_err(|e| format!("cannot make {}: {e}", extract.display()))?;
-    unpack(archive, &extract)?;
+    let file = std::fs::File::open(&archive_file).map_err(|e| format!("cannot read {}: {e}", archive_file.display()))?;
+    unpack(file, &extract)?;
     let folder = extract.join(ARCHIVE_DIR);
     for f in REQUIRED_FILES {
         if !folder.join(f).is_file() {
@@ -240,8 +249,8 @@ pub fn install_release(archive: &[u8], patch: Option<&[u8]>, m: &Manifest, stagi
     Ok(true)
 }
 
-/// Extracts the gzip tar archive in `dest`. Each entry must be a file or a folder in `sudoku/`.
-fn unpack(archive: &[u8], dest: &Path) -> Result<(), String> {
+/// Extracts the gzip tar archive `archive` in `dest`. Each entry must be a file or a folder in `sudoku/`.
+fn unpack(archive: impl Read, dest: &Path) -> Result<(), String> {
     let mut tar = tar::Archive::new(flate2::read::GzDecoder::new(archive));
     tar.set_preserve_permissions(false);
     let mut size = 0u64;

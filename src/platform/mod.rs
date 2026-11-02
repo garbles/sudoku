@@ -22,7 +22,7 @@ use crate::update::{self, Manifest, UpdateRequest};
 /// The longest wait for the rotation of the tablet before the first drawing.
 const START_ROTATION_WAIT: Duration = Duration::from_millis(300);
 
-/// The clock is saved at least this often (PER-1).
+/// The clock is saved at least this often (PER-7).
 const CLOCK_SAVE_INTERVAL: Duration = Duration::from_secs(5);
 
 static STOP: AtomicBool = AtomicBool::new(false);
@@ -361,11 +361,10 @@ pub fn run() -> Result<(), String> {
     // system log (for an examination on the device).
     let log_input = std::env::var_os("SUDOKU_LOG_INPUT").is_some() || store::data_dir().join("log-input").exists();
     // Updates (REQUIREMENTS.md §9.2). The folder of the program is found now: an installation renames
-    // it. Only a stable or a preview build looks for updates, thus only these builds delete the
-    // folders that stay from an earlier installation.
+    // it. Each build deletes the folders that stay from an earlier installation.
     let app_dir = app_dir();
     let staging = store::data_dir().join("update");
-    if let Some(dir) = app_dir.as_deref().filter(|_| app.update.has_row()) {
+    if let Some(dir) = app_dir.as_deref() {
         update::clean(&staging, dir);
     }
     let (update_tx, update_rx) = mpsc::channel();

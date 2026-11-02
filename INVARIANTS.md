@@ -122,7 +122,7 @@ Terms:
 |---|---|---|
 | BRD-1 | Each cell is always one of these types: starting number (`given`), your number (`entry`), empty with no marks, empty with marks. | R§4.1 |
 | BRD-2 | `given ⇒ filled`. The value of a starting number does not change. | R§4.1 |
-| BRD-3 | The value of an entry is 1–9. Only the eraser or undo can remove it. Writing does not replace it. | R§4.1, R§5.1 |
+| BRD-3 | The value of an entry is 1–9. Only the eraser, undo or redo can remove it. Writing does not replace it. | R§4.1, R§5.1 |
 | BRD-4 | A value changes from 0 to a digit only by a number from 1 to 9 that the app reads, by redo, by undo of an erasure, or by the generator. | R§5.1, R§7 |
 | BRD-5 | An entry can be incorrect. `value ≠ solution` is a correct state and has no color, if there is no clash. | R§6.3 |
 | BRD-6 | Filled cells do not show the micro-cell grid or pencil marks. Empty cells show the micro-cell grid. The only exception is an empty cell with a "?" (QST-1): it does not show the grid while the "?" shows. | R§4.1, R§5.1 |
@@ -138,9 +138,9 @@ Terms:
 | MRK-3 | Starting numbers never have marks. You can add marks only to empty cells, and starting numbers are never empty. | R§4.1 |
 | MRK-4 | **Automatic hiding:** if `auto_hide_on`, an empty cell shows the marks `marks[r][c]` minus the digits of the numbers in its peers. A filled peer keeps its hidden marks with no change. | R§6.1 |
 | MRK-5 | Marks change only in these ways: a pen tap adds or removes one mark in an empty cell; undo and redo of these changes. A new number, the eraser and the switches never change marks. Exception: undo and redo of a number of an earlier version that has a `removed` list (R§6.1). | R§5.1, R§6.1, R§7 |
-| MRK-6 | When you erase or undo a number, the hidden marks of that cell show again with no change. | R§4.1 |
+| MRK-6 | When a number goes (the eraser, undo or redo), the hidden marks of that cell show again with no change. | R§4.1, R§6.1 |
 | MRK-7 | If `auto_hide_on`, a tap on micro-cell d of a cell has no effect when a peer has the number d. If `¬auto_hide_on`, the tap adds or removes the mark d. A mark does not have to be a possible digit. | R§6.1 (owner decision 2026-10-31) |
-| MRK-8 | When you erase or undo a number d, the marks d of its peers show again, if no other peer of those cells has the number d. | R§6.1 (owner decision 2026-10-31) |
+| MRK-8 | When a number d goes (the eraser, undo or redo), the marks d of its peers show again, if no other peer of those cells has the number d. | R§6.1 (owner decision 2026-10-31) |
 | MRK-9 | If `¬auto_hide_on`, each empty cell shows all of `marks[r][c]`. A new number never has removed marks, and its undo and redo change only that cell. | R§6.1, R§9.1 |
 
 ## 4. Clashes
@@ -171,10 +171,10 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| INP-1 | Finger touches on the board do not change the game state. The only exception is the removal of a highlight (HLT-2). A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs and the screen buttons. In the manual and the games list, a horizontal finger swipe can change the page. | R§5.1, R§12, R§13.2 |
-| INP-2 | A pen touch is a **tap** only if all of its movement stays in one micro-cell. All other pen touches are writing. Each pen touch is one of these: a tap, writing, or the eraser. | R§5.1 |
-| INP-3 | A tap on an empty cell adds or removes one mark: the digit of the micro-cell that you tapped. | R§5.1 |
-| INP-4 | A tap on a filled cell does not change the board. It changes only `highlight` (HLT-3, HLT-6). | R§5.1, R§6.2 |
+| INP-1 | Finger touches on the board do not change the game state. The only exceptions are the removal of a highlight (HLT-2) and of the "?" (QST-4). A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs and the screen buttons. In the manual and the games list, a horizontal finger swipe can change the page. | R§5.1, R§12, R§13.2 |
+| INP-2 | A pen touch on the board is a **tap** only if all of its movement stays in one micro-cell. All other pen touches on the board are writing. Each pen touch on the board is one of these: a tap, writing, or the eraser. | R§5.1 |
+| INP-3 | A tap on an empty cell adds or removes one mark: the digit of the micro-cell that you tapped. If `auto_hide_on` and a peer has that digit, the tap has no effect (MRK-7). | R§4.1, R§5.1, R§6.1 |
+| INP-4 | While no panel is open, a tap on a filled cell does not change that cell. It changes only `highlight` (HLT-3, HLT-6) and the "?" (QST-4), and it makes the app read ink that waits in another cell (INP-12). | R§5.1, R§6.2 |
 | INP-5 | `pending_ink ≠ None ⇒` its cell is empty and the game is not complete. The app collects the ink until the pen is lifted for the recognition pause (approximately 0.5 s). Then the app reads all the ink as one item and sets `pending_ink = None`. | R§5.1 |
 | INP-6 | The app reads the ink as one of these two results: a number from 1 to 9 (the app adds it), or "not 1–9" (scribble, letter, 0, 10 or more). For "not 1–9", the app shows the "?". There is no other result. | R§5.1 |
 | INP-7 | The app removes writing on a filled cell (starting number or entry). The writing makes no change. | R§5.1 |
@@ -185,13 +185,13 @@ Terms:
 | INP-12 | Writing belongs to the cell where the pen touch started. A pen touch that starts in a different cell, or a press on a different item, makes the app read the waiting ink immediately. | R§5.1 (confirmed 2026-10-25) |
 | INP-13 | The eraser removes all of your numbers that it touches in one stroke. Each removal is one change in the undo history. | R§5.1, UND-1 (confirmed 2026-10-25) |
 | INP-14 | A finger swipe is a horizontal movement of 120 px or more, with more horizontal than vertical movement. | R§12, R§13.2 (confirmed 2026-10-25) |
-| INP-15 | A finger press on an item that is not on the board (INP-1: menu buttons, panels, dialogs, screen buttons) operates it at all times while the app is open. If the app does not get the release of a touch, that touch does not stop other presses: the app forgets it when a new press with the same touch id starts, or when a new touch starts and that touch has had no event for 0.15 s. A second finger while the first finger moves or presses (an event less than 0.15 s before) has no effect. | R§9, R§5.1 |
+| INP-15 | A finger press on an item that is not on the board (INP-1: menu buttons, panels, dialogs, screen buttons) operates it while the app is open. The only exception is a dialog that shows: then only its two buttons operate. If the app does not get the release of a touch, that touch does not stop other presses: the app forgets it when a new press with the same touch id starts, or when a new touch starts and that touch has had no event for 0.15 s. A second finger while the first finger moves or presses (an event less than 0.15 s before) operates no item, but it removes a highlight and the "?" (HLT-2, QST-4). | R§9, R§5.1 |
 
 ## 7. Undo and redo
 
 | ID | Rule | Source |
 |---|---|---|
-| UND-1 | Each change to the board is one of these: add or remove a mark; add a number (with the marks that it removes, as one change); erase a number. Each change adds one item to `undo` and empties `redo`. | R§7 |
+| UND-1 | Each change to the board is one of these: add or remove a mark; add a number; erase a number. Each change adds one item to `undo` and empties `redo`. | R§7 |
 | UND-2 | No other action adds to `undo`. Highlights, the "?", color changes, switch changes, panels and screens never add to it. | R§7 |
 | UND-3 | Undo does the exact opposite of the top change and moves the change to `redo`. Redo does the change again and moves it back to `undo`. An undo and then a redo give the same board as before. A redo and then an undo also give the same board. | R§7 |
 | UND-4 | Undo of a number shows the hidden marks of that cell again, and the marks of the peers that the number hid (MRK-8). For a number of an earlier version with a `removed` list, undo puts back those marks. | R§6.1 |
@@ -219,7 +219,7 @@ Terms:
 | CLK-1 | `elapsed` increases only when the app is open (on all screens) and the game is not complete. | R§8.4 |
 | CLK-2 | `elapsed` never decreases. The only exception is a new game, which sets it to 0. | R§8.4 |
 | CLK-3 | `completed ⇒ elapsed` does not change. It is the final time and is equal to `seconds` in the saved result. | R§8.4, R§14.1 |
-| CLK-4 | The app does not show the clock during the game. It shows the time only in "Completed in …". | R§8.4 |
+| CLK-4 | The app does not show the clock during the game. The game screen shows the time only in "Completed in …". | R§8.4 |
 | CLK-5 | The app does not count the time when the app is closed or suspended. When the app opens again, the clock continues from the saved `elapsed`. | R§8.4, R§14.3 |
 | CLK-6 | If the app gets no events and no clock ticks for more than 5 seconds, the clock does not count that time (the app was suspended). The app ticks at least one time each second while it operates. | R§8.4 (confirmed 2026-10-25) |
 
@@ -233,12 +233,12 @@ Terms:
 | NAV-4 | `panel ≠ None ⇒ menu = Open`. Only one panel can be open at a time. | R§9 |
 | NAV-5 | `screen ≠ Game ⇒ menu = Closed, panel = None`. The menu is a part of the game screen. | R§9 |
 | NAV-6 | The close button shows only when `screen = Game` and `menu = Open`. A tap on it closes the app after the app saves the game (PER-1). | R§3.1, R§9 |
-| NAV-7 | Icon of the menu button: the dot is at the bottom left only when `menu = Closed`. The dot is at the top left only when `menu = Open`. | R§3.1 |
+| NAV-7 | Icon of the menu button: the dot is at the bottom left only when `menu = Closed`. The dot is at the top left only when `menu = Open`. For a right-handed player the icon is a mirror image (the dot is at the right; NAV-15). | R§3.1 |
 | NAV-8 | The button of a panel is white on black only when that panel is open. The other buttons have their usual appearance. | R§9 |
 | NAV-9 | After Start new game, `menu = Closed` and `panel = None`. | R§11 |
-| NAV-10 | The closed menu never covers the board. The open toolbar (portrait x ≥ 1508, landscape x ≥ 2048) never covers the board (portrait x ≤ 1471, landscape x ≤ 1741). An open panel can cover a part of the board. | R§3.1, R§3.3 |
+| NAV-10 | The closed menu never covers the board. The open toolbar (portrait x ≥ 1508, landscape x ≥ 2048) never covers the board (portrait x ≤ 1471, landscape x ≤ 1741). An open panel can cover a part of the board. For a right-handed player, the toolbar is at the left edge (x 0–112) and the board does not change (NAV-15). | R§3.1, R§3.3 |
 | NAV-15 | When the device is right-handed, the game screen shows the toolbar, the menu button, the close button and the panels as a mirror image of the left-handed screen: the toolbar is at the left edge (x 0–112), the close button is at the top right, and the panels touch the toolbar at x 112. The icons other than the menu button and the contents of the panels are the same. The hit areas move with the buttons. | R§3.1 (owner request 2026-10-26) |
-| NAV-13 | A turn of the tablet does not change the game, the settings or the screen. It removes only the pending ink and the touches in progress. | R§3.3 (confirmed 2026-10-25) |
+| NAV-13 | A turn of the tablet does not change the game, the settings or the screen. It removes the pending ink and the touches in progress, and it changes only the page of the games list: the list shows the page with the first game of the page before the turn (R§3.3). | R§3.3 (confirmed 2026-10-25) |
 | NAV-14 | The Settings panel opens from the gear (top slot 2). A tap on a row changes only its switch (`highlight_on` or `auto_hide_on`), immediately; the panel stays open. A tap on the version row (row 3) changes nothing, and the panel stays open. A change of a switch does not change the game or the undo and redo stacks, and it does not change the changes that are already in the stacks. | R§9.1 (version row: owner decision 2026-10-26) |
 | NAV-11 | When `panel ≠ None`, a tap outside the panel only sets `panel = None`. It does not change the game, also when the tap is on the board. When `menu = Open` and `panel = None`, the board operates as usual. | R§9 |
 | NAV-12 | When `panel ≠ None`, a tap on a toolbar button that is not the paint bucket, the gear or the + only closes the panel. A tap on the button of a different panel opens that panel. This includes the menu button and the close button. | R§9 (confirmed 2026-10-25) |
@@ -283,7 +283,7 @@ Terms:
 | ANA-2 | Only completion adds results (CMP-5). Only a confirmed Delete (one game) or a confirmed Delete all games removes results. (The device test tool `sudoku --test-results` is not a part of the app; refer to DECISIONS.md.) | R§14.1, R§13.1, R§13.2 |
 | ANA-3 | "Puzzles completed" on the summary is `|results|`. "Average time" is the average of `seconds` in `results`, or "–" if there are no results. | R§13.1 |
 | ANA-4 | For each mode m, completed is `|{r ∈ results : r.mode = m}|`. Average is the average of their `seconds`, or "–" if there are none. The sum of the quantities for all modes is equal to the total. | R§13.1 |
-| ANA-5 | The list shows only the results that agree with `filter` (all results for All). The newest `finished_at` is first. Each page has a maximum of 12 results. All pages before the last page have 12 results. If no results agree with `filter`, the list has no rows. | R§13.2 |
+| ANA-5 | The list shows only the results that agree with `filter` (all results for All). The newest `finished_at` is first. Each page has a maximum of `n` results (`n` in ANA-6). All pages before the last page have `n` results. If no results agree with `filter`, the list has no rows. | R§13.2 |
 | ANA-6 | `1 ≤ page ≤ max(1, ⌈matching / n⌉)`, with `n = 12` in portrait and `n = 6` in landscape. When the list opens, `filter = All` and `page = 1`. A change of filter sets `page = 1`. | R§13.2 |
 | ANA-7 | `confirm ≠ None ⇒` the dialog shows on the pale list, and the list accepts no other input. Cancel sets `confirm = None` and makes no change. Delete removes that one result and then sets `confirm = None`. | R§13.2 |
 | ANA-8 | After a deletion (one game or all games), the summary and the list show the change immediately (ANA-3 to ANA-5 are true). If the current page becomes empty, the list shows the page before it, but not below page 1. Then ANA-6 is true. | R§13.2 |
@@ -313,7 +313,7 @@ Terms:
 | UPD-3 | The gear has the caution icon exactly when `state ∈ {Available, Installing, Failed, Installed}`. | R§9.2 |
 | UPD-4 | The app uses a `version.json` only when its ed25519 signature is correct for the public key of the app. It installs an archive only when its SHA-256 checksum is equal to the checksum in that `version.json`. When `version.json` has `patch_sha256`, it changes no file unless the checksum of the downloaded ink patch is equal to `patch_sha256`. | R§9.2 |
 | UPD-5 | Only a tap on the button in `state = Available(v)` starts an installation. The tap sets `state = Installing(v)`, and it does not change the game, the settings, the screen or the panel. At most one installation is in progress. | R§9.2 |
-| UPD-6 | When an installation fails, the app folder is the same as before the installation. `Failed(v, at)` becomes `Available(v)` 3 seconds after `at`. | R§9.2 |
+| UPD-6 | When step 1, 2, 3 or 4 of an installation fails, the app folder is the same as before the installation. When step 6 fails, the app folder is the new folder. `Failed(v, at)` becomes `Available(v)` 3 seconds after `at`. | R§9.2 |
 | UPD-7 | A result of a request changes only `Unknown`, `CheckFailed`, `UpToDate` and `Available`. A failed request changes only `Unknown` (to `CheckFailed`). At most one request is in progress (`checking`). | R§9.2 |
 | UPD-8 | The app does not keep `update`. When it opens, `state` is `Off` or `Unknown`, and a stable or a preview build sends a request. `state = Unknown` only while this request is in progress. The app never sends a request by itself after this request. | R§9.2 (owner decision 2026-10-31) |
 | UPD-9 | The text "Sudoku is up to date" shows exactly when `up_to_date_shown`. `up_to_date_shown` becomes true only when a request finds no update while the Settings panel is open, and it becomes false when the panel closes (or the screen changes). It is true only when `state = UpToDate`, `checking` is false and the Settings panel is open. The button "Check for updates" shows exactly when `state ∈ {CheckFailed, UpToDate}`, `checking` is false and `up_to_date_shown` is false. A tap on it sets `checking` and sends one request. It does not change the game, the settings, the screen or the panel. `checking` is true only when `state ∈ {Unknown, CheckFailed, UpToDate}`. | R§9.2 (owner decision 2026-10-31) |

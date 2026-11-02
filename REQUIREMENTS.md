@@ -138,6 +138,7 @@ stateDiagram-v2
         Highlighted --> Plain: a different action
         Plain --> Question: writing that is not 1 to 9
         Question --> Plain: after approximately one second
+        Question --> Plain: a press of the pen or of a finger
     }
 ```
 
@@ -156,7 +157,7 @@ The landscape layout has the same items, at the same sizes, as the portrait layo
 | Board | At the center: x 418–1741, y 148–1471. The difficulty meter is 50 px below the board. |
 | Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. |
 | Close button | Top left, as in portrait. For a right-handed player, the toolbar is at the left edge (x 0–112) and the close button is at the top right (§3.1). |
-| Manual | Each page has a landscape version with two columns (`manual-*-landscape.png`, made by `scripts/manual-*-landscape.sh`). The text is the same as in portrait. |
+| Manual | Each page has a landscape version with two columns (`manual-*-landscape.png`, made by `scripts/manual-*-landscape.sh`). The content is the same as in portrait. |
 | Statistics | The same scale as in portrait, across the full width. The games list is one table across the full width. Each page shows 6 games, because the height is too small for 12. When the tablet turns, the list shows the page with the first game of the page before the turn. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, made by `scripts/analytics.py`). |
 
 When the tablet turns, the game does not change. Ink that waits for the recognition pause and touches
@@ -171,9 +172,12 @@ Each cell is always one of these four types:
 | Type | Appearance | Changes |
 |---|---|---|
 | **Starting number** | Black digit. No micro-cells. Background: refer to [§4.2](#42-cell-background-color). | It does not change. Writing on it and the eraser have no effect. |
-| **Your number** | Dark gray digit. No micro-cells. Background: refer to [§4.2](#42-cell-background-color). The app keeps its pencil marks but does not show them. | Only the eraser or undo can remove it. Writing on it has no effect. |
+| **Your number** | Dark gray digit. No micro-cells. Background: refer to [§4.2](#42-cell-background-color). The app keeps its pencil marks but does not show them. | Only the eraser, undo or redo can remove it. Writing on it has no effect. |
 | **Empty, no pencil marks** | The faint 3×3 grid of micro-cells. | Tap to add a pencil mark. Write to add a number. |
 | **Empty, with pencil marks** | The grid of micro-cells with small digits in their keypad positions. | Tap to add or remove a pencil mark. Write to add a number. |
+
+If automatic hiding is on, a tap on a micro-cell whose digit is a number in a peer has no effect
+([§6.1](#61-automatic-pencil-mark-hiding)). Then the cell does not change.
 
 Digits use reMarkable Sans Regular: 104 px for numbers and 31 px for pencil marks. Starting numbers
 are black. Your numbers are dark gray (`gray35`).
@@ -189,8 +193,8 @@ stateDiagram-v2
     [*] --> Given: the generator makes the puzzle
     [*] --> Empty: the generator makes the puzzle
 
-    Empty --> Marked: tap a micro-cell (adds its digit)
-    Marked --> Marked: tap a micro-cell (adds or removes its digit)
+    Empty --> Marked: tap a micro-cell (adds its digit, if no peer has it)
+    Marked --> Marked: tap a micro-cell (adds or removes its digit, if no peer has it)
     Marked --> Empty: tap removes the last mark
     Marked --> Marked: a number in a peer cell hides a mark (if the switch is on)
     Marked --> Empty: a number in a peer cell hides the last mark (if the switch is on)
@@ -224,7 +228,8 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
 
 ### 5.1 Rules
 
-- **Finger touches on the board have no effect.** Only the reMarkable pen operates the board.
+- **Finger touches on the board change no number and no pencil mark.** Only the reMarkable pen
+  operates the board. A finger touch removes a highlight (§6.2) and the "?".
 - A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs
   and the screen buttons (for example "< Back"). The pen can also operate these items.
 - In the manual and the games list, a finger swipe turns the page. Refer to [§12](#12-manual-help) and
@@ -243,13 +248,16 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
 - If the writing is **not a number from 1 to 9**, the app shows a gray **?** in the cell for
   **approximately one second**. Examples are a scribble, a letter, 0 or a number more than 9, such as
   12. After the "?", the cell is the same as before.
+- Each press of the pen or of a finger removes the "?" immediately. Thus a new number in that cell
+  never shows under the "?" (owner decision 2026-10-25).
 - Writing on a **starting number** or on **your number** has no effect. The app removes the ink. To
   change your number, erase it first.
 - The **eraser** is the other end of the pen. When you rub it on your number, the app removes the
   number. The micro-cells and the pencil marks of that cell show again.
 - The eraser has no effect on other cells. It does not change starting numbers. It does not change
   empty cells. Only a tap removes a pencil mark. A number only hides the marks of its peers (§6.1).
-- Pen input on a completed puzzle has no effect ([§8](#8-puzzle-states-and-the-clock)).
+- Pen input on the board of a completed puzzle has no effect
+  ([§8](#8-puzzle-states-and-the-clock)).
 
 Images: [`manual-candidates.png`](images/manual-candidates.png),
 [`manual-pen.png`](images/manual-pen.png), [`manual-pen-rules.png`](images/manual-pen-rules.png),
@@ -260,7 +268,7 @@ Images: [`manual-candidates.png`](images/manual-candidates.png),
 ```mermaid
 flowchart TD
     A[Touch on the board] --> B{Pen or finger?}
-    B -- finger --> X[No effect]
+    B -- finger --> X[No change to the board; remove the highlight and the ?]
     B -- pen --> C{Puzzle complete?}
     C -- yes --> X2[No change to the board]
     C -- no --> D{Eraser end?}
@@ -292,7 +300,7 @@ then makes a new highlight.
 
 A pencil mark does not show while a cell in the same row, column or 3×3 box has the same digit as a
 number (a starting number or your number). The app does not remove the mark: it keeps it. When the
-number goes (the eraser or undo), the mark shows again (owner decision 2026-10-31). Image:
+number goes (the eraser, undo or redo), the mark shows again (owner decision 2026-10-31). Image:
 [`manual-helpers.png`](images/manual-helpers.png) (top).
 
 - A number does not change the pencil marks of other cells. It only hides them. Thus, the change of a
@@ -308,7 +316,8 @@ number goes (the eraser or undo), the mark shows again (owner decision 2026-10-3
 ### 6.2 Highlights
 
 Tap a number with the pen (a starting number or your number). The app then gives the highlight color
-(default: green) to all cells with that digit.
+(default: green) to all cells with that digit. A cell that clashes keeps the clash color
+([§4.2](#42-cell-background-color)).
 
 - If you tap the same digit again, the app removes the highlight.
 - If you tap a different number, the highlight moves to the new digit.
@@ -351,7 +360,10 @@ stateDiagram-v2
 - **Undo** cancels the last change to the board. **Redo** makes the last canceled change again.
 - These changes are a part of undo:
   - Add or remove a pencil mark.
-  - Add a number. (A number does not change the pencil marks of other cells: it only hides them.)
+  - Add a number. (A number does not change the pencil marks of other cells: it only hides them.
+    Exception: a number in the undo history of a game that an earlier version saved can have a
+    `removed` list; undo and redo of it put back and remove those marks
+    ([§6.1](#61-automatic-pencil-mark-hiding)).)
   - Erase a number.
 - These actions are not changes to the board and are not a part of undo: highlights, the "?",
   color changes, switch changes, and the panels and screens that you open.
@@ -414,7 +426,8 @@ A puzzle is **complete** when all cells have a number and there is no clash. The
 - The board **locks**. Writing, the eraser, pencil marks, highlights, undo and redo have no effect.
   The undo and redo buttons are gray.
 - The app saves the result in the database ([§14](#14-data-that-the-app-keeps)).
-- **+** and **Start new game** continue to operate. The Settings panel continues to operate.
+- **+** and **Start new game** continue to operate. The menu, Help, Statistics, Cell colors and the
+  Settings panel continue to operate.
 
 Images: [`screen-completed.png`](images/screen-completed.png),
 [`screen-completed-menu.png`](images/screen-completed-menu.png),
@@ -469,8 +482,9 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
   app then shows the launcher ([§14.4](#144-launcher)).
 - When a panel is open, its button is white on a black square. The panel touches the button. The
   pop-up menus of the device do the same.
-- A finger operates the menu buttons, the panels, the dialogs and the screen buttons at all times
-  while the app is open. A touch for which the app does not get a release (for example a palm touch
+- A finger operates the menu buttons, the panels, the dialogs and the screen buttons while the app
+  is open. The only exception is a dialog that shows: then only its two buttons operate
+  ([§9.2](#92-updates)). A touch for which the app does not get a release (for example a palm touch
   that the system cancels) does not stop the next touches.
 
 ```mermaid
@@ -727,13 +741,14 @@ Images: [`images/new-game-menu.png`](images/new-game-menu.png),
 [`manual-new-game.png`](images/manual-new-game.png).
 
 - The panel opens next to the + button (bottom slot). The + button becomes white on black.
-- The panel is 505 px wide. This is wider than the menus of the device, so that the slider is easy to
+- The panel is 506 px wide. This is wider than the menus of the device, so that the slider is easy to
   use.
 - The panel has two rows. The first row has the **difficulty slider** ("Easy", seven stops, "Hard").
   A divider line follows. The second row has **Start new game**, next to the + button.
 - The slider has the same size and design as the meter below the board.
-- There are **seven modes**, from 0 (Easy) to 6 (Hard). A more difficult mode needs more difficult
-  techniques. The puzzle generator sets the techniques of each mode ([§14.5](#145-puzzle-generation)).
+- There are **seven modes**, from 0 (Easy) to 6 (Hard). Each mode has a level of solving techniques,
+  from singles to chains; a mode with a more difficult level needs more difficult techniques. The
+  puzzle generator sets the techniques of each mode ([§14.5](#145-puzzle-generation)).
 - When the panel opens, the slider shows the **last mode that you selected**. At the first start, the
   slider shows **mode 2**.
 - When you move the slider, only the selection changes. The game does not change until you tap
@@ -744,7 +759,8 @@ Images: [`images/new-game-menu.png`](images/new-game-menu.png),
   - Closes the menu.
   - Removes the undo and redo history and sets the clock to zero.
   - Keeps the selected mode for the next time.
-- The meter below the board always shows the mode of the current puzzle. You cannot change it.
+- The meter below the board shows the mode of the current puzzle. When the puzzle is complete,
+  "Completed in …" replaces the meter ([§8.3](#83-complete)). You cannot change the meter.
 
 ```mermaid
 stateDiagram-v2
@@ -985,8 +1001,8 @@ reads it each 15 ms:
 installed the patch and the SHA-256 checksum of the patch:
 `{"version": "v<version>", "sha256": "<checksum>"}`. The installer (§14.6) and the update of the app
 (§9.2) write it each time that they install the patch. The update compares the checksum of the new
-patch only with the checksum in this file. A missing stamp file means that the patch must be
-replaced.
+patch only with the checksum in this file. For the update, a missing stamp file means that the patch
+must be replaced.
 
 The close button shows the reMarkable interface again. AppLoad draws a black line of 2 px around the
 window of each app, also in full screen. The app cannot remove it. The app does not put content at
@@ -1056,8 +1072,10 @@ The installer has these requirements (owner decision, 2026-10-27):
   `pre-1a2b3c4` (`0.1.2` gets the prefix `v`). For a version that is not the latest, the installer
   reads the two checksums (archive and ink patch) from `version.json` of that release. If GitHub does not have the release, the
   installer stops. For a preview version, it shows a warning.
-- **Idempotent.** Each step examines the tablet or the computer first. If the step is done, the
-  installer shows "(done already)" and does not change it. A second run changes nothing.
+- **Idempotent.** Each installation step (4 to 10) examines the tablet or the computer first. If
+  the step is done, the installer shows "(done already)" and does not change it. Steps 1 to 3 always
+  operate: they examine the programs, download the release and connect. A second run with all steps
+  done changes nothing on the tablet.
 - **Instructions.** When the user must do something, a box tells the user what to do, step by step.
   Then the installer waits for Enter (or `q` to stop), and examines the step again.
 - **Colors.** The output uses ANSI colors (256-color palette) and Unicode symbols. `NO_COLOR` turns
@@ -1096,7 +1114,7 @@ the user runs the installer again.
 | Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell |
 | "?" | reMarkable Sans Regular 104 px, `gray40` |
 | Default colors | Starting `#C8C8C8`, clash `#F0A3A3`, highlight `#B5DF9E` |
-| UI text | reMarkable Sans Medium 25 px (menus, meter labels, "Completed in …") |
+| UI text | reMarkable Sans Medium 25 px (menus, meter labels, "Completed in …"). The version value and the text of an update state are reMarkable Sans Regular 25 px (§9.1, §9.2). |
 | Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |
 | Panels | 2 px black border, rows of 112 px, 2 px dividers, inner margin of 33 px |
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
@@ -1104,7 +1122,7 @@ the user runs the installer again.
 | Switch (Settings panel) | Track 72×36 px, 3 px border; knob of 28 px; 33 px from the right edge of the panel |
 | Caution icon (gear) | Circle `#D62D20`, radius 10 px, 3 px white border, white "!"; center 16 px right of and 16 px above the gear center |
 
-All dimensions are in [`scripts/ui-lib.sh`](scripts/ui-lib.sh).
+The values are in [`scripts/ui-lib.sh`](scripts/ui-lib.sh), in the other scripts that make the images, and in the source code of the app (`src/`).
 
 ## 16. Open questions
 
@@ -1166,3 +1184,4 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`screen-toolbar-update.png`](images/screen-toolbar-update.png) | [§9.2](#92-updates) |
 | [`analytics-delete-all.png`](images/analytics-delete-all.png) | [§13.1](#131-summary) |
 | `analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png` | [§3.3](#33-landscape), [§13](#13-statistics) |
+| `install-*.png` (6 images) | [§14.6](#146-installer) |

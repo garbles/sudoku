@@ -24,7 +24,7 @@ dimensions of the toolbar, the panels and the fonts come from screenshots of a r
 | Image | Content | Purpose |
 |---|---|---|
 | `screen.png` | Empty board, menu closed. It shows only the menu button (top right, closed icon: dot at the bottom left) and the difficulty meter below the board. | The base layout. The board has 9×9 cells of 147 px, at the center, from (148, 418) to (1471, 1741). Each cell has a faint 3×3 grid of 49 px micro-cells. The close button does not show when the menu is closed. |
-| `screen-in-progress.png` | A game in progress: starting numbers (gray background, black digits), your numbers (white background, gray digits), pencil marks and one clash (two red 9s). | The main state of the game. The pencil marks are the possible digits only, because the app removes the other marks automatically. |
+| `screen-in-progress.png` | A game in progress: starting numbers (gray background, black digits), your numbers (white background, gray digits), pencil marks and one clash (two red 9s). | The main state of the game. The pencil marks are the possible digits only, because the app hides the marks of the digits of peers. |
 | `screen-highlight.png` | The same game after a tap on a 5. All 5s have the highlight color (green). | Highlights. A tap on the same number again, or a different action, removes the highlight. |
 | `screen-unrecognized.png` | The same game immediately after a scribble that the app cannot read. A gray **?** shows in the cell for approximately one second. | The response to writing that is not a number from 1 to 9 (for example a scribble, 0 or 12). After the "?", the cell is the same as before. |
 | `screen-completed.png` | The complete board. The text "Completed in 23:41" replaces the difficulty meter. | The complete, locked state. |
@@ -42,7 +42,7 @@ open, the close button shows at the top left.
 | `new-game-menu.png` | The + button is black, and its panel is open. The panel has the difficulty slider (seven modes) and "Start new game". | How to start a new game. The panel is wider than the menus of the device, so that the slider is easy to use. The slider has the same size as the meter below the board. |
 | `color-menu.png` | The Cell colors panel is open on the game in progress. It has three sections: starting numbers (Gray), clashing numbers (Red) and highlighted numbers (Green). | The only place to change the cell colors. Each section has the same design as the pen-color menu of the device: a title, a 3×3 grid of 112 px cells and a black box around the selected color. |
 | `color-menu-right-handed.png` | The same state as `color-menu.png`, for a right-handed player. The toolbar is at the left edge (x 0–112), the menu icon is a mirror image (dot at the right), the close button is at the top right and the panel is at x 112–511. | The menu at the other side (REQUIREMENTS.md §3.1). The other icons and the contents of the panel do not change. `scripts/toolbar.sh` makes it from `color-menu.png`. |
-| `settings-menu.png` | The Settings panel is open on the game in progress (the gear is white on black). Two rows: "Highlight numbers" and "Remove pencil marks automatically", each with a switch (both on). The third row is "Version" with the version of a development build ("dev", Regular, black) at the right. | The only place to turn the two helpers off and on (REQUIREMENTS.md §9.1). |
+| `settings-menu.png` | The Settings panel is open on the game in progress (the gear is white on black). Two rows: "Highlight numbers" and "Hide pencil marks automatically", each with a switch (both on). The third row is "Version" with the version of a development build ("dev", Regular, black) at the right. | The only place to turn the two helpers off and on (REQUIREMENTS.md §9.1). |
 | `screen-toolbar-update.png` | The menu is open on the game in progress of a stable build (v0.1.0). An update (v0.2.0) is available: the gear has the red caution icon at its top right. | The caution icon (REQUIREMENTS.md §9.2). |
 | `settings-update.png` | The Settings panel of the stable build v0.1.0 when v0.2.0 is available. The Version row shows "v0.1.0". The fourth row has the button "Update to v0.2.0" with the update icon. The gear has the caution icon. | The update button (REQUIREMENTS.md §9.2). |
 | `settings-up-to-date.png` | The Settings panel of the stable build v0.1.0 just after a check that found no update. The fourth row shows "Sudoku is up to date" (Regular, gray40). No caution icon. | The text states of the update row (REQUIREMENTS.md §9.2). The other texts have the same position and font. |
@@ -58,13 +58,13 @@ open, the close button shows at the top left.
 one table across the full width, with 6 games on each page.
 
 Statistics in the menu opens these screens (the image files keep the name "analytics"). They have the same top and bottom items as the manual:
-"< Back" shows the game again. The two screens use one list of sample results. Thus their numbers
-agree.
+"< Back" shows the game again from the summary, and the summary again from the list. The two screens
+use one list of sample results. Thus their numbers agree.
 
 | Image | Content | Purpose |
 |---|---|---|
 | `analytics.png` | The quantity of completed puzzles and the average time for all puzzles. Below these is one row for each difficulty (meter, quantity, average time) and the "All completed games" button. | The summary of the results in the SQLite database, with "All completed games" and "Delete all games". If a difficulty has no games, its average is "–". |
-| `analytics-games.png` | All completed games, with the newest game first. Each row has the date and time of completion, the difficulty, the time used and a bin to delete the game. A filter row (All, or one difficulty) is above the list. Each page has 12 games, with page arrows. A swipe also turns the page. | How to see and delete results. |
+| `analytics-games.png` | All completed games, with the newest game first. Each row has the date and time of completion, the difficulty, the time used and a bin to delete the game. A filter row (All, or one difficulty) is above the list. Each page has 12 games (6 in landscape), with page arrows. A swipe also turns the page. | How to see and delete results. |
 | `analytics-delete.png` | The list after a tap on a bin. A dialog shows "Delete this game?", the date and time of the game, and Cancel and Delete. | A deletion is permanent. Thus the app asks for a confirmation first. Delete removes the result, and the summary shows the change. |
 | `analytics-delete-all.png` | The summary after a tap on "Delete all games". A dialog shows "Delete all games?", the quantity of games, and Cancel and Delete. | Delete all removes all results. The app asks for a confirmation first. |
 
@@ -78,7 +78,7 @@ agree.
 
 ## Manual
 
-Each page also has a landscape version (`manual-<page>-landscape.png`, 2160×1620) with the same text
+Each page also has a landscape version (`manual-<page>-landscape.png`, 2160×1620) with the same content
 in two columns. `scripts/manual-<page>-landscape.sh` makes it.
 
 Help in the menu opens the manual. Each page has "< Back" at the top left. It shows the game again.
@@ -91,7 +91,7 @@ next page, next to the page number.
 | 2 | `manual-candidates.png` | Pencil marks: how to tap micro-cells to add and remove them. |
 | 3 | `manual-pen.png` | How to write a number (the app reads it and shows a typed number) and how to erase it (the pencil marks show again). |
 | 4 | `manual-pen-rules.png` | What a tap is. Finger touches have no effect. One number for each cell. Writing on a number has no effect. Writing that the app cannot read shows **?**. |
-| 5 | `manual-helpers.png` | Automatic pencil mark removal and highlights. |
+| 5 | `manual-helpers.png` | Automatic pencil mark hiding and highlights. |
 | 6 | `manual-mistakes.png` | Numbers in a clash become red. How to correct them. The app shows only clashes. |
 | 7 | `manual-menu.png` | All menu buttons, and how to select a color. |
 | 8 | `manual-new-game.png` | How to start a new game, step by step. The difficulty meter, which you cannot change. |
@@ -109,7 +109,7 @@ with the output). The font is DejaVu Sans Mono (`scripts/fonts/`).
 | `install-first.png` | `first` | A new tablet in developer mode. All 10 steps operate: the SSH key and the password, Vellum, AppLoad, the hashtable, the ink patch, xovi and Sudoku. |
 | `install-connect.png` | `connect` | The tablet does not answer (instructions for the USB cable), then SSH is off (instructions for developer mode). All other steps are done already. |
 | `install-restart.png` | `restart` | After a restart of the tablet with an earlier version of Sudoku: the installer starts xovi and replaces the app. |
-| `install-again.png` | `again` | All steps are done already. The installer changes nothing. |
+| `install-again.png` | `again` | The installation steps (4 to 10) are done already. The installer changes nothing on the tablet. |
 | `install-menu.png` | `select` (in a terminal) | The user selected "A different version". The list of versions is open: the newest first, the type (`latest`, `stable` or `preview`) and the date. The arrow is on the preview version `pre-1a2b3c4`. |
 | `install-select.png` | `select` (in a terminal) | The complete run after the selection of `pre-1a2b3c4`: the menus changed to the line "Version: pre-1a2b3c4.", with the warning for a preview version. |
 
@@ -118,7 +118,8 @@ with the output). The font is DejaVu Sans Mono (`scripts/fonts/`).
 This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 
 **Input**
-- On the board, only the pen has an effect. Finger touches have no effect.
+- On the board, only the pen changes the numbers and the pencil marks. Finger touches remove a
+  highlight and the **?**.
 - In the manual and the games list, a finger swipe to the left or the right turns the page. The page
   arrows also turn the page. reMarkable notebooks operate in the same way.
 - A tap is a pen touch that stays in one micro-cell. On an empty cell, a tap adds or removes the pencil
@@ -134,11 +135,11 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
   starting numbers or empty cells.
 
 **Helpers**
-- When you write a number, the app removes that digit from the pencil marks in the same row, column
-  and box. Undo puts the marks back.
-- A highlight gives the highlight color (default: green) to all cells with the same number. A tap on
-  the same number again removes the highlight. All other actions also remove it, for example a tap
-  on the menu button.
+- When you write a number, the app hides that digit in the pencil marks in the same row, column and
+  box. It keeps the marks: erase or undo the number, and they show again.
+- A highlight gives the highlight color (default: green) to all cells with the same number. A cell
+  that clashes keeps the clash color. A tap on the same number again removes the highlight. All other
+  actions also remove it, for example a tap on the menu button.
 - There are three cell colors: starting numbers (default: gray), clashing numbers (default: red) and
   highlighted numbers (default: green). You select each color from nine medium-light colors in the Cell colors
   panel. Black is not available.
@@ -158,15 +159,17 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 - The app saves the game in progress (board, pencil marks, undo and redo history, clock). When the
   app opens again, the game is the same.
 - The app saves each completed puzzle in a SQLite database. Each record has the time of completion,
-  the difficulty (0–4), the quantity of starting numbers, the time used in seconds and the random seed
-  of the puzzle generator. With the seed, the generator can make the same puzzle again.
+  the difficulty (0–6), the quantity of starting numbers, the time used in seconds, the random seed
+  of the puzzle generator and the generator version. With the seed and the generator version, the
+  generator can make the same puzzle again.
 
 **Menu**
 - The close button shows only when the menu is open.
-- There are five difficulty modes, from Easy to Hard. The new-game slider opens at the last mode
-  that you selected. At the first start, it opens at the middle mode.
+- There are seven difficulty modes, from Easy to Hard. The new-game slider opens at the last mode
+  that you selected. At the first start, it opens at mode 2.
 - "Start new game" replaces the current puzzle immediately.
-- The difficulty meter below the board always shows the current puzzle. You cannot change it.
+- The difficulty meter below the board shows the mode of the current puzzle. When the puzzle is
+  complete, "Completed in m:ss" replaces it. You cannot change the meter.
 
 ## Work to do
 

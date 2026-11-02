@@ -42,7 +42,7 @@ Vellum, `vellum add appload` (AppLoad 0.6.0, xovi 0.3.3) on OS 3.29.0.153. Resul
 |---|---|
 | Start | AppLoad starts `./sudoku` with qtfb. The screen shows the board, the meter and the menu correctly (screenshot with `scripts/rmpp-screenshot.sh`). |
 | Pen taps | Taps added the marks 1, 3 and 5 at their keypad positions in the cell that the player tapped. |
-| Writing | The handwritten 5 and 8 of the owner were read correctly. The 5 removed the mark 5 of a peer (MRK-4). |
+| Writing | The handwritten 5 and 8 of the owner were read correctly. The 5 hid the mark 5 of a peer (MRK-4). |
 | Eraser | Each rub with the eraser end made one `Erase` change. |
 | Finger | The menu button and the close button operate with a finger. |
 | Close and open again | The close button saved the game and stopped the app (exit code 0). The app opened again with the same seed, and the clock continued from the saved time (122.974 s; 27.6 s later 150.551 s, for 28 s open). |

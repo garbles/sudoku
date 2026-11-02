@@ -286,7 +286,7 @@ fn the_landscape_layout_operates() {
 
 #[test]
 fn turning_the_tablet_keeps_the_game() {
-    // NAV-13: a rotation removes only the ink that waits and the touches in progress.
+    // NAV-13: a rotation keeps the game and removes the ink that waits and the touches in progress.
     let mut d = Driver::new(39);
     let cell = empty_cell(&d);
     d.tap_micro(cell, 3);

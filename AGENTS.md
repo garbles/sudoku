@@ -118,8 +118,9 @@ installs it on the tablet at `REMARKABLE_HOST` (`.env`), or on USB.
   SHA-256 checksum, and the download URL of the ink patch and its SHA-256 checksum:
   `{"version": "<version>", "url": "<url>", "sha256": "<checksum>", "patch_url": "<url>",
   "patch_sha256": "<checksum>"}` (the patch fields: owner approval 2026-11-01). Do not change
-  this format without approval from the owner. The version has the `v` prefix (`v0.1.0`), and the
-  archive is `sudoku-v<version>.tar.gz`.
+  this format without approval from the owner. The version is the name of the release (`v0.1.0`
+  or `pre-<sha>`), and the archive is `sudoku-<version>.tar.gz`, for example
+  `sudoku-v0.1.0.tar.gz`.
 - Each release also has `version.json.sig`: the ed25519 signature (64 bytes) of `version.json`.
   release.yml makes it with the private key in the secret `SUDOKU_SIGNING_KEY` (PEM). The public
   key is `PUBLIC_KEY` in `src/update.rs`. A stable release fails without the secret. If the key

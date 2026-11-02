@@ -324,7 +324,7 @@ pub fn settings_panel(update_row: bool) -> Rect {
     Rect::new(colors_pl(), SETTINGS_TOP, colors_pr() + 1, SETTINGS_TOP + rows * (TB_SLOT + 2) + 2)
 }
 
-/// A row of the Settings panel (0: highlight numbers, 1: remove pencil marks automatically, 2: the
+/// A row of the Settings panel (0: highlight numbers, 1: hide pencil marks automatically, 2: the
 /// version, 3: updates).
 pub fn settings_row(i: usize) -> Rect {
     let y = SETTINGS_TOP + 2 + i as i32 * (TB_SLOT + 2);

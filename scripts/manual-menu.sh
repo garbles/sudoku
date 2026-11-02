@@ -19,7 +19,7 @@ slot() { shot "$UI/screen-toolbar.png" 112x112+1508+$1; }
 slot_on() { shot "$UI/color-menu.png" 112x112+1508+$1; }   # undo and redo are available, as in a game in progress
 row 320  "$(slot 0)" "Menu"                   "Opens and closes the menu."
 row 440  "$(slot 112)" "Cell colors"            "Sets the colors for starting, clashing and highlighted numbers."
-row 560  "$(slot 224)" "Settings"               "Turns highlights and automatic pencil mark removal on or off."
+row 560  "$(slot 224)" "Settings"               "Turns highlights and automatic pencil mark hiding on or off."
 row 680  "$(slot_on 336)" "Undo"                   "Cancels your last change to the board."
 row 800  "$(slot_on 448)" "Redo"                   "Makes the last canceled change again."
 row 920  "$(slot 1824)" "Help"                   "Opens this manual."

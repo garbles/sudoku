@@ -12,22 +12,24 @@ paper, and it does the work that paper cannot do.
 **Play with the pen**
 
 - Write a digit from 1 to 9 in a cell. The app reads your handwriting after a short pause.
-- Tap a micro-cell to add or remove a pencil mark.
+- Tap a micro-cell to add or remove a pencil mark. A digit that the same row, column or box already
+  has does not show, and a tap on it has no effect.
 - Rub one of your numbers with the eraser end of the pen to remove it.
-- Your finger operates the menu and the panels. Finger touches on the board have no effect.
+- Your finger operates the menu and the panels. A finger touch on the board does not add or remove
+  a number or a pencil mark.
 
 **Helpers**
 
 - When you add a number, the app hides that digit in the pencil marks in the same row, column
   and box. If you erase the number, the marks show again.
 - When the same digit is two times in a row, column or box, the two cells change color.
-- Tap a number to highlight all cells with that digit.
+- Tap a number to highlight all cells with that digit. A cell that clashes keeps the clash color.
 - You can turn the pencil mark hiding and the highlights off. You can also select the cell colors.
 - Undo and redo for all changes on the board.
 
 **Puzzles**
 
-- 7 difficulty modes, from Easy to Hard. Each mode needs a different group of solving techniques.
+- 7 difficulty modes, from Easy to Hard. Each mode has a level of solving techniques, from singles to chains.
 - Each puzzle has only one solution, and you never have to guess.
 
 **Other**
@@ -59,9 +61,9 @@ The installer tells you what to do at each step:
 
    **Developer mode erases all data on the tablet.** Sync your notebooks to the cloud first.
 
-3. It makes an SSH key and adds it to the tablet. For this, you type the SSH password of the tablet
-
-   one time. The installer tells you where to find it.
+3. It makes an SSH key and adds it to the tablet. If the tablet does not accept another SSH key of
+   your computer, you type the SSH password of the tablet one time. The installer tells you where to
+   find it.
 
 4. It installs [Vellum](https://github.com/vellum-dev/vellum) and the AppLoad launcher, makes the
 
@@ -121,8 +123,8 @@ To select the version without the question, set its name from the
    ```
 
    An update in the app replaces the ink patch only when its checksum is different from the
-   checksum in `sudoku-penregion.json`, or when this file is missing. Then the app asks you to start
-   the interface again.
+   checksum in `sudoku-penregion.json`, or when this file is missing or not correct. Then the app
+   asks you to start the interface again.
 
    After a restart of the tablet, run `/home/root/xovi/start` again.
 
@@ -134,9 +136,9 @@ The app keeps its data in `/home/root/.local/share/rm-sudoku/` on the tablet:
 
 | File             | Contents                                                                                    |
 | ---------------- | ------------------------------------------------------------------------------------------- |
-| `game.json`      | The current game: the puzzle, your numbers and pencil marks, the undo history and the clock |
+| `game.json`      | The current game: the puzzle, its seed, its mode and the version of the generator, your numbers and pencil marks, the undo and redo history, the clock and the completion state |
 | `settings.json`  | The cell colors, the last difficulty and the two switches of the Settings panel             |
-| `results.sqlite` | Your completed games: date, difficulty, time and puzzle seed                                |
+| `results.sqlite` | Your completed games: the date and time, the difficulty, the quantity of starting numbers, the time, the puzzle seed and the generator version |
 
 To use a different folder, set the environment variable `SUDOKU_DATA_DIR`.
 
@@ -176,10 +178,11 @@ tablet self-test) and the release procedure.
 
 This app was started with **"Reverse Visual Regression Testing Driven Development"**. I had Claude generate screenshots of a non-existant application before any source code was written. A usual visual regression test compares the app with screenshots of an earlier version of the app. Here, the "screenshots" came first, before the app existed:
 
-1. **Reference images.** Scripts in [`scripts/`](scripts/) draw exact 1620×2160 images of each screen,
+1. **Reference images.** Scripts in [`scripts/`](scripts/) draw exact images of each screen, panel and
 
-   panel and dialog, and the 9 pages of the manual in portrait and in landscape. The images are in
-   [`images/`](images/), and [`images/INDEX.md`](images/INDEX.md) gives a list of them.
+   dialog at 1620×2160 in portrait, the statistics screens at 2160×1620 in landscape, and the 9 pages
+   of the manual in portrait and in landscape. The images are in [`images/`](images/), and
+   [`images/INDEX.md`](images/INDEX.md) gives a list of them.
 
 2. **Specification.** Two documents tell how the app must operate:
    - [`REQUIREMENTS.md`](REQUIREMENTS.md): all screens, sizes, inputs and saved data.
@@ -187,8 +190,8 @@ This app was started with **"Reverse Visual Regression Testing Driven Developmen
 3. **Implementation and tests.** The app is written in Rust.
    - The render tests ([`tests/render.rs`](tests/render.rs)) compare the screens of the app with the
      reference images, pixel by pixel.
-   - Debug builds examine all rules of `INVARIANTS.md` after each input. Each test gives the IDs of
-     the rules that it examines.
+   - Debug builds examine the rules of `INVARIANTS.md` that apply to one state after each input.
+     Each test gives the IDs of the rules that it examines.
    - Tests on the tablet examined the ink speed, the eraser and AppLoad
      ([`DECISIONS.md`](DECISIONS.md)).
 
