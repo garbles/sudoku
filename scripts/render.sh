@@ -1,16 +1,23 @@
 #!/bin/sh
 # Makes screen.png, box.png and cell.png in $1. All use the same 1620x2160 coordinates (reMarkable Paper Pro).
-# The board dimensions come from ui-lib.sh. The cells show no micro-cell lines.
+# The board dimensions come from ui-lib.sh. Each cell has a faint 3x3 grid (one position for each pencil mark).
+# FAINT is the gray of the micro-cell lines (the setting of REQUIREMENTS.md §10; default gray90, as LineGray::default).
 set -e
 . "$(dirname "$0")/ui-lib.sh"
 OUT=$1
+FAINT=${FAINT:-gray90}
 
-# lines for cells [c0,c1) x [r0,r1): prints the draw text for "thin" or "thick" lines
+# lines for cells [c0,c1) x [r0,r1): prints the draw text for "faint", "thin" or "thick" lines
 grid() { # c0 c1 r0 r1 kind
   awk -v X0=$X0 -v Y0=$Y0 -v C=$C -v c0=$1 -v c1=$2 -v r0=$3 -v r1=$4 -v kind=$5 'BEGIN{
     xa=X0+c0*C; xb=X0+c1*C; ya=Y0+r0*C; yb=Y0+r1*C; s=""
-    for (i=c0;i<=c1;i++) { thick=(i%3==0); if ((kind=="thick")==thick || kind=="allthin") s=s sprintf("line %d,%d %d,%d ",X0+i*C,ya,X0+i*C,yb) }
-    for (i=r0;i<=r1;i++) { thick=(i%3==0); if ((kind=="thick")==thick || kind=="allthin") s=s sprintf("line %d,%d %d,%d ",xa,Y0+i*C,xb,Y0+i*C) }
+    if (kind=="faint") {
+      for (c=c0;c<c1;c++) for (k=1;k<=2;k++) { x=X0+c*C+int(k*C/3+0.5); s=s sprintf("line %d,%d %d,%d ",x,ya,x,yb) }
+      for (r=r0;r<r1;r++) for (k=1;k<=2;k++) { y=Y0+r*C+int(k*C/3+0.5); s=s sprintf("line %d,%d %d,%d ",xa,y,xb,y) }
+    } else {
+      for (i=c0;i<=c1;i++) { thick=(i%3==0); if ((kind=="thick")==thick || kind=="allthin") s=s sprintf("line %d,%d %d,%d ",X0+i*C,ya,X0+i*C,yb) }
+      for (i=r0;i<=r1;i++) { thick=(i%3==0); if ((kind=="thick")==thick || kind=="allthin") s=s sprintf("line %d,%d %d,%d ",xa,Y0+i*C,xb,Y0+i*C) }
+    }
     print s }'
 }
 
@@ -18,6 +25,7 @@ render() { # out c0 c1 r0 r1 thinkind extra_args... ; crop given via CROP env
   out=$1; c0=$2; c1=$3; r0=$4; r1=$5; tk=$6; shift 6
   thick=$( [ "$tk" = allthin ] && echo "" || grid $c0 $c1 $r0 $r1 thick )
   set -- -size 1620x2160 xc:white -fill none \
+    -stroke $FAINT -strokewidth 2 -draw "$(grid $c0 $c1 $r0 $r1 faint)" \
     -stroke black -strokewidth 3 -draw "$(grid $c0 $c1 $r0 $r1 $tk)" "$@"
   [ -n "$thick" ] && set -- "$@" -strokewidth 12 -draw "stroke-linecap square $thick"
   [ -n "$CROP" ] && set -- "$@" -crop $CROP +repage

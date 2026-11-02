@@ -8,7 +8,7 @@ use crate::game::{Cell, Game, Outcome};
 use crate::generator::generate;
 use crate::layout::{self, Button, Rect};
 use crate::recognizer::{self, Stroke};
-use crate::settings::{Color, Section, Settings, Switch};
+use crate::settings::{Color, LineGray, Section, Settings, Switch};
 use crate::store::{NewResult, ResultRow, ResultsDb};
 use crate::update::{Manifest, Update};
 
@@ -189,6 +189,8 @@ enum Target {
     Game(Button),
     /// A color in a section of the Cell colors panel.
     Color(Section, Color),
+    /// A gray in the Micro-cell lines section of the Cell colors panel.
+    LineGray(LineGray),
     StartNewGame,
     Back,
     Prev,
@@ -354,11 +356,10 @@ impl App {
         self.live_stroke.is_some() || self.ui.pending_ink.is_some() || self.writing_until.is_some()
     }
 
-    /// The live stroke as ink on the screen. While the pen stays in the micro-cell where it touched
-    /// the board, the touch can be a tap (INP-2): the stroke does not show. A tap that changes
-    /// nothing (for example a mark that a peer hides) thus changes no pixel. When the pen leaves the
-    /// micro-cell, all the stroke shows.
-    pub fn live_ink(&self) -> Option<&Stroke> {
+    /// The live stroke if the touch is writing. While the pen stays in the micro-cell where it
+    /// touched the board, the touch can still be a tap (INP-2): then None. The ink of the live stroke
+    /// shows also during a tap, but only writing starts the pen region (`present::wanted_region`).
+    pub fn writing_stroke(&self) -> Option<&Stroke> {
         self.live_stroke.as_ref().filter(|_| !matches!(self.pen, Some(Gesture::BoardTap { .. })))
     }
 
@@ -553,7 +554,9 @@ impl App {
                 }
                 Panel::Colors if layout::colors_panel().contains(x, y) => {
                     return layout::color_at(x, y)
-                        .map(|(s, c)| Gesture::Control(Target::Color(s, c)))
+                        .map(|(s, c)| Target::Color(s, c))
+                        .or_else(|| layout::line_gray_at(x, y).map(Target::LineGray))
+                        .map(Gesture::Control)
                         .unwrap_or(Gesture::Ignored);
                 }
                 Panel::NewGame if layout::ng_panel().contains(x, y) => {
@@ -853,6 +856,7 @@ impl App {
         match t {
             Target::Game(b) => layout::game_button(x, y, self.ui.menu.is_open()) == Some(b),
             Target::Color(s, c) => layout::color_at(x, y) == Some((s, c)),
+            Target::LineGray(g) => layout::line_gray_at(x, y) == Some(g),
             Target::StartNewGame => layout::ng_start_row().contains(x, y),
             Target::Switch(s) => layout::settings_at(x, y) == Some(s),
             Target::Update => layout::update_button_area().contains(x, y),
@@ -889,6 +893,12 @@ impl App {
             Target::Game(b) => self.game_button(b),
             Target::Color(s, c) => {
                 if self.settings.select(s, c) {
+                    self.settings_dirty = true;
+                }
+            }
+            Target::LineGray(g) => {
+                if self.settings.micro_line != g {
+                    self.settings.micro_line = g;
                     self.settings_dirty = true;
                 }
             }
@@ -1092,11 +1102,11 @@ impl App {
         let ui = &self.ui;
         (ui.menu, ui.highlight, ui.question.map(|q| q.0), ui.slider).hash(&mut h);
         let pending = ui.pending_ink.as_ref().map_or(0, |i| i.strokes.len());
-        let live = usize::from(self.live_ink().is_some_and(|s| s.len() >= 2));
+        let live = usize::from(self.live_stroke.as_ref().is_some_and(|s| s.len() >= 2));
         (pending + live).hash(&mut h);
         (self.manual_page, self.list.filter, self.list.page, self.list.confirm.as_ref().map(|r| r.id)).hash(&mut h);
         (self.settings.color_starting, self.settings.color_clash, self.settings.color_highlight).hash(&mut h);
-        (self.settings.highlight_on, self.settings.auto_hide_on, self.confirm_all).hash(&mut h);
+        (self.settings.highlight_on, self.settings.auto_hide_on, self.settings.micro_line, self.confirm_all).hash(&mut h);
         (&self.update.current, &self.update.state, self.update.row_text()).hash(&mut h);
         self.results.len().hash(&mut h);
         self.results.iter().for_each(|r| r.id.hash(&mut h));

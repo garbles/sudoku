@@ -1,36 +1,28 @@
 # check=skip=FromPlatformFlagConstDisallowed
-# Builds the app for the reMarkable Paper Pro (aarch64 Linux) and runs all tests on Linux.
+# Builds the app for the reMarkable Paper Pro (aarch64 Linux, musl). This build does not run the
+# tests: Dockerfile.test runs them.
 #
 #   docker build --platform linux/arm64 --output type=local,dest=dist .
 #
-# The result is dist/sudoku/: the AppLoad folder (external.manifest.json, icon.png and the static
-# executable `sudoku`). Copy it to /home/root/xovi/exthome/appload/ on the tablet.
+# The result is dist/sudoku/: the AppLoad folder (external.manifest.json, icon.png, the ink patch and
+# the static executable `sudoku`). Copy it to /home/root/xovi/exthome/appload/ on the tablet.
 # To set the version in the Settings panel (default "dev"), add --build-arg SUDOKU_VERSION=<version>.
 FROM --platform=linux/arm64 rust:1.97-alpine AS build
-# bash runs the simulation of the installer (tests/install.rs).
-RUN apk add --no-cache musl-dev bash
+RUN apk add --no-cache musl-dev
 WORKDIR /src
 # Download and compile the dependencies first, so that a change of the source does not do this again.
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir -p src/bin && echo 'fn main() {}' > src/bin/sudoku.rs && echo 'fn main() {}' > src/bin/snapshot.rs \
- && echo 'fn main() {}' > src/bin/video.rs && echo 'fn main() {}' > src/bin/bench.rs \
- && echo '' > src/lib.rs && cargo build --release --locked && cargo test --release --locked --no-run \
- && rm -rf src
+RUN mkdir -p src/bin && for b in sudoku snapshot video bench; do echo 'fn main() {}' > src/bin/$b.rs; done \
+ && echo '' > src/lib.rs && cargo build --release --locked --bin sudoku && rm -rf src
 COPY src src
-COPY tests tests
-COPY install.sh install.sh
-COPY images images
+# The files that the executable contains (include_bytes! and include_str!).
 COPY assets assets
-# The bench (`sudoku --bench`) contains the script of the extended demo.
+COPY images images
+COPY scripts/icons scripts/icons
+COPY tests/fixtures tests/fixtures
 COPY video/demo-full.txt video/demo-full.txt
-COPY INVARIANTS.md INVARIANTS.md
-COPY scripts scripts
 RUN touch src/lib.rs src/bin/*.rs
-# All tests must pass on Linux. Then make the static executable.
-RUN cargo test --release --locked
-# The debug build checks all state rules of INVARIANTS.md after each input (invariants::check_app).
-RUN cargo test --locked
-# The version in the Settings panel. release.yml gives pre-<sha> or v<version>. The tests above always use "dev".
+# The version in the Settings panel. release.yml gives pre-<sha> or v<version>.
 ARG SUDOKU_VERSION=dev
 RUN SUDOKU_VERSION="$SUDOKU_VERSION" cargo build --release --locked --bin sudoku \
  && file_info="$(head -c 4 target/release/sudoku | od -An -c)" && echo "built: $file_info"

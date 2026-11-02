@@ -3,7 +3,8 @@
 # toolbar and the pop-up menus of the device (refer to ui-lib.sh):
 #   screen-toolbar.png        menu open on a new game: cell colors, undo and redo (not available), help, analytics, +
 #   new-game-menu.png         the + panel is open: the difficulty slider and "Start new game"
-#   color-menu.png            the Cell colors panel is open (starting, clashing, highlighted), on a game
+#   color-menu.png            the Cell colors panel is open (starting, clashing, highlighted, micro-cell lines), on a game
+#   color-menu-lines-90.png, color-menu-lines-40.png  color-menu.png with the lightest and the darkest micro-cell lines
 #   screen-completed-menu.png menu open on a complete (locked) puzzle: undo and redo not available
 #   color-menu-right-handed.png  color-menu.png for a right-handed player (toolbar on the left)
 #   settings-menu.png         the Settings panel of a development build
@@ -99,28 +100,31 @@ panel() {
 divider() { echo "stroke none fill black rectangle $PL,$1 $PR,$(($1+1))" >> $M; }
 label() { echo "stroke none fill ${4:-black} font '$UI_FONT' font-size $UI_SIZE text-anchor ${3:-start} text $1,$2 '$5'" >> $M; }
 
-# color_section TOP TITLE SELECTED TAKEN... : one 448 px section of the color panel, with the same design as
-# the pen-color menu of the device: a title and a 3x3 grid of 112 px cells. A black box shows the selected color.
-# The colors of the other two sections (TAKEN) are not available: gray ring, a line through the dot, gray name.
-# White is always available, so all sections can use it.
+# The micro-cell line grays of the last section of the color panel (settings::LineGray). None is a white dot.
+LINE_GRAYS="None:white 90:gray90 80:gray80 70:gray70 60:gray60 55:gray55 50:gray50 45:gray45 40:gray40"
+
+# color_section TOP TITLE ITEMS SELECTED TAKEN... : one 360 px section of the color panel, with the same design as
+# the pen-color menu of the device: a title and a 3x3 grid of cells (112 px wide, 90 px high). ITEMS are
+# NAME:COLOR pairs. A black box shows the selected item. The colors of the other sections (TAKEN) are not
+# available: gray ring, a line through the dot, gray name. White is always available, so all sections can use it.
 color_section() {
-  top=$1; title=$2; sel=$3; shift 3; taken=" $* "
-  label $TX $((top+52)) start black "$title"
+  top=$1; title=$2; items=$3; sel=$4; shift 4; taken=" $* "
+  label $TX $((top+46)) start black "$title"
   i=0
-  for c in $COLORS; do
+  for c in $items; do
     name=${c%%:*}; col=${c#*:}
-    gx=$((PL+32+(i%3)*112)); gy=$((top+79+(i/3)*112)); fg=black; ring=black
-    cx=$((gx+56)); cy=$((gy+37))
+    gx=$((PL+32+(i%3)*112)); gy=$((top+64+(i/3)*90)); fg=black; ring=black
+    cx=$((gx+56)); cy=$((gy+30))
     if [ "$col" = "$sel" ]; then
-      echo "stroke none fill black rectangle $gx,$gy $((gx+111)),$((gy+111))" >> $M; fg=white; ring=white
+      echo "stroke none fill black rectangle $gx,$gy $((gx+111)),$((gy+89))" >> $M; fg=white; ring=white
     elif [ "$col" != white ] && case "$taken" in *" $col "*) true;; *) false;; esac; then
       fg=gray70; ring=gray70
       echo "fill $col stroke $ring stroke-width 2 circle $cx,$cy $((cx+19)),$cy" >> $M
       echo "fill none stroke gray50 stroke-width 2.5 stroke-linecap round line $((cx-17)),$((cy+17)) $((cx+17)),$((cy-17))" >> $M
-      label $cx $((gy+88)) middle $fg "$name"; i=$((i+1)); continue
+      label $cx $((gy+76)) middle $fg "$name"; i=$((i+1)); continue
     fi
     echo "fill $col stroke $ring stroke-width 2 circle $cx,$cy $((cx+19)),$cy" >> $M
-    label $cx $((gy+88)) middle $fg "$name"
+    label $cx $((gy+76)) middle $fg "$name"
     i=$((i+1))
   done
 }
@@ -146,13 +150,26 @@ toolbar gray70 plus
 compose screen.png new-game-menu.png
 PL=1108; TX=$((PL+33)); TR=$((PR-32))
 
-# --- the Cell colors panel: three sections, on the game in progress (the menu removes the highlight)
-panel 112 $((112+3*448))
-color_section 112 "Starting numbers" $STARTING_BG "$CLASH_BG" "$HIGHLIGHT_BG"; divider 560
-color_section 560 "Clashing numbers" "$CLASH_BG" $STARTING_BG "$HIGHLIGHT_BG"; divider 1008
-color_section 1008 "Highlighted numbers" "$HIGHLIGHT_BG" $STARTING_BG "$CLASH_BG"
-toolbar black colors
-compose screen-in-progress.png color-menu.png
+# --- the Cell colors panel: four sections of 360 px, on the game in progress (the menu removes the highlight)
+# color_menu BASE OUTFILE LINE : the panel with the micro-cell line gray LINE selected, on BASE
+color_menu() {
+  panel 112 $((112+4*360))
+  color_section 112 "Starting numbers" "$COLORS" $STARTING_BG "$CLASH_BG" "$HIGHLIGHT_BG"; divider 472
+  color_section 472 "Clashing numbers" "$COLORS" "$CLASH_BG" $STARTING_BG "$HIGHLIGHT_BG"; divider 832
+  color_section 832 "Highlighted numbers" "$COLORS" "$HIGHLIGHT_BG" $STARTING_BG "$CLASH_BG"; divider 1192
+  color_section 1192 "Micro-cell lines" "$LINE_GRAYS" "$3"
+  toolbar black colors
+  compose "$1" "$2"
+}
+color_menu screen-in-progress.png color-menu.png gray90
+# The same panel with the lightest and the darkest lines: the board below the panel has these lines.
+for g in 90 40; do
+  T=$(mktemp -d)
+  FAINT=gray$g sh "$(dirname "$0")/render.sh" "$T"
+  python3 -I "$(dirname "$0")/board-state.py" progress > "$T/state.mvg"
+  magick "$T/screen.png" -draw @"$T/state.mvg" -units PixelsPerInch -density 229 "$OUT/.lines-$g.png"; rm -rf "$T"
+  color_menu .lines-$g.png color-menu-lines-$g.png gray$g; rm -f "$OUT/.lines-$g.png"
+done
 
 # settings_panel VERSION BOTTOM : the Settings panel: two rows (highlight numbers, hide pencil marks
 # automatically), both on, then the version in reMarkable Sans Regular, black, at the right. A stable build
@@ -247,6 +264,6 @@ magick "$OUT/screen-in-progress.png" \
   \( "$OUT/color-menu.png" -crop 112x2160+$TB_X+0 +repage \) -geometry +0+0 -composite \
   \( "$OUT/color-menu.png" -crop 112x112+$TB_X+0 +repage -flop \) -geometry +0+0 -composite \
   \( "$OUT/color-menu.png" -crop 112x112+0+0 +repage \) -geometry +$TB_X+0 -composite \
-  \( "$OUT/color-menu.png" -crop $((PR-PL+1))x$((3*448))+$PL+112 +repage \) -geometry +112+112 -composite \
+  \( "$OUT/color-menu.png" -crop $((PR-PL+1))x$((4*360))+$PL+112 +repage \) -geometry +112+112 -composite \
   -units PixelsPerInch -density 229 "$OUT/color-menu-right-handed.png"
 rm -f $M

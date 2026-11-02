@@ -1,0 +1,28 @@
+# check=skip=FromPlatformFlagConstDisallowed
+# Makes the demo videos (video/demo.mp4, video/demo.gif, video/demo-full.mp4) again.
+#
+#   docker build --platform linux/arm64 -f Dockerfile.video --output type=local,dest=. .
+#
+# Alpine 3.22 gives a fixed version of ffmpeg, so each computer makes the same files. The GitHub
+# workflow runs this build and fails when the result is different from the files in git.
+# The video tool uses the fonts scripts/fonts/rmsans-{400,500}.ttf (refer to scripts/fonts/README.md).
+FROM --platform=linux/arm64 rust:1.97-alpine3.22 AS build
+RUN apk add --no-cache musl-dev ffmpeg
+WORKDIR /src
+# Download and compile the dependencies first, so that a change of the source does not do this again.
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir -p src/bin && for b in sudoku snapshot video bench; do echo 'fn main() {}' > src/bin/$b.rs; done \
+ && echo '' > src/lib.rs && cargo build --release --locked --bin video && rm -rf src
+COPY src src
+# The files that the app contains (include_bytes! and include_str!) and the fonts.
+COPY assets assets
+COPY images images
+COPY scripts scripts
+COPY tests/fixtures tests/fixtures
+COPY video/demo.txt video/demo-full.txt video/
+RUN touch src/lib.rs src/bin/*.rs
+RUN cargo run --release --locked --bin video -- video/demo.txt video/demo.mp4 \
+ && cargo run --release --locked --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4
+
+FROM scratch AS export
+COPY --from=build /src/video/demo.mp4 /src/video/demo.gif /src/video/demo-full.mp4 /video/

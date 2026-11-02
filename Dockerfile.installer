@@ -1,0 +1,20 @@
+# check=skip=FromPlatformFlagConstDisallowed
+# Makes the images of the installer output (images/install-*.png) again. The build runs install.sh
+# in the simulation of tests/install/ and draws the terminal output (scripts/terminal.py).
+#
+#   docker build --platform linux/arm64 -f Dockerfile.installer --output type=local,dest=. .
+#
+# Alpine 3.22 gives fixed versions of ImageMagick, bash and Python, so each computer makes the same
+# files. The GitHub workflow runs this build and fails when the result is different from the files in git.
+FROM --platform=linux/arm64 alpine:3.22 AS build
+RUN apk add --no-cache imagemagick python3 fontconfig bash
+WORKDIR /src
+COPY scripts scripts
+COPY install.sh install.sh
+COPY tests/install tests/install
+# Remove the time stamps from the PNG files, so that the same images give the same bytes.
+RUN mkdir -p images && sh scripts/build.sh installer \
+ && magick mogrify -define png:exclude-chunks=date,time images/install-*.png
+
+FROM scratch AS export
+COPY --from=build /src/images/install-*.png /images/

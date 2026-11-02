@@ -165,6 +165,12 @@ pub fn color_point(section: Section, color: Color) -> (f32, f32) {
     (cell.x0 as f32 + 56.0, cell.y0 as f32 + 40.0)
 }
 
+/// The point that a test taps to select the micro-cell line gray `g` in the Cell colors panel.
+pub fn line_gray_point(g: sudoku::settings::LineGray) -> (f32, f32) {
+    let cell = layout::line_gray_cell(g);
+    (cell.x0 as f32 + 56.0, cell.y0 as f32 + 40.0)
+}
+
 /// The point that a test taps to change the switch `s` in the Settings panel: the center of its row.
 pub fn switch_point(s: Switch) -> (f32, f32) {
     exact_center(layout::settings_row(s.row()))

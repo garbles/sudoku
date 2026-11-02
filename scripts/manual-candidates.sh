@@ -7,7 +7,7 @@ M=$(mktemp)
 text 72 170 84 black start "Pencil marks"
 
 text 72 300 50 black start "Micro-cells"
-text 72 370 38 gray25 start "An empty cell has nine micro-cells, with no lines."
+text 72 370 38 gray25 start "An empty cell has nine faint micro-cells."
 text 72 420 38 gray25 start "Each micro-cell is for one digit. The digits"
 text 72 470 38 gray25 start "have the same positions as the keys on a"
 text 72 520 38 gray25 start "phone keypad."

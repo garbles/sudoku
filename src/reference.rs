@@ -152,6 +152,17 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             a.game = sample_game_with_redo();
             a.ui.menu = Menu::Open(Some(Panel::Colors))
         }),
+        // The same state as color-menu.png with the lightest and the darkest micro-cell lines (§10).
+        ("color-menu-lines-90.png", |a| {
+            a.game = sample_game_with_redo();
+            a.settings.micro_line = crate::settings::LineGray::Gray90;
+            a.ui.menu = Menu::Open(Some(Panel::Colors))
+        }),
+        ("color-menu-lines-40.png", |a| {
+            a.game = sample_game_with_redo();
+            a.settings.micro_line = crate::settings::LineGray::Gray40;
+            a.ui.menu = Menu::Open(Some(Panel::Colors))
+        }),
         ("screen-completed-menu.png", |a| {
             a.game = completed_game();
             a.ui.menu = Menu::Open(None)

@@ -15,7 +15,7 @@ use sudoku::game::{cells, mark_bit, peers, Cell, Change, Game};
 use sudoku::generator::{count_solutions, generate_version, FIRST_MODE, MODES, VERSION};
 use sudoku::invariants::{check_app, check_game};
 use sudoku::layout::{self, Button};
-use sudoku::settings::{Color, Section, Settings, Switch};
+use sudoku::settings::{Color, LineGray, Section, Settings, Switch};
 use sudoku::store::{load_json, save_json, ResultsDb, RESULTS_FILE};
 
 // ---- Helpers of this file. The shared helpers are in tests/common.
@@ -63,14 +63,16 @@ fn first_seed(seed: u64) -> u64 {
 
 #[test]
 fn settings_and_last_mode_are_kept_when_the_app_opens_again() {
-    // PER-3: the colors, `last_mode` (from Start new game) and the two switches go through the
-    // settings file. DIF-3: the slider opens at the kept mode.
+    // PER-3: the colors, the micro-cell line gray (COL-7), `last_mode` (from Start new game) and the
+    // two switches go through the settings file. DIF-3: the slider opens at the kept mode.
     let mut d = Driver::new(61);
     d.button(Button::Menu);
     d.button(Button::Colors);
     let (x, y) = color_point(Section::Starting, Color::Yellow);
     d.finger_tap(x, y);
     let (x, y) = color_point(Section::Highlight, Color::Magenta);
+    d.finger_tap(x, y);
+    let (x, y) = line_gray_point(LineGray::Gray55);
     d.finger_tap(x, y);
     d.button(Button::Settings);
     for s in Switch::ALL {
@@ -82,6 +84,7 @@ fn settings_and_last_mode_are_kept_when_the_app_opens_again() {
     d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_start_y() as f32);
     let s = d.app.settings.clone();
     assert_eq!((s.color_starting, s.color_clash, s.color_highlight), (Color::Yellow, Color::Red, Color::Magenta));
+    assert_eq!(s.micro_line, LineGray::Gray55);
     assert_eq!(s.last_mode, 4);
     assert!(!s.highlight_on && !s.auto_hide_on);
     assert!(d.app.settings_dirty, "PER-7: Start new game changes the settings");

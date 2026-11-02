@@ -54,13 +54,16 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
   area one time. Thus the area must not touch the cells around the written cell.
 - **The Pen waveform cannot drive colors.** Gray and colored pixels that the Pen waveform changes get
   ghosts. Thus a redraw of the cell (the recognized digit) must wait until the Pen area stopped.
-- **The pen area must start at the pen down.** The app knows that a touch is writing only when the
-  pen leaves the micro-cell. If the area starts only then, the first ink of each stroke goes with
-  the UI waveform, and the area starts over updates in progress: gaps at the start of the stroke.
-- **A tap must not show ink.** If the ink shows from the pen down, a tap that changes nothing (a
-  mark that a peer hides) leaves a dot until a redraw. Thus the ink shows only when the pen leaves
-  the micro-cell (`App::live_ink`), but the pen area still starts at the pen down. The input log
-  (`log-input`) shows if a touch was a tap: a pen down, few moves and a pen up in one micro-cell.
+- **The pen area and the tap.** The app knows that a touch is writing only when the pen leaves the
+  micro-cell. If the area starts at the pen down, each tap starts it, and the mark waits until the
+  area stops (approximately 60 ms, then a refresh of the full cell). Thus the area starts when the
+  touch becomes writing (`App::writing_stroke`). The ink in the micro-cell before that goes with
+  the UI waveform. If gaps at the start of a stroke come back, the cause is probably the area that
+  starts over this ink while its update is in progress.
+- **A tap shows ink.** A tap that changes nothing (a mark that a peer hides) shows a dot until a
+  redraw removes it. A test build that hid the ink of a tap delayed the start of each stroke, and
+  the owner selected the ink from the pen down. The input log (`log-input`) shows if a touch was a
+  tap: a pen down, few moves and a pen up in one micro-cell.
 - **The redraw must wait for a pause in the writing, not for the recognition pause.** The move of
   the pen to the next cell can take more than the recognition pause (0.5 s). Thus the redraw waits
   until no stroke occurred for 1 s (`App::is_writing`).

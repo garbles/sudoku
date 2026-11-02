@@ -12,7 +12,7 @@
 use std::cell::Cell as StdCell;
 
 use crate::game::Cell;
-use crate::settings::{Color, Section, Switch};
+use crate::settings::{Color, LineGray, Section, Switch};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Orientation {
@@ -282,9 +282,18 @@ impl Rect {
     }
 }
 
-/// The Cell colors panel (toolbar.sh): three sections of 448 px from y 112.
+/// The Cell colors panel (toolbar.sh): four sections of 360 px from y 112: the three color sections
+/// (`Section`), then the Micro-cell lines section (`LineGray`). It ends at y 1552, thus it also fits
+/// in landscape (1620 px).
 pub const COLORS_TOP: i32 = 112;
-pub const COLOR_SECTION_H: i32 = 448;
+pub const COLOR_SECTION_H: i32 = 360;
+/// The quantity of sections of the Cell colors panel.
+pub const COLOR_SECTIONS: i32 = Section::ALL.len() as i32 + 1;
+/// The index of the Micro-cell lines section, after the color sections.
+pub const LINES_SECTION: usize = Section::ALL.len();
+/// The title of a section is at this y below the top of the section, and its grid starts here.
+pub const COLOR_TITLE_Y: i32 = 46;
+pub const COLOR_GRID_Y: i32 = 64;
 
 /// The left and the right x of a panel of width w (pixels pl..=pr) that touches the toolbar.
 fn panel_x(w: i32) -> (i32, i32) {
@@ -300,24 +309,40 @@ pub fn colors_pr() -> i32 {
 }
 
 pub fn colors_panel() -> Rect {
-    Rect::new(colors_pl(), COLORS_TOP, colors_pr() + 1, COLORS_TOP + 3 * COLOR_SECTION_H + 1)
+    Rect::new(colors_pl(), COLORS_TOP, colors_pr() + 1, COLORS_TOP + COLOR_SECTIONS * COLOR_SECTION_H + 1)
 }
 
-/// The top of a section of the Cell colors panel.
-pub fn color_section_top(section: Section) -> i32 {
-    COLORS_TOP + section.panel_index() as i32 * COLOR_SECTION_H
+/// The top of the section `index` of the Cell colors panel (`Section::panel_index` or `LINES_SECTION`).
+pub fn color_section_top(index: usize) -> i32 {
+    COLORS_TOP + index as i32 * COLOR_SECTION_H
 }
 
 /// The width and the height of a grid cell of the Cell colors panel.
 pub const COLOR_CELL: i32 = 112;
+pub const COLOR_CELL_H: i32 = 90;
 
-/// The grid cell of a color in a section of the Cell colors panel: its tap area, and the black area
-/// when the color is selected.
-pub fn color_cell(section: Section, color: Color) -> Rect {
-    let i = color.grid_index() as i32;
+/// The grid cell `i` (0..9, from the top left) of the section `index` of the Cell colors panel: its
+/// tap area, and the black area when its item is selected.
+pub fn color_grid_cell(index: usize, i: usize) -> Rect {
+    let i = i as i32;
     let x = colors_pl() + 32 + (i % 3) * COLOR_CELL;
-    let y = color_section_top(section) + 79 + (i / 3) * COLOR_CELL;
-    Rect::new(x, y, x + COLOR_CELL, y + COLOR_CELL)
+    let y = color_section_top(index) + COLOR_GRID_Y + (i / 3) * COLOR_CELL_H;
+    Rect::new(x, y, x + COLOR_CELL, y + COLOR_CELL_H)
+}
+
+/// The grid cell of a color in a color section.
+pub fn color_cell(section: Section, color: Color) -> Rect {
+    color_grid_cell(section.panel_index(), color.grid_index())
+}
+
+/// The grid cell of a gray in the Micro-cell lines section.
+pub fn line_gray_cell(g: LineGray) -> Rect {
+    color_grid_cell(LINES_SECTION, g.grid_index())
+}
+
+/// The gray at a point in the Micro-cell lines section.
+pub fn line_gray_at(x: f32, y: f32) -> Option<LineGray> {
+    LineGray::ALL.into_iter().find(|&g| line_gray_cell(g).contains(x, y))
 }
 
 /// The Settings panel (REQUIREMENTS.md §9.1): one row of 112 px for each switch (`Switch::row`), one row with the

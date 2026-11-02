@@ -29,7 +29,7 @@ SCENARIO ?= first
 
 .DEFAULT_GOAL := help
 .PHONY: help test build snapshot check video video-full media bench bench-save bench-linux \
-	bench-linux-save imagegen dist install-dev install-sim fonts xovi-restart fmt clippy bump-patch bump-minor \
+	bench-linux-save media-images media-installer media-video fonts-check test-linux tablet-build dist install-dev install-sim fonts xovi-restart fmt clippy bump-patch bump-minor \
 	bump-major clean
 
 help: ## Show all targets
@@ -62,10 +62,17 @@ video: ## Make video/demo.mp4 and video/demo.gif (needs ffmpeg)
 video-full: ## Make video/demo-full.mp4 for the website (needs ffmpeg)
 	cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4
 
-media: imagegen ## Alias of imagegen
+# The media targets make the files with fixed tool versions (Docker). Commit the result.
+media: media-images media-installer media-video ## Make images/, the icon and video/ (Docker; make -j3 media for parallel builds)
 
-imagegen: ## Make images/, the icon and video/ with fixed tool versions (Docker). Commit the result.
-	$(DOCKER) build --platform linux/arm64 -f Dockerfile.imagegen --output type=local,dest=. .
+media-images: fonts-check ## Make the design images and the icon (Dockerfile.images)
+	$(DOCKER) build --platform linux/arm64 -f Dockerfile.images --output type=local,dest=. .
+
+media-installer: ## Make the installer images images/install-*.png (Dockerfile.installer)
+	$(DOCKER) build --platform linux/arm64 -f Dockerfile.installer --output type=local,dest=. .
+
+media-video: fonts-check ## Make video/demo.mp4, video/demo.gif and video/demo-full.mp4 (Dockerfile.video)
+	$(DOCKER) build --platform linux/arm64 -f Dockerfile.video --output type=local,dest=. .
 
 ## --- Performance ----------------------------------------------------------------------------
 
@@ -87,12 +94,19 @@ bench-linux-save: ## Run the bench in the Linux container and save a new Linux b
 
 ## --- Tablet ---------------------------------------------------------------------------------
 
-dist: ## Run all tests on aarch64 Linux and build dist/sudoku/ (Docker)
+fonts-check:
 	@test -f scripts/fonts/rmsans-400.ttf -a -f scripts/fonts/rmsans-500.ttf \
 		|| { echo "The fonts are missing. Run make fonts (refer to scripts/fonts/README.md)." >&2; exit 1; }
+
+test-linux: fonts-check ## Run all tests on aarch64 Linux, release and debug in parallel (Dockerfile.test)
+	$(DOCKER) build --platform linux/arm64 -f Dockerfile.test .
+
+tablet-build: ## Build dist/sudoku/ with no tests (Dockerfile)
 	$(DOCKER) build --platform linux/arm64 --output type=local,dest=dist .
 
-install-dev: dist ## Build and install dist/sudoku/ on the tablet (REMARKABLE_HOST in .env, or USB)
+dist: test-linux tablet-build ## Run all tests on aarch64 Linux, then build dist/sudoku/ (Docker)
+
+install-dev: tablet-build ## Build (no tests: run make test first) and install dist/sudoku/ on the tablet (REMARKABLE_HOST in .env, or USB)
 	@echo "Install on $(HOST)"
 	COPYFILE_DISABLE=1 tar -C dist -czf - sudoku | $(SSH) 'set -e; d=$(APPLOAD); t=$$d/.sudoku-install; \
 		rm -rf "$$t"; mkdir -p "$$t"; tar -xzf - -C "$$t"; chmod 755 "$$t/sudoku/sudoku"; \

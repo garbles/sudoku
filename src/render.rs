@@ -13,7 +13,7 @@ use crate::font::{Anchor, Fonts, Weight};
 use crate::game::{cells, format_clock, Game};
 use crate::generator::MODES;
 use crate::layout::{self, *};
-use crate::settings::{Color, Section, Settings, Switch};
+use crate::settings::{Color, LineGray, Section, Settings, Switch};
 use crate::store::ResultRow;
 use crate::update::{Update, UpdateButton};
 
@@ -35,6 +35,11 @@ pub const INK_WIDTH: f32 = 5.0;
 const WHITE: Rgb = [255, 255, 255];
 /// The caution icon on the gear (REQUIREMENTS.md §9.2).
 pub const CAUTION_RED: Rgb = [0xD6, 0x2D, 0x20];
+
+/// The color of the micro-cell lines (BRD-6, the setting of §10). None: no lines.
+pub fn line_rgb(g: LineGray) -> Option<Rgb> {
+    g.percent().map(gray)
+}
 
 /// ImageMagick grayN: N percent of white.
 pub const fn gray(n: u32) -> Rgb {
@@ -400,7 +405,7 @@ fn draw_game(c: &mut Canvas, app: &App) {
     draw_board(c, g, &app.settings, app.ui.highlight, app.ui.question.map(|q| q.0));
 
     // Ink that waits for the recognition pause, and the stroke that the pen draws now.
-    let ink = app.ui.pending_ink.iter().flat_map(|i| i.strokes.iter()).chain(app.live_ink());
+    let ink = app.ui.pending_ink.iter().flat_map(|i| i.strokes.iter()).chain(app.live_stroke.iter());
     for s in ink {
         if s.len() == 1 {
             c.circle(s[0].0, s[0].1, 2.5, Some(BLACK), None);
@@ -432,8 +437,8 @@ enum CellLook {
     Value(u8, Rgb, Rgb),
     /// The "?" of a number that the app did not know (INP-7).
     Question,
-    /// An empty cell with its pencil marks.
-    Empty(crate::game::Marks),
+    /// An empty cell with its pencil marks and the color of its micro-cell lines (None: no lines).
+    Empty(crate::game::Marks, Option<Rgb>),
 }
 
 /// The cached areas of the board (refer to `draw_board`). An area is drawn at its true position: the
@@ -521,13 +526,22 @@ fn copy_px(src: &Pixmap, sx: usize, sy: usize, w: usize, h: usize, dst: &mut Pix
     }
 }
 
-/// Draws one cell with its top left at (xf, yf): the background of a number, then the number, the
-/// "?" or the pencil marks. An empty cell shows no micro-cell lines (BRD-6).
+/// Draws one cell with its top left at (xf, yf): the background or the faint micro-cell grid, then
+/// the number, the "?" or the pencil marks.
 fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
     let cs = CELL as f32;
     match look {
         CellLook::Value(_, bg, _) => c.rect(xf, yf, xf + cs, yf + cs, bg),
-        CellLook::Question | CellLook::Empty(_) => {}
+        CellLook::Question => {}
+        CellLook::Empty(_, None) => {}
+        CellLook::Empty(_, Some(line)) => {
+            // The micro-cell grid of an empty cell, in the gray of the setting (BRD-6).
+            for k in 1..=2 {
+                let o = micro_offset(k) as f32;
+                c.line_butt(xf + o, yf, xf + o, yf + cs, 2.0, line);
+                c.line_butt(xf, yf + o, xf + cs, yf + o, 2.0, line);
+            }
+        }
     }
     // Numbers: starting numbers black, your numbers gray35 (BRD-8). Pencil marks only on empty cells
     // (MRK-2), gray15, at their keypad positions (MRK-1).
@@ -535,7 +549,7 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
     match look {
         CellLook::Value(v, _, col) => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, &v.to_string(), col),
         CellLook::Question => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, "?", gray(40)),
-        CellLook::Empty(marks) => {
+        CellLook::Empty(marks, _) => {
             for d in 1..=9u8 {
                 if marks & crate::game::mark_bit(d) != 0 {
                     let i = (d - 1) as usize;
@@ -741,7 +755,7 @@ fn cell_look(g: &Game, settings: &Settings, highlight: Option<u8>, question: Opt
     } else if question == Some(cell) {
         CellLook::Question
     } else {
-        CellLook::Empty(g.visible_marks(cell, settings.auto_hide_on))
+        CellLook::Empty(g.visible_marks(cell, settings.auto_hide_on), line_rgb(settings.micro_line))
     }
 }
 
@@ -991,36 +1005,66 @@ fn switch(c: &mut Canvas, x1: f32, cy: f32, on: bool) {
 
 fn draw_colors_panel(c: &mut Canvas, settings: &Settings) {
     let (pl, pr) = (colors_pl(), colors_pr());
-    panel_frame(c, pl, pr, COLORS_TOP, COLORS_TOP + 3 * COLOR_SECTION_H);
+    panel_frame(c, pl, pr, COLORS_TOP, COLORS_TOP + COLOR_SECTIONS * COLOR_SECTION_H);
     for section in Section::ALL {
-        let top = layout::color_section_top(section);
-        if section.panel_index() > 0 {
-            c.rect(pl as f32, top as f32, pr as f32, (top + 1) as f32, BLACK);
-        }
-        c.text(Weight::Medium, 25.0, (pl + 33) as f32, (top + 52) as f32, Anchor::Start, section.title(), BLACK);
         let selected = settings.color(section);
-        for color in Color::ALL {
-            let cell = layout::color_cell(section, color);
-            let (x0, y0) = (cell.x0 as f32, cell.y0 as f32);
-            // The swatch: centered in the width of the cell, above the name.
-            let (cx, cy) = (x0 + (COLOR_CELL / 2) as f32, y0 + 37.0);
-            let mut fg = BLACK;
-            let mut ring = BLACK;
-            let taken = settings.is_taken(section, color);
-            if color == selected {
+        let items = Color::ALL.map(|color| {
+            let state = if color == selected {
+                Swatch::Selected
+            } else if settings.is_taken(section, color) {
+                Swatch::Taken
+            } else {
+                Swatch::Available
+            };
+            (color.rgb(), color.name().to_string(), state)
+        });
+        color_section(c, section.panel_index(), section.title(), &items);
+    }
+    // The Micro-cell lines section: "None" is a white dot.
+    let items = LineGray::ALL.map(|g| {
+        let state = if g == settings.micro_line { Swatch::Selected } else { Swatch::Available };
+        (line_rgb(g).unwrap_or(WHITE), g.name(), state)
+    });
+    color_section(c, LINES_SECTION, "Micro-cell lines", &items);
+}
+
+/// The state of an item in a section of the Cell colors panel.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Swatch {
+    Available,
+    Selected,
+    /// A different section uses the color (COL-5).
+    Taken,
+}
+
+/// One section of the Cell colors panel (toolbar.sh `color_section`): the divider above it (except
+/// the first section), the title, and a 3x3 grid of swatches with their names. A black box shows the
+/// selected item. A taken item has a gray ring, a gray name and a line through the dot.
+fn color_section(c: &mut Canvas, index: usize, title: &str, items: &[(Rgb, String, Swatch); 9]) {
+    let (pl, pr) = (colors_pl(), colors_pr());
+    let top = layout::color_section_top(index);
+    if index > 0 {
+        c.rect(pl as f32, top as f32, pr as f32, (top + 1) as f32, BLACK);
+    }
+    c.text(Weight::Medium, 25.0, (pl + 33) as f32, (top + COLOR_TITLE_Y) as f32, Anchor::Start, title, BLACK);
+    for (i, (rgb, name, state)) in items.iter().enumerate() {
+        let cell = layout::color_grid_cell(index, i);
+        let (x0, y0) = (cell.x0 as f32, cell.y0 as f32);
+        // The swatch: centered in the width of the cell, above the name.
+        let (cx, cy) = (x0 + (COLOR_CELL / 2) as f32, y0 + 30.0);
+        let (fg, ring) = match state {
+            Swatch::Selected => {
                 c.rect(x0, y0, (cell.x1 - 1) as f32, (cell.y1 - 1) as f32, BLACK);
-                fg = WHITE;
-                ring = WHITE;
-            } else if taken {
-                fg = gray(70);
-                ring = gray(70);
+                (WHITE, WHITE)
             }
-            c.circle(cx, cy, 19.0, Some(color.rgb()), Some((ring, 2.0)));
-            if taken && color != selected {
-                c.line(cx - 17.0, cy + 17.0, cx + 17.0, cy - 17.0, 2.5, gray(50));
-            }
-            c.text(Weight::Medium, 25.0, cx, y0 + 88.0, Anchor::Middle, color.name(), fg);
+            Swatch::Taken => (gray(70), gray(70)),
+            Swatch::Available => (BLACK, BLACK),
+        };
+        c.circle(cx, cy, 19.0, Some(*rgb), Some((ring, 2.0)));
+        if *state == Swatch::Taken {
+            c.line(cx - 17.0, cy + 17.0, cx + 17.0, cy - 17.0, 2.5, gray(50));
         }
+        c.text(Weight::Medium, 25.0, cx, y0 + 76.0, Anchor::Middle, name, fg);
     }
 }
 

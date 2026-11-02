@@ -243,9 +243,10 @@ impl Presenter {
     }
 
     /// The pen region for the ink of `app`: the inside of the cell of the pending ink, or of the cell
-    /// where the pen touched the board. The region starts at the pen down: the app knows that the
-    /// touch is writing only when the pen leaves the micro-cell, and the first ink must also get the
-    /// pen waveform. xochitl refreshes the full region when it starts and when it stops, thus the
+    /// of the stroke that writes (`App::writing_stroke`). The region starts only when the touch is
+    /// writing: a tap never starts it, and its mark goes to the screen at once. The ink of a tap
+    /// goes with the UI waveform. Ink after the start of the region waits until the patch has
+    /// applied it (PEN_REGION_SETTLE_MS), so that it gets the pen waveform. xochitl refreshes the full region when it starts and when it stops, thus the
     /// region must not touch the cells around it. Its edges go inward to the 4 px grid of the panel
     /// (refer to `PanelCells`).
     fn wanted_region(&self, app: &App) -> Option<PhysicalRect> {
@@ -253,7 +254,7 @@ impl Presenter {
             return None;
         }
         let cell = app.ui.pending_ink.as_ref().map(|i| i.cell).or_else(|| {
-            let &(x, y) = app.live_stroke.as_ref()?.first()?;
+            let &(x, y) = app.writing_stroke()?.first()?;
             crate::layout::board_cell(x, y)
         })?;
         let (x, y) = crate::layout::cell_origin(cell);
@@ -281,7 +282,8 @@ impl Presenter {
         if app.redraw {
             // The new drawing contains the ink of the stroke. If the redraw waits, send this ink now.
             self.ink_box = app
-                .live_ink()
+                .live_stroke
+                .as_ref()
                 .filter(|_| writing)
                 .and_then(|s| bounding_box(s.iter().map(|&(x, y)| (x as i32, y as i32))))
                 .map(|b: ScreenRect| b.expand(render::INK_WIDTH.ceil() as i32 + 1).clip_to_screen());
@@ -289,10 +291,11 @@ impl Presenter {
             render::draw(&mut Canvas::new(&mut self.frame, fonts), app);
             self.times.draw = t.elapsed();
             app.redraw = false;
-            self.ink_drawn = (app.live_stroke_count, app.live_ink().map_or(0, |s| s.len()));
+            self.ink_drawn = (app.live_stroke_count, app.live_stroke.as_ref().map_or(0, |s| s.len()));
             self.deferred_blit = true;
         } else if let Some((s, drawn)) = app
-            .live_ink()
+            .live_stroke
+            .as_ref()
             // A new stroke (for example the second stroke of a 4) has no points in the frame yet.
             .map(|s| (s, if self.ink_drawn.0 == app.live_stroke_count { self.ink_drawn.1 } else { 0 }))
             .filter(|(s, drawn)| s.len() > (*drawn).max(1))
@@ -346,7 +349,8 @@ impl Presenter {
             // wait one tick, and go with the next segment: else the next update would contain cells
             // that this update changes.
             let hold = app
-                .live_ink()
+                .live_stroke
+                .as_ref()
                 .and_then(|s| s.last())
                 .filter(|_| now.saturating_sub(self.last_ink_draw) <= 2 * INK_UPDATE_INTERVAL_MS)
                 // In the pen region, an overlap does not cause gaps: the tip need not wait.
@@ -825,9 +829,9 @@ mod tests {
             app.tick(now);
             let mut sent = Vec::new();
             p.present(app, &fonts, fb, now, |u| sent.push(u));
-            // While the pen writes, the pen region is on from the pen down, and all the ink is in it
-            // (the first ink of a stroke also gets the pen waveform).
-            if app.live_stroke.is_some() {
+            // While the pen writes, the pen region is on, and all the ink is in it (the first ink of
+            // a stroke also gets the pen waveform).
+            if app.writing_stroke().is_some() {
                 let r = p.pen_region.expect("the pen region is on while the pen writes");
                 for &u in &sent {
                     let u = PhysicalRect::from_update(u);
@@ -961,10 +965,11 @@ mod tests {
         assert!(!app.is_writing());
     }
 
-    /// A tap does not show ink (INP-2, MRK-5). A tap on a mark that a peer hides changes nothing:
-    /// the app sends no update. When the pen leaves the micro-cell, all the stroke shows.
+    /// A tap shows its ink with the UI waveform, without the pen region (INP-2, MRK-5). After a tap
+    /// that changes nothing (a mark that a peer hides), the screen is the same as before. When the
+    /// pen leaves the micro-cell, the touch is writing and the pen region starts.
     #[test]
-    fn a_tap_shows_no_ink_and_a_tap_that_changes_nothing_sends_no_update() {
+    fn a_tap_does_not_start_the_pen_region_and_a_tap_that_changes_nothing_leaves_no_ink() {
         use crate::app::{new_game, Input, Tool};
         let fonts = Fonts::repo().unwrap();
         let mut app = App::new(Some(new_game(7, 0)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)), App::placeholder_ng_stops());
@@ -976,9 +981,7 @@ mod tests {
                 app.handle(i, now);
             }
             app.tick(now);
-            let mut n = 0;
-            p.present(app, &fonts, fb, now, |_| n += 1);
-            n
+            p.present(app, &fonts, fb, now, |_| {});
         };
         // An empty cell and a digit that a peer has: a tap cannot add this mark.
         let g = &app.game;
@@ -996,30 +999,84 @@ mod tests {
             step(&mut app, &mut p, &mut fb, now, None);
         }
         let before = fb.clone();
-        let mut sent = 0;
-        sent += step(&mut app, &mut p, &mut fb, now, Some(Input::PenDown { x, y, tool: Tool::Pen }));
+        step(&mut app, &mut p, &mut fb, now, Some(Input::PenDown { x, y, tool: Tool::Pen }));
         for k in 1..=3 {
             now += 10;
-            sent += step(&mut app, &mut p, &mut fb, now, Some(Input::PenMove { x: x + k as f32, y }));
-            assert!(app.live_ink().is_none(), "a tap shows ink");
+            step(&mut app, &mut p, &mut fb, now, Some(Input::PenMove { x: x + k as f32, y }));
+            assert!(p.pen_region.is_none() && app.writing_stroke().is_none(), "a tap started the pen region");
         }
+        now += 40;
+        step(&mut app, &mut p, &mut fb, now, None);
+        assert!(fb != before, "the ink of the tap does not show");
         now += 10;
-        sent += step(&mut app, &mut p, &mut fb, now, Some(Input::PenUp { x: x + 3.0, y }));
+        step(&mut app, &mut p, &mut fb, now, Some(Input::PenUp { x: x + 3.0, y }));
         for _ in 0..20 {
             now += 30;
-            sent += step(&mut app, &mut p, &mut fb, now, None);
+            step(&mut app, &mut p, &mut fb, now, None);
         }
         assert_eq!(app.game.marks_at(cell), 0);
-        assert_eq!(sent, 0, "a tap that changes nothing sent updates");
-        assert!(fb == before, "a tap that changes nothing changed the framebuffer");
+        assert!(fb == before, "the ink of a tap that changes nothing stays on the screen");
 
-        // The pen leaves the micro-cell: the touch is writing, and the stroke shows from its start.
+        // The pen leaves the micro-cell: the touch is writing, and the pen region starts.
         now += 300;
         step(&mut app, &mut p, &mut fb, now, Some(Input::PenDown { x, y, tool: Tool::Pen }));
         now += 10;
         step(&mut app, &mut p, &mut fb, now, Some(Input::PenMove { x, y: y + m }));
-        assert_eq!(app.live_ink().map(|s| s.len()), Some(2));
-        assert!(p.frame.pixel(x as u32, y as u32 + 2).is_some_and(|px| px.red() < 128), "the first point of the stroke does not show");
+        assert_eq!(app.writing_stroke().map(|s| s.len()), Some(2));
+        assert!(p.pen_region.is_some(), "writing did not start the pen region");
+    }
+
+    /// A tap that adds a mark does not start the pen region. The mark goes to the screen at the pen
+    /// up, in a small update inside the micro-cell.
+    #[test]
+    fn a_mark_goes_to_the_screen_at_the_pen_up() {
+        use crate::app::{new_game, Input, Tool};
+        let fonts = Fonts::repo().unwrap();
+        let mut app = App::new(Some(new_game(7, 0)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)), App::placeholder_ng_stops());
+        let mut p = Presenter::new();
+        p.use_pen_region = true;
+        let mut fb = vec![0u8; (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize];
+        let step = |app: &mut App, p: &mut Presenter, fb: &mut Vec<u8>, now: u64, input: Option<Input>| {
+            if let Some(i) = input {
+                app.handle(i, now);
+            }
+            app.tick(now);
+            let mut sent = Vec::new();
+            p.present(app, &fonts, fb, now, |u| sent.push(u));
+            assert!(p.pen_region.is_none() && !p.region_changed, "{now}: a tap started the pen region");
+            sent
+        };
+        // An empty cell and the digit of its solution: a tap adds this mark.
+        let cell = crate::game::cells().find(|&c| !app.game.is_filled(c)).unwrap();
+        let d = app.game.solution[cell.0 as usize][cell.1 as usize];
+        let (cx, cy) = crate::layout::cell_origin(cell);
+        let m = crate::layout::CELL as f32 / 3.0;
+        let (mx, my) = (cx as f32 + m * ((d - 1) % 3) as f32, cy as f32 + m * ((d - 1) / 3) as f32);
+        let (x, y) = (mx + m / 2.0, my + m / 2.0);
+        let mut now = 1000;
+        step(&mut app, &mut p, &mut fb, now, None);
+        for _ in 0..20 {
+            now += 30;
+            step(&mut app, &mut p, &mut fb, now, None);
+        }
+        let micro = ScreenRect::new(mx as i32, my as i32, (mx + m) as i32, (my + m) as i32).physical().expand(4);
+        let inside = |u: Update| {
+            let u = PhysicalRect::from_update(u);
+            u.x0 >= micro.x0 && u.y0 >= micro.y0 && u.x1 <= micro.x1 && u.y1 <= micro.y1
+        };
+        let mut sent = step(&mut app, &mut p, &mut fb, now, Some(Input::PenDown { x, y, tool: Tool::Pen }));
+        now += 10;
+        sent.extend(step(&mut app, &mut p, &mut fb, now, Some(Input::PenMove { x: x + 1.0, y })));
+        now += 10;
+        let at_up = step(&mut app, &mut p, &mut fb, now, Some(Input::PenUp { x: x + 1.0, y }));
+        assert_ne!(app.game.marks_at(cell) & crate::game::mark_bit(d), 0);
+        assert!(!at_up.is_empty(), "the mark is not sent at the pen up");
+        for u in sent.into_iter().chain(at_up) {
+            assert!(inside(u), "{u:?} is not in the micro-cell {micro:?}");
+        }
+        let mut expect = vec![0u8; fb.len()];
+        blit(&p.frame, &mut expect);
+        assert!(fb == expect, "the framebuffer does not show the mark");
     }
 
     #[test]

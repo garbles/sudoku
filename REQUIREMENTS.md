@@ -86,7 +86,7 @@ Image: [`images/screen.png`](images/screen.png) (empty board, menu closed).
 | Item | Position and size | Notes |
 |---|---|---|
 | Board | 9×9 cells of **147 px**; x 148–1471, y 418–1741 (at the center of the screen) | Lines of 12 px are around the board and the 3×3 boxes. Lines of 3 px are between the cells. |
-| Micro-cells | Each cell has a 3×3 grid of **49 px** micro-cells. The grid has **no lines** (owner decision 2026-11-02) | Each micro-cell is for one digit. The positions are the same as a keypad: 1 2 3 / 4 5 6 / 7 8 9. |
+| Micro-cells | Each cell has a very faint 3×3 grid of **49 px** micro-cells (2 px lines, default `gray90`; the player can select a different gray or no lines, §10) | Each micro-cell is for one digit. The positions are the same as a keypad: 1 2 3 / 4 5 6 / 7 8 9. |
 | Difficulty meter | Below the board, at the center, 50 px from the board | The player cannot change it. It shows "Easy", seven stops and "Hard". The large knob shows the mode of the current puzzle. When the puzzle is complete, "Completed in …" replaces the meter. |
 | Menu button | Top right, circle of 38 px, center at (1563.5, 55.5) | Closed icon: dot at the bottom left. Open icon: dot at the top left. Both icons are copies from the device. |
 | Close button | Top left, circle of 38 px with ×, center at (55.5, 55.5) | The close button shows **only when the menu is open**. The device does the same. |
@@ -173,8 +173,8 @@ Each cell is always one of these four types:
 |---|---|---|
 | **Starting number** | Black digit. No micro-cells. Background: refer to [§4.2](#42-cell-background-color). | It does not change. Writing on it and the eraser have no effect. |
 | **Your number** | Dark gray digit. No micro-cells. Background: refer to [§4.2](#42-cell-background-color). The app keeps its pencil marks but does not show them. | Only the eraser, undo or redo can remove it. Writing on it has no effect. |
-| **Empty, no pencil marks** | Nothing (white). The micro-cells have no lines. | Tap to add a pencil mark. Write to add a number. |
-| **Empty, with pencil marks** | Small digits in the keypad positions of their micro-cells. | Tap to add or remove a pencil mark. Write to add a number. |
+| **Empty, no pencil marks** | The very faint 3×3 grid of micro-cells. | Tap to add a pencil mark. Write to add a number. |
+| **Empty, with pencil marks** | The grid of micro-cells with small digits in their keypad positions. | Tap to add or remove a pencil mark. Write to add a number. |
 
 If automatic hiding is on, a tap on a micro-cell whose digit is a number in a peer has no effect
 ([§6.1](#61-automatic-pencil-mark-hiding)). Then the cell does not change.
@@ -236,9 +236,8 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
   [§13](#13-statistics).
 - A **tap** is a pen touch that stays in one micro-cell from start to end. If the pen moves out of the
   micro-cell before it lifts, the touch is writing, not a tap.
-- A tap shows no ink. The ink of a stroke shows when the pen leaves the micro-cell, from the start
-  of the stroke. Thus a tap that has no effect (for example a mark that a peer hides) does not
-  change the screen (owner report 2026-11-02).
+- The ink shows from the pen down, also for a tap. After a tap that has no effect (for example a
+  mark that a peer hides), a redraw removes the ink (owner decision 2026-11-02).
 - **Writing** is a pen stroke that is not a tap. The app collects the strokes in one cell until the
   pen is lifted for a **short pause (approximately 0.5 s, adjustable)**. Thus a number with more than
   one stroke (for example 4, 5 or 7) is correct.
@@ -703,10 +702,11 @@ Image: [`images/color-menu.png`](images/color-menu.png).
 
 - The panel opens next to the paint bucket. The top of the panel aligns with the button. The panel is
   400 px wide and has a 2 px border. The pen-color menu of the device has the same design.
-- The panel has three sections. Each section is 448 px high. Lines of 2 px are between the sections.
-  The sections are **Starting numbers**, **Clashing numbers** and **Highlighted numbers**.
-- Each section has a title (reMarkable Sans Medium, 25 px) and a 3×3 grid of 112 px cells. Each cell
-  has a color dot of 38 px and the name of the color below the dot.
+- The panel has four sections. Each section is 360 px high, thus the panel (y 112 to 1552) also fits
+  in landscape. Lines of 2 px are between the sections. The sections are **Starting numbers**,
+  **Clashing numbers**, **Highlighted numbers** and **Micro-cell lines** (owner decision 2026-11-02).
+- Each section has a title (reMarkable Sans Medium, 25 px) and a 3×3 grid of cells, 112 px wide and
+  90 px high. Each cell has a color dot of 38 px and the name below the dot.
 - A solid black box with white text shows the selected color.
 - The available colors are medium-light, so that the digits are easy to read and the colors are clear on
   the e-ink display: Gray, White, Yellow, Blue,
@@ -719,6 +719,13 @@ Image: [`images/color-menu.png`](images/color-menu.png).
   name are gray, and a line goes through the dot. You cannot select it. White is always available.
 - When you tap an available color, the app selects it for that section immediately. The board
   shows the new color immediately. The app keeps the selection when you close the app.
+- The **Micro-cell lines** section selects the gray of the micro-cell lines (§4.1). Its nine items
+  are, from the top left: **None** (no lines, a white dot), then the grays 90, 80, 70, 60, 55, 50,
+  45 and 40 (ImageMagick `grayN`: N percent of white; the dot has that gray). The default is **90**.
+  All items are always available. A tap selects the gray immediately, and the board shows the new
+  lines immediately. The app keeps the selection when you close the app. Images:
+  [`color-menu-lines-90.png`](images/color-menu-lines-90.png) and
+  [`color-menu-lines-40.png`](images/color-menu-lines-40.png).
 
 ```mermaid
 stateDiagram-v2
@@ -935,6 +942,8 @@ The app adds a row when a puzzle is complete. Only the bin in the games list and
 ### 14.2 Settings (kept when the app closes)
 
 - The starting-number color, the clash color and the highlight color.
+- The gray of the micro-cell lines (default: 90). A settings file of an earlier version does not
+  have it: the app uses the default.
 - The last selected difficulty mode (default: mode 2).
 - The two switches of the Settings panel: highlight numbers (default: on) and hide pencil marks
   automatically (default: on). A settings file of an earlier version has the name `auto_remove_on`
@@ -983,8 +992,9 @@ The app gives the area in `/tmp/sudoku-pen-region` ("x y width height", or empty
 reads it each 15 ms:
 
 - While the player writes in a cell, the area is the inside of that cell, aligned inward to 4 px.
-  The area starts when the pen touches the cell, so that the first ink of each stroke also gets
-  the pen waveform.
+  The area starts when the touch becomes writing (the pen leaves the micro-cell, or the pen
+  touches the cell of the ink that waits). A tap does not start the area: its ink goes with the UI
+  waveform, and its pencil mark shows immediately (owner request 2026-11-02).
   It does not touch the cells around it, because xochitl refreshes the full area when it starts and
   when it stops.
 - The ink waits until the patch can apply a new area (45 ms). A redraw waits until the area stopped
@@ -1117,7 +1127,7 @@ the user runs the installer again.
 |---|---|
 | Screen | 1620×2160, 229 DPI |
 | Board | Cells of 147 px, micro-cells of 49 px, origin (148, 418) |
-| Board lines | Box and border 12 px black; cell 3 px black; no micro-cell lines |
+| Board lines | Box and border 12 px black; cell 3 px black; micro-cell 2 px, default `gray90` (§10) |
 | Numbers | reMarkable Sans Regular 104 px; starting numbers black, your numbers `gray35` |
 | Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell |
 | "?" | reMarkable Sans Regular 104 px, `gray40` |

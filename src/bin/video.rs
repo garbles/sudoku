@@ -143,7 +143,7 @@ impl Markers {
 }
 
 /// The number of ffmpeg threads. The output of x264 changes with the number of threads, so a fixed number
-/// gives the same files on all computers (Dockerfile.imagegen, the GitHub workflow).
+/// gives the same files on all computers (Dockerfile.video, the GitHub workflow).
 const THREADS: &str = "4";
 /// The scaler flags for the same pixels on all CPUs (no fast SIMD rounding).
 const EXACT: &str = "bitexact+accurate_rnd+full_chroma_int";

@@ -1,0 +1,50 @@
+# check=skip=FromPlatformFlagConstDisallowed
+# Runs all tests on aarch64 Linux with musl, the C library of the tablet. It has two test stages:
+#
+# - release: `cargo test --release`.
+# - debug: `cargo test`. The debug build checks all state rules of INVARIANTS.md after each input
+#   (invariants::check_app).
+#
+#   docker build --platform linux/arm64 -f Dockerfile.test .                   # the two stages, in parallel
+#   docker build --platform linux/arm64 -f Dockerfile.test --target release .  # only one stage
+#
+# The tests use the fonts scripts/fonts/rmsans-{400,500}.ttf (refer to scripts/fonts/README.md).
+FROM --platform=linux/arm64 rust:1.97-alpine AS base
+# bash runs the simulation of the installer (tests/install.rs).
+RUN apk add --no-cache musl-dev bash
+WORKDIR /src
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir -p src/bin && for b in sudoku snapshot video bench; do echo 'fn main() {}' > src/bin/$b.rs; done \
+ && echo '' > src/lib.rs
+
+# Download and compile the dependencies first, so that a change of the source does not do this again.
+# Each profile has its own stage, thus a build of one stage does not compile the other profile.
+FROM base AS deps-release
+RUN cargo test --release --locked --no-run && rm -rf src
+
+FROM base AS deps-debug
+RUN cargo test --locked --no-run && rm -rf src
+
+# The source and the files that the tests read. Both test stages copy them.
+FROM scratch AS source
+COPY src /src/src
+COPY tests /src/tests
+COPY install.sh /src/install.sh
+COPY images /src/images
+COPY assets /src/assets
+COPY video/demo-full.txt /src/video/demo-full.txt
+COPY INVARIANTS.md /src/INVARIANTS.md
+COPY scripts /src/scripts
+
+FROM deps-release AS release
+COPY --from=source /src /src
+RUN touch src/lib.rs src/bin/*.rs && cargo test --release --locked && touch /passed-release
+
+FROM deps-debug AS debug
+COPY --from=source /src /src
+RUN touch src/lib.rs src/bin/*.rs && cargo test --locked && touch /passed-debug
+
+# The default target: BuildKit runs the two test stages in parallel.
+FROM scratch AS all
+COPY --from=release /passed-release /
+COPY --from=debug /passed-debug /

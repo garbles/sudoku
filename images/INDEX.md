@@ -23,7 +23,7 @@ dimensions of the toolbar, the panels and the fonts come from screenshots of a r
 
 | Image | Content | Purpose |
 |---|---|---|
-| `screen.png` | Empty board, menu closed. It shows only the menu button (top right, closed icon: dot at the bottom left) and the difficulty meter below the board. | The base layout. The board has 9×9 cells of 147 px, at the center, from (148, 418) to (1471, 1741). Each cell has a 3×3 grid of 49 px micro-cells, with no lines. The close button does not show when the menu is closed. |
+| `screen.png` | Empty board, menu closed. It shows only the menu button (top right, closed icon: dot at the bottom left) and the difficulty meter below the board. | The base layout. The board has 9×9 cells of 147 px, at the center, from (148, 418) to (1471, 1741). Each cell has a faint 3×3 grid of 49 px micro-cells. The close button does not show when the menu is closed. |
 | `screen-in-progress.png` | A game in progress: starting numbers (gray background, black digits), your numbers (white background, gray digits), pencil marks and one clash (two red 9s). | The main state of the game. The pencil marks are the possible digits only, because the app hides the marks of the digits of peers. |
 | `screen-highlight.png` | The same game after a tap on a 5. All 5s have the highlight color (green). | Highlights. A tap on the same number again, or a different action, removes the highlight. |
 | `screen-unrecognized.png` | The same game immediately after a scribble that the app cannot read. A gray **?** shows in the cell for approximately one second. | The response to writing that is not a number from 1 to 9 (for example a scribble, 0 or 12). After the "?", the cell is the same as before. |
@@ -40,8 +40,9 @@ open, the close button shows at the top left.
 |---|---|---|
 | `screen-toolbar.png` | The menu is open on a new game. Undo and redo are gray, because there is no change to undo. | Shows all menu buttons and their icons. |
 | `new-game-menu.png` | The + button is black, and its panel is open. The panel has the difficulty slider (seven modes) and "Start new game". | How to start a new game. The panel is wider than the menus of the device, so that the slider is easy to use. The slider has the same size as the meter below the board. |
-| `color-menu.png` | The Cell colors panel is open on the game in progress. It has three sections: starting numbers (Gray), clashing numbers (Red) and highlighted numbers (Green). | The only place to change the cell colors. Each section has the same design as the pen-color menu of the device: a title, a 3×3 grid of 112 px cells and a black box around the selected color. |
+| `color-menu.png` | The Cell colors panel is open on the game in progress. It has four sections: starting numbers (Gray), clashing numbers (Red), highlighted numbers (Green) and micro-cell lines (90). | The only place to change the cell colors and the gray of the micro-cell lines. Each section has the same design as the pen-color menu of the device: a title, a 3×3 grid of cells (112 px wide, 90 px high) and a black box around the selected item. |
 | `color-menu-right-handed.png` | The same state as `color-menu.png`, for a right-handed player. The toolbar is at the left edge (x 0–112), the menu icon is a mirror image (dot at the right), the close button is at the top right and the panel is at x 112–511. | The menu at the other side (REQUIREMENTS.md §3.1). The other icons and the contents of the panel do not change. `scripts/toolbar.sh` makes it from `color-menu.png`. |
+| `color-menu-lines-90.png`, `color-menu-lines-40.png` | The same state as `color-menu.png`, with the micro-cell line gray 90 (the lightest) and 40 (the darkest) selected. The board below the panel has lines of that gray. | The setting of the micro-cell lines (REQUIREMENTS.md §10, COL-7). `scripts/toolbar.sh` makes them. |
 | `settings-menu.png` | The Settings panel is open on the game in progress (the gear is white on black). Two rows: "Highlight numbers" and "Hide pencil marks automatically", each with a switch (both on). The third row is "Version" with the version of a development build ("dev", Regular, black) at the right. | The only place to turn the two helpers off and on (REQUIREMENTS.md §9.1). |
 | `screen-toolbar-update.png` | The menu is open on the game in progress of a stable build (v0.1.0). An update (v0.2.0) is available: the gear has the red caution icon at its top right. | The caution icon (REQUIREMENTS.md §9.2). |
 | `settings-update.png` | The Settings panel of the stable build v0.1.0 when v0.2.0 is available. The Version row shows "v0.1.0". The fourth row has the button "Update to v0.2.0" with the update icon. The gear has the caution icon. | The update button (REQUIREMENTS.md §9.2). |
@@ -74,7 +75,7 @@ use one list of sample results. Thus their numbers agree.
 |---|---|
 | `template.png` | A blank canvas of 1620×2160. |
 | `box.png` | One 3×3 box with 20 px of space around it, at the pixel scale of the board. |
-| `cell.png` | One empty cell (no micro-cell lines), with 20 px of space around it, at the same scale. |
+| `cell.png` | One cell with its micro-cells, with 20 px of space around it, at the same scale. |
 
 ## Manual
 

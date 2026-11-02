@@ -15,8 +15,16 @@ If the two documents do not agree, REQUIREMENTS.md is correct. When the behavior
 
 ## Build & Test
 
-All tests run on the computer. The Linux Dockerfile runs them again on aarch64 Linux and makes the
-executable for the reMarkable Paper Pro.
+All tests run on the computer. `Dockerfile.test` runs them again on aarch64 Linux with musl, and the
+`Dockerfile` makes the executable for the reMarkable Paper Pro. Each Docker build has one task:
+
+| File                   | Task                                                                    |
+| ---------------------- | ----------------------------------------------------------------------- |
+| `Dockerfile`           | The static aarch64 build `dist/sudoku/`. No tests.                      |
+| `Dockerfile.test`      | All tests on aarch64 Linux: the stages `release` and `debug` (parallel) |
+| `Dockerfile.images`    | The design images `images/*.png` (not `install-*.png`) and the icon     |
+| `Dockerfile.installer` | The installer images `images/install-*.png`                             |
+| `Dockerfile.video`     | The demo videos in `video/`                                             |
 
 ```bash
 cargo test                                   # all tests on the computer (macOS or Linux)
@@ -24,13 +32,19 @@ cargo run --release --bin snapshot -- DIR    # draw the reference states and com
 cargo run --release --bin video -- video/demo.txt video/demo.mp4   # demo video from an event script (ffmpeg)
 cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4   # extended demo video for the website
 scripts/bench.sh                             # performance bench: compare with bench/baseline-computer.json
-docker build --platform linux/arm64 -f Dockerfile.imagegen --output type=local,dest=. .   # images/ and video/ with fixed tool versions (commit these)
-docker build --platform linux/arm64 --output type=local,dest=dist .   # tests + static aarch64 build
+docker build --platform linux/arm64 -f Dockerfile.test .   # all tests on aarch64 Linux (release and debug)
+docker build --platform linux/arm64 --output type=local,dest=dist .   # static aarch64 build (no tests)
+docker build --platform linux/arm64 -f Dockerfile.images --output type=local,dest=. .      # images/ and the icon (commit these)
+docker build --platform linux/arm64 -f Dockerfile.installer --output type=local,dest=. .   # images/install-*.png (commit these)
+docker build --platform linux/arm64 -f Dockerfile.video --output type=local,dest=. .       # video/ (commit these)
 ```
 
 The `Makefile` gives a target for each of these commands, and more (`make help` shows them). If
-`docker` is not on `PATH`, it uses the docker of OrbStack. `make install-dev` builds `dist/` and
-installs it on the tablet at `REMARKABLE_HOST` (`.env`), or on USB.
+`docker` is not on `PATH`, it uses the docker of OrbStack. `make test-linux` runs `Dockerfile.test`.
+`make dist` runs `Dockerfile.test`, then builds `dist/`. `make install-dev` builds `dist/` with no
+tests (thus run `cargo test` first) and installs it on the tablet at `REMARKABLE_HOST` (`.env`), or
+on USB. `make media` makes the images, the icon and the videos (`make -j3 media` runs the three
+builds in parallel).
 
 `dist/sudoku/` is the AppLoad folder. Copy it to `/home/root/xovi/exthome/appload/` on the tablet.
 
@@ -75,17 +89,21 @@ installs it on the tablet at `REMARKABLE_HOST` (`.env`), or on USB.
   the completion, with pencil marks, pauses and incorrect numbers. `video/demo-full.mp4` (no GIF) is
   for the website. When you change the first part of `video/demo.txt`, change `video/demo-full.txt`
   also.
-- `Dockerfile.imagegen` uses fixed versions of ImageMagick and ffmpeg, so each computer makes the same
-  files. The **Release** workflow (`release.yml`, job `media`) makes `images/` and `video/` again in
-  each run, and it fails when they are not the same as the files in git. When you change them, run the imagegen build and
-  commit the result.
+- `Dockerfile.images`, `Dockerfile.installer` and `Dockerfile.video` use fixed versions of
+  ImageMagick and ffmpeg (Alpine 3.22), so each computer makes the same files. `scripts/build.sh`
+  takes the parts `screens`, `installer` and `icon` (with no argument: all parts). The **Release**
+  workflow (`release.yml`, job `media`, one job for each Dockerfile) makes `images/` and `video/`
+  again in each run, and it fails when they are not the same as the files in git. When you change
+  them, run `make media` and commit the result.
 - Fonts in CI: git does not contain the reMarkable Sans files (`scripts/fonts/rmsans-*.ttf`). The
   secrets `SUDOKU_FONT_REGULAR` and `SUDOKU_FONT_MEDIUM` contain `rmsans-400.ttf` and
-  `rmsans-500.ttf`, compressed with gzip and encoded with base64 (`gzip -9c F | base64`). The two
-  jobs of release.yml write the files before the Docker builds. Without the secrets, the run fails.
-- One workflow, `release.yml` (**Release**), tests, builds and releases. It has two jobs: `media`
-  (the images, the icon and the videos must agree with git), then `release` (all tests on aarch64,
-  the build and the GitHub release). The event selects the type of release.
+  `rmsans-500.ttf`, compressed with gzip and encoded with base64 (`gzip -9c F | base64`). The jobs
+  `media` (images, video) and `test` of release.yml write the files before the Docker builds. Without the secrets, the run fails.
+- One workflow, `release.yml` (**Release**), tests, builds and releases. These jobs run in
+  parallel: `version` (the name of the release), `media` (three jobs: the images, the icon and the
+  videos must agree with git), `test` (two jobs: the release tests and the debug tests on aarch64)
+  and `build` (`dist/sudoku/` with the version, after `version`). Then `release` makes the GitHub
+  release, only when all other jobs pass. The event selects the type of release.
 - Prereleases (preview versions): each push to `main` runs the workflow. When all checks pass, it
   makes the prerelease `pre-<sha>`. A new push cancels the run of an older push.
 - Stable releases: the owner starts the **Release** workflow manually (workflow_dispatch) on `main`. The release gets
@@ -102,7 +120,7 @@ installs it on the tablet at `REMARKABLE_HOST` (`.env`), or on USB.
   site must agree with README.md and `install.sh` (refer to Conventions & Patterns). In the repository settings, Pages > Source must be "GitHub Actions".
 - App icon: `icon.svg` is the source. Its digits are outlines of reMarkable Sans Regular.
   AppLoad reads only `icon.png` and shows it at 150x150, thus `scripts/build.sh` (rsvg-convert)
-  makes `appload/sudoku/icon.png` from the SVG. Do not edit the PNG. The imagegen build makes it,
+  makes `appload/sudoku/icon.png` from the SVG. Do not edit the PNG. `Dockerfile.images` makes it,
   and the GitHub workflow compares it with the file in git.
 - Each release has `install.sh` (REQUIREMENTS.md §14.6). release.yml replaces `@SUDOKU_VERSION@`,
   `@SUDOKU_SHA256@` and `@SUDOKU_PATCH_SHA256@` with the version, the checksum of the archive and

@@ -24,7 +24,7 @@ paper, and it does the work that paper cannot do.
   and box. If you erase the number, the marks show again.
 - When the same digit is two times in a row, column or box, the two cells change color.
 - Tap a number to highlight all cells with that digit. A cell that clashes keeps the clash color.
-- You can turn the pencil mark hiding and the highlights off. You can also select the cell colors.
+- You can turn the pencil mark hiding and the highlights off. You can also select the cell colors and the gray of the micro-cell lines (or no lines).
 - Undo and redo for all changes on the board.
 
 **Puzzles**
@@ -137,7 +137,7 @@ The app keeps its data in `/home/root/.local/share/rm-sudoku/` on the tablet:
 | File             | Contents                                                                                    |
 | ---------------- | ------------------------------------------------------------------------------------------- |
 | `game.json`      | The current game: the puzzle, its seed, its mode and the version of the generator, your numbers and pencil marks, the undo and redo history, the clock and the completion state |
-| `settings.json`  | The cell colors, the last difficulty and the two switches of the Settings panel             |
+| `settings.json`  | The cell colors, the micro-cell line gray, the last difficulty and the two switches of the Settings panel |
 | `results.sqlite` | Your completed games: the date and time, the difficulty, the quantity of starting numbers, the time, the puzzle seed and the generator version |
 
 To use a different folder, set the environment variable `SUDOKU_DATA_DIR`.
@@ -153,10 +153,11 @@ You need:
   Docker builds need them. [`scripts/fonts/README.md`](scripts/fonts/README.md) tells how to make
   them from a tablet.
 
-| Task                                                | Command                                                               |
-| --------------------------------------------------- | --------------------------------------------------------------------- |
-| Run all tests                                       | `cargo test`                                                          |
-| Build for the tablet (also runs all tests on Linux) | `docker build --platform linux/arm64 --output type=local,dest=dist .` |
+| Task                            | Command                                                               |
+| ------------------------------- | --------------------------------------------------------------------- |
+| Run all tests                   | `cargo test`                                                          |
+| Run all tests on aarch64 Linux  | `docker build --platform linux/arm64 -f Dockerfile.test .`            |
+| Build for the tablet (no tests) | `docker build --platform linux/arm64 --output type=local,dest=dist .` |
 
 The Docker build makes the folder `dist/sudoku/`. It contains the program `sudoku`, the AppLoad
 manifest `external.manifest.json` and the launcher icon `icon.png`.

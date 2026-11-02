@@ -67,7 +67,65 @@ impl Color {
     }
 }
 
-/// The three sections of the Cell colors panel, from the top.
+/// The gray of the micro-cell lines (REQUIREMENTS.md §10, BRD-6): None (no lines) or an ImageMagick
+/// grayN (N percent of white). The last section of the Cell colors panel selects it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum LineGray {
+    None,
+    #[default]
+    Gray90,
+    Gray80,
+    Gray70,
+    Gray60,
+    Gray55,
+    Gray50,
+    Gray45,
+    Gray40,
+}
+
+impl LineGray {
+    /// The order in the 3x3 grid of the Micro-cell lines section, from the top left: from no lines
+    /// to the darkest gray.
+    pub const ALL: [LineGray; 9] = [
+        LineGray::None,
+        LineGray::Gray90,
+        LineGray::Gray80,
+        LineGray::Gray70,
+        LineGray::Gray60,
+        LineGray::Gray55,
+        LineGray::Gray50,
+        LineGray::Gray45,
+        LineGray::Gray40,
+    ];
+
+    /// The position in the 3x3 grid (`LineGray::ALL`), from the top left.
+    pub fn grid_index(self) -> usize {
+        self as usize
+    }
+
+    /// The N of grayN. None: no lines.
+    pub fn percent(self) -> Option<u32> {
+        match self {
+            LineGray::None => None,
+            LineGray::Gray90 => Some(90),
+            LineGray::Gray80 => Some(80),
+            LineGray::Gray70 => Some(70),
+            LineGray::Gray60 => Some(60),
+            LineGray::Gray55 => Some(55),
+            LineGray::Gray50 => Some(50),
+            LineGray::Gray45 => Some(45),
+            LineGray::Gray40 => Some(40),
+        }
+    }
+
+    /// The name below the swatch: "None", or N of grayN.
+    pub fn name(self) -> String {
+        self.percent().map_or_else(|| "None".to_string(), |n| n.to_string())
+    }
+}
+
+/// The three color sections of the Cell colors panel, from the top. The Micro-cell lines section
+/// (`LineGray`) follows them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Section {
     Starting,
@@ -130,6 +188,10 @@ pub struct Settings {
     /// Hide pencil marks automatically (§6.1). Earlier versions saved it as `auto_remove_on`.
     #[serde(default = "on", alias = "auto_remove_on")]
     pub auto_hide_on: bool,
+    /// The gray of the micro-cell lines (§10). A settings file of an earlier version does not have
+    /// it: then the default.
+    #[serde(default)]
+    pub micro_line: LineGray,
 }
 
 fn on() -> bool {
@@ -145,6 +207,7 @@ impl Default for Settings {
             last_mode: FIRST_MODE,
             highlight_on: true,
             auto_hide_on: true,
+            micro_line: LineGray::default(),
         }
     }
 }
@@ -240,6 +303,20 @@ mod tests {
         .unwrap();
         assert!(s.highlight_on && !s.auto_hide_on);
         assert!(serde_json::to_string(&s).unwrap().contains("\"auto_hide_on\":false"));
+    }
+
+    #[test]
+    fn an_earlier_settings_file_gets_the_default_line_gray() {
+        // COL-7: a settings file of an earlier version has no `micro_line`: gray90.
+        let s: Settings = serde_json::from_str(
+            r#"{"color_starting":"Gray","color_clash":"Red","color_highlight":"Green","last_mode":3}"#,
+        )
+        .unwrap();
+        assert_eq!(s.micro_line, LineGray::Gray90);
+        assert_eq!(LineGray::default().percent(), Some(90));
+        let s = Settings { micro_line: LineGray::None, ..s };
+        let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
+        assert_eq!(back.micro_line, LineGray::None);
     }
 
     #[test]

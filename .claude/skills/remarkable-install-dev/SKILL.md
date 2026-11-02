@@ -35,7 +35,8 @@ below, `HOST` is the address that you select in step 1.
      the user that AppLoad is not in the menu until xovi starts. Offer to run
      `/home/root/xovi/start` after the install.
 
-3. **Build.** Run the Linux Docker build. It runs all tests on aarch64 and writes `dist/sudoku/`:
+3. **Build.** Run the Linux Docker build. It writes `dist/sudoku/` and does not run the tests
+   (`cargo test` on the computer runs them; `Dockerfile.test` runs them on aarch64 Linux):
 
    ```bash
    docker build --platform linux/arm64 --output type=local,dest=dist .
@@ -46,8 +47,8 @@ below, `HOST` is the address that you select in step 1.
    The build is slow (minutes): use a timeout of 600000 ms or run it in the background. If the
    build fails, show the error and stop. Do not install an old `dist/`.
 
-   The build needs `scripts/fonts/rmsans-400.ttf` and `scripts/fonts/rmsans-500.ttf`. If they are
-   not there, refer the user to `scripts/fonts/README.md`, and stop.
+   The build does not need the fonts `scripts/fonts/rmsans-*.ttf` (the tablet has the font), but
+   the tests do. If they are not there, refer the user to `scripts/fonts/README.md`.
 
 4. **Install.** Send `dist/sudoku` as a tar stream and replace the old folder in one step, as
    `install.sh` does. This is safe also when the app runs. `COPYFILE_DISABLE=1` stops macOS `tar`

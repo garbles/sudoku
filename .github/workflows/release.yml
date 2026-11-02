@@ -6,12 +6,17 @@
 #   set the input `replace`: the run then deletes the old release and its tag, after the new build
 #   passes all tests. Only one stable run can operate at a time.
 #
-# Each run has two jobs:
+# The jobs version, media, test and build run in parallel (build starts after version). The job
+# release starts only when all of them pass:
 #
-# 1. media: Dockerfile.imagegen makes the images, the AppLoad icon and the demo videos again. They
-#    must be the same as the files in git.
-# 2. release: the Dockerfile runs all tests on aarch64 Linux and builds the app. Then the job makes
-#    a GitHub release with the AppLoad folder (sudoku-<version>.tar.gz), the ink patch
+# 1. version: finds the name of the release and makes sure that a stable version is new.
+# 2. media: Dockerfile.images, Dockerfile.installer and Dockerfile.video make the images, the
+#    AppLoad icon and the demo videos again (one job for each Dockerfile). They must be the same as
+#    the files in git.
+# 3. test: Dockerfile.test runs all tests on aarch64 Linux (musl). The release tests and the debug
+#    tests are two jobs.
+# 4. build: the Dockerfile builds the AppLoad folder dist/sudoku/ with the version of the release.
+# 5. release: makes a GitHub release with the AppLoad folder (sudoku-<version>.tar.gz), the ink patch
 #    (sudoku-penregion.qmd, not in the archive), version.json, version.json.sig and install.sh.
 #    install.sh has the version, the checksum of the archive and the checksum of the patch of its
 #    release. version.json gives the version, the download URL and the SHA-256 checksum of the
@@ -39,60 +44,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
-  media:
-    # An arm64 runner builds the arm64 image without emulation.
+  version:
     runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      # git does not contain the reMarkable Sans font (refer to scripts/fonts/README.md).
-      - name: Write the fonts
-        env:
-          FONT_REGULAR: ${{ secrets.SUDOKU_FONT_REGULAR }}
-          FONT_MEDIUM: ${{ secrets.SUDOKU_FONT_MEDIUM }}
-        run: |
-          if [ -z "$FONT_REGULAR" ] || [ -z "$FONT_MEDIUM" ]; then
-            echo "::error::The secrets SUDOKU_FONT_REGULAR and SUDOKU_FONT_MEDIUM are not set (refer to AGENTS.md)."
-            exit 1
-          fi
-          printf '%s' "$FONT_REGULAR" | base64 -d | gunzip > scripts/fonts/rmsans-400.ttf
-          printf '%s' "$FONT_MEDIUM" | base64 -d | gunzip > scripts/fonts/rmsans-500.ttf
-
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-
-      # Writes images/*.png, video/demo.mp4, video/demo.gif and video/demo-full.mp4 into the checkout.
-      - name: Make the images and the video
-        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
-        with:
-          context: .
-          file: Dockerfile.imagegen
-          platforms: linux/arm64
-          outputs: type=local,dest=.
-          cache-from: type=gha,scope=media
-          cache-to: type=gha,scope=media,mode=max
-
-      - name: Compare with the files in git
-        run: |
-          changes="$(git status --porcelain -- images video appload/sudoku/icon.png)"
-          if [ -n "$changes" ]; then
-            echo "$changes"
-            echo "::error::The images, the icon or the video are not the same as the output of Dockerfile.imagegen. Make them again with Dockerfile.imagegen and commit them."
-            exit 1
-          fi
-
-  # When the images and the video are correct: all tests, the build and the release.
-  release:
-    needs: media
-    runs-on: ubuntu-24.04-arm
-    timeout-minutes: 45
-    permissions:
-      contents: write
-    concurrency:
-      group: ${{ github.event_name == 'workflow_dispatch' && 'release-stable' || format('release-pre-{0}', github.sha) }}
-      cancel-in-progress: false
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      exists: ${{ steps.version.outputs.exists }}
+      replace: ${{ steps.tag.outputs.replace }}
     env:
       GH_TOKEN: ${{ github.token }}
       STABLE: ${{ github.event_name == 'workflow_dispatch' }}
@@ -153,9 +111,24 @@ jobs:
           echo "version=$version" >> "$GITHUB_OUTPUT"
           echo "Version: $version"
 
+  # The images, the icon and the videos must be the same as the files in git.
+  media:
+    # An arm64 runner builds the arm64 image without emulation.
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # images: the design images and the icon. installer: images/install-*.png. video: the demo videos.
+        part: [images, installer, video]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
       # git does not contain the reMarkable Sans font (refer to scripts/fonts/README.md).
       - name: Write the fonts
-        if: steps.version.outputs.exists != 'true'
+        if: matrix.part != 'installer'
         env:
           FONT_REGULAR: ${{ secrets.SUDOKU_FONT_REGULAR }}
           FONT_MEDIUM: ${{ secrets.SUDOKU_FONT_MEDIUM }}
@@ -168,27 +141,139 @@ jobs:
           printf '%s' "$FONT_MEDIUM" | base64 -d | gunzip > scripts/fonts/rmsans-500.ttf
 
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        if: steps.version.outputs.exists != 'true'
 
-      # The Dockerfile runs all tests before it makes dist/sudoku/. The cache keeps the compiled
-      # dependencies between runs.
-      - name: Test and build
-        if: steps.version.outputs.exists != 'true'
+      # Writes the files of this part into the checkout.
+      - name: Make the ${{ matrix.part }}
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.${{ matrix.part }}
+          platforms: linux/arm64
+          outputs: type=local,dest=.
+          cache-from: type=gha,scope=media-${{ matrix.part }}
+          cache-to: type=gha,scope=media-${{ matrix.part }},mode=max
+
+      - name: Compare with the files in git
+        env:
+          PART: ${{ matrix.part }}
+        run: |
+          changes="$(git status --porcelain -- images video appload/sudoku/icon.png)"
+          if [ -n "$changes" ]; then
+            echo "$changes"
+            echo "::error::The files are not the same as the output of Dockerfile.$PART. Make them again with make media (Docker) and commit them."
+            exit 1
+          fi
+
+  # All tests on aarch64 Linux with musl, the C library of the tablet.
+  test:
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # release: cargo test --release. debug: cargo test, with the checks of INVARIANTS.md after each input.
+        profile: [release, debug]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      # git does not contain the reMarkable Sans font (refer to scripts/fonts/README.md).
+      - name: Write the fonts
+        env:
+          FONT_REGULAR: ${{ secrets.SUDOKU_FONT_REGULAR }}
+          FONT_MEDIUM: ${{ secrets.SUDOKU_FONT_MEDIUM }}
+        run: |
+          if [ -z "$FONT_REGULAR" ] || [ -z "$FONT_MEDIUM" ]; then
+            echo "::error::The secrets SUDOKU_FONT_REGULAR and SUDOKU_FONT_MEDIUM are not set (refer to AGENTS.md)."
+            exit 1
+          fi
+          printf '%s' "$FONT_REGULAR" | base64 -d | gunzip > scripts/fonts/rmsans-400.ttf
+          printf '%s' "$FONT_MEDIUM" | base64 -d | gunzip > scripts/fonts/rmsans-500.ttf
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # The cache keeps the compiled dependencies between runs.
+      - name: Run the ${{ matrix.profile }} tests
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.test
+          target: ${{ matrix.profile }}
+          platforms: linux/arm64
+          outputs: type=cacheonly
+          cache-from: type=gha,scope=test-${{ matrix.profile }}
+          cache-to: type=gha,scope=test-${{ matrix.profile }},mode=max
+
+  # The AppLoad folder with the version of the release. The job release publishes it.
+  build:
+    needs: version
+    if: needs.version.outputs.exists != 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # The cache keeps the compiled dependencies between runs.
+      - name: Build
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           platforms: linux/arm64
           outputs: type=local,dest=dist
-          build-args: SUDOKU_VERSION=${{ steps.version.outputs.version }}
+          build-args: SUDOKU_VERSION=${{ needs.version.outputs.version }}
           cache-from: type=gha,scope=build
           cache-to: type=gha,scope=build,mode=max
 
+      # An artifact does not keep the file modes. The tar file keeps the mode 755 of the executable.
+      - name: Keep the AppLoad folder
+        run: tar -C dist -cf dist.tar sudoku
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist.tar
+          retention-days: 1
+          if-no-files-found: error
+
+  # When the images, the videos, all tests and the build pass: the release.
+  release:
+    needs: [version, media, test, build]
+    if: needs.version.outputs.exists != 'true'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    concurrency:
+      group: ${{ github.event_name == 'workflow_dispatch' && 'release-stable' || format('release-pre-{0}', github.sha) }}
+      cancel-in-progress: false
+    env:
+      GH_TOKEN: ${{ github.token }}
+      STABLE: ${{ github.event_name == 'workflow_dispatch' }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+
+      - name: Open the AppLoad folder
+        run: |
+          mkdir dist
+          tar -C dist -xf dist.tar
+          rm dist.tar
+
       - name: Make the release
-        if: steps.version.outputs.exists != 'true'
         env:
-          VERSION: ${{ steps.version.outputs.version }}
+          VERSION: ${{ needs.version.outputs.version }}
           SIGNING_KEY: ${{ secrets.SUDOKU_SIGNING_KEY }}
-          REPLACE_OLD: ${{ steps.tag.outputs.replace }}
+          REPLACE_OLD: ${{ needs.version.outputs.replace }}
         run: |
           # The ink patch is a separate file of the release (REQUIREMENTS.md §9.2, §14.6). The
           # installer and the app download it, and do not read it from the archive.

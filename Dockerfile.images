@@ -1,0 +1,21 @@
+# check=skip=FromPlatformFlagConstDisallowed
+# Makes the design images (images/*.png, but not images/install-*.png) and the AppLoad icon
+# (appload/sudoku/icon.png) again. Dockerfile.installer makes images/install-*.png.
+#
+#   docker build --platform linux/arm64 -f Dockerfile.images --output type=local,dest=. .
+#
+# Alpine 3.22 gives fixed versions of ImageMagick and rsvg-convert, so each computer makes the same
+# files. The GitHub workflow runs this build and fails when the result is different from the files in git.
+# The images use the fonts scripts/fonts/rmsans-{400,500}.ttf (refer to scripts/fonts/README.md).
+FROM --platform=linux/arm64 alpine:3.22 AS build
+RUN apk add --no-cache imagemagick rsvg-convert python3 fontconfig
+WORKDIR /src
+COPY scripts scripts
+COPY icon.svg icon.svg
+# Remove the time stamps from the PNG files, so that the same images give the same bytes.
+RUN mkdir -p images appload/sudoku && sh scripts/build.sh screens icon \
+ && magick mogrify -define png:exclude-chunks=date,time images/*.png
+
+FROM scratch AS export
+COPY --from=build /src/images/*.png /images/
+COPY --from=build /src/appload/sudoku/icon.png /appload/sudoku/icon.png

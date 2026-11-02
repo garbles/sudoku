@@ -125,7 +125,7 @@ Terms:
 | BRD-3 | The value of an entry is 1–9. Only the eraser, undo or redo can remove it. Writing does not replace it. | R§4.1, R§5.1 |
 | BRD-4 | A value changes from 0 to a digit only by a number from 1 to 9 that the app reads, by redo, by undo of an erasure, or by the generator. | R§5.1, R§7 |
 | BRD-5 | An entry can be incorrect. `value ≠ solution` is a correct state and has no color, if there is no clash. | R§6.3 |
-| BRD-6 | Filled cells do not show pencil marks. No cell shows micro-cell lines (owner decision 2026-11-02). | R§4.1, R§5.1 |
+| BRD-6 | Filled cells do not show the micro-cell grid or pencil marks. Empty cells show the micro-cell grid in the gray of `micro_line` (COL-7), or no grid if it is None. The only exception is an empty cell with a "?" (QST-1): it does not show the grid while the "?" shows. | R§4.1, R§5.1, R§10 |
 | BRD-7 | The background of a filled cell is the **first** of these: the clash color if clashing; the highlight color if `value = highlight`; the starting color if given; white. Empty cells are white. | R§4.2 |
 | BRD-8 | Starting digits are black. Entry digits are dark gray (`gray35`). | R§4.1, R§15 |
 
@@ -172,7 +172,7 @@ Terms:
 | ID | Rule | Source |
 |---|---|---|
 | INP-1 | Finger touches on the board do not change the game state. The only exceptions are the removal of a highlight (HLT-2) and of the "?" (QST-4). A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs and the screen buttons. In the manual and the games list, a horizontal finger swipe can change the page. | R§5.1, R§12, R§13.2 |
-| INP-2 | A pen touch on the board is a **tap** only if all of its movement stays in one micro-cell. All other pen touches on the board are writing. Each pen touch on the board is one of these: a tap, writing, or the eraser. While the pen stays in the micro-cell, the touch shows no ink. When it leaves the micro-cell, all of the stroke shows. Thus a tap that has no effect does not change the screen. | R§5.1 (owner report 2026-11-02) |
+| INP-2 | A pen touch on the board is a **tap** only if all of its movement stays in one micro-cell. All other pen touches on the board are writing. Each pen touch on the board is one of these: a tap, writing, or the eraser. A tap does not start the pen area (R§14.4). | R§5.1, R§14.4 (owner decision 2026-11-02) |
 | INP-3 | A tap on an empty cell adds or removes one mark: the digit of the micro-cell that you tapped. If `auto_hide_on` and a peer has that digit, the tap has no effect (MRK-7). | R§4.1, R§5.1, R§6.1 |
 | INP-4 | While no panel is open, a tap on a filled cell does not change that cell. It changes only `highlight` (HLT-3, HLT-6) and the "?" (QST-4), and it makes the app read ink that waits in another cell (INP-12). | R§5.1, R§6.2 |
 | INP-5 | `pending_ink ≠ None ⇒` its cell is empty and the game is not complete. The app collects the ink until the pen is lifted for the recognition pause (approximately 0.5 s). Then the app reads all the ink as one item and sets `pending_ink = None`. | R§5.1 |
@@ -266,6 +266,7 @@ Terms:
 | COL-4 | Color changes do not change the game state or the undo stack (UND-2). | R§7, R§10 |
 | COL-5 | `color_starting`, `color_clash` and `color_highlight` are all different, except White. All three can be White. A color that another section uses shows as not available, and you cannot select it. White is always available. | R§10 |
 | COL-6 | Black is never in the palette. | R§10 |
+| COL-7 | `micro_line` always has one of the nine values of the Micro-cell lines section: None, gray90, gray80, gray70, gray60, gray55, gray50, gray45 or gray40. The default is gray90, also for a settings file of an earlier version. The section shows the selected value (black box). A tap on a value changes only `micro_line`, and the board shows the new lines immediately. | R§10 (owner decision 2026-11-02) |
 
 ## 13. Manual
 
@@ -299,7 +300,7 @@ Terms:
 |---|---|---|
 | PER-1 | At each point where the app can close or be suspended, the saved game is equal to the game in memory: `seed`, `mode`, starting numbers, `value`, `marks`, the two stacks, `elapsed` and `completed`. | R§14.3 |
 | PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Closed`, `panel = None`, `highlight = None`, `question = None` and `pending_ink = None`. | R§14.3 |
-| PER-3 | The settings (`color_*`, `last_mode`, `highlight_on` and `auto_hide_on`) stay the same when the app closes and opens again. | R§14.2 |
+| PER-3 | The settings (`color_*`, `micro_line`, `last_mode`, `highlight_on` and `auto_hide_on`) stay the same when the app closes and opens again. | R§14.2 |
 | PER-4 | `results` stays the same when the app closes and opens again. Only ANA-2 changes it. | R§14.1 |
 | PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. When the app opens, it does not use saved data that breaks a rule (PUZ-5, ANA-1). A saved history that play cannot make, but that agrees with UND-3, is correct: each undo and redo item still changes the board. | — (confirmed 2026-10-25) |
 | PER-6 | If the app closes during the recognition pause, the app removes the ink. The app never reads it later. | R§14.3 |
