@@ -63,7 +63,8 @@ The installer tells you what to do at each step:
 
 4. It installs [Vellum](https://github.com/vellum-dev/vellum) and the AppLoad launcher, makes the
 
-   xovi hashtable and starts xovi. The tablet must be connected to Wi-Fi for this step.
+   xovi hashtable, copies the ink patch and starts xovi. The tablet must be connected to Wi-Fi for
+   this step. With the ink patch, the ink has no gaps while you write.
 
 5. It copies Sudoku to AppLoad.
 
@@ -78,15 +79,12 @@ To use Wi-Fi in place of the USB cable, set the address of the tablet:
 
 ### Manual installation
 
-1. Install the AppLoad launcher with Vellum, and start xovi:
+1. Install the AppLoad launcher with Vellum:
 
    ```bash
      vellum add appload
      /home/root/xovi/rebuild_hashtable
-     /home/root/xovi/start
    ```
-
-   After a restart of the tablet, run `/home/root/xovi/start` again.
 
 2. Download `sudoku-<version>.tar.gz` from the
 
@@ -104,7 +102,16 @@ To use Wi-Fi in place of the USB cable, set the address of the tablet:
    `10.11.99.1` is the address of the tablet on a USB connection. On Wi-Fi, use the IP address of
    the tablet.
 
-4. Open AppLoad on the tablet and tap **Sudoku**.
+4. Copy the ink patch and start xovi. The user interface of the tablet starts again:
+
+   ```bash
+     scp dist/sudoku/sudoku-penregion.qmd root@10.11.99.1:/home/root/xovi/exthome/qt-resource-rebuilder/
+     ssh root@10.11.99.1 /home/root/xovi/start
+   ```
+
+   After a restart of the tablet, run `/home/root/xovi/start` again.
+
+5. Open AppLoad on the tablet and tap **Sudoku**.
 
 ### Saved data
 

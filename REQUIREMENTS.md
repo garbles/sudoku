@@ -900,11 +900,36 @@ package manager **Vellum**:
 1. `vellum add appload`. This installs xovi, xovi-extensions, qt-resource-rebuilder and AppLoad. On
    OS 3.29 the package `launcherctl-appload` does not install, because its dependency
    `lockscreen_hook` supports only OS versions before 3.28.
-2. `/home/root/xovi/rebuild_hashtable`, then `/home/root/xovi/start`. After a restart of the tablet,
-   run `/home/root/xovi/start` again.
-3. Copy the folder `dist/sudoku` (from the Dockerfile) to `/home/root/xovi/exthome/appload/`.
+2. `/home/root/xovi/rebuild_hashtable`.
+3. Copy the ink patch `dist/sudoku/sudoku-penregion.qmd` to
+   `/home/root/xovi/exthome/qt-resource-rebuilder/`.
+4. `/home/root/xovi/start`. After a restart of the tablet, run `/home/root/xovi/start` again.
+5. Copy the folder `dist/sudoku` (from the Dockerfile) to `/home/root/xovi/exthome/appload/`.
 
 The installer (§14.6) does these steps automatically.
+
+**Ink patch** (owner decision, 2026-11-01). With the UI waveform of the window, the ink had gaps
+while the pen wrote (DECISIONS.md). The ink patch is a QML patch of AppLoad for qt-resource-rebuilder.
+It puts an area with the Pen screen mode of xochitl (the fast pen waveform) in the window of the app.
+The app gives the area in `/tmp/sudoku-pen-region` ("x y width height", or empty), and the patch
+reads it each 15 ms:
+
+- While the player writes in a cell, the area is the inside of that cell, aligned inward to 4 px.
+  The area starts when the pen touches the cell, so that the first ink of each stroke also gets
+  the pen waveform.
+  It does not touch the cells around it, because xochitl refreshes the full area when it starts and
+  when it stops.
+- The ink waits until the patch can apply a new area (45 ms). A redraw waits until the area stopped
+  (45 ms), so that colored cells get the UI waveform.
+- While the player writes (from the first stroke until the app reads the last ink, §5), a redraw
+  waits. Thus the player can write in many cells, one after the other: only the ink changes on the
+  screen, and an update with the UI waveform does not stop the ink in the next cell. Ink in the area
+  does not wait for an older update there.
+- xochitl reads the patch only when it starts. The app uses the area only if the patch was installed
+  before xochitl started. Without the patch, the app sends the ink so that an update never touches
+  changed pixels of an update in progress.
+- An update of the tablet software or of AppLoad can stop the patch. Then the window opens, but the
+  ink can have gaps.
 
 The close button shows the reMarkable interface again. AppLoad draws a black line of 2 px around the
 window of each app, also in full screen. The app cannot remove it. The app does not put content at
@@ -982,8 +1007,9 @@ The steps:
 | 5. Vellum | `/home/root/.vellum/bin/vellum` | Examines the internet connection of the tablet (instructions for Wi-Fi). Downloads the latest Vellum bootstrap script on the computer (curl examines the TLS certificate) and runs it on the tablet. The installer keeps no checksum of this script, because each Vellum release changes it. |
 | 6. AppLoad | `/home/root/xovi/extensions.d/appload.so` | `vellum update`, then `vellum add appload`. |
 | 7. Hashtable | `/home/root/xovi/exthome/qt-resource-rebuilder/hashtab` | Tells the user that the screen stops for 1 to 2 minutes, then runs `xovi/rebuild_hashtable`. |
-| 8. xovi | `xochitl` has `xovi.so` | Runs `xovi/start` (the user interface starts again). |
-| 9. Sudoku | The SHA-256 checksum of the installed `sudoku` is equal to the checksum in the archive | Copies the archive to the tablet and replaces the AppLoad folder `sudoku` only after all checks. The saved data (§14.1–14.3) does not change. |
+| 8. Ink patch | The SHA-256 checksum of `sudoku-penregion.qmd` in `xovi/exthome/qt-resource-rebuilder` is equal to the checksum of the copy in the archive | Copies the ink patch (§14.4) from the archive to the tablet. |
+| 9. xovi | `xochitl` has `xovi.so`, and step 8 did not copy the patch | Runs `xovi/start` (the user interface starts again). The patch operates only after this start. |
+| 10. Sudoku | The SHA-256 checksum of the installed `sudoku` is equal to the checksum in the archive | Copies the archive to the tablet and replaces the AppLoad folder `sudoku` only after all checks. The saved data (§14.1–14.3) does not change. |
 
 At the end, a box tells how to open the app. A restart of the tablet stops xovi. To start it again,
 the user runs the installer again.
