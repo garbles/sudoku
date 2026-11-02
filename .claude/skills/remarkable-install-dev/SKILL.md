@@ -35,16 +35,21 @@ below, `HOST` is the address that you select in step 1.
      the user that AppLoad is not in the menu until xovi starts. Offer to run
      `/home/root/xovi/start` after the install.
 
-3. **Build.** Run the Linux Docker build. It writes `dist/sudoku/` and does not run the tests
-   (`cargo test` on the computer runs them; `Dockerfile.test` runs them on aarch64 Linux):
+3. **Build.** Run the fast Linux Docker build (`Dockerfile.dev`). It writes `dist/sudoku/` and
+   does not run the tests (`cargo test` on the computer runs them; `Dockerfile.test` runs them on
+   aarch64 Linux):
 
    ```bash
-   docker build --platform linux/arm64 --output type=local,dest=dist .
+   docker build --platform linux/arm64 -f Dockerfile.dev --output type=local,dest=dist .
    ```
+
+   `Dockerfile.dev` uses the Cargo profile `tablet-dev` (no LTO, incremental) and BuildKit cache
+   mounts. The first build takes approximately 90 s. After a change of the source, a build takes
+   approximately 4 s. Do not use this build for a release.
 
    If `docker` is not on `PATH`, use OrbStack:
    `DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock /Applications/OrbStack.app/Contents/MacOS/xbin/docker`.
-   The build is slow (minutes): use a timeout of 600000 ms or run it in the background. If the
+   The first build is slow: use a timeout of 600000 ms. If the
    build fails, show the error and stop. Do not install an old `dist/`.
 
    The build does not need the fonts `scripts/fonts/rmsans-*.ttf` (the tablet has the font), but

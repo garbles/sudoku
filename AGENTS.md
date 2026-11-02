@@ -21,6 +21,7 @@ All tests run on the computer. `Dockerfile.test` runs them again on aarch64 Linu
 | File                   | Task                                                                    |
 | ---------------------- | ----------------------------------------------------------------------- |
 | `Dockerfile`           | The static aarch64 build `dist/sudoku/`. No tests.                      |
+| `Dockerfile.dev`       | The fast development build of `dist/sudoku/`. No tests. Not for release |
 | `Dockerfile.test`      | All tests on aarch64 Linux: the stages `release` and `debug` (parallel) |
 | `Dockerfile.images`    | The design images `images/*.png` (not `install-*.png`) and the icon     |
 | `Dockerfile.installer` | The installer images `images/install-*.png`                             |
@@ -34,6 +35,7 @@ cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.
 scripts/bench.sh                             # performance bench: compare with bench/baseline-computer.json
 docker build --platform linux/arm64 -f Dockerfile.test .   # all tests on aarch64 Linux (release and debug)
 docker build --platform linux/arm64 --output type=local,dest=dist .   # static aarch64 build (no tests)
+docker build --platform linux/arm64 -f Dockerfile.dev --output type=local,dest=dist .   # fast development build (no tests)
 docker build --platform linux/arm64 -f Dockerfile.images --output type=local,dest=. .      # images/ and the icon (commit these)
 docker build --platform linux/arm64 -f Dockerfile.installer --output type=local,dest=. .   # images/install-*.png (commit these)
 docker build --platform linux/arm64 -f Dockerfile.video --output type=local,dest=. .       # video/ (commit these)
@@ -41,7 +43,7 @@ docker build --platform linux/arm64 -f Dockerfile.video --output type=local,dest
 
 The `Makefile` gives a target for each of these commands, and more (`make help` shows them). If
 `docker` is not on `PATH`, it uses the docker of OrbStack. `make test-linux` runs `Dockerfile.test`.
-`make dist` runs `Dockerfile.test`, then builds `dist/`. `make install-dev` builds `dist/` with no
+`make dist` runs `Dockerfile.test`, then builds `dist/`. `make install-dev` builds `dist/` with `Dockerfile.dev` and no
 tests (thus run `cargo test` first) and installs it on the tablet at `REMARKABLE_HOST` (`.env`), or
 on USB. `make media` makes the images, the icon and the videos (`make -j3 media` runs the three
 builds in parallel).

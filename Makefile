@@ -29,7 +29,7 @@ SCENARIO ?= first
 
 .DEFAULT_GOAL := help
 .PHONY: help test build snapshot check video video-full media bench bench-save bench-linux \
-	bench-linux-save media-images media-installer media-video fonts-check test-linux tablet-build dist install-dev install-sim fonts xovi-restart fmt clippy bump-patch bump-minor \
+	bench-linux-save media-images media-installer media-video fonts-check test-linux tablet-build tablet-build-dev dist install-dev install-sim fonts xovi-restart fmt clippy bump-patch bump-minor \
 	bump-major clean
 
 help: ## Show all targets
@@ -104,9 +104,12 @@ test-linux: fonts-check ## Run all tests on aarch64 Linux, release and debug in 
 tablet-build: ## Build dist/sudoku/ with no tests (Dockerfile)
 	$(DOCKER) build --platform linux/arm64 --output type=local,dest=dist .
 
+tablet-build-dev: ## Build dist/sudoku/ fast, for development only: no LTO, incremental, cache (Dockerfile.dev)
+	$(DOCKER) build --platform linux/arm64 -f Dockerfile.dev --output type=local,dest=dist .
+
 dist: test-linux tablet-build ## Run all tests on aarch64 Linux, then build dist/sudoku/ (Docker)
 
-install-dev: tablet-build ## Build (no tests: run make test first) and install dist/sudoku/ on the tablet (REMARKABLE_HOST in .env, or USB)
+install-dev: tablet-build-dev ## Build fast (Dockerfile.dev, no tests: run make test first) and install dist/sudoku/ on the tablet (REMARKABLE_HOST in .env, or USB)
 	@echo "Install on $(HOST)"
 	COPYFILE_DISABLE=1 tar -C dist -czf - sudoku | $(SSH) 'set -e; d=$(APPLOAD); t=$$d/.sudoku-install; \
 		rm -rf "$$t"; mkdir -p "$$t"; tar -xzf - -C "$$t"; chmod 755 "$$t/sudoku/sudoku"; \

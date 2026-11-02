@@ -57,3 +57,11 @@ opt-level = 2
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ureq = "3"
+
+# The fast tablet build of Dockerfile.dev (make install-dev). No LTO, many codegen units and
+# incremental compilation. The opt-level is the same as in the release build.
+[profile.tablet-dev]
+inherits = "release"
+lto = false
+codegen-units = 256
+incremental = true
