@@ -28,3 +28,14 @@ cargo run --release --example build_handwriting -- ujipenchars2.txt
 Format (little-endian): `HW01`, u16 quantity of examples, then for each example: u8 class (0 to 9),
 u8 writer (1 to 60), u8 quantity of strokes, and for each stroke: u8 quantity of points, then u8 x and
 u8 y for each point.
+
+## owner-handwriting.jsonl
+
+Examples of the handwriting of the owner on the reMarkable Paper Pro. The recognizer uses them with
+the examples of `handwriting.bin` (the writer is 0). The corpus build collects them
+(`src/corpus.rs`, `examples/corpus.rs`, the skill `remarkable-corpus`). Do not edit the file by
+hand.
+
+Format: one JSON line for each example: `{"class": D, "strokes": [[[x, y], ...], ...]}`. The class
+is the digit (1 to 9). The strokes are scaled to a box of 0 to 255 (the larger side is 255), with
+one decimal.

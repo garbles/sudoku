@@ -24,12 +24,18 @@ PATCH_NAME := sudoku-penregion.qmd
 PATCH_STAMP := sudoku-penregion.json
 
 SNAPSHOT_DIR ?= target/snapshots
+# Cargo features of the development build (Dockerfile.dev), for example FEATURES=corpus.
+FEATURES ?=
+CORPUS_DIR := /home/root/.local/share/rm-sudoku-corpus
+CORPUS_LOG := corpus-ink.jsonl
+CORPUS_OUT ?= target/corpus
+DIGIT ?=
 NOTE ?=
 SCENARIO ?= first
 
 .DEFAULT_GOAL := help
 .PHONY: help test build snapshot check video video-full media bench bench-save bench-linux \
-	bench-linux-save media-images media-installer media-video fonts-check test-linux tablet-build tablet-build-dev dist install-dev install-sim fonts xovi-restart fmt clippy bump-patch bump-minor \
+	bench-linux-save media-images media-installer media-video fonts-check test-linux tablet-build tablet-build-dev dist install-dev install-sim install-corpus corpus-start corpus-pull fonts xovi-restart fmt clippy bump-patch bump-minor \
 	bump-major clean
 
 help: ## Show all targets
@@ -105,7 +111,7 @@ tablet-build: ## Build dist/sudoku/ with no tests (Dockerfile)
 	$(DOCKER) build --platform linux/arm64 --output type=local,dest=dist .
 
 tablet-build-dev: ## Build dist/sudoku/ fast, for development only: no LTO, incremental, cache (Dockerfile.dev)
-	$(DOCKER) build --platform linux/arm64 -f Dockerfile.dev --output type=local,dest=dist .
+	$(DOCKER) build --platform linux/arm64 -f Dockerfile.dev --build-arg CARGO_FEATURES="$(FEATURES)" --output type=local,dest=dist .
 
 dist: test-linux tablet-build ## Run all tests on aarch64 Linux, then build dist/sudoku/ (Docker)
 
@@ -126,6 +132,30 @@ install-dev: tablet-build-dev ## Build fast (Dockerfile.dev, no tests: run make 
 			printf "{\"version\": \"dev\", \"sha256\": \"%s\"}\n" '"$$want"' > "$$d/$(PATCH_STAMP)"' \
 			< dist/sudoku/$(PATCH_NAME); \
 		echo "The ink patch changed. xovi applies it when it starts: run make xovi-restart."; fi
+
+## The corpus build: examples of handwriting for the recognizer (the skill remarkable-corpus).
+
+install-corpus: ## Build and install the corpus build (a blank board, a log of each ink). make install-dev installs the usual build again
+	$(MAKE) install-dev FEATURES=corpus
+
+corpus-start: ## Start a new corpus session: delete the saved game and the corpus log on the tablet, move old sets to target/corpus/old/ (close Sudoku first)
+	$(SSH) 'rm -f /home/root/.local/share/rm-sudoku/game.json $(CORPUS_DIR)/game.json $(CORPUS_DIR)/$(CORPUS_LOG)'
+	@old=$(CORPUS_OUT)/old/$$(date +%Y%m%d-%H%M%S); for f in $(CORPUS_OUT)/corpus-ink-*.jsonl $(CORPUS_OUT)/sheet-*.png; do \
+		[ -e "$$f" ] || continue; mkdir -p "$$old"; mv "$$f" "$$old/"; done; \
+		if [ -d "$$old" ]; then echo "Old sets moved to $$old (not used)."; fi
+	@echo "The saved game and the corpus log are deleted. Open Sudoku on the tablet."
+
+corpus-pull: ## Copy the corpus log of DIGIT=n to target/corpus/corpus-ink-n.jsonl, then clear the log and the board on the tablet (close Sudoku first)
+	@test -n "$(DIGIT)" || { echo "Give the digit: make corpus-pull DIGIT=4" >&2; exit 1; }
+	@mkdir -p $(CORPUS_OUT)
+	@out=$(CORPUS_OUT)/corpus-ink-$(DIGIT).jsonl; \
+		if [ -s "$$out" ]; then echo "$$out exists: add it or move it first" >&2; exit 1; fi; \
+		$(SSH) 'f=$(CORPUS_DIR)/$(CORPUS_LOG); [ ! -f "$$f" ] || cat "$$f"' > "$$out.tmp" \
+			|| { rm -f "$$out.tmp"; echo "Cannot read the corpus log on the tablet" >&2; exit 1; }; \
+		if [ ! -s "$$out.tmp" ]; then rm -f "$$out.tmp"; echo "The corpus log on the tablet is empty" >&2; exit 1; fi; \
+		mv "$$out.tmp" "$$out"; \
+		$(SSH) 'rm -f $(CORPUS_DIR)/$(CORPUS_LOG) $(CORPUS_DIR)/game.json'; \
+		echo "$$(grep -c . "$$out") examples of $(DIGIT) in $$out. The log on the tablet is clear."
 
 xovi-restart: ## Start xovi again on the tablet (the UI starts again: close all notebooks first)
 	$(SSH) '/home/root/xovi/start > /tmp/sudoku-xovi.log 2>&1; i=0; while [ $$i -lt 30 ]; do \

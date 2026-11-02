@@ -147,9 +147,10 @@ impl ListUi {
 /// Saves a game immediately; true if the save is done.
 type SaveGame = Box<dyn FnMut(&Game) -> bool>;
 
-/// Receives each reading of ink: the strokes and the result. Only an examination of the recognizer on
-/// a device uses it (`platform`, the file `log-ink` in the data folder).
-type InkLog = Box<dyn FnMut(&[Stroke], Option<u8>)>;
+/// Receives each reading of ink: the cell, the strokes and the result. Only an examination of the
+/// recognizer on a device uses it (`platform`: the file `log-ink` in the data folder, or the corpus
+/// build, `corpus.rs`).
+pub type InkLog = Box<dyn FnMut(Cell, &[Stroke], Option<u8>)>;
 
 /// Things that the platform gives to the app: the wall clock and new seeds.
 pub trait Env {
@@ -756,7 +757,7 @@ impl App {
         // INP-6: the result is a number from 1 to 9, or "not 1–9" (the "?").
         let result = recognizer::recognize(&ink.strokes).filter(|d| (1..=9).contains(d));
         if let Some(log) = self.ink_log.as_mut() {
-            log(&ink.strokes, result);
+            log(ink.cell, &ink.strokes, result);
         }
         match result {
             Some(d) => {

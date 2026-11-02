@@ -45,7 +45,8 @@ The `Makefile` gives a target for each of these commands, and more (`make help` 
 `docker` is not on `PATH`, it uses the docker of OrbStack. `make test-linux` runs `Dockerfile.test`.
 `make dist` runs `Dockerfile.test`, then builds `dist/`. `make install-dev` builds `dist/` with `Dockerfile.dev` and no
 tests (thus run `cargo test` first) and installs it on the tablet at `REMARKABLE_HOST` (`.env`), or
-on USB. `make media` makes the images, the icon and the videos (`make -j3 media` runs the three
+on USB. `make install-dev FEATURES=corpus` (or `make install-corpus`) installs the corpus build
+(the `remarkable-corpus` skill). `make media` makes the images, the icon and the videos (`make -j3 media` runs the three
 builds in parallel).
 
 `dist/sudoku/` is the AppLoad folder. Copy it to `/home/root/xovi/exthome/appload/` on the tablet.
@@ -154,6 +155,10 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `generator.rs`: the puzzle generator with a seed (only one solution). Version 1 stays for old saves.
 - `solver.rs`: the human-style solver. It grades a puzzle by the most difficult technique it needs.
 - `recognizer.rs`: reads handwriting in a cell ($P point-cloud recognizer with templates).
+- `corpus.rs`: only in the corpus build (Cargo feature `corpus`, a development build). A blank
+  board and a log of each ink with its cell, in a separate data folder. `examples/corpus.rs` makes a
+  review image and adds the approved examples to `assets/owner-handwriting.jsonl`. The
+  `remarkable-corpus` skill gives the procedure.
 - `app.rs`: screens, menu, panels, overlays, pen and touch input, the clock. No input or output.
 - `present.rs`: the output of the main loop: the drawing, the copy of the changes into the
   framebuffer and the ink updates. No input or output, thus the bench uses the same code.

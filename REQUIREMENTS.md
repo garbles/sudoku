@@ -1164,7 +1164,8 @@ The values are in [`scripts/ui-lib.sh`](scripts/ui-lib.sh), in the other scripts
    typeface, and of 1 as a straight vertical line, in both directions of writing. Characters with the shape of a 1 (for example `l` and
    `I`) are read as 1. On the device, the owner's 4s and 9s in the shape of the typeface (written
    from the bottom up) were not read; the typeface examples correct this (`tests/fixtures/owner-ink.jsonl`).
-   If a digit is often read incorrectly for a player, add examples for it.
+   If a digit is often read incorrectly for a player, add examples for it: the examples of the
+   owner are in `assets/owner-handwriting.jsonl` (refer to `assets/README.md`).
 
 These items are closed:
 

@@ -65,7 +65,31 @@ pub fn warm_up() {
 
 fn default() -> &'static Recognizer {
     static R: OnceLock<Recognizer> = OnceLock::new();
-    R.get_or_init(|| Recognizer::new(samples().iter().chain(typeface_examples().iter())))
+    R.get_or_init(|| Recognizer::new(samples().iter().chain(typeface_examples().iter()).chain(owner_examples().iter())))
+}
+
+static OWNER_DATA: &str = include_str!("../assets/owner-handwriting.jsonl");
+
+/// The examples of assets/owner-handwriting.jsonl: handwriting of the owner on the device. The
+/// corpus build collects them (src/corpus.rs, examples/corpus.rs, the skill `remarkable-corpus`).
+/// Each line has the class and the strokes, in a box of 0..255 (as the database). The writer is 0.
+pub fn owner_examples() -> &'static [Sample] {
+    static S: OnceLock<Vec<Sample>> = OnceLock::new();
+    S.get_or_init(|| {
+        #[derive(serde::Deserialize)]
+        struct Line {
+            class: u8,
+            strokes: Vec<Stroke>,
+        }
+        OWNER_DATA
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .map(|l| serde_json::from_str::<Line>(l).expect("assets/owner-handwriting.jsonl: a line is not correct"))
+            // The class is 0 to 9 (INP-6). An example with a different class is not used.
+            .filter(|l| l.class <= 9)
+            .map(|l| Sample { class: l.class, writer: 0, strokes: l.strokes })
+            .collect()
+    })
 }
 
 /// Examples with the shapes of the typeface of the screen: a closed 4, a 9 with a round loop and a
@@ -500,7 +524,9 @@ mod tests {
     /// The writers 41 to 60 are not in the examples of this test: the result shows the accuracy for a
     /// new writer.
     fn split() -> (Recognizer, Vec<&'static Sample>) {
-        let r = Recognizer::new(samples().iter().filter(|s| s.writer <= 40).chain(typeface_examples().iter()));
+        let r = Recognizer::new(
+            samples().iter().filter(|s| s.writer <= 40).chain(typeface_examples().iter()).chain(owner_examples().iter()),
+        );
         (r, samples().iter().filter(|s| s.writer > 40).collect())
     }
 
@@ -656,6 +682,17 @@ mod tests {
         // A horizontal line is not a number.
         let s: Stroke = (0..=40).map(|i| (300.0 + 100.0 * i as f32 / 40.0, 600.0)).collect();
         assert_eq!(recognize(&[s]), None);
+    }
+
+    #[test]
+    fn owner_examples_are_correct() {
+        // assets/owner-handwriting.jsonl: each example is a digit 1 to 9 (the corpus build collects
+        // only digits), in the box 0..255, and the recognizer can read its features.
+        for (i, s) in owner_examples().iter().enumerate() {
+            assert!((1..=9).contains(&s.class), "example {i}: class {}", s.class);
+            assert!(s.strokes.iter().flatten().all(|&(x, y)| (0.0..=255.0).contains(&x) && (0.0..=255.0).contains(&y)), "example {i}");
+            assert!(features_of(&s.strokes).is_some(), "example {i}");
+        }
     }
 
     #[test]

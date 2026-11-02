@@ -182,13 +182,18 @@ impl ResultsDb {
     }
 }
 
-/// The folder for the saved data. `SUDOKU_DATA_DIR` changes it.
+/// The folder for the saved data. `SUDOKU_DATA_DIR` changes it. The corpus build has a different
+/// folder (`corpus::DATA_DIR_NAME`), thus it never changes the data of the player.
 pub fn data_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("SUDOKU_DATA_DIR") {
         return PathBuf::from(d);
     }
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/home/root"));
-    home.join(".local/share/rm-sudoku")
+    #[cfg(feature = "corpus")]
+    let name = crate::corpus::DATA_DIR_NAME;
+    #[cfg(not(feature = "corpus"))]
+    let name = "rm-sudoku";
+    home.join(".local/share").join(name)
 }
 
 /// Writes JSON to a file. It writes a temporary file, syncs it and then renames it, so that a power

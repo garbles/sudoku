@@ -284,8 +284,8 @@ pub fn run() -> Result<(), String> {
     let data_dir = store::data_dir();
     if data_dir.join("log-ink").exists() {
         let log_path = data_dir.join("ink-log.jsonl");
-        app.ink_log = Some(Box::new(move |strokes, result| {
-            let line = serde_json::json!({ "strokes": strokes, "result": result });
+        app.ink_log = Some(Box::new(move |cell, strokes, result| {
+            let line = serde_json::json!({ "cell": cell, "strokes": strokes, "result": result });
             if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
                 use std::io::Write;
                 let _ = writeln!(f, "{line}");
@@ -299,6 +299,9 @@ pub fn run() -> Result<(), String> {
             false
         }
     }));
+    // The corpus build: a blank board, and each ink goes to the corpus log (corpus.rs).
+    #[cfg(feature = "corpus")]
+    crate::corpus::setup(&mut app, &data_dir);
     app.pause_ms = std::env::var("SUDOKU_RECOGNITION_PAUSE_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PAUSE_MS);
     save(&mut app, &paths);
 
