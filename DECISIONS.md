@@ -96,6 +96,7 @@ and the lessons.
 | Device test with `ink-wave-ms` = 1000: the holes fill in, but slowly. Content mode: worse than UI. | — |
 | Prototype: a QML patch of AppLoad (now `appload/sudoku/sudoku-penregion.qmd`) puts a Pen screen mode area over the board. Ink: no gaps. Colored cells in the area: ghosts. | — |
 | Pen area only on the cell of the ink, while the player writes. The app gives the area to the patch in `/tmp/sudoku-pen-region`; the patch reads it each 15 ms. Ink waits 45 ms after the area starts; the redraw waits 45 ms after it stops. Device test: ink looks great, no ghosts, no flash. The cells around the written cell refreshed, because the area had a margin. | The area is the inside of the cell, aligned inward to the 4 px grid. Device test: pending. |
+| Owner report: with fast writing in many cells, the full redraw sometimes started when the pen touched the next cell, and the new ink did not show until the redraw was complete. Cause: the redraw waited only until the app read the last ink (0.5 s after the last lift), and the movement to the next cell can take longer. | `App::is_writing`: one writing timer for all cells, 1.5 s after the last stroke on the board (owner decision 2026-11-02). A press that does not write stops it. Device test: pending. |
 
 ### Owner changes, 2026-10-25
 

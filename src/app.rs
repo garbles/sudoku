@@ -16,6 +16,10 @@ use crate::update::{Manifest, Update};
 pub const DEFAULT_PAUSE_MS: u64 = 500;
 /// The time that the "?" shows (§5.1).
 const QUESTION_MS: u64 = 1000;
+/// The writing stops when the pen has written nothing on the board for this time after the last
+/// stroke (§5.1, ink patch). Until then, a redraw waits. This time is longer than the recognition
+/// pause, so that the redraw does not start while the pen moves to the next cell.
+pub const WRITING_IDLE_MS: u64 = 1500;
 /// A gap between two events that is longer than this is a suspension. The clock does not count it.
 pub const MAX_CLOCK_GAP_MS: u64 = 5000;
 
@@ -233,6 +237,9 @@ pub struct App {
     /// The quantity of live strokes that began. The platform uses it to know that `live_stroke` is a
     /// new stroke, also when no full drawing occurred between two strokes.
     pub live_stroke_count: u64,
+    /// The time when the writing stops (`WRITING_IDLE_MS` after the last stroke on the board). None:
+    /// no stroke since the last press that does not write.
+    pub(crate) writing_until: Option<u64>,
 
     pen: Option<Gesture>,
     touch: Option<FollowedTouch>,
@@ -284,6 +291,7 @@ impl App {
             ng_stops,
             live_stroke: None,
             live_stroke_count: 0,
+            writing_until: None,
             pen: None,
             touch: None,
             last_clock: None,
@@ -334,6 +342,16 @@ impl App {
                 }
             }
         }
+        if self.writing_until.is_some_and(|t| now >= t) {
+            self.writing_until = None;
+        }
+    }
+
+    /// True while the player writes: from the first stroke on the board until the app has read the
+    /// last ink and no stroke occurred for `WRITING_IDLE_MS`. A press that does not write (a tap, the
+    /// eraser, a button) stops the writing. The presenter keeps a redraw until the writing stops.
+    pub fn is_writing(&self) -> bool {
+        self.live_stroke.is_some() || self.ui.pending_ink.is_some() || self.writing_until.is_some()
     }
 
     /// The tablet turned. The positions of ink and of touches are not correct now: the app removes the
@@ -348,6 +366,7 @@ impl App {
         self.list.page = (first / self.per_page + 1).min(self.page_count());
         self.ui.pending_ink = None;
         self.live_stroke = None;
+        self.writing_until = None;
         self.pen = None;
         self.touch = None;
         self.redraw = true;
@@ -358,6 +377,7 @@ impl App {
         self.last_clock = None;
         self.ui.pending_ink = None;
         self.live_stroke = None;
+        self.writing_until = None;
         self.pen = None;
         self.touch = None;
         self.game_dirty = true;
@@ -368,10 +388,7 @@ impl App {
     pub fn next_deadline(&self) -> Option<u64> {
         let q = self.ui.question.map(|(_, t)| t + QUESTION_MS);
         let ink = self.ui.pending_ink.as_ref().and_then(|i| i.last_lift_at).map(|t| t + self.pause_ms);
-        match (q, ink) {
-            (Some(a), Some(b)) => Some(a.min(b)),
-            (a, b) => a.or(b),
-        }
+        [q, ink, self.writing_until].into_iter().flatten().min()
     }
 
     // ---- Input
@@ -490,6 +507,11 @@ impl App {
         let finger_on_board = tool.is_none() && self.screen == Screen::Game && cell.is_some();
         if self.ui.pending_ink.is_some() && !finger_on_board {
             self.read_ink(now);
+        }
+        // A press stops the writing: a redraw of its result must not wait. If the pen writes, the
+        // live stroke continues the writing.
+        if !finger_on_board {
+            self.writing_until = None;
         }
 
         match self.screen {
@@ -621,8 +643,12 @@ impl App {
                     ink.strokes.push(stroke);
                     ink.last_lift_at = Some(now);
                 }
+                self.writing_until = Some(now + WRITING_IDLE_MS);
             }
-            Gesture::DiscardInk => self.live_stroke = None,
+            Gesture::DiscardInk => {
+                self.live_stroke = None;
+                self.writing_until = Some(now + WRITING_IDLE_MS);
+            }
             Gesture::Control(t) => self.release_control(t, x, y, now),
             // The erasure and the slider move occur during the motion. The release has no effect.
             Gesture::Ignored | Gesture::Eraser | Gesture::Slider | Gesture::Swipe { .. } => {}
@@ -720,6 +746,7 @@ impl App {
             self.ui.question = None;
             self.ui.pending_ink = None;
             self.live_stroke = None;
+            self.writing_until = None;
             if let Some(save) = self.save_game_now.as_mut() {
                 if save(&self.game) {
                     self.game_dirty = false;

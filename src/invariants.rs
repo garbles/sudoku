@@ -128,6 +128,9 @@ pub fn check_app(app: &App) -> Result<(), String> {
         ensure!(!g.completed, "INP-5", "pending ink on a complete game");
         ensure!(app.screen == Screen::Game, "INP-5", "pending ink on a different screen");
     }
+    if app.writing_until.is_some() {
+        ensure!(!g.completed && app.screen == Screen::Game, "INP-16", "writing timer on a complete game or a different screen");
+    }
     if g.completed {
         ensure!(ui.highlight.is_none() && ui.question.is_none() && ui.pending_ink.is_none(), "CMP-3", "overlay on a complete game");
     }

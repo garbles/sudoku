@@ -186,6 +186,7 @@ Terms:
 | INP-13 | The eraser removes all of your numbers that it touches in one stroke. Each removal is one change in the undo history. | R§5.1, UND-1 (confirmed 2026-10-25) |
 | INP-14 | A finger swipe is a horizontal movement of 120 px or more, with more horizontal than vertical movement. | R§12, R§13.2 (confirmed 2026-10-25) |
 | INP-15 | A finger press on an item that is not on the board (INP-1: menu buttons, panels, dialogs, screen buttons) operates it while the app is open. The only exception is a dialog that shows: then only its two buttons operate. If the app does not get the release of a touch, that touch does not stop other presses: the app forgets it when a new press with the same touch id starts, or when a new touch starts and that touch has had no event for 0.15 s. A second finger while the first finger moves or presses (an event less than 0.15 s before) operates no item, but it removes a highlight and the "?" (HLT-2, QST-4). | R§9, R§5.1 |
+| INP-16 | The writing timer (a redraw waits, R§14.4) runs only on the game screen of a game that is not complete. Each stroke on the board starts it again (1.5 s). A press that does not write stops it. | R§5.1, R§14.4 (owner decision 2026-11-02) |
 
 ## 7. Undo and redo
 

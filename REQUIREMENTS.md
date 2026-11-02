@@ -986,10 +986,15 @@ reads it each 15 ms:
   when it stops.
 - The ink waits until the patch can apply a new area (45 ms). A redraw waits until the area stopped
   (45 ms), so that colored cells get the UI waveform.
-- While the player writes (from the first stroke until the app reads the last ink, §5), a redraw
-  waits. Thus the player can write in many cells, one after the other: only the ink changes on the
-  screen, and an update with the UI waveform does not stop the ink in the next cell. Ink in the area
-  does not wait for an older update there.
+- While the player writes, a redraw waits. The writing starts with the first stroke on the board.
+  It stops when the app has read the last ink and the pen has written nothing on the board for
+  **1.5 s** after the last stroke (one timer for all cells: each new stroke starts it again). A
+  press that does not write (a tap, the eraser, a button) stops the writing immediately. The app
+  reads each number after the recognition pause (§5.1), but the typed numbers show only when the
+  writing stops. Thus the player can write in many cells, one after the other, also with a slow
+  movement to the next cell: only the ink changes on the screen, and an update with the UI waveform
+  does not stop the ink in the next cell (owner decision 2026-11-02). Ink in the area does not wait
+  for an older update there.
 - xochitl reads the patch only when it starts. The app uses the area only if the patch was installed
   before xochitl started. Without the patch, the app sends the ink so that an update never touches
   changed pixels of an update in progress.

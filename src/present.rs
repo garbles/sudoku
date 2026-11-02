@@ -177,7 +177,7 @@ pub struct Presenter {
     /// A redraw that waits until the patch removed the pen region: else xochitl sends it with the pen
     /// waveform, which leaves ghosts on colored cells.
     deferred_blit: bool,
-    /// True while the player writes: a redraw waits until the app reads the last ink.
+    /// True while the player writes: a redraw waits until the writing stops (`App::is_writing`).
     writing: bool,
     /// A copy of the frame as the framebuffer shows it (None: not known). A comparison of two RGBA
     /// rows is much faster than a comparison with the RGB framebuffer.
@@ -275,8 +275,8 @@ impl Presenter {
         let settled = now.saturating_sub(self.region_since) >= PEN_REGION_SETTLE_MS;
         // While the player writes, a redraw waits: the player can write in many cells, one after the
         // other, and only the ink changes on the screen. An update in UI mode over the next cell
-        // would stop the ink there. The redraw goes when the app has read the last ink.
-        let writing = self.use_pen_region && (app.live_stroke.is_some() || app.ui.pending_ink.is_some());
+        // would stop the ink there. The redraw goes when the writing stops (`App::is_writing`).
+        let writing = self.use_pen_region && app.is_writing();
         self.writing = writing;
         if app.redraw {
             // The new drawing contains the ink of the stroke. If the redraw waits, send this ink now.
@@ -889,6 +889,79 @@ mod tests {
         let mut expect = vec![0u8; fb.len()];
         blit(&p.frame, &mut expect);
         assert!(fb == expect, "the framebuffer does not show the frame");
+    }
+
+    /// The player writes a number and moves the pen slowly to the next cell (pen region on). The app
+    /// reads the ink after the recognition pause, but the redraw waits until no stroke occurred for
+    /// WRITING_IDLE_MS. A new stroke starts the time again. A press that does not write stops it.
+    #[test]
+    fn a_redraw_waits_until_the_player_has_not_written_for_the_idle_time() {
+        use crate::app::{new_game, Input, Tool, WRITING_IDLE_MS};
+        let fonts = Fonts::repo().unwrap();
+        let mut app = App::new(Some(new_game(7, 0)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)), App::placeholder_ng_stops());
+        let mut p = Presenter::new();
+        p.use_pen_region = true;
+        let mut fb = vec![0u8; (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize];
+        let empty: Vec<_> = (0..9u8).flat_map(|r| (0..9u8).map(move |c| (r, c))).filter(|&c| !app.game.is_filled(c)).take(2).collect();
+        let (a, b) = (empty[0], empty[1]);
+        let step = |app: &mut App, p: &mut Presenter, fb: &mut Vec<u8>, now: u64, input: Option<Input>| {
+            if let Some(i) = input {
+                app.handle(i, now);
+            }
+            app.tick(now);
+            p.present(app, &fonts, fb, now, |_| {});
+        };
+        // A vertical stroke in the cell (a 1), one point each 10 ms.
+        let write = |app: &mut App, p: &mut Presenter, fb: &mut Vec<u8>, now: &mut u64, cell: crate::game::Cell| {
+            let (x, y) = crate::layout::cell_origin(cell);
+            let (x, c) = (x as f32 + crate::layout::CELL as f32 / 2.0, crate::layout::CELL as f32);
+            let (y0, y1) = (y as f32 + 0.2 * c, y as f32 + 0.8 * c);
+            step(app, p, fb, *now, Some(Input::PenDown { x, y: y0, tool: Tool::Pen }));
+            for k in 1..=20 {
+                *now += 10;
+                step(app, p, fb, *now, Some(Input::PenMove { x, y: y0 + (y1 - y0) * k as f32 / 20.0 }));
+            }
+            *now += 10;
+            step(app, p, fb, *now, Some(Input::PenUp { x, y: y1 }));
+        };
+        let mut now = 1000;
+        step(&mut app, &mut p, &mut fb, now, None);
+
+        write(&mut app, &mut p, &mut fb, &mut now, a);
+        let lift = now;
+        // The app reads the ink after the recognition pause, but the redraw waits.
+        while now + 30 < lift + WRITING_IDLE_MS {
+            now += 30;
+            step(&mut app, &mut p, &mut fb, now, None);
+        }
+        assert!(app.ui.pending_ink.is_none(), "the ink is not read after the recognition pause");
+        assert!(app.is_writing() && p.deferred_blit, "{now}: the redraw went before the idle time");
+
+        // A second number starts the idle time again.
+        write(&mut app, &mut p, &mut fb, &mut now, b);
+        let lift = now;
+        while now + 30 < lift + WRITING_IDLE_MS {
+            now += 30;
+            step(&mut app, &mut p, &mut fb, now, None);
+            assert!(p.deferred_blit, "{now}: the redraw went before the idle time");
+        }
+        // The idle time is over: the deadline of the app wakes the loop, and the redraw goes.
+        assert_eq!(app.next_deadline(), Some(lift + WRITING_IDLE_MS));
+        now = lift + WRITING_IDLE_MS;
+        step(&mut app, &mut p, &mut fb, now, None);
+        now += PEN_REGION_SETTLE_MS;
+        step(&mut app, &mut p, &mut fb, now, None);
+        assert!(!app.is_writing() && !p.deferred_blit, "the redraw did not go after the idle time");
+        let mut expect = vec![0u8; fb.len()];
+        blit(&p.frame, &mut expect);
+        assert!(fb == expect, "the framebuffer does not show the frame");
+
+        // A press that does not write (here a press out of the board) stops the writing at once.
+        write(&mut app, &mut p, &mut fb, &mut now, a);
+        assert!(app.is_writing());
+        now += 10;
+        step(&mut app, &mut p, &mut fb, now, Some(Input::PenDown { x: 5.0, y: 5.0, tool: Tool::Pen }));
+        assert!(!app.is_writing());
     }
 
     #[test]
