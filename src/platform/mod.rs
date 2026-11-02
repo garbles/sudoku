@@ -361,8 +361,8 @@ pub fn run() -> Result<(), String> {
     // system log (for an examination on the device).
     let log_input = std::env::var_os("SUDOKU_LOG_INPUT").is_some() || store::data_dir().join("log-input").exists();
     // Updates (REQUIREMENTS.md §9.2). The folder of the program is found now: an installation renames
-    // it. Only a stable build looks for updates, thus only a stable build deletes the folders that
-    // stay from an earlier installation.
+    // it. Only a stable or a preview build looks for updates, thus only these builds delete the
+    // folders that stay from an earlier installation.
     let app_dir = app_dir();
     let staging = store::data_dir().join("update");
     if let Some(dir) = app_dir.as_deref().filter(|_| app.update.has_row()) {

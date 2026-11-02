@@ -48,6 +48,29 @@ pub fn parse_version(s: &str) -> Option<Version> {
     parts.next().is_none().then_some(v)
 }
 
+/// True for the name of a preview build: `pre-` and the first 7 to 40 hexadecimal digits of the commit
+/// (release.yml).
+pub fn is_preview(s: &str) -> bool {
+    s.strip_prefix("pre-").is_some_and(|h| (7..=40).contains(&h.len()) && h.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+}
+
+/// True if the app of version `current` looks for updates: a stable build or a preview build, not a
+/// `dev` build (UPD-1, owner decision 2026-11-01).
+pub fn has_updates(current: &str) -> bool {
+    parse_version(current).is_some() || is_preview(current)
+}
+
+/// True if the stable release `remote` is an update for `current` (UPD-2): a newer version for a
+/// stable build. A preview build cannot compare its name with a version, thus each stable release
+/// is an update for it (owner decision 2026-11-01).
+pub fn is_update(remote: &str, current: &str) -> bool {
+    match (parse_version(remote), parse_version(current)) {
+        (Some(r), Some(c)) => r > c,
+        (Some(_), None) => is_preview(current),
+        (None, _) => false,
+    }
+}
+
 /// The contents of `version.json`. A release with the ink patch also gives the URL and the checksum
 /// of `sudoku-penregion.qmd` (owner decision 2026-11-01). Older releases do not have these fields.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Deserialize)]
@@ -280,7 +303,7 @@ pub fn read_limited(r: impl Read) -> Result<Vec<u8>, String> {
 /// The update state (INVARIANTS.md §16).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum UpdateState {
-    /// Not a stable build: no requests and no update row (UPD-1).
+    /// A `dev` build (not a stable build and not a preview build): no requests and no update row (UPD-1).
     Off,
     /// The first request is not complete.
     Unknown,
@@ -345,16 +368,16 @@ pub struct Update {
 }
 
 impl Update {
-    /// The state when the app opens (UPD-8): a stable build sends a request immediately. This is the
+    /// The state when the app opens (UPD-8): a stable or a preview build sends a request immediately. This is the
     /// only automatic request. After it, only the button "Check for updates" sends a request.
     pub fn new(current: &str) -> Update {
-        let stable = parse_version(current).is_some();
+        let on = has_updates(current);
         Update {
             current: current.to_string(),
-            state: if stable { UpdateState::Unknown } else { UpdateState::Off },
-            checking: stable,
+            state: if on { UpdateState::Unknown } else { UpdateState::Off },
+            checking: on,
             up_to_date_shown: false,
-            request: stable.then_some(UpdateRequest::Check),
+            request: on.then_some(UpdateRequest::Check),
             dialog: false,
         }
     }
@@ -413,12 +436,11 @@ impl Update {
     /// result with no update shows "Sudoku is up to date" until the panel closes (UPD-9).
     pub fn checked(&mut self, result: Result<Manifest, String>, panel_open: bool) {
         self.checking = false;
-        let current = parse_version(&self.current);
         let can_change = matches!(self.state, UpdateState::Unknown | UpdateState::CheckFailed | UpdateState::UpToDate | UpdateState::Available(_));
         match result {
             Ok(m) => {
                 if can_change {
-                    let newer = parse_version(&m.version).is_some_and(|v| current.is_some_and(|c| v > c));
+                    let newer = is_update(&m.version, &self.current);
                     self.state = if newer { UpdateState::Available(m) } else { UpdateState::UpToDate };
                     self.up_to_date_shown = panel_open && self.state == UpdateState::UpToDate;
                 }
@@ -529,9 +551,13 @@ mod tests {
     }
 
     #[test]
-    fn only_stable_builds_look_for_updates() {
+    fn only_dev_builds_do_not_look_for_updates() {
         // UPD-1, UPD-8
-        for v in ["dev", "pre-4118468"] {
+        assert!(is_preview("pre-4118468") && is_preview("pre-4118468aabbccddeeff00112233445566778899"));
+        for v in ["pre-", "pre-411846", "pre-4118468X", "pre-ABCDEF0", "dev", "v0.1.0"] {
+            assert!(!is_preview(v), "{v}");
+        }
+        for v in ["dev", "pre-", "pre-xyz", ""] {
             let mut u = Update::new(v);
             assert_eq!(u.state, UpdateState::Off);
             assert_eq!(u.request, None);
@@ -540,9 +566,11 @@ mod tests {
             assert_eq!(u.request, None);
             assert!(!u.has_row());
         }
-        let u = Update::new("v0.1.0");
-        assert_eq!((u.state.clone(), u.request.clone()), (UpdateState::Unknown, Some(UpdateRequest::Check)));
-        assert!(u.has_row());
+        for v in ["v0.1.0", "pre-4118468"] {
+            let u = Update::new(v);
+            assert_eq!((u.state.clone(), u.request.clone()), (UpdateState::Unknown, Some(UpdateRequest::Check)), "{v}");
+            assert!(u.has_row());
+        }
     }
 
     #[test]
@@ -554,6 +582,14 @@ mod tests {
             assert_eq!(matches!(u.state, UpdateState::Available(_)), want, "{remote}");
             assert_eq!(u.caution(), want);
         }
+        // A preview build: each stable release is an update.
+        for remote in ["v0.0.1", "v0.1.0", "v9.0.0"] {
+            let mut u = Update::new("pre-4118468");
+            u.checked(Ok(manifest(remote, b"")), false);
+            assert_eq!(u.button(), Some(UpdateButton::Install(format!("Update to {remote}"))), "{remote}");
+        }
+        assert!(!is_update("pre-1234567", "pre-4118468"));
+        assert!(!is_update("v0.2.0", "dev"));
     }
 
     #[test]

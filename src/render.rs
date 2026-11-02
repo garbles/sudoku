@@ -853,7 +853,7 @@ fn caution(c: &mut Canvas, x: f32, y: f32) {
 }
 
 /// The Settings panel (REQUIREMENTS.md §9.1): two rows with a name and a switch, the version, and the
-/// update row of a stable build (§9.2).
+/// update row of a stable or a preview build (§9.2).
 fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
     let (pl, pr) = (colors_pl(), colors_pr());
     let p = layout::settings_panel(update.has_row());

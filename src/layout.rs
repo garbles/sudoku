@@ -309,7 +309,7 @@ pub fn color_cell(section: usize, i: usize) -> (i32, i32) {
 }
 
 /// The Settings panel (REQUIREMENTS.md §9.1): two rows of 112 px with a switch, one row with the
-/// version and, in a stable build, one row for updates (§9.2), from the top of the gear (y 224), with
+/// version and, in a stable or a preview build, one row for updates (§9.2), from the top of the gear (y 224), with
 /// the width and the border of the Cell colors panel.
 pub const SETTINGS_TOP: i32 = 2 * TB_SLOT;
 pub const SETTINGS_ROWS: i32 = 2;

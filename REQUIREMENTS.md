@@ -516,7 +516,8 @@ The gear (top slot 2) opens the Settings panel. The panel has the same design as
 it is next to the gear, its top aligns with the button, it is 400 px wide and it has a 2 px border.
 It has three rows of 112 px with a 2 px line between them. The first two rows each have a name
 (reMarkable Sans Medium, 25 px) and a switch at the right. The third row shows the version of the app.
-A stable build (`v<version>`) has a fourth row for updates ([§9.2](#92-updates)).
+A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a fourth row for updates
+([§9.2](#92-updates)).
 
 | Row | Default | When the switch is off |
 |---|---|---|
@@ -547,8 +548,10 @@ Image: [`settings-menu.png`](images/settings-menu.png).
 ### 9.2 Updates
 
 A stable build (version `v<major>.<minor>.<patch>`) looks for a newer stable release on GitHub and
-installs it when the user taps a button (owner decision 2026-10-27). A `pre-<sha>` build and a `dev`
-build do not look for updates and do not have the update row.
+installs it when the user taps a button (owner decision 2026-10-27). A preview build (`pre-` and 7 to
+40 hexadecimal digits) also looks for updates and has the update row. Only a `dev` build (and each
+other version name) does not look for updates and does not have the update row (owner decision
+2026-11-01).
 
 **Look for an update.** The app reads two files of the latest stable release:
 
@@ -565,6 +568,9 @@ build do not look for updates and do not have the update row.
 The app has the public key in its program. It uses `version.json` only when the signature is
 correct. An update is available only when the version in `version.json` is newer than the version of
 the app (compare major, then minor, then patch). A version that is the same or older is not an update.
+A preview build cannot compare its name with a version. Thus for a preview build, each stable
+release is an update, also a stable release that is older than the preview (owner decision
+2026-11-01). The app does not look for preview releases.
 
 - The app looks for an update automatically only when it opens. After that, it looks for an update
   only when the user taps the button **Check for updates** (owner decision 2026-10-31).
