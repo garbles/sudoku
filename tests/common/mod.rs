@@ -1,7 +1,7 @@
 //! Helpers for the tests: an app with a known environment, and input as a player gives it.
 #![allow(dead_code)]
 
-use sudoku::app::{App, Env, Input, Tool};
+use sudoku::app::{App, Env, Input, Menu, Tool};
 use sudoku::font::Fonts;
 use sudoku::game::{cells, Cell, Game};
 use sudoku::layout::{self, cell_origin, Rect, CELL};
@@ -58,11 +58,21 @@ pub struct Driver {
 }
 
 impl Driver {
+    /// A driver for a new app, with the menu closed. Refer to `Driver::from`.
     pub fn new(seed: u64) -> Driver {
-        Driver { app: new_app(seed), now: 1000 }
+        Driver::from(new_app(seed))
     }
 
-    pub fn from(app: App) -> Driver {
+    /// A driver for `app`, with the menu closed. The app opens with the menu open (PER-2), but most
+    /// tests start from the board alone and open the menu with a tap. The tests of the start state
+    /// use `Driver::opened`.
+    pub fn from(mut app: App) -> Driver {
+        app.ui.menu = Menu::Closed;
+        Driver { app, now: 1000 }
+    }
+
+    /// A driver for `app` in the state in which the app opened (the menu open, PER-2).
+    pub fn opened(app: App) -> Driver {
         Driver { app, now: 1000 }
     }
 

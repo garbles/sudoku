@@ -247,17 +247,17 @@ fn the_landscape_layout_operates() {
     d.button(Button::NewGame);
     d.finger_tap(d.app.ng_stops[0], layout::ng_slider_y() as f32);
     d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_start_y() as f32);
-    assert_eq!((d.app.game.mode, d.app.ui.menu.is_open()), (0, false));
+    assert_eq!((d.app.game.mode, d.app.ui.menu), (0, Menu::Open(None)), "NAV-9");
     // Manual: the arrows at the bottom center.
-    d.button(Button::Menu);
     d.button(Button::Help);
     let n = layout::next_arrow();
     d.finger_tap(((n.x0 + n.x1) / 2) as f32, ((n.y0 + n.y1) / 2) as f32);
     assert_eq!(d.app.manual_page, 2);
     d.finger_tap(40.0, 50.0);
-    // Statistics and the list in one table across the full width.
+    assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-3");
+    // Statistics and the list in one table across the full width. The open menu does not cover
+    // the board (NAV-10).
     solve(&mut d);
-    d.button(Button::Menu);
     d.button(Button::Statistics);
     let all = layout::all_games_button();
     d.finger_tap((all.x1 - 30) as f32, (all.y0 + 20) as f32);
@@ -654,7 +654,7 @@ fn delete_all_games() {
     d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_start_y() as f32);
     solve(&mut d);
     assert_eq!(d.app.results.len(), 2);
-    d.button(Button::Menu);
+    // The menu stays open after Start new game (NAV-9).
     d.button(Button::Statistics);
     let b = layout::delete_all_button();
     let (x, y) = exact_center(b);

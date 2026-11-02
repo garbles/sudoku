@@ -610,7 +610,9 @@ fn only_the_open_menu_opens_the_manual_and_statistics() {
     let (backx, backy) = pixel_center(layout::back_button());
     d.finger_tap(backx, backy);
     assert_eq!(d.app.screen, Screen::Game, "Back: Manual to Game");
-    d.button(Button::Menu);
+    assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-3: the menu is open after Back");
+    // NAV-16: the toolbar operates again after BACK_GUARD_MS.
+    d.wait(sudoku::app::BACK_GUARD_MS);
     d.button(Button::Statistics);
     assert_eq!(d.app.screen, Screen::Statistics);
     d.pen_tap(ax, ay);
@@ -619,6 +621,7 @@ fn only_the_open_menu_opens_the_manual_and_statistics() {
     assert_eq!(d.app.screen, Screen::Statistics, "Back: GamesList to Statistics");
     d.pen_tap(backx, backy);
     assert_eq!(d.app.screen, Screen::Game, "Back: Statistics to Game");
+    assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-3: the menu is open after Back");
     check(&d);
 }
 

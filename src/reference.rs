@@ -115,7 +115,11 @@ pub fn app(fonts: &Fonts) -> App {
     for (i, (t, mode, seconds)) in analytics_results().into_iter().enumerate() {
         db.insert(&NewResult { finished_at: t, mode, givens: 30, seconds, seed: i as u64, generator: 2 }).unwrap();
     }
-    App::new(None, None, db, Box::new(FixedEnv(7)), render::ng_stops(fonts))
+    let mut app = App::new(None, None, db, Box::new(FixedEnv(7)), render::ng_stops(fonts));
+    // The app opens with the menu open (PER-2), but most images show the menu closed. Each state
+    // that shows the open menu sets it (for example screen-toolbar.png).
+    app.ui.menu = Menu::Closed;
+    app
 }
 
 pub type Setup = fn(&mut App);

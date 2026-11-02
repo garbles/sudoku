@@ -1,7 +1,7 @@
 //! The event scripts of the video tool and the bench (`video/*.txt`). A script gives timed pen, eraser
 //! and finger events. `src/bin/video.rs` gives the commands of the script.
 
-use crate::app::{new_game, App, Env, Input, Tool};
+use crate::app::{new_game, App, Env, Input, Menu, Tool};
 use crate::font::Fonts;
 use crate::game::{mark_bit, Cell, Marks};
 use crate::layout::{self, CELL};
@@ -178,6 +178,10 @@ impl Script {
     pub fn app(&self, fonts: &Fonts) -> App {
         let mut app = App::new(Some(new_game(self.seed, self.mode)), None, ResultsDb::in_memory(), Box::new(FixedEnv(self.seed)), render::ng_stops(fonts));
         app.ui.slider = self.mode;
+        // The real app opens with the menu open (PER-2). The scripts start with the menu closed:
+        // they show the empty board first, and then they open the menu with a tap. Thus the
+        // videos and the output hashes of the bench do not change (DECISIONS.md).
+        app.ui.menu = Menu::Closed;
         app
     }
 }

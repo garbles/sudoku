@@ -702,6 +702,15 @@ mod tests {
     use super::*;
     use std::collections::{HashMap, HashSet};
 
+    /// The app with the puzzle of seed 7 and the menu closed. The app opens with the menu open
+    /// (PER-2), but these tests examine only the board: the closed menu does not change when the
+    /// undo button becomes black.
+    fn game_app() -> App {
+        let mut app = App::new(Some(crate::app::new_game(7, 0)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)), App::placeholder_ng_stops());
+        app.ui.menu = crate::app::Menu::Closed;
+        app
+    }
+
     /// A small deterministic generator (xorshift).
     struct Rng(u64);
     impl Rng {
@@ -812,9 +821,9 @@ mod tests {
     /// has read the last ink.
     #[test]
     fn a_redraw_waits_while_the_player_writes_in_many_cells() {
-        use crate::app::{new_game, Input, Tool};
+        use crate::app::{Input, Tool};
         let fonts = Fonts::repo().unwrap();
-        let mut app = App::new(Some(new_game(7, 0)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)), App::placeholder_ng_stops());
+        let mut app = game_app();
         let mut p = Presenter::new();
         p.use_pen_region = true;
         let mut fb = vec![0u8; (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize];
@@ -897,9 +906,9 @@ mod tests {
     /// WRITING_IDLE_MS. A new stroke starts the time again. A press that does not write stops it.
     #[test]
     fn a_redraw_waits_until_the_player_has_not_written_for_the_idle_time() {
-        use crate::app::{new_game, Input, Tool, WRITING_IDLE_MS};
+        use crate::app::{Input, Tool, WRITING_IDLE_MS};
         let fonts = Fonts::repo().unwrap();
-        let mut app = App::new(Some(new_game(7, 0)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)), App::placeholder_ng_stops());
+        let mut app = game_app();
         let mut p = Presenter::new();
         p.use_pen_region = true;
         let mut fb = vec![0u8; (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize];
@@ -970,9 +979,9 @@ mod tests {
     /// pen leaves the micro-cell, the touch is writing and the pen region starts.
     #[test]
     fn a_tap_does_not_start_the_pen_region_and_a_tap_that_changes_nothing_leaves_no_ink() {
-        use crate::app::{new_game, Input, Tool};
+        use crate::app::{Input, Tool};
         let fonts = Fonts::repo().unwrap();
-        let mut app = App::new(Some(new_game(7, 0)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)), App::placeholder_ng_stops());
+        let mut app = game_app();
         let mut p = Presenter::new();
         p.use_pen_region = true;
         let mut fb = vec![0u8; (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize];
@@ -1030,9 +1039,9 @@ mod tests {
     /// up, in a small update inside the micro-cell.
     #[test]
     fn a_mark_goes_to_the_screen_at_the_pen_up() {
-        use crate::app::{new_game, Input, Tool};
+        use crate::app::{Input, Tool};
         let fonts = Fonts::repo().unwrap();
-        let mut app = App::new(Some(new_game(7, 0)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)), App::placeholder_ng_stops());
+        let mut app = game_app();
         let mut p = Presenter::new();
         p.use_pen_region = true;
         let mut fb = vec![0u8; (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize];

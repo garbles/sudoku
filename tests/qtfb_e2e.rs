@@ -143,8 +143,11 @@ fn the_executable_operates_through_qtfb() {
     // The board: the thick line at x 148 is black, a cell center is white or gray.
     assert_eq!(server.pixel(148, 1000), [0, 0, 0]);
     assert_eq!(server.pixel(5, 1000), [255, 255, 255]);
-    // The close button does not show while the menu is closed.
-    assert_eq!(server.pixel(38, 55), [255, 255, 255]);
+    // PER-2: the app opens with the menu open, thus the close button shows.
+    assert_ne!(server.pixel(38, 55), [255, 255, 255], "the close button shows at the start");
+    // A finger closes the menu: the close button does not show while the menu is closed.
+    server.touch_tap(1563, 55);
+    assert!(wait_until(|| server.pixel(38, 55) == [255, 255, 255]), "the close button does not show");
 
     // The game is saved at the start. Find an empty cell.
     let game_path = data.join("game.json");
@@ -157,7 +160,7 @@ fn the_executable_operates_through_qtfb() {
 
     // A pen tap on micro-cell 5 adds a pencil mark.
     server.pen_tap(x + 73, y + 73);
-    // A finger opens the menu: the close button shows.
+    // A finger opens the menu again: the close button shows.
     server.touch_tap(1563, 55);
     assert!(wait_until(|| server.pixel(38, 55) != [255, 255, 255]), "the close button shows");
 
@@ -180,6 +183,7 @@ fn the_executable_operates_through_qtfb() {
     let mut child = app_command(&data).spawn().unwrap();
     server2.accept();
     assert!(server2.wait_update());
+    assert_ne!(server2.pixel(38, 55), [255, 255, 255], "PER-2: a saved game opens with the menu open");
     std::thread::sleep(Duration::from_millis(1500));
     unsafe { libc::kill(child.id() as i32, libc::SIGTERM) };
     assert!(child.wait().unwrap().success());

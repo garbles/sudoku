@@ -5,7 +5,7 @@
 mod common;
 
 use common::*;
-use sudoku::app::{App, Input, Menu, Panel, Screen, Tool};
+use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, BACK_GUARD_MS};
 use sudoku::game::{cells, mark_bit, peers, Cell};
 use sudoku::layout::{self, Button};
 use sudoku::settings::{Color, Section, Settings};
@@ -34,12 +34,13 @@ fn cell_and_peer(app: &App) -> (Cell, Cell, u8) {
 #[test]
 fn first_start() {
     // DIF-2, NAV-1, PER-2
-    let d = Driver::new(1);
+    let d = Driver::opened(new_app(1));
     let a = &d.app;
     assert_eq!(a.screen, Screen::Game);
     assert_eq!(a.game.mode, 2);
     assert_eq!(a.settings, Settings::default());
-    assert!(a.ui.menu == Menu::Closed && a.ui.highlight.is_none());
+    assert_eq!(a.ui.menu, Menu::Open(None), "NAV-1, PER-2: the menu is open and no panel is open");
+    assert!(a.ui.highlight.is_none() && a.ui.question.is_none() && a.ui.pending_ink.is_none());
     assert!(a.game.undo.is_empty() && a.game.redo.is_empty() && a.game.elapsed_ms == 0);
 }
 
@@ -253,8 +254,9 @@ fn undo_and_redo() {
     d.button(Button::Help);
     d.finger_tap(40.0, 50.0);
     assert_eq!(d.app.game.undo.len(), n);
-    // UND-6
-    d.button(Button::Menu);
+    // UND-6. "< Back" showed the game with the menu open (NAV-3). The toolbar operates again after
+    // BACK_GUARD_MS (NAV-16).
+    d.wait(BACK_GUARD_MS);
     d.button(Button::NewGame);
     start_new_game(&mut d);
     assert!(d.app.game.undo.is_empty() && d.app.game.redo.is_empty());
@@ -292,7 +294,8 @@ fn completion_locks_the_board_and_saves_one_result() {
     d.button(Button::Help);
     assert_eq!(d.app.screen, Screen::Manual);
     d.finger_tap(40.0, 50.0);
-    d.button(Button::Menu);
+    assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-3");
+    d.wait(BACK_GUARD_MS); // NAV-16
     d.button(Button::NewGame);
     start_new_game(&mut d);
     assert!(!d.app.game.completed && d.app.game.elapsed_ms < 1000);
@@ -410,9 +413,8 @@ fn new_game_panel_and_difficulty() {
     assert_eq!((g.mode, d.app.settings.last_mode), (0, 0), "DIF-5");
     assert_ne!(g.seed, seed);
     assert!(cells().all(|c| g.is_given(c) || (!g.is_filled(c) && g.marks_at(c) == 0)));
-    assert_eq!(d.app.ui.menu, Menu::Closed, "NAV-9");
+    assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-9: the panel closes and the menu stays open");
     assert!(d.app.results.is_empty(), "DIF-7");
-    d.button(Button::Menu);
     d.button(Button::NewGame);
     assert_eq!(d.app.ui.slider, 0, "the slider opens at the last mode");
 }
@@ -443,8 +445,8 @@ fn manual() {
     assert_eq!(d.app.manual_page, 8);
     d.finger_tap(40.0, 50.0);
     assert_eq!(d.app.screen, Screen::Game);
-    assert_eq!(d.app.ui.menu, Menu::Closed);
-    d.button(Button::Menu);
+    assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-3");
+    d.wait(BACK_GUARD_MS); // NAV-16
     d.button(Button::Help);
     assert_eq!(d.app.manual_page, 1, "the manual always opens at page 1");
 }
@@ -535,7 +537,7 @@ fn analytics_and_list() {
     assert_eq!(d.app.screen, Screen::Statistics);
     d.finger_tap(40.0, 50.0);
     assert_eq!(d.app.screen, Screen::Game);
-    assert!(!d.app.ui.menu.is_open());
+    assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-3");
 }
 
 #[test]
@@ -583,8 +585,207 @@ fn saved_game_opens_again_exactly() {
     assert_eq!(app.settings, d.app.settings);
     assert_eq!(app.settings.color_highlight, Color::Cyan);
     assert_eq!(app.screen, Screen::Game);
-    assert!(app.ui.menu == Menu::Closed && app.ui.highlight.is_none() && app.ui.question.is_none() && app.ui.pending_ink.is_none());
+    assert_eq!(app.ui.menu, Menu::Open(None), "PER-2: the menu is open and the app does not keep the menu state");
+    assert!(app.ui.highlight.is_none() && app.ui.question.is_none() && app.ui.pending_ink.is_none());
     std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_app_opens_with_the_menu_open() {
+    // NAV-1, PER-2: a new game and a saved game open with the menu open and no panel. The app does
+    // not keep the menu state.
+    let mut d = Driver::opened(new_app(40));
+    assert_eq!(d.app.screen, Screen::Game);
+    assert_eq!(d.app.ui.menu, Menu::Open(None), "a new game");
+    // The menu button closes the open menu (§9).
+    d.button(Button::Menu);
+    assert_eq!(d.app.ui.menu, Menu::Closed);
+    let cell = empty_cell(&d.app.game);
+    d.tap_micro(cell, 4);
+    d.tap_cell(given_cell(&d.app.game));
+    assert!(d.app.ui.highlight.is_some());
+    d.app.suspend();
+    let app = app_with_game(d.app.game.clone(), START_TIME, 41);
+    assert_eq!(app.game, d.app.game, "PER-2: the saved game is used");
+    assert_eq!(app.screen, Screen::Game);
+    assert_eq!(app.ui.menu, Menu::Open(None), "a saved game: the closed menu is not kept");
+    assert!(app.ui.highlight.is_none() && app.ui.question.is_none() && app.ui.pending_ink.is_none());
+    // A saved game with a panel open when the app closed.
+    let mut d = Driver::opened(app);
+    d.button(Button::Colors);
+    assert_eq!(d.app.ui.menu, Menu::Open(Some(Panel::Colors)));
+    d.app.suspend();
+    let app = app_with_game(d.app.game.clone(), START_TIME, 42);
+    assert_eq!(app.ui.menu, Menu::Open(None), "the panel is not kept");
+}
+
+#[test]
+fn back_shows_the_game_with_the_menu_open() {
+    // NAV-2, NAV-3, NAV-5, NAV-15: "< Back" from the manual and from Statistics shows the game with
+    // the menu open and no panel, for the left-handed and the right-handed layout. "< Back" from the
+    // games list shows Statistics.
+    for right_handed in [false, true] {
+        layout::set_right_handed(right_handed);
+        let mut d = Driver::new(43);
+        let back = |d: &mut Driver| d.finger_tap(40.0, 50.0);
+        // From the manual.
+        d.button(Button::Menu);
+        d.button(Button::Help);
+        assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Manual, Menu::Closed), "NAV-5");
+        back(&mut d);
+        assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-3: from the manual (right-handed: {right_handed})");
+        // From Statistics. A tap outside the open panel only closes the panel (§9). After "< Back",
+        // the toolbar operates again after BACK_GUARD_MS (NAV-16).
+        d.wait(BACK_GUARD_MS);
+        d.button(Button::Settings);
+        assert_eq!(d.app.ui.menu, Menu::Open(Some(Panel::Settings)));
+        d.button(Button::Statistics);
+        assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)));
+        d.button(Button::Statistics);
+        assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Statistics, Menu::Closed), "NAV-5");
+        back(&mut d);
+        assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-3: from Statistics (right-handed: {right_handed})");
+        // From the games list: Statistics shows, with the menu closed.
+        d.wait(BACK_GUARD_MS);
+        d.button(Button::Statistics);
+        let all = layout::all_games_button();
+        d.finger_tap((all.x0 + 100) as f32, (all.y0 + 20) as f32);
+        assert_eq!(d.app.screen, Screen::GamesList);
+        back(&mut d);
+        assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Statistics, Menu::Closed), "NAV-2, NAV-5: from the games list");
+        back(&mut d);
+        assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-3");
+        // The open menu operates: the menu button closes it.
+        d.wait(BACK_GUARD_MS);
+        d.button(Button::Menu);
+        assert_eq!(d.app.ui.menu, Menu::Closed);
+    }
+    layout::set_right_handed(false);
+}
+
+/// The center of "< Back" on the manual and on Statistics.
+fn back_center() -> (f32, f32) {
+    pixel_center(layout::back_button())
+}
+
+/// Opens the manual (`Button::Help`) or Statistics (`Button::Statistics`) from the closed menu, and
+/// taps "< Back" with the pen or with a finger. The game shows with the menu open (NAV-3).
+fn back_from(d: &mut Driver, page: Button, pen: bool) {
+    d.button(Button::Menu);
+    d.button(page);
+    assert_ne!(d.app.screen, Screen::Game);
+    tap_back(d, pen);
+    assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-3");
+}
+
+fn tap_back(d: &mut Driver, pen: bool) {
+    let (x, y) = back_center();
+    if pen { d.pen_tap(x, y) } else { d.finger_tap(x, y) }
+}
+
+#[test]
+fn a_fast_double_tap_on_back_does_not_close_the_app_or_the_menu() {
+    // NAV-16, NAV-15: "< Back" is at the position of the close button (left-handed) or of the menu
+    // button (right-handed). The second tap of a fast double tap on "< Back" changes nothing: the
+    // app does not close and the menu stays open. Both layouts, from the manual and from
+    // Statistics, with the pen and with a finger.
+    for right_handed in [false, true] {
+        layout::set_right_handed(right_handed);
+        let under_back = if right_handed { Button::Menu } else { Button::Close };
+        let (x, y) = back_center();
+        assert_eq!(layout::game_button(x, y, true), Some(under_back), "the button under \"< Back\"");
+        for page in [Button::Help, Button::Statistics] {
+            for pen in [false, true] {
+                let case = format!("right-handed: {right_handed}, page: {page:?}, pen: {pen}");
+                let mut d = Driver::new(45);
+                d.wait(2000);
+                back_from(&mut d, page, pen);
+                let game = d.app.game.clone();
+                let settings = d.app.settings.clone();
+                tap_back(&mut d, pen);
+                assert!(!d.app.quit, "NAV-16: the app closed ({case})");
+                assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-16 ({case})");
+                assert_eq!(board(&d.app.game), board(&game), "NAV-16: the game changed ({case})");
+                assert_eq!(d.app.settings, settings, "NAV-16 ({case})");
+                // After BACK_GUARD_MS, the same tap operates.
+                d.wait(BACK_GUARD_MS);
+                tap_back(&mut d, pen);
+                if right_handed {
+                    assert!(!d.app.quit && d.app.ui.menu == Menu::Closed, "NAV-16: the menu button operates again ({case})");
+                } else {
+                    assert!(d.app.quit, "NAV-16: the close button operates again ({case})");
+                }
+            }
+        }
+    }
+    layout::set_right_handed(false);
+}
+
+#[test]
+fn the_toolbar_ignores_all_buttons_shortly_after_back() {
+    // NAV-16: for BACK_GUARD_MS after "< Back", each toolbar button and the close button change
+    // nothing, for the left-handed and the right-handed layout. After this time, they operate.
+    for right_handed in [false, true] {
+        layout::set_right_handed(right_handed);
+        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+            let case = format!("right-handed: {right_handed}, button: {b:?}");
+            let mut d = Driver::new(46);
+            // Two marks and one undo give the undo button and the redo button an action.
+            let cell = free_cell(&d.app, &[1, 3]);
+            d.tap_micro(cell, 1);
+            d.tap_micro(cell, 3);
+            d.button(Button::Menu);
+            d.button(Button::Undo);
+            d.button(Button::Menu);
+            let game = d.app.game.clone();
+            back_from(&mut d, Button::Help, false);
+            d.wait(BACK_GUARD_MS - 50);
+            d.button(b);
+            assert!(!d.app.quit, "NAV-16 ({case})");
+            assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-16 ({case})");
+            assert_eq!(board(&d.app.game), board(&game), "NAV-16 ({case})");
+            d.wait(50);
+            d.button(b);
+            let changed = d.app.quit || d.app.screen != Screen::Game || d.app.ui.menu != Menu::Open(None) || board(&d.app.game) != board(&game);
+            assert!(changed, "NAV-16: the button operates after the time ({case})");
+        }
+    }
+    layout::set_right_handed(false);
+}
+
+#[test]
+fn the_board_operates_shortly_after_back() {
+    // NAV-16: a press on the board operates as usual during BACK_GUARD_MS after "< Back".
+    for right_handed in [false, true] {
+        layout::set_right_handed(right_handed);
+        for page in [Button::Help, Button::Statistics] {
+            let mut d = Driver::new(47);
+            back_from(&mut d, page, true);
+            let back_at = d.now;
+            let cell = free_cell(&d.app, &[2]);
+            d.tap_micro(cell, 2);
+            assert!(d.now < back_at + BACK_GUARD_MS, "the tap is in the time of NAV-16");
+            assert_eq!(d.app.game.marks_at(cell) & mark_bit(2), mark_bit(2), "NAV-16: the board operates (right-handed: {right_handed}, page: {page:?})");
+            assert_eq!(d.app.ui.menu, Menu::Open(None));
+        }
+    }
+    layout::set_right_handed(false);
+}
+
+#[test]
+fn start_new_game_keeps_the_menu_open() {
+    // NAV-9: after Start new game, the New game panel closes and the menu stays open.
+    let mut d = Driver::opened(new_app(44));
+    let seed = d.app.game.seed;
+    d.button(Button::NewGame);
+    assert_eq!(d.app.ui.menu, Menu::Open(Some(Panel::NewGame)));
+    start_new_game(&mut d);
+    assert_ne!(d.app.game.seed, seed, "a new puzzle shows");
+    assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-9");
+    assert!(d.app.ui.highlight.is_none() && d.app.ui.question.is_none() && d.app.ui.pending_ink.is_none());
+    // The menu buttons operate at once: + opens the panel again.
+    d.button(Button::NewGame);
+    assert_eq!(d.app.ui.menu, Menu::Open(Some(Panel::NewGame)));
 }
 
 #[test]

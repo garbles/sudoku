@@ -138,6 +138,11 @@ pub fn check_app(app: &App) -> Result<(), String> {
     if app.screen != Screen::Game {
         ensure!(ui.menu == Menu::Closed, "NAV-5", "the menu is open on screen {:?}", app.screen);
     }
+    // NAV-16: the toolbar ignores a press only on the game screen after "< Back". A press on the
+    // board does not change the menu, thus the menu stays open with no panel until the time ends.
+    if app.toolbar_ignored_until.is_some() {
+        ensure!(app.screen == Screen::Game && ui.menu == Menu::Open(None), "NAV-16", "the toolbar ignores a press with screen {:?} and menu {:?}", app.screen, ui.menu);
+    }
     ensure!(ui.slider < MODES && app.settings.last_mode < MODES, "DIF-1", "slider or last mode out of range");
     if ui.menu.panel() != Some(Panel::NewGame) {
         ensure!(ui.slider == app.settings.last_mode, "DIF-4", "the slider keeps a selection after the panel closed");

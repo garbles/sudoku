@@ -26,6 +26,9 @@ pub const MAX_CLOCK_GAP_MS: u64 = 5000;
 pub const MANUAL_PAGES: u8 = 9;
 /// A finger touch with no event for this time is forgotten when a new touch starts (INP-15).
 const STALE_TOUCH_MS: u64 = 150;
+/// After "< Back" from the manual or from Statistics, the app ignores a press on the toolbar and on
+/// the close button for this time (NAV-16).
+pub const BACK_GUARD_MS: u64 = 500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
@@ -113,6 +116,14 @@ pub struct GameUi {
 }
 
 impl GameUi {
+    /// The game screen with the menu open, no panel, no highlight, no "?" and no ink. The game
+    /// screen shows in this state when the app opens (PER-2), after "< Back" (NAV-3) and after
+    /// Start new game (NAV-9).
+    fn shown(slider: u8) -> GameUi {
+        GameUi { menu: Menu::Open(None), ..GameUi::closed(slider) }
+    }
+
+    /// The state of the game screen when a different screen shows: the menu is closed (NAV-5).
     fn closed(slider: u8) -> GameUi {
         GameUi { menu: Menu::Closed, highlight: None, question: None, pending_ink: None, slider }
     }
@@ -242,6 +253,9 @@ pub struct App {
     /// The time when the writing stops (`WRITING_IDLE_MS` after the last stroke on the board). None:
     /// no stroke since the last press that does not write.
     pub(crate) writing_until: Option<u64>,
+    /// Until this time, a press on the toolbar or on the close button changes nothing (NAV-16).
+    /// "< Back" from the manual or from Statistics sets it. None: the toolbar operates.
+    pub toolbar_ignored_until: Option<u64>,
 
     pen: Option<Gesture>,
     touch: Option<FollowedTouch>,
@@ -279,7 +293,7 @@ impl App {
         App {
             screen: Screen::Game,
             game,
-            ui: GameUi::closed(slider),
+            ui: GameUi::shown(slider),
             manual_page: 1,
             list: ListUi::start(),
             per_page: crate::layout::list_rows(),
@@ -294,6 +308,7 @@ impl App {
             live_stroke: None,
             live_stroke_count: 0,
             writing_until: None,
+            toolbar_ignored_until: None,
             pen: None,
             touch: None,
             last_clock: None,
@@ -346,6 +361,9 @@ impl App {
         }
         if self.writing_until.is_some_and(|t| now >= t) {
             self.writing_until = None;
+        }
+        if self.toolbar_ignored_until.is_some_and(|t| now >= t) {
+            self.toolbar_ignored_until = None;
         }
     }
 
@@ -469,6 +487,14 @@ impl App {
 
     /// A press of the pen (`tool` is Some) or of a finger (`tool` is None).
     fn press(&mut self, x: f32, y: f32, tool: Option<Tool>, now: u64) -> Gesture {
+        // NAV-16: shortly after "< Back", a press on the toolbar or on the close button changes
+        // nothing, also not the highlight, the "?" or the waiting ink. It is often the second tap of a
+        // fast double tap on "< Back", which is at the position of the close button (left-handed) or
+        // of the menu button (right-handed).
+        let toolbar_ignored = self.toolbar_ignored_until.is_some_and(|t| now < t);
+        if toolbar_ignored && self.screen == Screen::Game && layout::game_button(x, y, self.ui.menu.is_open()).is_some() {
+            return Gesture::Ignored;
+        }
         // Each action removes the highlight before the app does the action (HLT-2).
         let prev_highlight = self.ui.highlight.take();
         self.ui.question = None;
@@ -905,7 +931,7 @@ impl App {
             Target::StartNewGame => self.start_new_game(),
             Target::Back => match self.screen {
                 Screen::GamesList => self.screen = Screen::Statistics,
-                _ => self.show_game(),
+                _ => self.show_game(now),
             },
             Target::Prev => self.swipe(false),
             Target::Next => self.swipe(true),
@@ -1031,12 +1057,18 @@ impl App {
     fn leave_game(&mut self) {
         self.ui = GameUi::closed(self.settings.last_mode);
         self.live_stroke = None;
+        self.toolbar_ignored_until = None;
         self.cancel_gestures();
     }
 
-    fn show_game(&mut self) {
+    /// "< Back" from the manual or from Statistics at the time `now`: the game shows with the menu
+    /// open and no panel (NAV-3). For `BACK_GUARD_MS`, the toolbar and the close button ignore a
+    /// press (NAV-16).
+    fn show_game(&mut self, now: u64) {
         self.screen = Screen::Game;
         self.leave_game();
+        self.ui.menu = Menu::Open(None);
+        self.toolbar_ignored_until = Some(now + BACK_GUARD_MS);
     }
 
     fn swipe(&mut self, next: bool) {
@@ -1067,7 +1099,8 @@ impl App {
         self.settings_dirty = true;
         self.game = new_game(self.env.new_seed(), mode);
         self.game_dirty = true;
-        self.ui = GameUi::closed(mode);
+        // The New game panel closes and the menu stays open (NAV-9).
+        self.ui = GameUi::shown(mode);
         self.live_stroke = None;
         self.cancel_gestures();
     }

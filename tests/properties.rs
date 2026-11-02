@@ -1,6 +1,7 @@
 //! Property-based tests: random sequences of player input. After each input, the debug build checks all
 //! state rules of INVARIANTS.md (`invariants::check_app`, in `App::handle`). This test also checks the
-//! rules about two states one after the other (CLK-2, CLK-3, CMP-5, INP-1, INP-9, UND-2, UND-3, ANA-2).
+//! rules about two states one after the other (CLK-2, CLK-3, CMP-5, INP-1, INP-9, UND-2, UND-3, ANA-2,
+//! NAV-3, NAV-9, NAV-16).
 
 mod common;
 
@@ -78,7 +79,37 @@ fn board(g: &Game) -> Board {
     (g.seed, g.value, g.marks, g.undo.len(), g.redo.len(), g.completed)
 }
 
+/// The player waits until the toolbar operates again after "< Back" (NAV-16). The acts that operate
+/// a panel with more than one tap call it first, because their taps must operate the toolbar.
+fn wait_for_toolbar(d: &mut Driver) {
+    if let Some(t) = d.app.toolbar_ignored_until {
+        d.wait(t.saturating_sub(d.now));
+    }
+}
+
+/// The acts that use the toolbar for more than one tap: they wait for the toolbar first (NAV-16).
+fn uses_toolbar_flow(a: &Act) -> bool {
+    matches!(a, Act::UndoRedo | Act::Solve | Act::NewGame(..) | Act::PickColor(..) | Act::DeleteFlow(..) | Act::Switch(_) | Act::DeleteAllFlow(_))
+}
+
+/// True if the act is one tap on a toolbar button or on the close button of the game screen while
+/// the toolbar ignores a press (NAV-16). Then the act must change nothing.
+fn is_ignored_toolbar_tap(a: &Act, d: &Driver) -> bool {
+    // The press of a tap occurs 10 ms after the last event (`Driver::send`).
+    let press_at = d.now + 10;
+    let ignored = d.app.toolbar_ignored_until.is_some_and(|t| press_at < t);
+    let point = match *a {
+        Act::Button(i) => button_center(BUTTONS[i as usize]),
+        Act::Point(x, y, _) => (x as f32, y as f32),
+        _ => return false,
+    };
+    ignored && d.app.screen == Screen::Game && layout::game_button(point.0, point.1, d.app.ui.menu.is_open()).is_some()
+}
+
 fn run(d: &mut Driver, a: &Act) {
+    if uses_toolbar_flow(a) {
+        wait_for_toolbar(d);
+    }
     match *a {
         Act::TapMicro(r, c, digit) => d.tap_micro((r, c), digit),
         Act::Write(r, c, digit) => d.write((r, c), digit),
@@ -247,7 +278,12 @@ proptest! {
 
     #[test]
     fn invariants_hold_for_all_input(seed in any::<u64>(), acts in proptest::collection::vec(act(), 1..90)) {
-        let mut d = Driver::new(seed);
+        // Half of the runs start from the real start state, with the menu open (PER-2, NAV-1). The
+        // other half start with the menu closed (`Driver::new`).
+        let mut d = if seed % 2 == 0 { Driver::opened(new_app(seed)) } else { Driver::new(seed) };
+        if seed % 2 == 0 {
+            prop_assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "PER-2, NAV-1");
+        }
         check_app(&d.app).unwrap();
         for a in &acts {
             let before = d.app.game.clone();
@@ -256,9 +292,23 @@ proptest! {
             let confirm_all_before = d.app.confirm_all;
             let ink_before = d.app.ui.pending_ink.is_some();
             let not_board = is_not_a_board_action(a, &d) && !ink_before;
+            let ignored_toolbar_tap = is_ignored_toolbar_tap(a, &d);
+            let menu_before = d.app.ui.menu;
 
             run(&mut d, a);
             check_app(&d.app).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
+
+            // NAV-16: shortly after "< Back", a tap on the toolbar or on the close button changes
+            // nothing.
+            if ignored_toolbar_tap {
+                prop_assert!(!d.app.quit, "NAV-16: the app closed after {:?}", a);
+                prop_assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, menu_before), "NAV-16 after {:?}", a);
+                prop_assert_eq!(board(&d.app.game), board(&before), "NAV-16 after {:?}", a);
+            }
+            // NAV-3: when Manual or Statistics shows the game again, the menu is open with no panel.
+            if matches!(screen_before, Screen::Manual | Screen::Statistics) && d.app.screen == Screen::Game {
+                prop_assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-3 after {:?}", a);
+            }
 
             let g = &d.app.game;
             let same_game = g.seed == before.seed && (g.undo.len() + g.redo.len() > 0 || before.undo.len() + before.redo.len() == 0 || g.elapsed_ms >= before.elapsed_ms);
@@ -280,6 +330,8 @@ proptest! {
             if new_game {
                 prop_assert!(g.undo.is_empty() && g.redo.is_empty() && !g.completed, "UND-6");
                 prop_assert_eq!(g.mode, d.app.settings.last_mode, "DIF-5");
+                // NAV-9: after Start new game, the menu is open with no panel.
+                prop_assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-9 after {:?}", a);
             }
             // CMP-5, ANA-2: results change only by completion (one row) or by a delete on the list.
             if !before.completed && g.completed && !new_game {

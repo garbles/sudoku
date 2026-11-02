@@ -7,3 +7,4 @@
 cc 45e6fff98efd7a8d17c07212a89ef105d4aae3c9b3ec487f6635f5450831f752 # shrinks to seed = 0, acts = [NewGame(0, false), PickColor(0, 0)]
 cc 4b351b2d3cc3e7edd756b837c10a51c44b049824e4b5429fde834b3f32435a9f # shrinks to seed = 0, acts = [Solve, DeleteFlow(0, Some(true))]
 cc 5e570421c7c2a57e4dad0af7df9dad3da8510e01c6fecba3d6982a5af55894ff # shrinks to seed = 0, acts = [Solve, DeleteAllFlow(None), TapMicro(5, 4, 3)]
+cc 6e67d95b5948e6a30260fbb12604423960ebe6ac841921e47e732a997fdbd2ae # shrinks to seed = 3842675072985849633, acts = [NewGame(0, false), Scribble(0, 0), Button(4), Button(7), PickColor(Clash, Yellow)]

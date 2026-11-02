@@ -228,21 +228,22 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| NAV-1 | The app shows one screen at a time: Game, Manual, Statistics or GamesList. The app starts on Game. | R§2 |
+| NAV-1 | The app shows one screen at a time: Game, Manual, Statistics or GamesList. The app starts on Game, with `menu = Open` (PER-2). | R§2 |
 | NAV-2 | Only the open menu opens Manual and Statistics. Only Statistics opens GamesList. "< Back" goes from Manual to Game, from Statistics to Game, and from GamesList to Statistics. | R§2 |
-| NAV-3 | When Manual or Statistics shows Game again, `menu = Closed` and `panel = None`. | R§12, R§13.1 |
+| NAV-3 | When Manual or Statistics shows Game again, `menu = Open` and `panel = None`. | R§9, R§12, R§13.1 (owner decision 2026-11-02) |
 | NAV-4 | `panel ≠ None ⇒ menu = Open`. Only one panel can be open at a time. | R§9 |
-| NAV-5 | `screen ≠ Game ⇒ menu = Closed, panel = None`. The menu is a part of the game screen. | R§9 |
+| NAV-5 | `screen ≠ Game ⇒ menu = Closed, panel = None`. The menu is a part of the game screen. When the game screen shows again, the menu opens (NAV-3). | R§9 |
 | NAV-6 | The close button shows only when `screen = Game` and `menu = Open`. A tap on it closes the app after the app saves the game (PER-1). | R§3.1, R§9 |
 | NAV-7 | Icon of the menu button: the dot is at the bottom left only when `menu = Closed`. The dot is at the top left only when `menu = Open`. For a right-handed player the icon is a mirror image (the dot is at the right; NAV-15). | R§3.1 |
 | NAV-8 | The button of a panel is white on black only when that panel is open. The other buttons have their usual appearance. | R§9 |
-| NAV-9 | After Start new game, `menu = Closed` and `panel = None`. | R§11 |
+| NAV-9 | After Start new game, `menu = Open` and `panel = None`. | R§9, R§11 (owner decision 2026-11-02) |
 | NAV-10 | The closed menu never covers the board. The open toolbar (portrait x ≥ 1508, landscape x ≥ 2048) never covers the board (portrait x ≤ 1471, landscape x ≤ 1741). An open panel can cover a part of the board. For a right-handed player, the toolbar is at the left edge (x 0–112) and the board does not change (NAV-15). | R§3.1, R§3.3 |
 | NAV-15 | When the device is right-handed, the game screen shows the toolbar, the menu button, the close button and the panels as a mirror image of the left-handed screen: the toolbar is at the left edge (x 0–112), the close button is at the top right, and the panels touch the toolbar at x 112. The icons other than the menu button and the contents of the panels are the same. The hit areas move with the buttons. | R§3.1 (owner request 2026-10-26) |
 | NAV-13 | A turn of the tablet does not change the game, the settings or the screen. It removes the pending ink and the touches in progress, and it changes only the page of the games list: the list shows the page with the first game of the page before the turn (R§3.3). | R§3.3 (confirmed 2026-10-25) |
 | NAV-14 | The Settings panel opens from the gear (top slot 2). A tap on a row changes only its switch (`highlight_on` or `auto_hide_on`), immediately; the panel stays open. A tap on the version row (row 3) changes nothing, and the panel stays open. A change of a switch does not change the game or the undo and redo stacks, and it does not change the changes that are already in the stacks. | R§9.1 (version row: owner decision 2026-10-26) |
 | NAV-11 | When `panel ≠ None`, a tap outside the panel only sets `panel = None`. It does not change the game, also when the tap is on the board. When `menu = Open` and `panel = None`, the board operates as usual. | R§9 |
 | NAV-12 | When `panel ≠ None`, a tap on a toolbar button that is not the paint bucket, the gear or the + only closes the panel. A tap on the button of a different panel opens that panel. This includes the menu button and the close button. | R§9 (confirmed 2026-10-25) |
+| NAV-16 | For 0.5 s after "< Back" from Manual or Statistics shows Game, a press on a toolbar button (also the menu button) or on the close button changes nothing: `menu`, `panel`, `screen` and the game do not change, and the app does not close. A press on the board operates as usual. This is true for the left-handed and the right-handed layout. | R§9, R§12, R§13.1 (owner decision 2026-11-02) |
 
 ## 11. Difficulty
 
@@ -299,7 +300,7 @@ Terms:
 | ID | Rule | Source |
 |---|---|---|
 | PER-1 | At each point where the app can close or be suspended, the saved game is equal to the game in memory: `seed`, `mode`, starting numbers, `value`, `marks`, the two stacks, `elapsed` and `completed`. | R§14.3 |
-| PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Closed`, `panel = None`, `highlight = None`, `question = None` and `pending_ink = None`. | R§14.3 |
+| PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Open`, `panel = None`, `highlight = None`, `question = None` and `pending_ink = None`. The app does not keep the menu state. This is true for a new game and for a saved game. | R§9, R§14.3 (owner decision 2026-11-02) |
 | PER-3 | The settings (`color_*`, `micro_line`, `last_mode`, `highlight_on` and `auto_hide_on`) stay the same when the app closes and opens again. | R§14.2 |
 | PER-4 | `results` stays the same when the app closes and opens again. Only ANA-2 changes it. | R§14.1 |
 | PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. When the app opens, it does not use saved data that breaks a rule (PUZ-5, ANA-1). A saved history that play cannot make, but that agrees with UND-3, is correct: each undo and redo item still changes the board. | — (confirmed 2026-10-25) |

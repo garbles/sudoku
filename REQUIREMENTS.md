@@ -55,16 +55,16 @@ The app has four screens. The game screen also has a menu with three panels. Ref
 ```mermaid
 stateDiagram-v2
     direction LR
-    [*] --> Game: start the app
+    [*] --> Game: start the app (menu open)
     state "Game" as Game
     state "Manual (9 pages)" as Manual
     state "Statistics summary" as Statistics
     state "Completed games list" as Games
 
     Game --> Manual: Help (menu)
-    Manual --> Game: < Back
+    Manual --> Game: < Back (menu open)
     Game --> Statistics: Statistics (menu)
-    Statistics --> Game: < Back
+    Statistics --> Game: < Back (menu open)
     Statistics --> Games: All completed games
     Games --> Statistics: < Back
     Game --> [*]: close button (menu open)
@@ -79,7 +79,8 @@ stateDiagram-v2
 
 ## 3. The game screen
 
-Image: [`images/screen.png`](images/screen.png) (empty board, menu closed).
+Image: [`images/screen.png`](images/screen.png) (empty board, menu closed). The app opens with the menu
+open ([§9](#9-the-menu)): refer to [`screen-toolbar.png`](images/screen-toolbar.png).
 
 ### 3.1 Layout
 
@@ -475,6 +476,16 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
 | bottom 1 | Statistics | Line graph on axes | Opens the statistics ([§13](#13-statistics)). |
 | bottom 0 | New game | + | Opens the New game panel ([§11](#11-new-game-panel-and-difficulty)). |
 
+- The menu is **open by default**. When the game screen shows, the menu is open and no panel is
+  open: when the app opens (a new game or a saved game), after **< Back** from the manual or from
+  the statistics, and after **Start new game**. The app does not keep the menu state ([§14.3](#143-game-in-progress-kept-when-the-app-closes)).
+  On the other screens (manual, statistics, completed games list), the menu is closed.
+- After **< Back** from the manual or from the statistics shows the game screen, the app ignores a
+  press on the toolbar (all toolbar buttons, also the menu button) and on the close button for
+  **0.5 s**. A press on the board operates as usual. This is true for the left-handed and the
+  right-handed layout. Reason: the e-paper screen is slow, and **< Back** is at the same position as
+  the close button (left-handed) or the menu button (right-handed). Without this rule, the second tap
+  of a fast double tap on **< Back** closes the app or closes the menu.
 - When the menu opens, the app removes the highlight.
 - The board continues to operate while the menu is open. For example, you can write a number or
   tap a number to make a highlight.
@@ -497,14 +508,14 @@ stateDiagram-v2
     state "Cell colors panel" as Colors
     state "Settings panel" as SettingsP
     state "New game panel" as NewGame
-    [*] --> Closed
+    [*] --> Open: start the app
     Closed --> Open: tap the menu button
     Open --> Closed: tap the menu button
     Open --> Colors: tap the paint bucket
     Colors --> Open: tap the paint bucket again or tap outside the panel
     Open --> NewGame: tap +
     NewGame --> Open: tap + again or tap outside the panel
-    NewGame --> Closed: Start new game
+    NewGame --> Open: Start new game
     Colors --> NewGame: tap +
     NewGame --> Colors: tap the paint bucket
     Open --> SettingsP: tap the gear
@@ -518,8 +529,8 @@ stateDiagram-v2
     Open --> [*]: close button (close the app)
     state "Manual" as Manual
     state "Statistics" as Statistics
-    Manual --> Closed: < Back
-    Statistics --> Closed: < Back
+    Manual --> Open: < Back
+    Statistics --> Open: < Back
 ```
 
 Images: [`screen-toolbar.png`](images/screen-toolbar.png) (menu open, new game, undo and redo gray),
@@ -766,7 +777,7 @@ Images: [`images/new-game-menu.png`](images/new-game-menu.png),
 - **Start new game** replaces the current puzzle immediately. The app does not ask for a
   confirmation. Then the app:
   - Makes a new puzzle of the selected mode.
-  - Closes the menu.
+  - Closes the New game panel. The menu stays open.
   - Removes the undo and redo history and sets the clock to zero.
   - Keeps the selected mode for the next time.
 - The meter below the board shows the mode of the current puzzle. When the puzzle is complete,
@@ -783,7 +794,7 @@ stateDiagram-v2
     Open --> Generating: Start new game
     Sel --> Generating: Start new game
     state "New puzzle made (with a seed)" as Generating
-    Generating --> [*]: the game shows the new puzzle, menu closed
+    Generating --> [*]: the game shows the new puzzle, menu open, no panel
     Open --> [*]: tap + again or tap outside (no change)
     Sel --> [*]: tap + again or tap outside (selection not kept)
 ```
@@ -792,7 +803,8 @@ stateDiagram-v2
 
 **Help** in the menu opens the manual. The manual has nine pages.
 
-- Each page has **< Back** at the top left. It shows the game again, with the menu closed.
+- Each page has **< Back** at the top left. It shows the game again, with the menu open and no
+  panel open. For 0.5 s, the app ignores a press on the toolbar and on the close button ([§9](#9-the-menu)).
 - Each page has ‹ › arrows next to the page number at the bottom. The arrow at the first page and the
   arrow at the last page are gray.
 - A **finger swipe** to the left or to the right turns the page. reMarkable notebooks operate in the
@@ -842,7 +854,8 @@ stateDiagram-v2
 
 Image: [`images/analytics.png`](images/analytics.png).
 
-- **< Back** shows the game again, with the menu closed.
+- **< Back** shows the game again, with the menu open and no panel open. For 0.5 s, the app ignores a
+  press on the toolbar and on the close button ([§9](#9-the-menu)).
 - Two boxes show **Puzzles completed** (the quantity of saved results) and **Average time** (the
   average of their times).
 - The **By difficulty** table has one row for each mode, from Easy to Hard. Each row shows the
@@ -963,7 +976,7 @@ The app keeps:
 When the app closes, no progress is lost.
 
 The app does **not** keep temporary UI states. The app always opens again at the game screen, with
-the menu and the panels closed, no highlight and no "?". If the app closes during the recognition
+the menu open, the panels closed, no highlight and no "?". If the app closes during the recognition
 pause, the app removes the ink and does not read it.
 
 ### 14.4 Launcher

@@ -247,3 +247,44 @@ the left edge and the close button at the right (REQUIREMENTS.md §3.1, NAV-15).
   pixels and only the menu icon is a mirror image.
 - The demo videos use the right-handed layout, as the device does by default (`hand right` in
   `video/demo.txt` and `video/demo-full.txt`).
+
+### Owner request: the menu is open by default, 2026-11-02
+
+The owner asked: "make it so that the menu is open by default", and then: "the menu must stay open in
+both of those cases" (after "< Back" and after "Start new game"). The owner examined the behavior on
+the device (Paper Pro, dev build) and selected "Correct". It is now in REQUIREMENTS.md (§2, §3, §9,
+§11, §12, §13.1, §14.3) and INVARIANTS.md (NAV-1, NAV-3, NAV-5, NAV-9, NAV-16, PER-2).
+
+| Case | Examined result |
+|---|---|
+| The app opens (a new game or a saved game) | The game screen with the menu open: the toolbar and the close button show. No panel, no highlight and no "?". The app does not keep the menu state. |
+| "< Back" from the manual | The game screen with the menu open and no panel open. |
+| "< Back" from Statistics | The game screen with the menu open and no panel open. |
+| "< Back" from the games list | No change: Statistics shows. |
+| "Start new game" | The new puzzle shows. The New game panel closes and the menu stays open. |
+| Other behavior | No change. The menu button closes and opens the menu, the board operates while the menu is open, the close button closes the app, and the right-handed layout is a mirror image. On the manual, statistics and games list screens the menu is closed. |
+
+- No new positions, sizes, colors, fonts or text. The open menu is the same as in
+  `screen-toolbar.png` (REQUIREMENTS.md §3.1, §9).
+- `images/screen.png` stays as the image of the closed menu. It is not the start state now.
+  `reference::app` closes the menu, and each reference state that shows the open menu opens it.
+  Thus the images do not change.
+- The event scripts of the demo videos (`video/demo.txt`, `video/demo-full.txt`) start with the menu
+  closed (`Script::app`). The scripts show the empty board first and open the menu with a tap, and
+  they have no "< Back" and no "Start new game". Thus the videos and the output hashes of the bench
+  do not change.
+- Rejected value: the first prototype opened the menu only when the app started, and "< Back" and
+  "Start new game" closed it. The owner rejected this: the menu must stay open in these two cases
+  also.
+
+Review finding (HARD-1) and owner decision, 2026-11-02:
+
+- In the left-handed layout, "< Back" (x 0–180, y 0–100) and the close button (x 0–112, y 0–112)
+  are at the same position. "< Back" now shows the game with the menu open. Thus the second tap of a
+  fast double tap on "< Back" closes the app. In the right-handed layout, the second tap hits the
+  menu button and closes the menu.
+- The owner selected "Ignore the 2nd tap": for 0.5 s after "< Back" shows the game screen, the app
+  ignores a press on the toolbar (all buttons, also the menu button) and on the close button. A press
+  on the board operates as usual. This is true for the two layouts and for "< Back" from the manual
+  and from Statistics (REQUIREMENTS.md §9, INVARIANTS.md NAV-16).
+- Rejected option: accept the risk and make no change.

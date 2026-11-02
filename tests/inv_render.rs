@@ -636,3 +636,30 @@ fn no_ink_stays_on_the_board() {
     assert_eq!(d.app.game.value_at(third), 2);
     assert_no_ink(&d, &fonts, "a number with the open menu");
 }
+
+// ---- PER-2, NAV-6: the first frame.
+
+#[test]
+fn the_first_frame_shows_the_open_toolbar_and_the_close_button() {
+    // PER-2, NAV-1, NAV-6, NAV-15: the app opens with the menu open. The first frame of `App::new`
+    // shows the close button and the open toolbar, for the left-handed and the right-handed layout.
+    // With the menu closed, these pixels are white.
+    let fonts = fonts();
+    let app = App::new(None, None, sudoku::store::ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed: 80 }), sudoku::render::ng_stops(&fonts));
+    assert_eq!(app.ui.menu, sudoku::app::Menu::Open(None), "PER-2");
+    let mut closed = App::new(None, None, sudoku::store::ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed: 80 }), sudoku::render::ng_stops(&fonts));
+    closed.ui.menu = sudoku::app::Menu::Closed;
+    for right_handed in [false, true] {
+        let (first, without_menu) = (draw_handed(&app, &fonts, right_handed), draw_handed(&closed, &fonts, right_handed));
+        layout::set_right_handed(right_handed);
+        // The center of the close button is the crossing of the two lines of the X.
+        let (cx, cy) = (layout::close_cx() as i32, layout::CLOSE_CY as i32);
+        // The gear (top slot 2) is a toolbar button that shows only in the open menu.
+        let gear = Rect::new(layout::tb_x(), 2 * layout::TB_SLOT, layout::tb_x() + layout::TB_SLOT, 3 * layout::TB_SLOT);
+        layout::set_right_handed(false);
+        assert!(rgb_at(&first, cx, cy)[0] < 100, "NAV-6: the close button is not drawn (right-handed: {right_handed})");
+        assert_eq!(rgb_at(&without_menu, cx, cy), [255, 255, 255], "NAV-6: the close button shows with the menu closed (right-handed: {right_handed})");
+        assert!(darkest(&first, gear) < 100, "PER-2: the open toolbar is not drawn (right-handed: {right_handed})");
+        assert_eq!(darkest(&without_menu, gear), 255, "the toolbar shows with the menu closed (right-handed: {right_handed})");
+    }
+}

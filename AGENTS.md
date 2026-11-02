@@ -179,6 +179,12 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - Write all text, comments and documents in ASD-STE100 Simplified Technical English.
 - Each behavior comes from REQUIREMENTS.md. Each state rule comes from INVARIANTS.md. Tests give the
   rule IDs that they examine.
+- Each requested feature (a new behavior, or a change to what the app does or how it looks) uses
+  the `remarkable-dev` skill (`.claude/skills/remarkable-dev/`). First make a prototype and install
+  the dev build on the tablet. When the user approves the result, write a description of the
+  change (no code), revert the prototype, and give the description to a team of agents. The team
+  updates the documents in parallel (REQUIREMENTS.md, INVARIANTS.md, README.md and the other
+  affected documents), then the source, then the tests and the media in parallel.
 - DECISIONS.md records how the app was examined (pixels, handwriting, device). If the code needs a
   detail that the requirements do not give, ask the owner before you add it to REQUIREMENTS.md or
   INVARIANTS.md.
