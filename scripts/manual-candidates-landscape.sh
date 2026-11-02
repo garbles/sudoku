@@ -7,11 +7,11 @@ M=$(mktemp)
 text 72 170 84 black start "Pencil marks"
 
 text 72 290 50 black start "Micro-cells"
-text 72 355 38 gray25 start "An empty cell has nine faint"
-text 72 405 38 gray25 start "micro-cells. Each micro-cell is"
-text 72 455 38 gray25 start "for one digit. The digits have"
-text 72 505 38 gray25 start "the same positions as the keys"
-text 72 555 38 gray25 start "on a phone keypad."
+text 72 355 38 gray25 start "An empty cell has nine"
+text 72 405 38 gray25 start "micro-cells, with no lines. Each"
+text 72 455 38 gray25 start "micro-cell is for one digit. The"
+text 72 505 38 gray25 start "digits have the same positions"
+text 72 555 38 gray25 start "as the keys on a phone keypad."
 cell 640 270 "1 2 3 4 5 6 7 8 9" "" gray55
 
 text 72 700 50 black start "Remove a pencil mark"

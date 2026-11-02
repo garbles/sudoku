@@ -19,7 +19,7 @@ const QUESTION_MS: u64 = 1000;
 /// The writing stops when the pen has written nothing on the board for this time after the last
 /// stroke (§5.1, ink patch). Until then, a redraw waits. This time is longer than the recognition
 /// pause, so that the redraw does not start while the pen moves to the next cell.
-pub const WRITING_IDLE_MS: u64 = 1500;
+pub const WRITING_IDLE_MS: u64 = 1000;
 /// A gap between two events that is longer than this is a suspension. The clock does not count it.
 pub const MAX_CLOCK_GAP_MS: u64 = 5000;
 
@@ -352,6 +352,14 @@ impl App {
     /// eraser, a button) stops the writing. The presenter keeps a redraw until the writing stops.
     pub fn is_writing(&self) -> bool {
         self.live_stroke.is_some() || self.ui.pending_ink.is_some() || self.writing_until.is_some()
+    }
+
+    /// The live stroke as ink on the screen. While the pen stays in the micro-cell where it touched
+    /// the board, the touch can be a tap (INP-2): the stroke does not show. A tap that changes
+    /// nothing (for example a mark that a peer hides) thus changes no pixel. When the pen leaves the
+    /// micro-cell, all the stroke shows.
+    pub fn live_ink(&self) -> Option<&Stroke> {
+        self.live_stroke.as_ref().filter(|_| !matches!(self.pen, Some(Gesture::BoardTap { .. })))
     }
 
     /// The tablet turned. The positions of ink and of touches are not correct now: the app removes the
@@ -1084,7 +1092,7 @@ impl App {
         let ui = &self.ui;
         (ui.menu, ui.highlight, ui.question.map(|q| q.0), ui.slider).hash(&mut h);
         let pending = ui.pending_ink.as_ref().map_or(0, |i| i.strokes.len());
-        let live = usize::from(self.live_stroke.as_ref().is_some_and(|s| s.len() >= 2));
+        let live = usize::from(self.live_ink().is_some_and(|s| s.len() >= 2));
         (pending + live).hash(&mut h);
         (self.manual_page, self.list.filter, self.list.page, self.list.confirm.as_ref().map(|r| r.id)).hash(&mut h);
         (self.settings.color_starting, self.settings.color_clash, self.settings.color_highlight).hash(&mut h);

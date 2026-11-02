@@ -86,7 +86,7 @@ Image: [`images/screen.png`](images/screen.png) (empty board, menu closed).
 | Item | Position and size | Notes |
 |---|---|---|
 | Board | 9×9 cells of **147 px**; x 148–1471, y 418–1741 (at the center of the screen) | Lines of 12 px are around the board and the 3×3 boxes. Lines of 3 px are between the cells. |
-| Micro-cells | Each cell has a faint 3×3 grid of **49 px** micro-cells (2 px lines, light gray) | Each micro-cell is for one digit. The positions are the same as a keypad: 1 2 3 / 4 5 6 / 7 8 9. |
+| Micro-cells | Each cell has a 3×3 grid of **49 px** micro-cells. The grid has **no lines** (owner decision 2026-11-02) | Each micro-cell is for one digit. The positions are the same as a keypad: 1 2 3 / 4 5 6 / 7 8 9. |
 | Difficulty meter | Below the board, at the center, 50 px from the board | The player cannot change it. It shows "Easy", seven stops and "Hard". The large knob shows the mode of the current puzzle. When the puzzle is complete, "Completed in …" replaces the meter. |
 | Menu button | Top right, circle of 38 px, center at (1563.5, 55.5) | Closed icon: dot at the bottom left. Open icon: dot at the top left. Both icons are copies from the device. |
 | Close button | Top left, circle of 38 px with ×, center at (55.5, 55.5) | The close button shows **only when the menu is open**. The device does the same. |
@@ -173,8 +173,8 @@ Each cell is always one of these four types:
 |---|---|---|
 | **Starting number** | Black digit. No micro-cells. Background: refer to [§4.2](#42-cell-background-color). | It does not change. Writing on it and the eraser have no effect. |
 | **Your number** | Dark gray digit. No micro-cells. Background: refer to [§4.2](#42-cell-background-color). The app keeps its pencil marks but does not show them. | Only the eraser, undo or redo can remove it. Writing on it has no effect. |
-| **Empty, no pencil marks** | The faint 3×3 grid of micro-cells. | Tap to add a pencil mark. Write to add a number. |
-| **Empty, with pencil marks** | The grid of micro-cells with small digits in their keypad positions. | Tap to add or remove a pencil mark. Write to add a number. |
+| **Empty, no pencil marks** | Nothing (white). The micro-cells have no lines. | Tap to add a pencil mark. Write to add a number. |
+| **Empty, with pencil marks** | Small digits in the keypad positions of their micro-cells. | Tap to add or remove a pencil mark. Write to add a number. |
 
 If automatic hiding is on, a tap on a micro-cell whose digit is a number in a peer has no effect
 ([§6.1](#61-automatic-pencil-mark-hiding)). Then the cell does not change.
@@ -236,6 +236,9 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
   [§13](#13-statistics).
 - A **tap** is a pen touch that stays in one micro-cell from start to end. If the pen moves out of the
   micro-cell before it lifts, the touch is writing, not a tap.
+- A tap shows no ink. The ink of a stroke shows when the pen leaves the micro-cell, from the start
+  of the stroke. Thus a tap that has no effect (for example a mark that a peer hides) does not
+  change the screen (owner report 2026-11-02).
 - **Writing** is a pen stroke that is not a tap. The app collects the strokes in one cell until the
   pen is lifted for a **short pause (approximately 0.5 s, adjustable)**. Thus a number with more than
   one stroke (for example 4, 5 or 7) is correct.
@@ -988,7 +991,7 @@ reads it each 15 ms:
   (45 ms), so that colored cells get the UI waveform.
 - While the player writes, a redraw waits. The writing starts with the first stroke on the board.
   It stops when the app has read the last ink and the pen has written nothing on the board for
-  **1.5 s** after the last stroke (one timer for all cells: each new stroke starts it again). A
+  **1 s** after the last stroke (one timer for all cells: each new stroke starts it again). A
   press that does not write (a tap, the eraser, a button) stops the writing immediately. The app
   reads each number after the recognition pause (§5.1), but the typed numbers show only when the
   writing stops. Thus the player can write in many cells, one after the other, also with a slow
@@ -1114,7 +1117,7 @@ the user runs the installer again.
 |---|---|
 | Screen | 1620×2160, 229 DPI |
 | Board | Cells of 147 px, micro-cells of 49 px, origin (148, 418) |
-| Board lines | Box and border 12 px black; cell 3 px black; micro-cell 2 px `gray80` |
+| Board lines | Box and border 12 px black; cell 3 px black; no micro-cell lines |
 | Numbers | reMarkable Sans Regular 104 px; starting numbers black, your numbers `gray35` |
 | Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell |
 | "?" | reMarkable Sans Regular 104 px, `gray40` |

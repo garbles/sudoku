@@ -125,7 +125,7 @@ Terms:
 | BRD-3 | The value of an entry is 1–9. Only the eraser, undo or redo can remove it. Writing does not replace it. | R§4.1, R§5.1 |
 | BRD-4 | A value changes from 0 to a digit only by a number from 1 to 9 that the app reads, by redo, by undo of an erasure, or by the generator. | R§5.1, R§7 |
 | BRD-5 | An entry can be incorrect. `value ≠ solution` is a correct state and has no color, if there is no clash. | R§6.3 |
-| BRD-6 | Filled cells do not show the micro-cell grid or pencil marks. Empty cells show the micro-cell grid. The only exception is an empty cell with a "?" (QST-1): it does not show the grid while the "?" shows. | R§4.1, R§5.1 |
+| BRD-6 | Filled cells do not show pencil marks. No cell shows micro-cell lines (owner decision 2026-11-02). | R§4.1, R§5.1 |
 | BRD-7 | The background of a filled cell is the **first** of these: the clash color if clashing; the highlight color if `value = highlight`; the starting color if given; white. Empty cells are white. | R§4.2 |
 | BRD-8 | Starting digits are black. Entry digits are dark gray (`gray35`). | R§4.1, R§15 |
 
@@ -172,7 +172,7 @@ Terms:
 | ID | Rule | Source |
 |---|---|---|
 | INP-1 | Finger touches on the board do not change the game state. The only exceptions are the removal of a highlight (HLT-2) and of the "?" (QST-4). A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs and the screen buttons. In the manual and the games list, a horizontal finger swipe can change the page. | R§5.1, R§12, R§13.2 |
-| INP-2 | A pen touch on the board is a **tap** only if all of its movement stays in one micro-cell. All other pen touches on the board are writing. Each pen touch on the board is one of these: a tap, writing, or the eraser. | R§5.1 |
+| INP-2 | A pen touch on the board is a **tap** only if all of its movement stays in one micro-cell. All other pen touches on the board are writing. Each pen touch on the board is one of these: a tap, writing, or the eraser. While the pen stays in the micro-cell, the touch shows no ink. When it leaves the micro-cell, all of the stroke shows. Thus a tap that has no effect does not change the screen. | R§5.1 (owner report 2026-11-02) |
 | INP-3 | A tap on an empty cell adds or removes one mark: the digit of the micro-cell that you tapped. If `auto_hide_on` and a peer has that digit, the tap has no effect (MRK-7). | R§4.1, R§5.1, R§6.1 |
 | INP-4 | While no panel is open, a tap on a filled cell does not change that cell. It changes only `highlight` (HLT-3, HLT-6) and the "?" (QST-4), and it makes the app read ink that waits in another cell (INP-12). | R§5.1, R§6.2 |
 | INP-5 | `pending_ink ≠ None ⇒` its cell is empty and the game is not complete. The app collects the ink until the pen is lifted for the recognition pause (approximately 0.5 s). Then the app reads all the ink as one item and sets `pending_ink = None`. | R§5.1 |
@@ -186,7 +186,7 @@ Terms:
 | INP-13 | The eraser removes all of your numbers that it touches in one stroke. Each removal is one change in the undo history. | R§5.1, UND-1 (confirmed 2026-10-25) |
 | INP-14 | A finger swipe is a horizontal movement of 120 px or more, with more horizontal than vertical movement. | R§12, R§13.2 (confirmed 2026-10-25) |
 | INP-15 | A finger press on an item that is not on the board (INP-1: menu buttons, panels, dialogs, screen buttons) operates it while the app is open. The only exception is a dialog that shows: then only its two buttons operate. If the app does not get the release of a touch, that touch does not stop other presses: the app forgets it when a new press with the same touch id starts, or when a new touch starts and that touch has had no event for 0.15 s. A second finger while the first finger moves or presses (an event less than 0.15 s before) operates no item, but it removes a highlight and the "?" (HLT-2, QST-4). | R§9, R§5.1 |
-| INP-16 | The writing timer (a redraw waits, R§14.4) runs only on the game screen of a game that is not complete. Each stroke on the board starts it again (1.5 s). A press that does not write stops it. | R§5.1, R§14.4 (owner decision 2026-11-02) |
+| INP-16 | The writing timer (a redraw waits, R§14.4) runs only on the game screen of a game that is not complete. Each stroke on the board starts it again (1 s). A press that does not write stops it. | R§5.1, R§14.4 (owner decision 2026-11-02) |
 
 ## 7. Undo and redo
 

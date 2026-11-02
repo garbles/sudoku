@@ -61,16 +61,14 @@ fn slot(y: i32) -> Rect {
 // ---- BRD-6, BRD-8, MRK-1, MRK-2: the board.
 
 #[test]
-fn only_empty_cells_show_the_micro_cell_grid() {
-    // BRD-6: an empty cell shows the micro-cell grid (gray80). A filled cell does not. An empty cell
-    // with the "?" does not show the grid.
+fn no_cell_shows_micro_cell_lines() {
+    // BRD-6: no cell shows micro-cell lines: empty cells, filled cells and the "?".
     let fonts = fonts();
     let mut app = reference::app(&fonts);
     app.game = reference::sample_game();
     let question = cells().filter(|&c| !app.game.is_filled(c)).nth(3).unwrap();
     app.ui.question = Some((question, 0));
     let pm = draw_app(&app, &fonts);
-    let grid = gray(80);
     for cell in cells() {
         let (x, y) = layout::cell_origin(cell);
         // Points on the two vertical and the two horizontal micro-cell lines, away from digits and marks.
@@ -80,16 +78,9 @@ fn only_empty_cells_show_the_micro_cell_grid() {
                 [(x + o, y + 20), (x + o, y + 135), (x + 20, y + o), (x + 135, y + o)]
             })
             .collect();
-        let bg = rgb_at(&pm, x + 20, y + 20);
-        if !app.game.is_filled(cell) && cell != question {
-            for &(px, py) in &points {
-                assert_eq!(rgb_at(&pm, px, py), grid, "empty cell {cell:?}: no grid line at ({px}, {py})");
-            }
-        } else {
-            assert_ne!(bg, grid, "cell {cell:?}");
-            for &(px, py) in &points {
-                assert_eq!(rgb_at(&pm, px, py), bg, "filled cell or \"?\" {cell:?}: a grid line at ({px}, {py})");
-            }
+        let bg = rgb_at(&pm, x + 8, y + 8);
+        for &(px, py) in &points {
+            assert_eq!(rgb_at(&pm, px, py), bg, "cell {cell:?}: a micro-cell line at ({px}, {py})");
         }
     }
 }

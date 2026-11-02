@@ -11,10 +11,9 @@ mc() { echo "$(( ($1-1)%3 * 140/3 + 23 )) $(( ($1-1)/3 * 140/3 + 23 ))"; }
 open_cell() { printf 'push graphic-context\ntranslate %s,%s\nscale %s,%s\n' $1 $2 $K $K >> $M; }
 close_cell() { printf 'stroke black stroke-width 3 fill none\nrectangle 0,0 140,140\npop graphic-context\n' >> $M; }
 
-# cell X Y "digits" TAP DIGITCOLOR : a cell with micro-cells and pencil marks, and an optional tap ring
+# cell X Y "digits" TAP DIGITCOLOR : an empty cell with pencil marks (no micro-cell lines), and an optional tap ring
 cell() {
   open_cell $1 $2
-  echo "fill none stroke gray80 stroke-width 2 line 47,0 47,140 line 93,0 93,140 line 0,47 140,47 line 0,93 140,93" >> $M
   for d in $3; do c=$(mc $d)
     echo "stroke none fill ${5:-gray15} font '$FONT' font-size 30 text-anchor middle text ${c% *},$((${c#* }+11)) '$d'" >> $M
   done

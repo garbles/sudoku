@@ -400,7 +400,7 @@ fn draw_game(c: &mut Canvas, app: &App) {
     draw_board(c, g, &app.settings, app.ui.highlight, app.ui.question.map(|q| q.0));
 
     // Ink that waits for the recognition pause, and the stroke that the pen draws now.
-    let ink = app.ui.pending_ink.iter().flat_map(|i| i.strokes.iter()).chain(app.live_stroke.iter());
+    let ink = app.ui.pending_ink.iter().flat_map(|i| i.strokes.iter()).chain(app.live_ink());
     for s in ink {
         if s.len() == 1 {
             c.circle(s[0].0, s[0].1, 2.5, Some(BLACK), None);
@@ -521,21 +521,13 @@ fn copy_px(src: &Pixmap, sx: usize, sy: usize, w: usize, h: usize, dst: &mut Pix
     }
 }
 
-/// Draws one cell with its top left at (xf, yf): the background or the faint micro-cell grid, then
-/// the number, the "?" or the pencil marks.
+/// Draws one cell with its top left at (xf, yf): the background of a number, then the number, the
+/// "?" or the pencil marks. An empty cell shows no micro-cell lines (BRD-6).
 fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
     let cs = CELL as f32;
     match look {
         CellLook::Value(_, bg, _) => c.rect(xf, yf, xf + cs, yf + cs, bg),
-        CellLook::Question => {}
-        CellLook::Empty(_) => {
-            // The faint micro-cell grid of an empty cell (BRD-6).
-            for k in 1..=2 {
-                let o = micro_offset(k) as f32;
-                c.line_butt(xf + o, yf, xf + o, yf + cs, 2.0, gray(80));
-                c.line_butt(xf, yf + o, xf + cs, yf + o, 2.0, gray(80));
-            }
-        }
+        CellLook::Question | CellLook::Empty(_) => {}
     }
     // Numbers: starting numbers black, your numbers gray35 (BRD-8). Pencil marks only on empty cells
     // (MRK-2), gray15, at their keypad positions (MRK-1).

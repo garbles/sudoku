@@ -57,6 +57,13 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
 - **The pen area must start at the pen down.** The app knows that a touch is writing only when the
   pen leaves the micro-cell. If the area starts only then, the first ink of each stroke goes with
   the UI waveform, and the area starts over updates in progress: gaps at the start of the stroke.
+- **A tap must not show ink.** If the ink shows from the pen down, a tap that changes nothing (a
+  mark that a peer hides) leaves a dot until a redraw. Thus the ink shows only when the pen leaves
+  the micro-cell (`App::live_ink`), but the pen area still starts at the pen down. The input log
+  (`log-input`) shows if a touch was a tap: a pen down, few moves and a pen up in one micro-cell.
+- **The redraw must wait for a pause in the writing, not for the recognition pause.** The move of
+  the pen to the next cell can take more than the recognition pause (0.5 s). Thus the redraw waits
+  until no stroke occurred for 1 s (`App::is_writing`).
 - **A redraw while the player writes stops the ink in the next cell.** The redraw of the digit in
   the first cell can be wide (it also changes pencil marks and highlights), and it covers the next
   cell. Ink that waits for it does not show while the pen moves. Thus a redraw waits until the app

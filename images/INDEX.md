@@ -23,7 +23,7 @@ dimensions of the toolbar, the panels and the fonts come from screenshots of a r
 
 | Image | Content | Purpose |
 |---|---|---|
-| `screen.png` | Empty board, menu closed. It shows only the menu button (top right, closed icon: dot at the bottom left) and the difficulty meter below the board. | The base layout. The board has 9×9 cells of 147 px, at the center, from (148, 418) to (1471, 1741). Each cell has a faint 3×3 grid of 49 px micro-cells. The close button does not show when the menu is closed. |
+| `screen.png` | Empty board, menu closed. It shows only the menu button (top right, closed icon: dot at the bottom left) and the difficulty meter below the board. | The base layout. The board has 9×9 cells of 147 px, at the center, from (148, 418) to (1471, 1741). Each cell has a 3×3 grid of 49 px micro-cells, with no lines. The close button does not show when the menu is closed. |
 | `screen-in-progress.png` | A game in progress: starting numbers (gray background, black digits), your numbers (white background, gray digits), pencil marks and one clash (two red 9s). | The main state of the game. The pencil marks are the possible digits only, because the app hides the marks of the digits of peers. |
 | `screen-highlight.png` | The same game after a tap on a 5. All 5s have the highlight color (green). | Highlights. A tap on the same number again, or a different action, removes the highlight. |
 | `screen-unrecognized.png` | The same game immediately after a scribble that the app cannot read. A gray **?** shows in the cell for approximately one second. | The response to writing that is not a number from 1 to 9 (for example a scribble, 0 or 12). After the "?", the cell is the same as before. |
@@ -74,7 +74,7 @@ use one list of sample results. Thus their numbers agree.
 |---|---|
 | `template.png` | A blank canvas of 1620×2160. |
 | `box.png` | One 3×3 box with 20 px of space around it, at the pixel scale of the board. |
-| `cell.png` | One cell with its micro-cells, with 20 px of space around it, at the same scale. |
+| `cell.png` | One empty cell (no micro-cell lines), with 20 px of space around it, at the same scale. |
 
 ## Manual
 
