@@ -702,17 +702,29 @@ pub fn blit(frame: &Pixmap, fb: &mut [u8]) -> Option<Update> {
             grow(&mut changed, ScreenRect::new(a as i32, y as i32, b as i32, y as i32));
         }
     } else {
-        for y in 0..frame.height() as usize {
-            let row = &px[y * w * 4..(y + 1) * w * 4];
-            let mut i = base + y as i64 * sy;
-            for (x, p) in row.chunks_exact(4).enumerate() {
-                let o = &mut fb[i as usize * 3..i as usize * 3 + 3];
-                if *o != p[..3] {
-                    o.copy_from_slice(&p[..3]);
-                    grow(&mut changed, ScreenRect::point(x as i32, y as i32));
+        // A screen row is a framebuffer column. The copy goes in tiles of TILE x TILE pixels, so
+        // that the reads of the frame and the writes of the framebuffer stay in the cache. The
+        // first and the last changed pixel of each screen row give the changed box.
+        const TILE: usize = 16;
+        let h = frame.height() as usize;
+        let mut rows = vec![(usize::MAX, 0usize); h];
+        for y0 in (0..h).step_by(TILE) {
+            for x0 in (0..w).step_by(TILE) {
+                for x in x0..(x0 + TILE).min(w) {
+                    for (y, row) in rows.iter_mut().enumerate().take((y0 + TILE).min(h)).skip(y0) {
+                        let p = &px[(y * w + x) * 4..(y * w + x) * 4 + 3];
+                        let i = (base + x as i64 * sx + y as i64 * sy) as usize * 3;
+                        let o = &mut fb[i..i + 3];
+                        if *o != *p {
+                            o.copy_from_slice(p);
+                            *row = (row.0.min(x), row.1.max(x));
+                        }
+                    }
                 }
-                i += sx;
             }
+        }
+        for (y, &(first, last)) in rows.iter().enumerate().filter(|(_, r)| r.0 != usize::MAX) {
+            grow(&mut changed, ScreenRect::new(first as i32, y as i32, last as i32, y as i32));
         }
     }
     changed.map(|r| r.physical().to_update())
@@ -736,6 +748,46 @@ fn blit_rect(frame: &Pixmap, fb: &mut [u8], r: ScreenRect) {
 mod tests {
     use super::*;
     use std::collections::{HashMap, HashSet};
+
+    #[test]
+    fn the_tiled_copy_of_a_rotated_frame_is_the_same_as_a_copy_of_each_pixel() {
+        // `blit` copies a landscape frame in tiles. The framebuffer and the changed box must be the
+        // same as a copy of each pixel, also when only some pixels change.
+        for rotation in [1, 2] {
+            crate::layout::set_rotation(rotation);
+            let mut frame = Pixmap::new(screen_w(), screen_h()).unwrap();
+            for (k, p) in frame.data_mut().chunks_exact_mut(4).enumerate() {
+                p.copy_from_slice(&[(k * 7) as u8, (k / 3) as u8, (k % 251) as u8, 255]);
+            }
+            let n = (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize;
+            let (mut fb, mut want) = (vec![0u8; n], vec![0u8; n]);
+            for change in 0..3 {
+                if change > 0 {
+                    // A few pixels change (a box in the middle of the screen, and one corner).
+                    for (x, y) in [(500 + change * 3, 300), (501, 301 + change), (0, 0)] {
+                        frame.data_mut()[(y * screen_w() as usize + x) * 4] ^= 0x55;
+                    }
+                }
+                let got = blit(&frame, &mut fb);
+                // The copy of each pixel.
+                let (base, sx, sy) = crate::layout::physical_steps();
+                let mut b: Option<ScreenRect> = None;
+                for y in 0..screen_h() as usize {
+                    for x in 0..screen_w() as usize {
+                        let p = &frame.data()[(y * screen_w() as usize + x) * 4..][..3];
+                        let i = (base + x as i64 * sx + y as i64 * sy) as usize * 3;
+                        if want[i..i + 3] != *p {
+                            want[i..i + 3].copy_from_slice(p);
+                            grow(&mut b, ScreenRect::point(x as i32, y as i32));
+                        }
+                    }
+                }
+                assert!(fb == want, "rotation {rotation}, change {change}: framebuffer");
+                assert_eq!(got, b.map(|r| r.physical().to_update()), "rotation {rotation}, change {change}: box");
+            }
+        }
+        crate::layout::set_rotation(0);
+    }
 
     /// The app with the puzzle of seed 7 and the menu closed. The app opens with the menu open
     /// (PER-2), but these tests examine only the board: the closed menu does not change when the
