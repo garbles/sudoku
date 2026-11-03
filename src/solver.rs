@@ -104,6 +104,8 @@ struct Tables {
     cell_units: [[usize; 3]; 81],
     /// The 20 peers of each cell.
     peers: [Set; 81],
+    /// The same peers as a list (from the lowest cell), which is faster to read.
+    peer_list: [[u8; 20]; 81],
 }
 
 fn tables() -> &'static Tables {
@@ -124,7 +126,14 @@ fn tables() -> &'static Tables {
             let [r, c, b] = cell_units[i];
             (unit_set[r] | unit_set[c] | unit_set[b]) & !(1 << i)
         });
-        Tables { units, unit_set, cell_units, peers }
+        let peer_list = peers.map(|p| {
+            let mut list = [0u8; 20];
+            for (k, i) in members(p).enumerate() {
+                list[k] = i as u8;
+            }
+            list
+        });
+        Tables { units, unit_set, cell_units, peers, peer_list }
     })
 }
 
@@ -303,10 +312,11 @@ impl Board {
         }
         self.value[i] = d;
         self.cand[i] = 0;
-        let peers = tables().peers[i];
-        for p in members(peers) {
-            self.cand[p] &= !bit(d);
+        let t = tables();
+        for &p in &t.peer_list[i] {
+            self.cand[p as usize] &= !bit(d);
         }
+        let peers = t.peers[i];
         for pos in &mut self.pos {
             *pos &= !(1 << i);
         }
