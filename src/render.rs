@@ -552,17 +552,22 @@ pub fn decode_png(data: &[u8]) -> Pixmap {
     let mut pm = Pixmap::new(w, h).expect("pixmap");
     let out = pm.data_mut();
     let n = (w * h) as usize;
-    for i in 0..n {
-        let (r, g, b, a) = match info.color_type {
-            png::ColorType::Grayscale => (buf[i], buf[i], buf[i], 255),
-            png::ColorType::GrayscaleAlpha => (buf[2 * i], buf[2 * i], buf[2 * i], buf[2 * i + 1]),
-            png::ColorType::Rgb => (buf[3 * i], buf[3 * i + 1], buf[3 * i + 2], 255),
-            png::ColorType::Rgba => (buf[4 * i], buf[4 * i + 1], buf[4 * i + 2], buf[4 * i + 3]),
-            png::ColorType::Indexed => unreachable!("expanded by the decoder"),
-        };
-        // Premultiplied alpha.
-        let pm_ = |v: u8| ((v as u32 * a as u32 + 127) / 255) as u8;
-        out[4 * i..4 * i + 4].copy_from_slice(&[pm_(r), pm_(g), pm_(b), a]);
+    // Premultiplied alpha. An opaque pixel keeps its values: (v * 255 + 127) / 255 = v.
+    let premultiply = |px: &mut [u8], (r, g, b, a): (u8, u8, u8, u8)| {
+        if a == 255 {
+            px.copy_from_slice(&[r, g, b, 255]);
+        } else {
+            let pm_ = |v: u8| ((v as u32 * a as u32 + 127) / 255) as u8;
+            px.copy_from_slice(&[pm_(r), pm_(g), pm_(b), a]);
+        }
+    };
+    let out = out[..4 * n].chunks_exact_mut(4);
+    match info.color_type {
+        png::ColorType::Grayscale => out.zip(&buf[..n]).for_each(|(px, &v)| premultiply(px, (v, v, v, 255))),
+        png::ColorType::GrayscaleAlpha => out.zip(buf.chunks_exact(2)).for_each(|(px, s)| premultiply(px, (s[0], s[0], s[0], s[1]))),
+        png::ColorType::Rgb => out.zip(buf.chunks_exact(3)).for_each(|(px, s)| premultiply(px, (s[0], s[1], s[2], 255))),
+        png::ColorType::Rgba => out.zip(buf.chunks_exact(4)).for_each(|(px, s)| premultiply(px, (s[0], s[1], s[2], s[3]))),
+        png::ColorType::Indexed => unreachable!("expanded by the decoder"),
     }
     pm
 }
