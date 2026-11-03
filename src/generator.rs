@@ -118,7 +118,7 @@ fn generate_v2(seed: u64, mode: u8) -> Puzzle {
     // The attempts do not depend on each other: after the first attempt (it is often correct), the
     // threads make batches of attempts. The results are examined in the order of the attempts, thus
     // the puzzle is the same as with one attempt after the other (PUZ-5).
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4) as u64;
+    let threads = crate::system::threads() as u64;
     let mut best: Option<(Level, Puzzle)> = None;
     let mut next = 0;
     while next < MAX_ATTEMPTS {

@@ -5,6 +5,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use crate::app::Env;
 use crate::generator::Rng;
 
+/// The quantity of threads of a parallel calculation: one for each core, at most 4 (the cores of the
+/// Paper Pro).
+pub fn threads() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4)
+}
+
 pub struct SystemEnv {
     rng: Rng,
 }

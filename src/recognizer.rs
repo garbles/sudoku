@@ -12,6 +12,8 @@
 
 use std::sync::{Arc, Mutex, OnceLock};
 
+use crate::system::threads;
+
 pub type Point = (f32, f32);
 pub type Stroke = Vec<Point>;
 
@@ -93,10 +95,6 @@ pub fn finish_early() {
     }
 }
 
-/// The quantity of threads of a reading (the ranges of the examples).
-fn threads() -> usize {
-    std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4)
-}
 
 /// The nearest examples of the ink (for an examination of the recognizer).
 pub fn matches(strokes: &[Stroke]) -> Option<Match> {
@@ -269,7 +267,7 @@ impl Recognizer {
         // The features of each example do not depend on the other examples: the threads calculate
         // parts of the list, and the result keeps the order of the list.
         let samples: Vec<&Sample> = samples.collect();
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4);
+        let threads = threads();
         // Each part gives the classes and the features (DIM values for each class, in one vector).
         let parts: Vec<(Vec<u8>, Vec<f32>)> = std::thread::scope(|scope| {
             let handles: Vec<_> = samples

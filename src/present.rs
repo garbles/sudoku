@@ -701,7 +701,7 @@ fn in_bands<R: Send>(
     copy: impl Fn(std::ops::Range<usize>, &mut [u8], &mut [u8], i64) -> R + Sync,
 ) -> Vec<R> {
     let (base, sx, sy) = crate::layout::physical_steps();
-    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4);
+    let threads = crate::system::threads();
     if threads == 1 || pixels < BAND_MIN_PIXELS || sx.abs() != 1 {
         return vec![copy(0..h, rows_buf, fb, 0)];
     }

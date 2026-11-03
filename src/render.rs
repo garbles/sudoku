@@ -1011,7 +1011,7 @@ fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, highlight: Option<u
     if missing > COLD_TILES {
         // Many new tiles (for example the first frame): one full drawing of the board is faster.
         // Then the tiles come from the frame.
-        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4);
+        let threads = crate::system::threads();
         draw_board_stripes(c, area, &looks, threads);
         TILES.with(|t| {
             let mut t = t.borrow_mut();
