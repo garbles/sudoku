@@ -224,20 +224,30 @@ impl Recognizer {
         // parts of the list, and the result keeps the order of the list.
         let samples: Vec<&Sample> = samples.collect();
         let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4);
-        let parts: Vec<Vec<(u8, Vec<f32>)>> = std::thread::scope(|scope| {
+        // Each part gives the classes and the features (DIM values for each class, in one vector).
+        let parts: Vec<(Vec<u8>, Vec<f32>)> = std::thread::scope(|scope| {
             let handles: Vec<_> = samples
                 .chunks(samples.len().div_ceil(threads).max(1))
-                .map(|part| scope.spawn(move || part.iter().flat_map(|s| example_features(s)).collect()))
+                .map(|part| {
+                    scope.spawn(move || {
+                        let (mut classes, mut features) = (Vec::new(), Vec::new());
+                        for s in part {
+                            example_features(s, &mut classes, &mut features);
+                        }
+                        (classes, features)
+                    })
+                })
                 .collect();
             handles.into_iter().map(|h| h.join().expect("recognizer thread")).collect()
         });
-        let n: usize = parts.iter().map(Vec::len).sum();
+        let n: usize = parts.iter().map(|p| p.0.len()).sum();
         let mut classes = Vec::with_capacity(n);
         let mut blocks = vec![0f32; n.div_ceil(LANES) * DIM * LANES];
-        for (i, (class, f)) in parts.into_iter().flatten().enumerate() {
+        let all = parts.iter().flat_map(|(c, f)| c.iter().zip(f.chunks_exact(DIM)));
+        for (i, (&class, f)) in all.enumerate() {
             classes.push(class);
             let (b, l) = (i / LANES, i % LANES);
-            for (j, v) in f.into_iter().enumerate() {
+            for (j, &v) in f.iter().enumerate() {
                 blocks[(b * DIM + j) * LANES + l] = v;
             }
         }
@@ -359,19 +369,20 @@ impl Nearest {
 
 /// The class and the features of an example and of its copies (DIGIT_COPIES: digits also get copies
 /// with a different slant, rotation and width).
-fn example_features(s: &Sample) -> Vec<(u8, Vec<f32>)> {
+/// Adds the class to `classes` and the DIM features to `features` for each copy whose features
+/// are known.
+fn example_features(s: &Sample, classes: &mut Vec<u8>, features: &mut Vec<f32>) {
     let copies: &[(f32, f32, f32)] = if s.class == 0 { &[(0.0, 0.0, 1.0)] } else { &DIGIT_COPIES };
-    copies
-        .iter()
-        .filter_map(|&(k, rot, sx)| {
-            let (sin, cos) = rot.to_radians().sin_cos();
-            let ink = Flat::new(&s.strokes, |(x, y)| {
-                let (x, y) = ((x + k * (255.0 - y) - 128.0) * sx, y - 128.0);
-                (x * cos - y * sin + 128.0, x * sin + y * cos + 128.0)
-            });
-            flat_features(ink).map(|f| (s.class, f))
-        })
-        .collect()
+    for &(k, rot, sx) in copies {
+        let (sin, cos) = rot.to_radians().sin_cos();
+        let ink = Flat::new(&s.strokes, |(x, y)| {
+            let (x, y) = ((x + k * (255.0 - y) - 128.0) * sx, y - 128.0);
+            (x * cos - y * sin + 128.0, x * sin + y * cos + 128.0)
+        });
+        if flat_features(ink, features) {
+            classes.push(s.class);
+        }
+    }
 }
 
 /// The squared distances from `f` to the LANES examples of a block. Each lane adds the squares in the
@@ -483,20 +494,24 @@ fn normalize(mut ink: Flat) -> Option<Flat> {
 
 /// The feature vector: the pen directions in a grid, then the pen path.
 fn features_of(strokes: &[Stroke]) -> Option<Vec<f32>> {
-    flat_features(Flat::new(strokes, |p| p))
+    let mut f = Vec::with_capacity(DIM);
+    flat_features(Flat::new(strokes, |p| p), &mut f).then_some(f)
 }
 
-fn flat_features(ink: Flat) -> Option<Vec<f32>> {
-    let ns = normalize(ink)?;
-    let mut f = directions(&ns);
-    pen_path(&ns.points, &mut f);
-    debug_assert_eq!(f.len(), DIM);
-    Some(f)
+/// Adds the DIM features of the ink to `out`. False (and nothing added) if the ink has no size.
+fn flat_features(ink: Flat, out: &mut Vec<f32>) -> bool {
+    let Some(ns) = normalize(ink) else { return false };
+    let start = out.len();
+    directions(&ns, out);
+    pen_path(&ns.points, out);
+    debug_assert_eq!(out.len() - start, DIM);
+    true
 }
 
 /// The length of the pen movement in each grid cell and each of 8 directions (with the sense of the
-/// movement), with a small blur. The result has a length of 1.
-fn directions(ink: &Flat) -> Vec<f32> {
+/// movement), with a small blur. Adds these GRID x GRID x DIRS values (with a length of 1 together)
+/// to `features`.
+fn directions(ink: &Flat, features: &mut Vec<f32>) {
     use std::f32::consts::TAU;
     let (g, d) = (GRID, DIRS);
     let mut f = [0f32; GRID * GRID * DIRS];
@@ -539,9 +554,9 @@ fn directions(ink: &Flat) -> Vec<f32> {
         let row = (y + 1) * P + 1;
         padded[row * d..(row + g) * d].copy_from_slice(&f[y * g * d..(y + 1) * g * d]);
     }
-    // The capacity is DIM: `features_of` adds the pen path to this vector.
-    let mut out = Vec::with_capacity(DIM);
-    out.resize(f.len(), 0f32);
+    let start = features.len();
+    features.resize(start + f.len(), 0f32);
+    let out = &mut features[start..];
     for y in 0..g {
         for x in 0..g {
             let mut s = [0f32; DIRS];
@@ -559,7 +574,6 @@ fn directions(ink: &Flat) -> Vec<f32> {
     }
     let n = out.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-6);
     out.iter_mut().for_each(|v| *v /= n);
-    out
 }
 
 /// The strokes joined in the order of writing (`pts`), at PATH_POINTS equal distances: x0, y0, x1,
