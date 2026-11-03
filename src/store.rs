@@ -199,14 +199,18 @@ pub fn data_dir() -> PathBuf {
 /// Writes JSON to a file. It writes a temporary file, syncs it and then renames it, so that a power
 /// loss never leaves a partial file.
 pub fn save_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
+    write_atomic(path, &serde_json::to_vec(value).map_err(std::io::Error::other)?)
+}
+
+/// Writes `data` to a temporary file, syncs it and renames it to `path` (refer to `save_json`).
+fn write_atomic(path: &Path, data: &[u8]) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         fs::create_dir_all(dir)?;
     }
     let tmp = path.with_extension("tmp");
-    let data = serde_json::to_vec(value).map_err(std::io::Error::other)?;
     {
         let mut f = fs::File::create(&tmp)?;
-        f.write_all(&data)?;
+        f.write_all(data)?;
         f.sync_all()?;
     }
     fs::rename(&tmp, path)?;
@@ -217,6 +221,100 @@ pub fn save_json<T: Serialize>(path: &Path, value: &T) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Writes JSON files on a background thread, each with `save_json`: the sync to the disk (eMMC)
+/// does not delay the main loop (the screen and the ink). The writes keep their order. A newer
+/// write of a file replaces a write of the same file that waits. `flush` waits for all writes.
+pub struct Saver {
+    tx: Option<std::sync::mpsc::Sender<SaverMsg>>,
+    failed: std::sync::mpsc::Receiver<PathBuf>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+enum SaverMsg {
+    Write(PathBuf, Vec<u8>),
+    /// Sends true when all earlier writes are complete and correct.
+    Flush(std::sync::mpsc::Sender<bool>),
+}
+
+impl Default for Saver {
+    fn default() -> Saver {
+        Saver::new()
+    }
+}
+
+impl Saver {
+    pub fn new() -> Saver {
+        let (tx, rx) = std::sync::mpsc::channel::<SaverMsg>();
+        let (failed_tx, failed) = std::sync::mpsc::channel();
+        let thread = std::thread::spawn(move || {
+            // The writes that wait, in order. A newer write of the same file replaces the older one.
+            let mut waiting: Vec<(PathBuf, Vec<u8>)> = Vec::new();
+            let mut all_ok = true;
+            let write_all = |waiting: &mut Vec<(PathBuf, Vec<u8>)>, all_ok: &mut bool| {
+                for (path, data) in waiting.drain(..) {
+                    if let Err(e) = write_atomic(&path, &data) {
+                        eprintln!("sudoku: cannot save {}: {e}", path.display());
+                        *all_ok = false;
+                        let _ = failed_tx.send(path);
+                    }
+                }
+            };
+            while let Ok(msg) = rx.recv() {
+                let mut next = Some(msg);
+                while let Some(msg) = next.take() {
+                    match msg {
+                        SaverMsg::Write(path, data) => {
+                            waiting.retain(|(p, _)| *p != path);
+                            waiting.push((path, data));
+                        }
+                        SaverMsg::Flush(done) => {
+                            write_all(&mut waiting, &mut all_ok);
+                            let _ = done.send(std::mem::replace(&mut all_ok, true));
+                        }
+                    }
+                    next = rx.try_recv().ok();
+                }
+                write_all(&mut waiting, &mut all_ok);
+            }
+            write_all(&mut waiting, &mut all_ok);
+        });
+        Saver { tx: Some(tx), failed, thread: Some(thread) }
+    }
+
+    /// Writes `value` to `path` later (the JSON is made now).
+    pub fn write<T: Serialize>(&self, path: &Path, value: &T) -> std::io::Result<()> {
+        let data = serde_json::to_vec(value).map_err(std::io::Error::other)?;
+        self.send(SaverMsg::Write(path.to_path_buf(), data))
+    }
+
+    /// Waits until all earlier writes are on the disk. True if all writes since the last flush are
+    /// correct.
+    pub fn flush(&self) -> bool {
+        let (done, wait) = std::sync::mpsc::channel();
+        self.send(SaverMsg::Flush(done)).is_ok() && wait.recv().unwrap_or(false)
+    }
+
+    /// The files of the writes that failed since the last call.
+    pub fn failures(&self) -> Vec<PathBuf> {
+        self.failed.try_iter().collect()
+    }
+
+    fn send(&self, msg: SaverMsg) -> std::io::Result<()> {
+        let tx = self.tx.as_ref().expect("the saver is open");
+        tx.send(msg).map_err(|_| std::io::Error::other("the save thread stopped"))
+    }
+}
+
+impl Drop for Saver {
+    /// Writes all files that wait, then stops the thread.
+    fn drop(&mut self) {
+        drop(self.tx.take());
+        if let Some(t) = self.thread.take() {
+            let _ = t.join();
+        }
+    }
+}
+
 pub fn load_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
     let data = fs::read(path).ok()?;
     serde_json::from_slice(&data).ok()
@@ -225,6 +323,50 @@ pub fn load_json<T: DeserializeOwned>(path: &Path) -> Option<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("sudoku-saver-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn the_saver_writes_the_last_value_of_each_file() {
+        // PER-1, PER-7: the background writes keep their order; after a flush the files have the
+        // last values.
+        let dir = temp_dir("order");
+        let saver = Saver::new();
+        for i in 0..200u32 {
+            saver.write(&dir.join("a.json"), &i).unwrap();
+            saver.write(&dir.join("b.json"), &(1000 + i)).unwrap();
+        }
+        assert!(saver.flush());
+        assert_eq!(load_json::<u32>(&dir.join("a.json")), Some(199));
+        assert_eq!(load_json::<u32>(&dir.join("b.json")), Some(1199));
+        saver.write(&dir.join("a.json"), &7u32).unwrap();
+        // The drop writes what waits.
+        drop(saver);
+        assert_eq!(load_json::<u32>(&dir.join("a.json")), Some(7));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_saver_gives_the_failed_files() {
+        // A file in a folder that is a file cannot be written: the main loop gets the path, and
+        // marks the data dirty again.
+        let dir = temp_dir("fail");
+        fs::write(dir.join("not-a-folder"), b"x").unwrap();
+        let bad = dir.join("not-a-folder").join("game.json");
+        let saver = Saver::new();
+        saver.write(&bad, &1u32).unwrap();
+        assert!(!saver.flush());
+        assert_eq!(saver.failures(), vec![bad]);
+        saver.write(&dir.join("ok.json"), &2u32).unwrap();
+        assert!(saver.flush(), "a flush gives the result of the writes after the last flush");
+        assert!(saver.failures().is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn insert_list_delete() {

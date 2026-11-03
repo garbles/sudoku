@@ -15,7 +15,7 @@ use crate::game::Game;
 use crate::present::{self, Presenter};
 use crate::render;
 use crate::settings::Settings;
-use crate::store::{self, ResultsDb};
+use crate::store::{self, ResultsDb, Saver};
 use crate::system::SystemEnv;
 use crate::update::{self, Manifest, UpdateRequest};
 
@@ -98,15 +98,21 @@ fn write_pen_region(region: Option<present::Update>) {
     }
 }
 
-fn save(app: &mut App, paths: &Paths) {
+/// Gives the changed game and settings to the saver (it writes them on its thread). A write that
+/// failed makes its data dirty again: the next call writes it again.
+fn save(app: &mut App, paths: &Paths, saver: &Saver) {
+    for failed in saver.failures() {
+        app.game_dirty |= failed == paths.game;
+        app.settings_dirty |= failed == paths.settings;
+    }
     if app.game_dirty {
-        match store::save_json(&paths.game, &app.game) {
+        match saver.write(&paths.game, &app.game) {
             Ok(()) => app.game_dirty = false,
             Err(e) => eprintln!("sudoku: cannot save the game: {e}"),
         }
     }
     if app.settings_dirty {
-        match store::save_json(&paths.settings, &app.settings) {
+        match saver.write(&paths.settings, &app.settings) {
             Ok(()) => app.settings_dirty = false,
             Err(e) => eprintln!("sudoku: cannot save the settings: {e}"),
         }
@@ -292,8 +298,12 @@ pub fn run() -> Result<(), String> {
             }
         }));
     }
-    app.save_game_now = Some(Box::new(move |g: &Game| match store::save_json(&game_path, g) {
-        Ok(()) => true,
+    // The saved files are written on a thread: the sync to the disk does not delay the screen.
+    let saver = std::rc::Rc::new(Saver::new());
+    let completion_saver = saver.clone();
+    // The completed game is on the disk before the result goes into the database (§8.3).
+    app.save_game_now = Some(Box::new(move |g: &Game| match completion_saver.write(&game_path, g) {
+        Ok(()) => completion_saver.flush(),
         Err(e) => {
             eprintln!("sudoku: cannot save the game: {e}");
             false
@@ -303,7 +313,7 @@ pub fn run() -> Result<(), String> {
     #[cfg(feature = "corpus")]
     crate::corpus::setup(&mut app, &data_dir);
     app.pause_ms = std::env::var("SUDOKU_RECOGNITION_PAUSE_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PAUSE_MS);
-    save(&mut app, &paths);
+    save(&mut app, &paths, &saver);
 
     let key: i32 = std::env::var("QTFB_KEY")
         .map_err(|_| "QTFB_KEY is not set. Start the app from AppLoad.".to_string())?
@@ -439,11 +449,12 @@ pub fn run() -> Result<(), String> {
             app.game_dirty = true;
             last_clock_save = Instant::now();
         }
-        save(&mut app, &paths);
+        save(&mut app, &paths, &saver);
         // "Restart" in the dialog "Restart the interface?": the game is saved now. The app continues
         // until xovi/start stops xochitl.
         if app.restart_ui {
             app.restart_ui = false;
+            saver.flush();
             if let Err(e) = restart_interface() {
                 eprintln!("sudoku: cannot restart the interface: {e}");
                 app.restart_failed();
@@ -465,6 +476,9 @@ pub fn run() -> Result<(), String> {
     // The app closes: ink that waits is removed (PER-6) and the game is saved (PER-1, NAV-6).
     app.tick(now_ms());
     app.suspend();
-    save(&mut app, &paths);
+    save(&mut app, &paths, &saver);
+    if !saver.flush() {
+        eprintln!("sudoku: the last save failed");
+    }
     Ok(())
 }

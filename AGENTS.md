@@ -175,7 +175,9 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   toolbar (the key must contain all that the pixels depend on). A full drawing of the board (the
   first frame, a new game) uses up to 4 threads, in stripes that end at the borders of cell rows
   (tiny-skia gives other pixels for a glyph that the edge of a pixmap cuts).
-- `store.rs`, `settings.rs`: the SQLite results, the settings and the saved game (JSON).
+- `store.rs`, `settings.rs`: the SQLite results, the settings and the saved game (JSON). The main
+  loop gives the JSON files to `store::Saver`, which writes them (with fsync) on a background
+  thread; the completion, the restart of the interface and the close wait for it (`flush`).
 - `update.rs`: the update state, the signed `version.json` and the installation of a release
   archive. No network: `platform/` downloads the files on a background thread (ureq, rustls).
 - `platform/`: Linux only. The qtfb client, the eraser state (evdev) and the main loop.
