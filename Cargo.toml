@@ -45,6 +45,10 @@ ed25519-dalek = "3"
 flate2 = "1"
 tar = "0.4"
 
+# The malloc of musl (the C library of the tablet build) is slow.
+[target.'cfg(target_env = "musl")'.dependencies]
+mimalloc = { version = "0.1", default-features = false }
+
 [dev-dependencies]
 proptest = "1"
 

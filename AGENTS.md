@@ -65,11 +65,12 @@ builds in parallel).
   writes a new baseline. `--note TEXT` describes the change in the history.
 - `bench/baseline-linux.json` is the baseline in the Linux container (aarch64, musl, as the tablet
   build). The C library of the tablet is musl: its `memcmp` and `malloc` are much slower than on
-  macOS. Thus, also measure in the container: run `scripts/bench.sh --baseline
-  bench/baseline-linux.json` in `rust:1.97-alpine` (with `python3`) and set `CARGO_TARGET_DIR` to a
-  folder that is not `target/`. The recognizer hash on macOS is not the same as on Linux (the math
-  functions of the C library are different): compare a result only with the baseline of the same
-  platform.
+  macOS. Thus the musl builds use mimalloc as the global allocator (`src/lib.rs`), and the code
+  does not use `memcmp` for large comparisons. Also measure in the container: run
+  `scripts/bench.sh --baseline bench/baseline-linux.json` in `rust:1.97-alpine` (with `python3`)
+  and set `CARGO_TARGET_DIR` to a folder that is not `target/`. The recognizer hash on macOS is
+  not the same as on Linux (the math functions of the C library are different): compare a result
+  only with the baseline of the same platform.
 - On the tablet: `sudoku --bench /tmp/bench.json`. Copy the file to the computer and compare it:
   `scripts/bench.sh --compare FILE --baseline bench/baseline-tablet.json`.
 - Bench options: `--gen N` (seeds for each mode), `--recognize-step N` (each n-th example),

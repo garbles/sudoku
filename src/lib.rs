@@ -22,6 +22,12 @@ pub mod present;
 pub mod reference;
 pub mod script;
 
+/// The malloc of musl (the C library of the tablet build) is slow: the drawing, the fonts and the
+/// startup make many small allocations.
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 /// The version of the app (REQUIREMENTS.md §9.1). release.yml sets SUDOKU_VERSION at build time
 /// (pre-<sha> or v<version>). Other builds show "dev".
 pub const VERSION: &str = match option_env!("SUDOKU_VERSION") {
