@@ -1470,8 +1470,9 @@ enum BoxLook {
 /// The key of a cached box: the fonts (address), the layout, the box (screen px) and the look.
 type BoxKey = (usize, layout::Rotation, bool, (i32, i32, i32, i32), BoxLook);
 
-/// More cached boxes than this: the cache starts again.
-const MAX_BOXES: usize = 256;
+/// More bytes of cached boxes than this: the cache starts again. A page of the games list (rows of
+/// 0.7 MB) and all items of the Cell colors panel fit.
+const MAX_BOX_BYTES: usize = 16 << 20;
 
 thread_local! {
     static BOXES: std::cell::RefCell<std::collections::HashMap<BoxKey, Pixmap, std::hash::BuildHasherDefault<FxHasher>>> =
@@ -1506,7 +1507,7 @@ fn put_box(c: &mut Canvas, (x0, y0, x1, y1): (i32, i32, i32, i32), look: BoxLook
     copy_px(c.pm, x, y, w, h, &mut tile, 0, 0);
     BOXES.with(|t| {
         let mut t = t.borrow_mut();
-        if t.len() >= MAX_BOXES {
+        if t.values().map(|p| p.data().len()).sum::<usize>() + tile.data().len() > MAX_BOX_BYTES {
             t.clear();
         }
         t.insert(key, tile);
