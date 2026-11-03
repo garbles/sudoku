@@ -251,3 +251,24 @@ fn the_cached_items_of_the_colors_panel_are_the_same_as_a_new_drawing() {
     assert_ne!(first.data(), cached.data(), "the change of the color shows");
     assert!(cached.data() == fresh.data(), "the cached items are the same as a new drawing");
 }
+
+#[test]
+fn the_cached_rows_of_the_games_list_are_the_same_as_a_new_drawing() {
+    // The list of completed games keeps the pixels of each row. The delete dialog over the list
+    // then gets its rows from the cache. They must be the same as a drawing with no cache.
+    reference::use_utc();
+    let fonts = fonts();
+    let setup = |name: &str| reference::states().into_iter().find(|s| s.0 == name).expect("reference state").1;
+    let (list, delete) = (setup("analytics-games.png"), setup("analytics-delete.png"));
+    reference::render(&fonts, list);
+    let cached = reference::render(&fonts, delete);
+    let fresh = std::thread::scope(|s| {
+        s.spawn(|| {
+            reference::use_utc();
+            reference::render(&fonts, delete)
+        })
+        .join()
+        .unwrap()
+    });
+    assert!(cached.data() == fresh.data(), "the cached rows are the same as a new drawing");
+}

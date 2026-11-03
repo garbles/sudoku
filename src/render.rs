@@ -1452,33 +1452,44 @@ fn color_section(c: &mut Canvas, index: usize, title: &str, items: &[(Rgb, Strin
     c.text(Weight::Medium, 25.0, (pl + 33) as f32, (top + COLOR_TITLE_Y) as f32, Anchor::Start, title, BLACK);
     for (i, (rgb, name, state)) in items.iter().enumerate() {
         let cell = layout::color_grid_cell(index, i);
-        put_swatch(c, (cell.x0, cell.y0, cell.x1, cell.y1), (*rgb, name, *state), |c| color_item(c, cell, *rgb, name, *state));
+        // The panel is white under the item, and the item draws only in its cell.
+        let look = BoxLook::Swatch(*rgb, name.clone(), *state);
+        put_box(c, (cell.x0, cell.y0, cell.x1, cell.y1), look, |c| color_item(c, cell, *rgb, name, *state));
     }
 }
 
-/// The key of a cached item of the Cell colors panel: the fonts (address), the layout, the box of
-/// the item and all that its pixels depend on.
-type SwatchKey = (usize, layout::Rotation, bool, (i32, i32, i32, i32), Rgb, String, Swatch);
+/// A drawing that the box cache keeps (refer to `put_box`): all that its pixels depend on.
+#[derive(Clone, PartialEq, Eq, Hash)]
+enum BoxLook {
+    /// An item of the Cell colors panel: its color, its name and its state.
+    Swatch(Rgb, String, Swatch),
+    /// A row of the list of completed games: the date, the mode and the time.
+    ListRow(String, u8, String),
+}
 
-/// More cached items than this: the cache starts again.
-const MAX_SWATCHES: usize = 256;
+/// The key of a cached box: the fonts (address), the layout, the box (screen px) and the look.
+type BoxKey = (usize, layout::Rotation, bool, (i32, i32, i32, i32), BoxLook);
+
+/// More cached boxes than this: the cache starts again.
+const MAX_BOXES: usize = 256;
 
 thread_local! {
-    static SWATCHES: std::cell::RefCell<std::collections::HashMap<SwatchKey, Pixmap, std::hash::BuildHasherDefault<FxHasher>>> =
+    static BOXES: std::cell::RefCell<std::collections::HashMap<BoxKey, Pixmap, std::hash::BuildHasherDefault<FxHasher>>> =
         std::cell::RefCell::new(Default::default());
 }
 
-/// Draws an item of the Cell colors panel in its box. The panel is white under the box and the
-/// item draws only in its box, thus the cached pixels of the box are the same as a new drawing.
-/// A tap in the panel changes few items: the others come from the cache.
-fn put_swatch(c: &mut Canvas, (x0, y0, x1, y1): (i32, i32, i32, i32), (rgb, name, state): (Rgb, &str, Swatch), draw: impl FnOnce(&mut Canvas)) {
-    if c.units != Units::Screen || c.top != 0 {
+/// Draws `look` with `draw` in the screen box `(x0, y0, x1, y1)` (x1 and y1 not included). The
+/// caller makes sure that the box is white before the drawing and that `draw` changes pixels only
+/// in the box: then the cached pixels of the box are the same as a new drawing. A redraw of a screen
+/// draws only the boxes that changed (a tap in the Cell colors panel, the dialog over the list).
+fn put_box(c: &mut Canvas, (x0, y0, x1, y1): (i32, i32, i32, i32), look: BoxLook, draw: impl FnOnce(&mut Canvas)) {
+    if c.top != 0 || x0 < 0 || y0 < 0 || x1 > c.pm.width() as i32 || y1 > c.pm.height() as i32 || x1 <= x0 || y1 <= y0 {
         draw(c);
         return;
     }
-    let key = (c.fonts as *const Fonts as usize, layout::rotation(), layout::right_handed(), (x0, y0, x1, y1), rgb, name.to_string(), state);
+    let key = (c.fonts as *const Fonts as usize, layout::rotation(), layout::right_handed(), (x0, y0, x1, y1), look);
     let (x, y, w, h) = (x0 as usize, y0 as usize, (x1 - x0) as usize, (y1 - y0) as usize);
-    let hit = SWATCHES.with(|t| {
+    let hit = BOXES.with(|t| {
         let t = t.borrow();
         let tile = t.get(&key)?;
         copy_px(tile, 0, 0, w, h, c.pm, x, y);
@@ -1493,9 +1504,9 @@ fn put_swatch(c: &mut Canvas, (x0, y0, x1, y1): (i32, i32, i32, i32), (rgb, name
     draw(c);
     let mut tile = Pixmap::new(w as u32, h as u32).unwrap();
     copy_px(c.pm, x, y, w, h, &mut tile, 0, 0);
-    SWATCHES.with(|t| {
+    BOXES.with(|t| {
         let mut t = t.borrow_mut();
-        if t.len() >= MAX_SWATCHES {
+        if t.len() >= MAX_BOXES {
             t.clear();
         }
         t.insert(key, tile);
@@ -1731,10 +1742,16 @@ fn draw_list(c: &mut Canvas, app: &App) {
     for (i, r) in rows.iter().enumerate() {
         let y = list_row(i);
         let cy = y + (ROW / 2.0).floor();
-        c.text(Weight::Regular, 34.0, x, cy + 12.0, Anchor::Start, &format_date(r.finished_at), BLACK);
-        meter(c, x + meter_dx, cy, METER_STEP, r.mode, MeterStyle::ON_WHITE);
-        c.text(Weight::Regular, 34.0, x + time_dx, cy + 12.0, Anchor::End, &format_clock(r.seconds), BLACK);
-        bin(c, x + bin_dx, cy, BLACK);
+        let (date, clock) = (format_date(r.finished_at), format_clock(r.seconds));
+        // The box between the lines above and below the row (screen px): the page is white there.
+        let sc = |v: f32| v * PAGE_SCALE + 0.5;
+        let row_box = (sc(x) as i32 - 2, sc(y + 1.7) as i32 + 2, sc(x + w) as i32 + 2, sc(y + ROW) as i32 - 1);
+        put_box(c, row_box, BoxLook::ListRow(date.clone(), r.mode, clock.clone()), |c| {
+            c.text(Weight::Regular, 34.0, x, cy + 12.0, Anchor::Start, &date, BLACK);
+            meter(c, x + meter_dx, cy, METER_STEP, r.mode, MeterStyle::ON_WHITE);
+            c.text(Weight::Regular, 34.0, x + time_dx, cy + 12.0, Anchor::End, &clock, BLACK);
+            bin(c, x + bin_dx, cy, BLACK);
+        });
         hline(c, y + ROW, x, x + w);
     }
     if let Some(r) = &app.list.confirm {
