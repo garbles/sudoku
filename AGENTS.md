@@ -55,7 +55,7 @@ builds in parallel).
 
 - `src/bench.rs` plays `video/demo-full.txt` with no screen, with the same output code as the device
   (`present.rs`). It measures each phase (`input_to_pixels`, `draw`, `blit`, `ink.*`, `handle`,
-  `gen`, `recognize`, `startup.*`) and gives hashes of the output: the framebuffer at each check of
+  `gen`, `recognize`, `startup.*` in the order of `platform::run`) and gives hashes of the output: the framebuffer at each check of
   the script, the update rectangles, the reference states, the puzzles and the recognizer matches.
   The bench plays the events with no real time between them. At a wake 100 ms or more after the
   last input (a timer or an input), it lets the background reading of the ink finish (not

@@ -131,9 +131,6 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
     let t = Instant::now();
     let fonts = load_fonts()?;
     phases.add("startup.fonts", t.elapsed());
-    let t = Instant::now();
-    crate::recognizer::warm_up();
-    phases.add("startup.recognizer", t.elapsed());
 
     // ---- The script.
     let script = script::parse(&opts.script, DEFAULT_PAUSE_MS)?;
@@ -145,6 +142,10 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
     let mut fb = vec![0u8; (PHYSICAL_W * PHYSICAL_H * 3) as usize];
     presenter.draw_all(&app, &fonts, &mut fb);
     phases.add("startup.first_frame", t.elapsed());
+    // As platform::run: the recognizer prepares its examples after the first frame.
+    let t = Instant::now();
+    crate::recognizer::warm_up();
+    phases.add("startup.recognizer", t.elapsed());
 
     let mut updates = Hash::new();
     let mut frames = Hash::new();
