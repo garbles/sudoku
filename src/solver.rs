@@ -158,6 +158,50 @@ fn sees(a: usize, b: usize) -> bool {
     tables().peers[a] >> b & 1 != 0
 }
 
+/// A list of at most N items on the stack: the techniques make many small lists, and an allocation
+/// for each list is slow (the `malloc` of musl on the tablet more than on a computer).
+#[derive(Clone, Copy)]
+struct Few<T: Copy + Default, const N: usize> {
+    items: [T; N],
+    len: usize,
+}
+
+impl<T: Copy + Default, const N: usize> Few<T, N> {
+    fn new() -> Self {
+        Few { items: [T::default(); N], len: 0 }
+    }
+
+    fn push(&mut self, x: T) {
+        self.items[self.len] = x;
+        self.len += 1;
+    }
+}
+
+impl<T: Copy + Default, const N: usize> FromIterator<T> for Few<T, N> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+        let mut f = Few::new();
+        for x in iter {
+            f.push(x);
+        }
+        f
+    }
+}
+
+impl<T: Copy + Default, const N: usize> std::ops::Deref for Few<T, N> {
+    type Target = [T];
+    fn deref(&self) -> &[T] {
+        &self.items[..self.len]
+    }
+}
+
+impl<'a, T: Copy + Default, const N: usize> IntoIterator for &'a Few<T, N> {
+    type Item = &'a T;
+    type IntoIter = std::slice::Iter<'a, T>;
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter()
+    }
+}
+
 /// Calls `f` with each combination of `n` items of `items` (lowest indices first) and the union of
 /// their masks, until `f` gives true. Only the combinations with a union of `n` bits or fewer: a
 /// combination with more bits cannot get fewer bits when it gets more items, thus the search skips it.
@@ -356,12 +400,12 @@ impl Board {
     fn naked_subset(&mut self, n: usize) -> bool {
         let t = tables();
         for u in 0..27 {
-            let empty: Vec<usize> = t.units[u].iter().copied().filter(|&i| self.value[i] == 0).collect();
+            let empty: Few<usize, 9> = t.units[u].iter().copied().filter(|&i| self.value[i] == 0).collect();
             if empty.len() <= n {
                 continue;
             }
             let cand = self.cand;
-            let masks: Vec<Set> = empty.iter().map(|&i| cand[i] as Set).collect();
+            let masks: Few<Set, 9> = empty.iter().map(|&i| cand[i] as Set).collect();
             let empty_set = empty.iter().fold(0, |s, &i| s | 1 << i);
             let mut found = None;
             small_unions(&empty, &masks, n, &mut |pick, union| {
@@ -388,13 +432,13 @@ impl Board {
         let t = tables();
         for u in 0..27 {
             let unit = t.unit_set[u];
-            let open: Vec<usize> = (1..=9usize).filter(|&d| unit & self.with(d as u8) != 0).collect();
+            let open: Few<usize, 9> = (1..=9usize).filter(|&d| unit & self.with(d as u8) != 0).collect();
             if open.len() <= n {
                 continue;
             }
-            let pos: Vec<Set> = (0..=9).map(|d| if d == 0 { 0 } else { unit & self.with(d as u8) }).collect();
+            let pos: [Set; 10] = std::array::from_fn(|d| if d == 0 { 0 } else { unit & self.with(d as u8) });
             let cand = self.cand;
-            let masks: Vec<Set> = open.iter().map(|&d| pos[d]).collect();
+            let masks: Few<Set, 9> = open.iter().map(|&d| pos[d]).collect();
             let mut found = None;
             small_unions(&open, &masks, n, &mut |pick, cells| {
                 let mask = pick.iter().fold(0u16, |m, &d| m | bit(d as u8));
@@ -417,14 +461,15 @@ impl Board {
         let t = tables();
         for d in 1..=9 {
             let with = self.with(d);
+            // The cells of row r with d (bit c: column c), and the cells of column c with d (bit r).
+            let rows: [u16; 9] = std::array::from_fn(|r| (with >> (9 * r)) as u16 & 0x1FF);
+            let cols: [u16; 9] = std::array::from_fn(|c| (0..9).fold(0, |m, r| m | (rows[r] >> c & 1) << r));
             for base in [0, 9] {
                 let cover = 9 - base;
                 // For each base line: the indices of the cover lines that have d.
-                let idx: Vec<u16> = (0..9)
-                    .map(|k| t.units[base + k].iter().enumerate().filter(|(_, &i)| with >> i & 1 != 0).fold(0, |m, (j, _)| m | 1 << j))
-                    .collect();
-                let lines: Vec<usize> = (0..9).filter(|&k| (2..=n as u32).contains(&idx[k].count_ones())).collect();
-                let masks: Vec<Set> = lines.iter().map(|&k| idx[k] as Set).collect();
+                let idx = if base == 0 { rows } else { cols };
+                let lines: Few<usize, 9> = (0..9).filter(|&k| (2..=n as u32).contains(&idx[k].count_ones())).collect();
+                let masks: Few<Set, 9> = lines.iter().map(|&k| idx[k] as Set).collect();
                 let mut found = None;
                 small_unions(&lines, &masks, n, &mut |pick, cols| {
                     if cols.count_ones() as usize != n {
@@ -446,7 +491,7 @@ impl Board {
         false
     }
 
-    fn bivalue(&self) -> Vec<usize> {
+    fn bivalue(&self) -> Few<usize, 81> {
         (0..81).filter(|&i| self.cand[i].count_ones() == 2).collect()
     }
 
@@ -481,7 +526,7 @@ impl Board {
         let cand = self.cand;
         for p in (0..81).filter(|&i| cand[i].count_ones() == 3) {
             let pc = self.cand[p];
-            let wings: Vec<usize> = bi.iter().copied().filter(|&w| sees(p, w) && self.cand[w] & !pc == 0).collect();
+            let wings: Few<usize, 81> = bi.iter().copied().filter(|&w| sees(p, w) && self.cand[w] & !pc == 0).collect();
             for (k, &w1) in wings.iter().enumerate() {
                 for &w2 in &wings[k + 1..] {
                     let (c1, c2) = (self.cand[w1], self.cand[w2]);
@@ -497,10 +542,10 @@ impl Board {
 
     /// The pairs of cells that are the only two places of d in a unit (strong links). `lines_only`
     /// excludes the boxes. Each pair has the unit.
-    fn strong_links(&self, d: u8, lines_only: bool) -> Vec<(usize, usize, usize)> {
+    fn strong_links(&self, d: u8, lines_only: bool) -> Few<(usize, usize, usize), 27> {
         let t = tables();
         let with = self.with(d);
-        let mut links: Vec<(usize, usize, usize)> = Vec::new();
+        let mut links = Few::new();
         for u in 0..if lines_only { 18 } else { 27 } {
             let pos = t.unit_set[u] & with;
             if pos.count_ones() == 2 {
@@ -524,7 +569,7 @@ impl Board {
             for &b in bi[k + 1..].iter().filter(|&&b| cand[b] == cand[a] && !sees(a, b)) {
                 for x in digits(self.cand[a]) {
                     let y = self.cand[a] & !bit(x);
-                    for (p, q, _) in self.strong_links(x, false) {
+                    for &(p, q, _) in &self.strong_links(x, false) {
                         if [p, q].contains(&a) || [p, q].contains(&b) {
                             continue;
                         }
@@ -628,12 +673,12 @@ impl Board {
             count[a] += 1;
         };
         for d in 1..=9 {
-            for (p, q, _) in self.strong_links(d, false) {
+            for &(p, q, _) in &self.strong_links(d, false) {
                 link(node(p, d), node(q, d));
                 link(node(q, d), node(p, d));
             }
         }
-        for i in self.bivalue() {
+        for &i in &self.bivalue() {
             let mut ds = digits(self.cand[i]);
             let (x, y) = (ds.next().unwrap(), ds.next().unwrap());
             link(node(i, x), node(i, y));
