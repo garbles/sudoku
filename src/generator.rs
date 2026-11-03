@@ -190,34 +190,52 @@ fn generate_v1(seed: u64, mode: u8) -> Puzzle {
 
 /// A complete, correct grid. The rng sets the order of the digits that the solver tries.
 fn full_grid(rng: &mut Rng) -> [[u8; 9]; 9] {
-    let mut grid = [[0u8; 9]; 9];
-    let mut order: Vec<Vec<u8>> = (0..81)
-        .map(|_| {
-            let mut d: Vec<u8> = (1..=9).collect();
-            rng.shuffle(&mut d);
-            d
-        })
-        .collect();
-    let ok = fill(&mut grid, &mut order);
+    let mut order = [[0u8; 9]; 81];
+    for digits in &mut order {
+        *digits = std::array::from_fn(|k| k as u8 + 1);
+        rng.shuffle(digits);
+    }
+    let mut fill = Fill { grid: [[0; 9]; 9], used: [[0; 9]; 3] };
+    let ok = fill.fill(&order, 0);
     assert!(ok, "an empty grid always has a solution");
-    grid
+    fill.grid
 }
 
-fn fill(grid: &mut [[u8; 9]; 9], order: &mut Vec<Vec<u8>>) -> bool {
-    let Some((r, c)) = cells().find(|&(r, c)| grid[r as usize][c as usize] == 0) else {
-        return true;
-    };
-    let digits = order[(r * 9 + c) as usize].clone();
-    for d in digits {
-        if allowed(grid, (r, c), d) {
-            grid[r as usize][c as usize] = d;
-            if fill(grid, order) {
-                return true;
-            }
-            grid[r as usize][c as usize] = 0;
+/// The backtracking of `full_grid`: the grid, and the digits that each row, column and box has.
+struct Fill {
+    grid: [[u8; 9]; 9],
+    /// `used[0][r]`, `used[1][c]` and `used[2][b]`: bit d - 1 for each digit d of the row, the
+    /// column and the box.
+    used: [[u16; 9]; 3],
+}
+
+impl Fill {
+    /// Fills the cells from `i` (in the order of `cells`), each with the first digit of its order
+    /// that its row, column and box do not have.
+    fn fill(&mut self, order: &[[u8; 9]; 81], i: usize) -> bool {
+        if i == 81 {
+            return true;
         }
+        let (r, c) = (i / 9, i % 9);
+        let b = r / 3 * 3 + c / 3;
+        for d in order[i] {
+            let bit = 1 << (d - 1);
+            if (self.used[0][r] | self.used[1][c] | self.used[2][b]) & bit == 0 {
+                self.grid[r][c] = d;
+                self.used[0][r] |= bit;
+                self.used[1][c] |= bit;
+                self.used[2][b] |= bit;
+                if self.fill(order, i + 1) {
+                    return true;
+                }
+                self.grid[r][c] = 0;
+                self.used[0][r] &= !bit;
+                self.used[1][c] &= !bit;
+                self.used[2][b] &= !bit;
+            }
+        }
+        false
     }
-    false
 }
 
 fn allowed(grid: &[[u8; 9]; 9], (r, c): Cell, d: u8) -> bool {
