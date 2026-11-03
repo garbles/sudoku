@@ -6,15 +6,18 @@
 //! - The data folder is `rm-sudoku-corpus` (`store::data_dir`), thus the build never changes the
 //!   game, the settings or the results of the player.
 //! - Clashes and the highlight do not show, because the player writes the same number in many cells.
-//! - Each reading of ink goes to `LOG_FILE` in the data folder: one JSON line with the cell, the
-//!   strokes (screen pixels) and the result of the recognizer.
+//! - Each pen stroke and each erasure on the board goes to `LOG_FILE` in the data folder: one JSON
+//!   line `{"cell": [r, c], "stroke": [[x, y], ...]}` (screen pixels) or `{"cell": [r, c], "erase":
+//!   true}`. The log has all strokes, also a stroke that the app discards on a filled cell. Thus
+//!   the computer keeps all strokes of a cell as one example (a 4 or an 8 with two strokes), also
+//!   when the app reads the ink between the two strokes.
 //!
 //! `examples/corpus.rs` reads the log on the computer.
 
 use std::io::Write;
 use std::path::Path;
 
-use crate::app::{App, Menu};
+use crate::app::{App, BoardInput, Menu};
 use crate::game::Game;
 use crate::settings::Color;
 
@@ -24,7 +27,7 @@ pub const DATA_DIR_NAME: &str = "rm-sudoku-corpus";
 /// The log of the ink, in the data folder.
 pub const LOG_FILE: &str = "corpus-ink.jsonl";
 
-/// Makes the board blank, closes the menu, and sends each reading of ink to the corpus log.
+/// Makes the board blank, closes the menu, and sends each stroke and erasure to the corpus log.
 pub fn setup(app: &mut App, data_dir: &Path) {
     let g = &app.game;
     app.game = Game::new(g.seed, g.mode, g.solution, [[0; 9]; 9]);
@@ -35,8 +38,11 @@ pub fn setup(app: &mut App, data_dir: &Path) {
     app.settings.color_clash = Color::White;
     app.settings_dirty = true;
     let log_path = data_dir.join(LOG_FILE);
-    app.ink_log = Some(Box::new(move |cell, strokes, result| {
-        let line = serde_json::json!({ "cell": cell, "strokes": strokes, "result": result });
+    app.stroke_log = Some(Box::new(move |input| {
+        let line = match input {
+            BoardInput::Stroke(cell, stroke) => serde_json::json!({ "cell": cell, "stroke": stroke }),
+            BoardInput::Erase(cell) => serde_json::json!({ "cell": cell, "erase": true }),
+        };
         match std::fs::OpenOptions::new().create(true).append(true).open(&log_path) {
             Ok(mut f) => {
                 if let Err(e) = writeln!(f, "{line}") {

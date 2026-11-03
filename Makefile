@@ -90,7 +90,7 @@ bench-save: ## Run the bench and save a new computer baseline (NOTE=...)
 
 BENCH_LINUX = $(DOCKER) run --rm --platform linux/arm64 -v "$(CURDIR)":/src -w /src \
 	-e CARGO_TARGET_DIR=/tmp/target rust:1.97-alpine \
-	sh -c 'apk add --no-cache musl-dev bash python3 >/dev/null && scripts/bench.sh --baseline bench/baseline-linux.json $(1)'
+	sh -c 'apk add --no-cache musl-dev bash python3 git >/dev/null && scripts/bench.sh --baseline bench/baseline-linux.json $(1)'
 
 bench-linux: ## Run the bench in the Linux container (musl) and compare it with bench/baseline-linux.json
 	$(call BENCH_LINUX,$(if $(NOTE),--note "$(NOTE)"))
@@ -155,7 +155,7 @@ corpus-pull: ## Copy the corpus log of DIGIT=n to target/corpus/corpus-ink-n.jso
 		if [ ! -s "$$out.tmp" ]; then rm -f "$$out.tmp"; echo "The corpus log on the tablet is empty" >&2; exit 1; fi; \
 		mv "$$out.tmp" "$$out"; \
 		$(SSH) 'rm -f $(CORPUS_DIR)/$(CORPUS_LOG) $(CORPUS_DIR)/game.json'; \
-		echo "$$(grep -c . "$$out") examples of $(DIGIT) in $$out. The log on the tablet is clear."
+		echo "$$(grep -c '"stroke"' "$$out") strokes of $(DIGIT) in $$out. The log on the tablet is clear."
 
 xovi-restart: ## Start xovi again on the tablet (the UI starts again: close all notebooks first)
 	$(SSH) '/home/root/xovi/start > /tmp/sudoku-xovi.log 2>&1; i=0; while [ $$i -lt 30 ]; do \

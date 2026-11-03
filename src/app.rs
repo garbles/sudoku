@@ -152,6 +152,20 @@ type SaveGame = Box<dyn FnMut(&Game) -> bool>;
 /// build, `corpus.rs`).
 pub type InkLog = Box<dyn FnMut(Cell, &[Stroke], Option<u8>)>;
 
+/// An input on the board for `StrokeLog`.
+pub enum BoardInput<'a> {
+    /// A pen stroke that starts in this cell: also a tap, and a stroke that the app discards (a
+    /// stroke on a filled cell).
+    Stroke(Cell, &'a [recognizer::Point]),
+    /// The eraser touched this cell.
+    Erase(Cell),
+}
+
+/// Receives each pen stroke and each erasure on the board, with its cell. Only the corpus build
+/// (`corpus.rs`) uses it: it keeps all strokes of a cell together, also when the app reads the ink
+/// between two strokes.
+pub type StrokeLog = Box<dyn FnMut(BoardInput)>;
+
 /// Things that the platform gives to the app: the wall clock and new seeds.
 pub trait Env {
     /// Unix time in seconds.
@@ -272,6 +286,7 @@ pub struct App {
     /// result: thus a power loss can never record the same game two times (CMP-5).
     pub save_game_now: Option<SaveGame>,
     pub ink_log: Option<InkLog>,
+    pub stroke_log: Option<StrokeLog>,
     /// The screen can be different from the last full drawing. False if the only change is new points
     /// of `live_stroke`: then the platform draws only the new part of the ink, so that the ink follows
     /// the pen.
@@ -320,6 +335,7 @@ impl App {
             redraw: true,
             save_game_now: None,
             ink_log: None,
+            stroke_log: None,
         }
     }
 
@@ -672,19 +688,29 @@ impl App {
     fn pen_up(&mut self, g: Gesture, x: f32, y: f32, now: u64) {
         match g {
             Gesture::BoardTap { cell, digit, prev_highlight } => {
+                if let (Some(log), Some(s)) = (self.stroke_log.as_mut(), self.live_stroke.as_ref()) {
+                    log(BoardInput::Stroke(cell, s));
+                }
                 self.live_stroke = None;
                 self.board_tap(cell, digit, prev_highlight);
             }
             Gesture::Writing => {
                 let stroke = self.live_stroke.take().unwrap_or_default();
                 if let Some(ink) = self.ui.pending_ink.as_mut() {
+                    if let Some(log) = self.stroke_log.as_mut() {
+                        log(BoardInput::Stroke(ink.cell, &stroke));
+                    }
                     ink.strokes.push(stroke);
                     ink.last_lift_at = Some(now);
                 }
                 self.writing_until = Some(now + WRITING_IDLE_MS);
             }
             Gesture::DiscardInk => {
-                self.live_stroke = None;
+                let stroke = self.live_stroke.take().unwrap_or_default();
+                let cell = stroke.first().and_then(|&(x, y)| layout::board_cell(x, y));
+                if let (Some(log), Some(cell)) = (self.stroke_log.as_mut(), cell) {
+                    log(BoardInput::Stroke(cell, &stroke));
+                }
                 self.writing_until = Some(now + WRITING_IDLE_MS);
             }
             Gesture::Control(t) => self.release_control(t, x, y, now),
@@ -739,6 +765,9 @@ impl App {
 
     fn erase_at(&mut self, x: f32, y: f32) {
         if let Some(cell) = layout::board_cell(x, y) {
+            if let Some(log) = self.stroke_log.as_mut() {
+                log(BoardInput::Erase(cell));
+            }
             let o = self.game.erase(cell);
             self.after_game_change(o);
         }

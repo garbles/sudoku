@@ -4,9 +4,13 @@
 //!     cargo run --release --example corpus -- add LOG DIGIT [--exclude 3,7,12]
 //!     cargo run --release --example corpus -- count
 //!
-//! - `sheet` draws each example of the corpus log (`corpus-ink.jsonl` of the tablet) in a numbered
-//!   tile: the number of the example (from 1), the cell and the result of the recognizer. A tile
-//!   with a red frame has a result that is not DIGIT.
+//! - The corpus log (`corpus-ink.jsonl` of the tablet) has one line for each pen stroke and each
+//!   erasure, with its cell (src/corpus.rs). An example is all strokes of one cell, in the order of
+//!   the log, until the eraser touches that cell. The examples are in the order of their first
+//!   stroke.
+//! - `sheet` draws each example in a numbered tile: the number of the example (from 1), the cell,
+//!   the quantity of strokes and the result of the recognizer. A tile with a red frame has a result
+//!   that is not DIGIT.
 //! - `add` adds the examples of the log, except the excluded numbers, to
 //!   assets/owner-handwriting.jsonl with the class DIGIT. It scales each example to the box 0..255.
 //! - `count` gives the quantity of examples for each digit in assets/owner-handwriting.jsonl.
@@ -31,16 +35,27 @@ struct Example {
 
 fn read_log(path: &str) -> Vec<Example> {
     let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
-    text.lines()
-        .filter(|l| !l.trim().is_empty())
-        .enumerate()
-        .map(|(i, l)| {
-            let v: serde_json::Value = serde_json::from_str(l).unwrap_or_else(|e| panic!("{path} line {}: {e}", i + 1));
-            let cell = serde_json::from_value(v["cell"].clone()).unwrap_or((0, 0));
-            let strokes = serde_json::from_value(v["strokes"].clone()).unwrap_or_else(|e| panic!("{path} line {}: {e}", i + 1));
-            Example { cell, strokes }
-        })
-        .collect()
+    let mut examples: Vec<Example> = Vec::new();
+    // The example that is open in each cell (an index in `examples`).
+    let mut open: std::collections::HashMap<(u8, u8), usize> = std::collections::HashMap::new();
+    for (i, l) in text.lines().enumerate().filter(|(_, l)| !l.trim().is_empty()) {
+        let v: serde_json::Value = serde_json::from_str(l).unwrap_or_else(|e| panic!("{path} line {}: {e}", i + 1));
+        let cell: (u8, u8) = serde_json::from_value(v["cell"].clone()).unwrap_or_else(|e| panic!("{path} line {}: cell: {e}", i + 1));
+        if v["erase"] == serde_json::Value::Bool(true) {
+            open.remove(&cell);
+            continue;
+        }
+        let stroke: Stroke =
+            serde_json::from_value(v["stroke"].clone()).unwrap_or_else(|e| panic!("{path} line {}: stroke: {e}", i + 1));
+        match open.get(&cell) {
+            Some(&k) => examples[k].strokes.push(stroke),
+            None => {
+                open.insert(cell, examples.len());
+                examples.push(Example { cell, strokes: vec![stroke] });
+            }
+        }
+    }
+    examples
 }
 
 fn bbox(strokes: &[Stroke]) -> Option<(f32, f32, f32, f32)> {
@@ -79,7 +94,7 @@ fn sheet(log: &str, out: &str, digit: u8) {
         pm.stroke_path(&frame, &paint, &Pen { width: if ok { 2.0 } else { 6.0 }, ..Pen::default() }, id, None);
         // The labels: the number of the example, the cell and the result.
         bold.draw(&mut pm, 40.0, tx + 16.0, ty + 48.0, Anchor::Start, &format!("{}", i + 1), [0, 0, 0], id);
-        font.draw(&mut pm, 22.0, tx + TILE_W - 16.0, ty + 34.0, Anchor::End, &format!("r{}c{}", ex.cell.0 + 1, ex.cell.1 + 1), [90, 90, 90], id);
+        font.draw(&mut pm, 22.0, tx + TILE_W - 16.0, ty + 34.0, Anchor::End, &format!("r{}c{} ({}s)", ex.cell.0 + 1, ex.cell.1 + 1, ex.strokes.len()), [90, 90, 90], id);
         let label = result.map_or("read: ?".to_string(), |d| format!("read: {d}"));
         let color = if ok { [0, 120, 0] } else { [200, 0, 0] };
         font.draw(&mut pm, 22.0, tx + TILE_W - 16.0, ty + 62.0, Anchor::End, &label, color, id);

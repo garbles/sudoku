@@ -968,3 +968,38 @@ fn a_complete_game_is_saved_before_its_result() {
     assert_eq!(d.app.results.len(), 1);
     assert!(!d.app.game_dirty);
 }
+
+/// The stroke log of the corpus build (src/corpus.rs): each stroke goes to the log with its cell,
+/// also when the app reads the ink between two strokes (then the app can discard the second stroke
+/// on the filled cell). The eraser goes to the log also.
+#[test]
+fn the_stroke_log_gets_each_stroke_with_its_cell() {
+    use std::sync::{Arc, Mutex};
+    use sudoku::app::BoardInput;
+    let mut d = Driver::new(5);
+    let cell = empty_cell(&d.app.game);
+    let ink = digit_ink(cell, 4);
+    assert!(ink.len() >= 2, "a 4 with two strokes");
+    // Each input: the cell, and the quantity of points of a stroke (None: an erasure).
+    type Log = Vec<(Cell, Option<usize>)>;
+    let log: Arc<Mutex<Log>> = Arc::default();
+    let l = log.clone();
+    d.app.stroke_log = Some(Box::new(move |input| {
+        l.lock().unwrap().push(match input {
+            BoardInput::Stroke(c, s) => (c, Some(s.len())),
+            BoardInput::Erase(c) => (c, None),
+        })
+    }));
+    // The app reads the first stroke before the second stroke starts.
+    d.write_strokes(&ink[..1]);
+    d.wait(d.app.pause_ms + 50);
+    assert!(d.app.ui.pending_ink.is_none());
+    d.write_strokes(&ink[1..]);
+    d.wait(d.app.pause_ms + 50);
+    d.erase(cell);
+    let got = log.lock().unwrap().clone();
+    // The app adds the point of the pen lift to the stroke.
+    let strokes: Vec<(Cell, Option<usize>)> = ink.iter().map(|s| (cell, Some(s.len() + 1))).collect();
+    assert_eq!(&got[..ink.len()], &strokes[..], "all strokes of the 4, in the cell of the 4");
+    assert!(got[ink.len()..].contains(&(cell, None)), "the erasure of the cell");
+}

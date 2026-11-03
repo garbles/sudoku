@@ -4,6 +4,7 @@
 # Make it with:
 #   cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4
 # Cells are rRcC, with rows and columns from 1 to 9. The commands are in src/bin/video.rs.
+# Each write has a different writer, thus no two numbers have the same handwriting.
 
 fps 30
 puzzle seed 7 mode 0          # Easy. The same puzzle each time.
@@ -18,8 +19,8 @@ mark r9c4 1 4 8
 wait 1.0
 
 # 2. Two obvious numbers in the top-right box (3 and 9 are missing).
-write r1c8 3                  # 9 is already in column 8, thus r1c8 is 3
-write r2c9 9
+write r1c8 3 writer 1         # 9 is already in column 8, thus r1c8 is 3
+write r2c9 9 writer 2
 wait 1.0
 
 # 3. An incorrect number. r3c4 must be 5 (the last empty cell in row 3).
@@ -49,30 +50,30 @@ mark r6c1 1
 wait 1.0
 
 # 7. The last obvious number: r5c2 can only be 5.
-write r5c2 5                  # automatic hiding hides the 5 in r4c2
+write r5c2 5 writer 3         # automatic hiding hides the 5 in r4c2
 wait 2.5
 
 # The rest of the game. Above, the player wrote fast. Now the player thinks between the steps.
 
 # 8. The correct number in row 3, then column 1 (1 and 8 are missing).
-write r3c4 5
+write r3c4 5 writer 4
 wait 1.2
-write r6c1 1                  # row 6 has no 1, and r6c1 has the pencil mark 1
-write r1c1 8
+write r6c1 1 writer 5         # row 6 has no 1, and r6c1 has the pencil mark 1
+write r1c1 8 writer 6
 wait 1.5
 
 # 9. The top-left box: 6 and 9 are missing.
 mark r1c2 6 9
 mark r2c2 6                   # row 2 has a 9 (r2c9): a tap on the 9 has no effect
 wait 2.0
-write r2c2 6                  # automatic hiding hides the 6 in r1c2
+write r2c2 6 writer 8         # automatic hiding hides the 6 in r1c2
 wait 0.6
-write r1c2 9
+write r1c2 9 writer 9
 wait 1.5
 
 # 10. Row 1: 4 and 6 are missing. A guess that is not correct.
-write r1c4 4                  # no clash yet
-write r1c6 6                  # clashes with the 6 in r7c6 (column 6)
+write r1c4 4 writer 10        # no clash yet
+write r1c6 6 writer 11        # clashes with the 6 in r7c6 (column 6)
 wait 2.0
 tap menu
 wait 0.6
@@ -82,25 +83,25 @@ tap undo                      # removes the 4
 wait 0.6
 tap menu
 wait 0.8
-write r1c6 4
-write r1c4 6
+write r1c6 4 writer 12
+write r1c4 6 writer 13
 wait 1.5
 
 # 11. The top-middle box: 2, 3 and 8 are missing.
-write r2c4 8                  # automatic hiding hides the 8 in r7c4 and r9c4
+write r2c4 8 writer 14        # automatic hiding hides the 8 in r7c4 and r9c4
 wait 1.0
 mark r2c5 2                   # column 5 has a 3 (r6c5): the player does not tap it
 mark r2c6 2 3
 wait 1.5
-write r2c5 2                  # automatic hiding hides the 2 in r2c6
+write r2c5 2 writer 15        # automatic hiding hides the 2 in r2c6
 wait 0.5
-write r2c6 3
+write r2c6 3 writer 16
 wait 1.5
 
 # 12. Column 4: r7c4 shows only 1 now.
-write r7c4 1                  # automatic hiding hides the 1 in r9c4
+write r7c4 1 writer 17        # automatic hiding hides the 1 in r9c4
 wait 0.5
-write r9c4 4
+write r9c4 4 writer 18
 wait 1.5
 
 # 13. The center box: 1, 4, 5 and 6 are missing.
@@ -109,56 +110,56 @@ mark r4c6 1 5
 mark r5c5 4
 mark r5c6 1
 wait 1.2
-write r5c6 1                  # automatic hiding hides the 1 in r4c6
-write r4c6 5
-write r4c5 6
-write r5c5 4
+write r5c6 1 writer 19        # automatic hiding hides the 1 in r4c6
+write r4c6 5 writer 20
+write r4c5 6 writer 21
+write r5c5 4 writer 22
 wait 1.5
 
 # 14. Rows 4 and 5.
-write r4c2 2
-write r4c9 1
+write r4c2 2 writer 23
+write r4c9 1 writer 24
 wait 1.0
-write r5c9 8                  # incorrect: column 9 has an 8 (r8c9)
+write r5c9 8 writer 25        # incorrect: column 9 has an 8 (r8c9)
 wait 2.0
 erase r5c9
 wait 0.8
-write r5c9 7
-write r5c7 8
+write r5c9 7 writer 26
+write r5c7 8 writer 27
 wait 1.5
 
 # 15. Row 6: 5 and 6 are missing.
-write r6c9 5
-write r6c8 6
+write r6c9 5 writer 28
+write r6c8 6 writer 29
 wait 1.5
 
 # 16. Row 7 and column 2.
 mark r7c2 8                   # column 2 has a 9 (r1c2): the player does not tap it
 mark r9c2 7 8
 wait 1.8
-write r7c2 8                  # automatic hiding hides the 8 in r9c2
-write r9c2 7
-write r7c3 2
-write r7c7 9
+write r7c2 8 writer 30        # automatic hiding hides the 8 in r9c2
+write r9c2 7 writer 31
+write r7c3 2 writer 32
+write r7c7 9 writer 33
 wait 1.5
 
 # 17. Column 7: 1 and 6 are missing.
 mark r8c7 6
 mark r9c7 1                   # a peer has a 6: the player does not tap it
 wait 1.0
-write r8c7 6
-write r9c7 1
+write r8c7 6 writer 34
+write r9c7 1 writer 35
 wait 1.2
 
 # 18. Row 8: r8c5 has the marks 2 and 9 from step 1. Column 5 has a 2, thus it is 9.
-write r8c5 9
-write r8c8 2
+write r8c5 9 writer 36
+write r8c8 2 writer 37
 wait 1.5
 
 # 19. The last row.
-write r9c5 8
-write r9c6 2
-write r9c8 5
+write r9c5 8 writer 38
+write r9c6 2 writer 39
+write r9c8 5 writer 40
 wait 1.0
-write r9c9 3                  # the last number
+write r9c9 3 writer 41        # the last number
 wait 5.0                      # the board shows "Completed in m:ss"

@@ -156,7 +156,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `solver.rs`: the human-style solver. It grades a puzzle by the most difficult technique it needs.
 - `recognizer.rs`: reads handwriting in a cell ($P point-cloud recognizer with templates).
 - `corpus.rs`: only in the corpus build (Cargo feature `corpus`, a development build). A blank
-  board and a log of each ink with its cell, in a separate data folder. `examples/corpus.rs` makes a
+  board and a log of each stroke and erasure with its cell (`app::StrokeLog`), in a separate data
+  folder. `examples/corpus.rs` makes a
   review image and adds the approved examples to `assets/owner-handwriting.jsonl`. The
   `remarkable-corpus` skill gives the procedure.
 - `app.rs`: screens, menu, panels, overlays, pen and touch input, the clock. No input or output.

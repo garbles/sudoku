@@ -1,6 +1,7 @@
 # Demo video of the Sudoku app. Make it with:
 #   cargo run --release --bin video -- video/demo.txt video/demo.mp4
 # Cells are rRcC, with rows and columns from 1 to 9. The commands are in src/bin/video.rs.
+# Each write has a different writer, thus no two numbers have the same handwriting.
 
 fps 30
 puzzle seed 7 mode 0          # Easy. The same puzzle each time.
@@ -15,8 +16,8 @@ mark r9c4 1 4 8
 wait 1.0
 
 # 2. Two obvious numbers in the top-right box (3 and 9 are missing).
-write r1c8 3                  # 9 is already in column 8, thus r1c8 is 3
-write r2c9 9
+write r1c8 3 writer 1         # 9 is already in column 8, thus r1c8 is 3
+write r2c9 9 writer 2
 wait 1.0
 
 # 3. An incorrect number. r3c4 must be 5 (the last empty cell in row 3).
@@ -46,5 +47,5 @@ mark r6c1 1
 wait 1.0
 
 # 7. The last obvious number: r5c2 can only be 5.
-write r5c2 5                  # automatic hiding hides the 5 in r4c2
+write r5c2 5 writer 3         # automatic hiding hides the 5 in r4c2
 wait 2.5

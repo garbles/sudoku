@@ -1,6 +1,6 @@
 ---
 name: remarkable-corpus
-description: Collect examples of the handwriting of the user on the reMarkable Paper Pro and add them to the examples of the recognizer (assets/owner-handwriting.jsonl). It asks which digits to collect, installs the corpus build (a blank board that keeps a log of each ink), and collects the digits one set at a time (one blank board for each digit). Then it makes a numbered review image for each digit, asks which examples to exclude, and adds the other examples. Use when the user asks to add handwriting, examples, samples or training data to the recognizer corpus, or when the recognizer does not read a digit of the user.
+description: Collect examples of the handwriting of the user on the reMarkable Paper Pro and add them to the examples of the recognizer (assets/owner-handwriting.jsonl). It asks which digits to collect, installs the corpus build (a blank board that keeps a log of each stroke with its cell), and collects the digits one set at a time (one blank board for each digit). Then it makes a numbered review image for each digit, asks which examples to exclude, and adds the other examples. Use when the user asks to add handwriting, examples, samples or training data to the recognizer corpus, or when the recognizer does not read a digit of the user.
 ---
 
 # Add handwriting to the recognizer corpus
@@ -21,8 +21,11 @@ makes the review images, and the user reviews them.
     not show.
   - The data folder is `/home/root/.local/share/rm-sudoku-corpus`. Thus the build does not change
     the game, the settings or the results of the player.
-  - Each reading of ink goes to `corpus-ink.jsonl` in that folder: the cell, the strokes (screen
-    pixels) and the result of the recognizer.
+  - Each pen stroke and each erasure on the board goes to `corpus-ink.jsonl` in that folder, with
+    its cell (screen pixels). The log has all strokes, also a stroke that the app discards on a
+    filled cell. The tool makes one example from all strokes of a cell, until the eraser touches
+    that cell. Thus a digit with two strokes (a 4, an 8) is one example, also when the app reads
+    the ink between the two strokes.
 - **Make targets**:
   - `make install-corpus`: build and install the corpus build.
   - `make corpus-start`: delete the saved game of the player, the corpus board and the corpus log
@@ -73,9 +76,11 @@ Do steps 5 to 7 for each selected digit, in order. In these steps, DIGIT is the 
    - Open Sudoku from AppLoad. The board is blank.
    - Write the digit DIGIT in as many cells as possible, one digit in each cell, with the pen.
      Write it in the usual manner, with some variation of size and slant.
-   - Do not erase. Each ink is an example, also when the recognizer shows a different number or a
-     "?". You can exclude bad examples in the review at the end.
-   - To write more than 81 examples, erase cells with the eraser and write again.
+   - Write only one digit in each cell. All strokes in a cell are one example, also when the app
+     shows a number or a "?" before you write the next stroke: then write the next stroke in the
+     same cell. You can exclude bad examples in the review at the end.
+   - Do not erase, except to write more than 81 examples: then erase the cells with the eraser
+     and write again. An erasure ends the example of that cell.
    - When you are done, close Sudoku and tell me.
 
    Wait for the answer of the user (AskUserQuestion with the options "Done", "Skip this digit"
@@ -91,7 +96,8 @@ Do steps 5 to 7 for each selected digit, in order. In these steps, DIGIT is the 
 
    It copies the log to `target/corpus/corpus-ink-DIGIT.jsonl` and clears the log and the board on
    the tablet. If it tells that the log is empty, ask the user to open Sudoku and write the digit,
-   and do step 5 again. Tell the user the quantity of examples. Do not make the image now.
+   and do step 5 again. The target tells the quantity of strokes. Do not make the image now:
+   phase 3 gives the quantity of examples.
 
 7. **Next set.** If there is a next digit, go to step 5 with that digit. The user opens Sudoku
    again: the board is blank.
@@ -105,8 +111,8 @@ Do steps 5 to 7 for each selected digit, in order. In these steps, DIGIT is the 
    ```
 
    The tool needs the fonts `scripts/fonts/rmsans-*.ttf` (refer to `scripts/fonts/README.md`).
-   Read each image yourself (Read tool). Each tile has the number of the example (from 1), the cell
-   and the result of the recognizer. A red frame shows that the recognizer did not read DIGIT.
+   Read each image yourself (Read tool). Each tile has the number of the example (from 1), the
+   cell, the quantity of strokes (`2s`) and the result of the recognizer. A red frame shows that the recognizer did not read DIGIT.
    Note the examples that you think are bad: an ink that is not DIGIT, an incomplete ink, a stroke
    of the next cell, two digits in one tile. A red frame alone is not a reason to exclude: these
    examples are the most useful.
