@@ -76,6 +76,14 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
 - **There is no screen layer for the pen.** xochitl has one framebuffer. Its "layers" are layers of
   the document or render caches, not planes of the panel. The only setting for an area is its
   screen mode. Temporary ink and the image below it share the same pixels.
+- **After an update of the tablet software, xovi makes xochitl crash.** The hashtab of
+  qt-resource-rebuilder is valid only for one software version ("only valid for QML environment
+  version ... Loading skipped"). Then AppLoad cannot resolve its hooks ("Couldn't resolve the hashed
+  identifier ... required by AppLoad hooks"), xochitl stops with a core dump three times, and the
+  tablet restarts. Examine `journalctl -b -1` for these lines. Fix: run
+  `/home/root/xovi/rebuild_hashtable` (detached, with an empty line on its input; the owner enters
+  the passcode on the tablet during the run), then `/home/root/xovi/start`. A restart of the
+  tablet can install a downloaded update.
 
 ## Notes for agents
 
