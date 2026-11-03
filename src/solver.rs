@@ -337,12 +337,18 @@ impl Board {
     fn hidden_single(&mut self) -> bool {
         let t = tables();
         for u in 0..27 {
-            for d in 1..=9 {
-                let pos = t.unit_set[u] & self.with(d);
-                if pos.count_ones() == 1 {
-                    self.place(pos.trailing_zeros() as usize, d);
-                    return true;
-                }
+            // The digits that are candidates in one cell of the unit, or in two cells or more.
+            let (mut once, mut twice) = (0u16, 0u16);
+            for &i in &t.units[u] {
+                twice |= once & self.cand[i];
+                once |= self.cand[i];
+            }
+            let single = once & !twice;
+            if single != 0 {
+                // The lowest digit first, as a search of the digits from 1 to 9.
+                let d = single.trailing_zeros() as u8 + 1;
+                self.place((t.unit_set[u] & self.with(d)).trailing_zeros() as usize, d);
+                return true;
             }
         }
         false
