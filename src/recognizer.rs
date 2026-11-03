@@ -424,7 +424,7 @@ fn features_of(strokes: &[Stroke]) -> Option<Vec<f32>> {
 fn directions(strokes: &[Stroke]) -> Vec<f32> {
     use std::f32::consts::TAU;
     let (g, d) = (GRID, DIRS);
-    let mut f = vec![0f32; g * g * d];
+    let mut f = [0f32; GRID * GRID * DIRS];
     for s in strokes {
         for w in s.windows(2) {
             let (a, b) = (w[0], w[1]);
@@ -454,23 +454,32 @@ fn directions(strokes: &[Stroke]) -> Vec<f32> {
             }
         }
     }
-    let mut out = vec![0f32; f.len()];
+    // The blur: each value gets 4 times itself, 2 times its 4 side neighbors and 1 time its 4
+    // corner neighbors, added in the order of (dy, dx). The grid has a border of zeros: a value
+    // out of the grid adds w * 0 = 0, thus the sums are the same as without the cells out of the
+    // grid (all values are 0 or more), and the loop has no branches.
+    const P: usize = GRID + 2;
+    let mut padded = [0f32; P * P * DIRS];
+    for y in 0..g {
+        let row = (y + 1) * P + 1;
+        padded[row * d..(row + g) * d].copy_from_slice(&f[y * g * d..(y + 1) * g * d]);
+    }
+    // The capacity is DIM: `features_of` adds the pen path to this vector.
+    let mut out = Vec::with_capacity(DIM);
+    out.resize(f.len(), 0f32);
     for y in 0..g {
         for x in 0..g {
-            for c in 0..d {
-                let mut s = 0.0;
-                for dy in -1i32..=1 {
-                    for dx in -1i32..=1 {
-                        let (xx, yy) = (x as i32 + dx, y as i32 + dy);
-                        if xx < 0 || yy < 0 || xx >= g as i32 || yy >= g as i32 {
-                            continue;
-                        }
-                        let w = if dx == 0 && dy == 0 { 4.0 } else if dx == 0 || dy == 0 { 2.0 } else { 1.0 };
-                        s += w * f[(yy as usize * g + xx as usize) * d + c];
+            let mut s = [0f32; DIRS];
+            for dy in 0..3 {
+                for dx in 0..3 {
+                    let w = if dx == 1 && dy == 1 { 4.0 } else if dx == 1 || dy == 1 { 2.0 } else { 1.0 };
+                    let src = ((y + dy) * P + x + dx) * d;
+                    for (sc, v) in s.iter_mut().zip(&padded[src..src + DIRS]) {
+                        *sc += w * v;
                     }
                 }
-                out[(y * g + x) * d + c] = s;
             }
+            out[(y * g + x) * d..(y * g + x + 1) * d].copy_from_slice(&s);
         }
     }
     let n = out.iter().map(|v| v * v).sum::<f32>().sqrt().max(1e-6);
