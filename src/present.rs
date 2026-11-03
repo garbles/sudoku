@@ -596,27 +596,43 @@ impl Presenter {
             }
         };
         let (base, sx, sy) = crate::layout::physical_steps();
+        let new = frame.data();
+        let pixels = rows.iter().map(|r| r.1.saturating_sub(r.0)).sum();
+        let bands = in_bands(h, pixels, shown.data_mut(), w * 4, fb, |ys, old, fb, fb_at| {
+            let (mut band_spans, mut changed) = (Vec::new(), None);
+            for y in ys.clone() {
+                let (x0, x1) = rows[y];
+                if x0 >= x1 {
+                    continue;
+                }
+                let at = ((y - ys.start) * w + x0) * 4..((y - ys.start) * w + x1) * 4;
+                let (a, b) = (&new[(y * w + x0) * 4..(y * w + x1) * 4], &mut old[at]);
+                let Some((first, last)) = changed_span::<4>(a, b) else {
+                    continue;
+                };
+                let mut i = base + y as i64 * sy + (x0 + first) as i64 * sx - fb_at;
+                for p in a[first * 4..(last + 1) * 4].chunks_exact(4) {
+                    fb[i as usize * 3..i as usize * 3 + 3].copy_from_slice(&p[..3]);
+                    i += sx;
+                }
+                b[first * 4..(last + 1) * 4].copy_from_slice(&a[first * 4..(last + 1) * 4]);
+                let row_span = ScreenRect::new((x0 + first) as i32, y as i32, (x0 + last) as i32, y as i32);
+                band_spans.push(row_span);
+                grow(&mut changed, row_span);
+            }
+            (band_spans, changed)
+        });
         // The screen box of the changed pixels.
         let mut changed: Option<ScreenRect> = None;
-        let (new, old) = (frame.data(), shown.data_mut());
-        for (y, &(x0, x1)) in rows.iter().enumerate().filter(|(_, r)| r.0 < r.1) {
-            let row = (y * w + x0) * 4..(y * w + x1) * 4;
-            let (a, b) = (&new[row.clone()], &mut old[row]);
-            let Some((first, last)) = changed_span::<4>(a, b) else {
-                continue;
-            };
-            let mut i = base + y as i64 * sy + (x0 + first) as i64 * sx;
-            for p in a[first * 4..(last + 1) * 4].chunks_exact(4) {
-                fb[i as usize * 3..i as usize * 3 + 3].copy_from_slice(&p[..3]);
-                i += sx;
+        for (band_spans, band_changed) in bands {
+            // On this thread: the rotation is a value of each thread.
+            spans.extend(band_spans.into_iter().map(ScreenRect::physical));
+            if let Some(r) = band_changed {
+                grow(&mut changed, r);
             }
-            b[first * 4..(last + 1) * 4].copy_from_slice(&a[first * 4..(last + 1) * 4]);
-            let row_span = ScreenRect::new((x0 + first) as i32, y as i32, (x0 + last) as i32, y as i32);
-            spans.push(row_span.physical());
-            grow(&mut changed, row_span);
         }
         // The damage contains all changes of the frame: after the copy, `shown` is the frame.
-        debug_assert!(new == &old[..], "a change of the frame is not in the damage of the frame record");
+        debug_assert!(new == shown.data(), "a change of the frame is not in the damage of the frame record");
         changed.map(ScreenRect::physical)
     }
 }
@@ -665,6 +681,74 @@ fn bounding_box<U>(points: impl Iterator<Item = (i32, i32)>) -> Option<Corners<U
     b
 }
 
+/// A copy of fewer changed pixels than this goes on one thread: the start of the threads takes
+/// more time than they save.
+const BAND_MIN_PIXELS: usize = 400_000;
+
+/// Calls `copy` for bands of the screen rows `0..h`, and gives the results in the order of the rows.
+/// `copy` gets the rows of the band, its rows of `rows_buf` (`row_bytes` for each row), its part of
+/// the framebuffer `fb`, and the pixel index of the start of that part. The bands go on threads when
+/// `pixels` (the pixels that can have changed) is large and each screen row is a framebuffer row
+/// (portrait): then the parts of the framebuffer do not overlap. Each row gets the same copy as
+/// with one band, thus the result does not depend on the threads. The rotation is a value of each
+/// thread (`layout::rotation`): `copy` must not use it, or functions that use it.
+fn in_bands<R: Send>(
+    h: usize,
+    pixels: usize,
+    rows_buf: &mut [u8],
+    row_bytes: usize,
+    fb: &mut [u8],
+    copy: impl Fn(std::ops::Range<usize>, &mut [u8], &mut [u8], i64) -> R + Sync,
+) -> Vec<R> {
+    let (base, sx, sy) = crate::layout::physical_steps();
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4);
+    if threads == 1 || pixels < BAND_MIN_PIXELS || sx.abs() != 1 {
+        return vec![copy(0..h, rows_buf, fb, 0)];
+    }
+    let w = screen_w() as i64;
+    let edges: Vec<usize> = (0..=threads).map(|k| h * k / threads).collect();
+    // The pixel range of the framebuffer of each band (its rows are framebuffer rows).
+    let ranges: Vec<(i64, i64)> = edges
+        .windows(2)
+        .map(|e| {
+            let ends = [e[0] as i64, e[1] as i64 - 1].map(|y| base + y * sy);
+            let ends = [ends[0], ends[0] + (w - 1) * sx, ends[1], ends[1] + (w - 1) * sx];
+            (*ends.iter().min().unwrap(), *ends.iter().max().unwrap() + 1)
+        })
+        .collect();
+    // Split the framebuffer into the parts of the bands, from the lowest address.
+    let mut order: Vec<usize> = (0..ranges.len()).collect();
+    order.sort_by_key(|&k| ranges[k].0);
+    let mut parts: Vec<Option<&mut [u8]>> = (0..ranges.len()).map(|_| None).collect();
+    let (mut rest, mut at) = (fb, 0i64);
+    for k in order {
+        let (lo, hi) = ranges[k];
+        let (_, tail) = std::mem::take(&mut rest).split_at_mut(((lo - at) * 3) as usize);
+        let (part, tail) = tail.split_at_mut(((hi - lo) * 3) as usize);
+        parts[k] = Some(part);
+        (rest, at) = (tail, hi);
+    }
+    let mut rows_rest = rows_buf;
+    let jobs: Vec<_> = edges
+        .windows(2)
+        .zip(parts)
+        .zip(&ranges)
+        .map(|((e, part), &(lo, _))| {
+            let (band_rows, tail) = std::mem::take(&mut rows_rest).split_at_mut((e[1] - e[0]) * row_bytes);
+            rows_rest = tail;
+            (e[0]..e[1], band_rows, part.expect("a part for each band"), lo)
+        })
+        .collect();
+    let copy = &copy;
+    std::thread::scope(|scope| {
+        let mut jobs = jobs.into_iter();
+        let (ys, band_rows, part, lo) = jobs.next().expect("one band or more");
+        let handles: Vec<_> = jobs.map(|(ys, r, p, lo)| scope.spawn(move || copy(ys, r, p, lo))).collect();
+        let first = copy(ys, band_rows, part, lo);
+        std::iter::once(first).chain(handles.into_iter().map(|t| t.join().expect("copy thread"))).collect()
+    })
+}
+
 /// Copies the changed area of the frame (screen coordinates) into the framebuffer (physical
 /// coordinates, with the rotation of the tablet, 3 bytes for each pixel). Returns the changed
 /// physical rectangle.
@@ -677,29 +761,37 @@ pub fn blit(frame: &Pixmap, fb: &mut [u8]) -> Option<Update> {
     if sx == 1 || sx == -1 {
         // A screen row is one framebuffer row (forward or reversed): convert the full row, and
         // compare it with one slice comparison.
-        let mut rgb = vec![0u8; w * 3];
-        for y in 0..frame.height() as usize {
-            let src = &px[y * w * 4..(y + 1) * w * 4];
-            let start = base + y as i64 * sy;
-            // The first byte of the row in the framebuffer.
-            let o = if sx == 1 { start } else { start - (w as i64 - 1) } as usize * 3;
-            let dst = &mut fb[o..o + w * 3];
-            if sx == 1 {
-                for (d, s) in rgb.chunks_exact_mut(3).zip(src.chunks_exact(4)) {
-                    d.copy_from_slice(&s[..3]);
+        let h = frame.height() as usize;
+        let bands = in_bands(h, w * h, &mut [], 0, fb, |ys, _, fb, fb_at| {
+            let mut rgb = vec![0u8; w * 3];
+            let mut changed = None;
+            for y in ys {
+                let src = &px[y * w * 4..(y + 1) * w * 4];
+                let start = base + y as i64 * sy - fb_at;
+                // The first byte of the row in the part of the framebuffer.
+                let o = if sx == 1 { start } else { start - (w as i64 - 1) } as usize * 3;
+                let dst = &mut fb[o..o + w * 3];
+                if sx == 1 {
+                    for (d, s) in rgb.chunks_exact_mut(3).zip(src.chunks_exact(4)) {
+                        d.copy_from_slice(&s[..3]);
+                    }
+                } else {
+                    for (d, s) in rgb.chunks_exact_mut(3).rev().zip(src.chunks_exact(4)) {
+                        d.copy_from_slice(&s[..3]);
+                    }
                 }
-            } else {
-                for (d, s) in rgb.chunks_exact_mut(3).rev().zip(src.chunks_exact(4)) {
-                    d.copy_from_slice(&s[..3]);
-                }
+                // The changed pixels of the row, in framebuffer order.
+                let Some((first, last)) = changed_span::<3>(&rgb, dst) else {
+                    continue;
+                };
+                dst[first * 3..=last * 3 + 2].copy_from_slice(&rgb[first * 3..=last * 3 + 2]);
+                let (a, b) = if sx == 1 { (first, last) } else { (w - 1 - last, w - 1 - first) };
+                grow(&mut changed, ScreenRect::new(a as i32, y as i32, b as i32, y as i32));
             }
-            // The changed pixels of the row, in framebuffer order.
-            let Some((first, last)) = changed_span::<3>(&rgb, dst) else {
-                continue;
-            };
-            dst[first * 3..=last * 3 + 2].copy_from_slice(&rgb[first * 3..=last * 3 + 2]);
-            let (a, b) = if sx == 1 { (first, last) } else { (w - 1 - last, w - 1 - first) };
-            grow(&mut changed, ScreenRect::new(a as i32, y as i32, b as i32, y as i32));
+            changed
+        });
+        for r in bands.into_iter().flatten() {
+            grow(&mut changed, r);
         }
     } else {
         // A screen row is a framebuffer column. The copy goes in tiles of TILE x TILE pixels, so
@@ -750,10 +842,11 @@ mod tests {
     use std::collections::{HashMap, HashSet};
 
     #[test]
-    fn the_tiled_copy_of_a_rotated_frame_is_the_same_as_a_copy_of_each_pixel() {
-        // `blit` copies a landscape frame in tiles. The framebuffer and the changed box must be the
-        // same as a copy of each pixel, also when only some pixels change.
-        for rotation in [1, 2] {
+    fn the_copy_of_a_frame_is_the_same_as_a_copy_of_each_pixel() {
+        // `blit` copies a landscape frame in tiles, and a portrait frame in bands of rows on
+        // threads. The framebuffer and the changed box must be the same as a copy of each pixel, in
+        // each rotation, also when only some pixels change.
+        for rotation in 0..4 {
             crate::layout::set_rotation(rotation);
             let mut frame = Pixmap::new(screen_w(), screen_h()).unwrap();
             for (k, p) in frame.data_mut().chunks_exact_mut(4).enumerate() {
@@ -785,6 +878,53 @@ mod tests {
                 assert!(fb == want, "rotation {rotation}, change {change}: framebuffer");
                 assert_eq!(got, b.map(|r| r.physical().to_update()), "rotation {rotation}, change {change}: box");
             }
+        }
+        crate::layout::set_rotation(0);
+    }
+
+    #[test]
+    fn the_copy_of_a_large_damage_in_bands_gives_each_changed_row() {
+        // `Presenter::blit` copies a large damage in bands of rows on threads. The framebuffer, the
+        // span of each row and the changed box must be the same as a copy of each pixel, in each
+        // rotation (the rotation is a value of each thread).
+        for rotation in 0..4 {
+            crate::layout::set_rotation(rotation);
+            let mut p = Presenter::new();
+            p.frame.fill(tiny_skia::Color::WHITE);
+            let n = (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize;
+            let (mut fb, mut want) = (vec![0u8; n], vec![0u8; n]);
+            p.blit(&mut fb, &mut Vec::new());
+            want.copy_from_slice(&fb);
+            // Most rows change: the damage is large.
+            let (w, h) = (screen_w() as usize, screen_h() as usize);
+            for (k, px) in p.frame.data_mut().chunks_exact_mut(4).enumerate() {
+                if (k / w) % 7 != 3 {
+                    px.copy_from_slice(&[(k * 7) as u8, (k / 3) as u8, (k % 251) as u8, 255]);
+                }
+            }
+            p.record = FrameRecord::default();
+            let mut spans = Vec::new();
+            let got = p.blit(&mut fb, &mut spans);
+            let (base, sx, sy) = crate::layout::physical_steps();
+            let (mut b, mut want_spans): (Option<ScreenRect>, Vec<PhysicalRect>) = (None, Vec::new());
+            for y in 0..h {
+                let mut row: Option<ScreenRect> = None;
+                for x in 0..w {
+                    let px = &p.frame.data()[(y * w + x) * 4..][..3];
+                    let i = (base + x as i64 * sx + y as i64 * sy) as usize * 3;
+                    if want[i..i + 3] != *px {
+                        want[i..i + 3].copy_from_slice(px);
+                        grow(&mut row, ScreenRect::point(x as i32, y as i32));
+                    }
+                }
+                if let Some(r) = row {
+                    want_spans.push(r.physical());
+                    grow(&mut b, r);
+                }
+            }
+            assert!(fb == want, "rotation {rotation}: framebuffer");
+            assert_eq!(spans, want_spans, "rotation {rotation}: spans");
+            assert_eq!(got, b.map(ScreenRect::physical), "rotation {rotation}: box");
         }
         crate::layout::set_rotation(0);
     }

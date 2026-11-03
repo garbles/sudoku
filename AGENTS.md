@@ -175,7 +175,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   frame of the presenter has a `render::FrameRecord`: a redraw of the game screen writes only the
   board tiles that changed and the areas of the other drawings, and the copy compares only the
   damaged rows. Each drawing on the frame must use `Canvas::retained` with the same record (debug
-  builds examine it after each copy).
+  builds examine it after each copy). In portrait, a large copy goes in bands of rows on up to 4
+  threads. The rotation is a value of each thread: the code of a band must not use it.
 - `invariants.rs`: checks of the rules in INVARIANTS.md. Debug builds check them after each input.
 - `layout.rs`, `render.rs`, `font.rs`: positions, drawing (tiny-skia) and the font of the tablet.
   `render.rs` keeps the pixels of each board cell in a cache (tiles at their true position). Each
