@@ -156,7 +156,9 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   After the first attempt, up to 4 threads make batches of attempts; the results are examined in
   the order of the attempts, thus the puzzle does not depend on the threads (PUZ-5).
 - `solver.rs`: the human-style solver. It grades a puzzle by the most difficult technique it needs.
-- `recognizer.rs`: reads handwriting in a cell ($P point-cloud recognizer with templates).
+- `recognizer.rs`: reads handwriting in a cell ($P point-cloud recognizer with templates). Up to 4
+  threads scan ranges of the examples; the main thread plays the accepted examples of all ranges
+  again in order, thus the result is the same bit for bit.
 - `corpus.rs`: only in the corpus build (Cargo feature `corpus`, a development build). A blank
   board and a log of each stroke and erasure with its cell (`app::StrokeLog`), in a separate data
   folder. `examples/corpus.rs` makes a

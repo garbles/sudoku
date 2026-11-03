@@ -252,6 +252,11 @@ impl Recognizer {
     /// The nearest examples, or None if the ink is not one character (too small, two characters side
     /// by side, or a scribble).
     pub fn matches(&self, strokes: &[Stroke]) -> Option<Match> {
+        self.matches_in(strokes, std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4))
+    }
+
+    /// `matches` with `threads` ranges of the examples.
+    fn matches_in(&self, strokes: &[Stroke], threads: usize) -> Option<Match> {
         let strokes: Vec<Stroke> = strokes.iter().filter(|s| !s.is_empty()).cloned().collect();
         if strokes.is_empty() {
             return None;
@@ -267,29 +272,39 @@ impl Recognizer {
         }
         let f = features_of(&strokes)?;
 
-        let mut nearest: [(f32, u8); K] = [(f32::MAX, 0); K];
-        let mut other = f32::MAX;
-        for (b, blk) in self.blocks.chunks_exact(DIM * LANES).enumerate() {
-            let sums = block_distances(&f, blk, other.max(nearest[K - 1].0));
-            for (l, &d) in sums.iter().enumerate() {
-                let Some(&class) = self.classes.get(b * LANES + l) else { break };
-                // An example that is farther than the limit does not change the result.
-                let limit = if class == 0 { other } else { nearest[K - 1].0 };
-                if d > limit {
-                    continue;
-                }
-                if class == 0 {
-                    other = d;
-                } else {
-                    let mut j = K - 1;
-                    nearest[j] = (d, class);
-                    while j > 0 && nearest[j].0 < nearest[j - 1].0 {
-                        nearest.swap(j, j - 1);
-                        j -= 1;
+        // The threads scan ranges of the blocks. Each range keeps all the examples that it accepts,
+        // in order. A range sees fewer examples than the full scan, thus its limit is never lower:
+        // it accepts each example that the full scan accepts, with the full distance (the sums of
+        // a block stop only when all are over the limit). The scan of the accepted examples of all
+        // ranges in order then gives the same result as one scan of all blocks.
+        let blocks: Vec<&[f32]> = self.blocks.chunks_exact(DIM * LANES).collect();
+        let per = blocks.len().div_ceil(threads).max(1);
+        let scan = |first: usize, part: &[&[f32]]| {
+            let mut near = Nearest::new();
+            let mut accepted = Vec::new();
+            for (k, blk) in part.iter().enumerate() {
+                let b = first + k;
+                let sums = block_distances(&f, blk, near.limit());
+                for (l, &d) in sums.iter().enumerate() {
+                    let Some(&class) = self.classes.get(b * LANES + l) else { break };
+                    if near.offer(d, class) {
+                        accepted.push((d, class));
                     }
                 }
             }
+            accepted
+        };
+        let ranges: Vec<Vec<(f32, u8)>> = std::thread::scope(|s| {
+            let scan = &scan;
+            let handles: Vec<_> = blocks.chunks(per).enumerate().skip(1).map(|(r, part)| s.spawn(move || scan(r * per, part))).collect();
+            let first = scan(0, &blocks[..per.min(blocks.len())]);
+            std::iter::once(first).chain(handles.into_iter().map(|h| h.join().expect("recognizer thread"))).collect()
+        });
+        let mut near = Nearest::new();
+        for (d, class) in ranges.into_iter().flatten() {
+            near.offer(d, class);
         }
+        let Nearest { nearest, other } = near;
         let mut votes = [0usize; 10];
         for &(_, c) in &nearest {
             votes[c as usize] += 1;
@@ -302,6 +317,43 @@ impl Recognizer {
             .max_by_key(|&c| (votes[c as usize], std::cmp::Reverse(nearest.iter().position(|n| n.1 == c))))?;
         let digit_distance = nearest.iter().find(|n| n.1 == digit).map(|n| n.0)?;
         Some(Match { digit, digit_distance, other_distance: other })
+    }
+}
+
+/// The K nearest digit examples and the distance of the nearest example that is not a digit, in
+/// the order that the examples are offered.
+struct Nearest {
+    nearest: [(f32, u8); K],
+    other: f32,
+}
+
+impl Nearest {
+    fn new() -> Nearest {
+        Nearest { nearest: [(f32::MAX, 0); K], other: f32::MAX }
+    }
+
+    /// An example with a larger distance than this cannot change the result.
+    fn limit(&self) -> f32 {
+        self.other.max(self.nearest[K - 1].0)
+    }
+
+    /// Offers the example of `class` at the distance `d`. True if it changed the result.
+    fn offer(&mut self, d: f32, class: u8) -> bool {
+        let limit = if class == 0 { self.other } else { self.nearest[K - 1].0 };
+        if d > limit {
+            return false;
+        }
+        if class == 0 {
+            self.other = d;
+        } else {
+            let mut j = K - 1;
+            self.nearest[j] = (d, class);
+            while j > 0 && self.nearest[j].0 < self.nearest[j - 1].0 {
+                self.nearest.swap(j, j - 1);
+                j -= 1;
+            }
+        }
+        true
     }
 }
 
@@ -542,6 +594,21 @@ mod tests {
     /// Puts an example on a cell of the board, with the size of handwriting (approximately 100 px).
     fn place(s: &Sample) -> Vec<Stroke> {
         s.strokes.iter().map(|st| st.iter().map(|&(x, y)| (300.0 + x * 0.4, 600.0 + y * 0.4)).collect()).collect()
+    }
+
+    #[test]
+    fn the_ranges_of_the_scan_do_not_change_the_result() {
+        // `matches` scans ranges of the examples on threads. The result must be the same, bit for
+        // bit, as one scan of all examples.
+        let r = default();
+        for s in samples().iter().step_by(23) {
+            let ink = place(s);
+            let one = r.matches_in(&ink, 1).map(|m| (m.digit, m.digit_distance.to_bits(), m.other_distance.to_bits()));
+            for threads in 2..=4 {
+                let got = r.matches_in(&ink, threads).map(|m| (m.digit, m.digit_distance.to_bits(), m.other_distance.to_bits()));
+                assert_eq!(got, one, "writer {} class {}, {threads} ranges", s.writer, s.class);
+            }
+        }
     }
 
     #[test]
