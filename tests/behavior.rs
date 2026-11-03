@@ -1003,3 +1003,30 @@ fn the_stroke_log_gets_each_stroke_with_its_cell() {
     assert_eq!(&got[..ink.len()], &strokes[..], "all strokes of the 4, in the cell of the 4");
     assert!(got[ink.len()..].contains(&(cell, None)), "the erasure of the cell");
 }
+
+#[test]
+fn the_puzzle_made_while_the_panel_is_open_is_the_puzzle_of_the_seed() {
+    // DIF-5, PUZ-5: while the New game panel is open, the app makes the puzzle of the slider mode in
+    // the background. Each started game has a new seed, and its puzzle is the puzzle of that seed
+    // and mode, also when the panel opens and closes before the start and the slider moves.
+    let mut d = Driver::new(5);
+    let (stops, row_y) = (d.app.ng_stops, layout::ng_slider_y() as f32);
+    let mut seeds = vec![d.app.game.seed];
+    d.button(Button::Menu);
+    for (k, stop) in [3, 1, 5].into_iter().enumerate() {
+        d.button(Button::NewGame);
+        d.button(Button::NewGame); // the panel closes without a new game
+        d.button(Button::NewGame);
+        d.send(Input::PenDown { x: stops[0], y: row_y, tool: Tool::Pen });
+        d.send(Input::PenMove { x: stops[stop], y: row_y });
+        d.send(Input::PenUp { x: stops[stop], y: row_y });
+        let mode = d.app.ui.slider;
+        start_new_game(&mut d);
+        let g = &d.app.game;
+        let p = sudoku::generator::generate_version(g.generator, g.seed, g.mode);
+        let given = p.givens.map(|row| row.map(|v| v != 0));
+        assert_eq!((g.mode, g.solution, g.given), (mode, p.solution, given), "game {k}");
+        assert!(!seeds.contains(&g.seed), "game {k}: a new seed");
+        seeds.push(g.seed);
+    }
+}

@@ -4,6 +4,7 @@ pub mod app;
 pub mod bench;
 #[cfg(feature = "corpus")]
 pub mod corpus;
+pub mod early;
 pub mod game;
 pub mod generator;
 pub mod invariants;

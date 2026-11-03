@@ -89,9 +89,24 @@ impl Puzzle {
     }
 }
 
-/// The puzzle of `(seed, mode)` with the current version of the generator.
+/// The puzzle of `(seed, mode)` with the current version of the generator. If `generate_early`
+/// started the same puzzle, this gives its result (it waits for the end of that calculation).
 pub fn generate(seed: u64, mode: u8) -> Puzzle {
-    generate_version(VERSION, seed, mode)
+    EARLY.get(&(seed, mode), || generate_version(VERSION, seed, mode))
+}
+
+/// The puzzle of the next new game, made while the New game panel is open (PUZ-5: the same puzzle).
+static EARLY: crate::early::Early<(u64, u8), Puzzle> = crate::early::Early::new();
+
+/// Starts to make the puzzle of `(seed, mode)` on a background thread, so that Start new game does
+/// not wait for the generator.
+pub fn generate_early(seed: u64, mode: u8) {
+    EARLY.start((seed, mode), |&(seed, mode)| generate_version(VERSION, seed, mode));
+}
+
+/// Waits for the end of the puzzle that started early, if there is one (for the bench).
+pub fn finish_early() {
+    EARLY.finish(|&(seed, mode)| generate_version(VERSION, seed, mode));
 }
 
 /// The puzzle of `(seed, mode)` with a version of the generator. Version 1 has only the modes 0..5.

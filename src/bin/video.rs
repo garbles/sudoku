@@ -19,7 +19,8 @@
 //!     write rRcC D [writer N]     pen writes the digit D (handwriting of the recognizer examples,
 //!                                 writer 1 to 60, default 1)
 //!     erase rRcC                  eraser end rubs the cell
-//!     tap menu|colors|settings|undo|redo
+//!     tap menu|colors|settings|undo|redo|newgame|start   (newgame: the New game button of the
+//!                                     open menu; start: Start new game in its panel)
 //!     tap color starting|clashing|highlighted COLOR
 //!
 //! It uses the fonts in scripts/fonts (refer to scripts/fonts/README.md) and ffmpeg. After the MP4, the

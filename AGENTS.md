@@ -58,7 +58,7 @@ builds in parallel).
   `gen`, `recognize`, `startup.*` in the order of `platform::run`) and gives hashes of the output: the framebuffer at each check of
   the script, the update rectangles, the reference states, the puzzles and the recognizer matches.
   The bench plays the events with no real time between them. At a wake 100 ms or more after the
-  last input (a timer or an input), it lets the background reading of the ink finish (not
+  last input (a timer or an input), it lets the background calculations (`early.rs`) finish (not
   measured), as on the device.
 - `scripts/bench.sh` builds the bench, does one warm-up run and 5 runs, keeps the median, compares
   it with `bench/baseline-computer.json` and adds one line to `bench/history.jsonl`. `--save`
@@ -158,13 +158,18 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `game.rs`: the board, the pencil marks, the undo and redo history, clashes and completion.
 - `generator.rs`: the puzzle generator with a seed (only one solution). Version 1 stays for old saves.
   After the first attempt, up to 4 threads make batches of attempts; the results are examined in
-  the order of the attempts, thus the puzzle does not depend on the threads (PUZ-5).
+  the order of the attempts, thus the puzzle does not depend on the threads (PUZ-5). While the New
+  game panel is open, the app draws the seed of the next game and makes its puzzle in the
+  background (`generate_early`); Start new game then uses it.
 - `solver.rs`: the human-style solver. It grades a puzzle by the most difficult technique it needs.
 - `recognizer.rs`: reads handwriting in a cell ($P point-cloud recognizer with templates). Up to 4
   threads scan ranges of the examples; the main thread plays the accepted examples of all ranges
   again in order, thus the result is the same bit for bit. At each pen lift, the app starts the
   reading of the pending ink on a background thread (`read_early`). At the end of the pause,
-  `recognize` uses that result if the strokes are the same.
+  `recognize` uses that result if the strokes are the same (`early.rs`).
+- `early.rs`: a calculation that starts on a background thread before the app needs its result
+  (the reading of the ink at each pen lift, the puzzle of the next game). The result is a function
+  of the key only, thus it is the same as a calculation at the time of need.
 - `corpus.rs`: only in the corpus build (Cargo feature `corpus`, a development build). A blank
   board and a log of each stroke and erasure with its cell (`app::StrokeLog`), in a separate data
   folder. `examples/corpus.rs` makes a

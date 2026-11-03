@@ -154,6 +154,12 @@ pub fn micro_center(cell: Cell, d: u8) -> (f32, f32) {
 }
 
 fn button_point(name: &str) -> Result<(f32, f32), String> {
+    match name {
+        // The New game button (at the bottom of the open menu) and "Start new game" in its panel.
+        "newgame" => return Ok((layout::tb_cx(), layout::ng_start_y() as f32)),
+        "start" => return Ok(((layout::ng_tx() + 80) as f32, layout::ng_start_y() as f32)),
+        _ => {}
+    }
     let slot = match name {
         "menu" => 0,
         "colors" => 1,

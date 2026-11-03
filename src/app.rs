@@ -5,7 +5,7 @@
 //! true. Refer to REQUIREMENTS.md §2, §3, §5, §8 to §13 and INVARIANTS.md.
 
 use crate::game::{Cell, Game, Outcome};
-use crate::generator::generate;
+use crate::generator::{generate, generate_early};
 use crate::layout::{self, Button, Rect};
 use crate::recognizer::{self, Stroke};
 use crate::settings::{Color, LineGray, Section, Settings, Switch};
@@ -275,6 +275,9 @@ pub struct App {
     pen: Option<Gesture>,
     touch: Option<FollowedTouch>,
     last_clock: Option<u64>,
+    /// The seed of the next new game (DIF-5: a new seed for each game). The app draws it when the
+    /// New game panel is open, so that the generator can make the puzzle before Start new game.
+    next_seed: Option<u64>,
 
     pub game_dirty: bool,
     pub settings_dirty: bool,
@@ -328,6 +331,7 @@ impl App {
             pen: None,
             touch: None,
             last_clock: None,
+            next_seed: None,
             game_dirty: true,
             settings_dirty: false,
             quit: false,
@@ -488,6 +492,12 @@ impl App {
                     self.finger_up(t.gesture, x, y, now);
                 }
             }
+        }
+        // While the New game panel is open, the puzzle of the slider mode is made in the background:
+        // when no pen or finger is down (not at each stop of a slider move).
+        if self.ui.menu.panel() == Some(Panel::NewGame) && self.screen == Screen::Game && self.pen.is_none() && self.touch.is_none() {
+            let seed = *self.next_seed.get_or_insert_with(|| self.env.new_seed());
+            generate_early(seed, self.ui.slider);
         }
         // §9.2: "Sudoku is up to date" shows only until the Settings panel closes.
         if self.ui.menu.panel() != Some(Panel::Settings) || self.screen != Screen::Game {
@@ -1129,7 +1139,8 @@ impl App {
         eprintln!("sudoku: start new game (mode {mode})");
         self.settings.last_mode = mode;
         self.settings_dirty = true;
-        self.game = new_game(self.env.new_seed(), mode);
+        let seed = self.next_seed.take().unwrap_or_else(|| self.env.new_seed());
+        self.game = new_game(seed, mode);
         self.game_dirty = true;
         // The New game panel closes and the menu stays open (NAV-9).
         self.ui = GameUi::shown(mode);
