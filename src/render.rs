@@ -80,6 +80,9 @@ pub struct Canvas<'a> {
     units: Units,
     /// The record of the frame (refer to [`FrameRecord`]). None: each drawing writes the full frame.
     record: Option<&'a mut FrameRecord>,
+    /// The screen row of the first row of `pm` (not 0 only for a stripe of the board, refer to
+    /// `draw_board_stripes`).
+    top: i32,
 }
 
 /// An area of the screen in px (x1 and y1 are not included).
@@ -228,13 +231,13 @@ fn stroke(w: f32, round: bool) -> Stroke {
 
 impl<'a> Canvas<'a> {
     pub fn new(pm: &'a mut Pixmap, fonts: &'a Fonts) -> Canvas<'a> {
-        Canvas { pm, fonts, units: Units::Screen, record: None }
+        Canvas { pm, fonts, units: Units::Screen, record: None, top: 0 }
     }
 
     /// A canvas that keeps `record` (refer to [`FrameRecord`]). All drawings on `pm` after the first
     /// drawing with `record` must use the same record.
     pub fn retained(pm: &'a mut Pixmap, record: &'a mut FrameRecord, fonts: &'a Fonts) -> Canvas<'a> {
-        Canvas { pm, fonts, units: Units::Screen, record: Some(record) }
+        Canvas { pm, fonts, units: Units::Screen, record: Some(record), top: 0 }
     }
 
     /// Records that a drawing in the box `b` (screen px), with `margin` px more on each side, can
@@ -326,16 +329,9 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    /// Draws with `draw`, without records of the drawings (for the pixels of the board slots).
-    fn untracked(&mut self, draw: impl FnOnce(&mut Self)) {
-        let rec = self.record.take();
-        draw(self);
-        self.record = rec;
-    }
-
     fn tf(&self) -> Transform {
         let scale = self.units.scale();
-        Transform::from_row(scale, 0.0, 0.0, scale, 0.5, 0.5)
+        Transform::from_row(scale, 0.0, 0.0, scale, 0.5, 0.5 - self.top as f32)
     }
 
     pub fn clear(&mut self) {
@@ -1010,18 +1006,8 @@ fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, highlight: Option<u
     if missing > COLD_TILES {
         // Many new tiles (for example the first frame): one full drawing of the board is faster.
         // Then the tiles come from the frame.
-        let (ax, ay, aw, ah) = area;
-        c.untracked(|c| {
-            let fw = c.pm.width() as usize;
-            for r in ay..ay + ah {
-                c.pm.data_mut()[(r * fw + ax) * 4..(r * fw + ax + aw) * 4].fill(255);
-            }
-            for &(cell, look) in &looks {
-                let (x, y) = cell_origin(cell);
-                draw_cell(c, look, x as f32, y as f32);
-            }
-            board_lines(c, |_, _| true, None);
-        });
+        let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4);
+        draw_board_stripes(c, area, &looks, threads);
         TILES.with(|t| {
             let mut t = t.borrow_mut();
             for (a, k) in &slots {
@@ -1059,6 +1045,50 @@ fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, highlight: Option<u
             None => put_cached(c, *k, x, y, w, h, |c| board_lines(c, |_, _| true, None)),
         }
         c.set_slot(i, *k);
+    }
+}
+
+/// The rows that a stripe of the board draws above and below its rows (refer to `draw_board_stripes`).
+const STRIPE_MARGIN: usize = 8;
+
+/// Draws the full board (all cells, then all lines) on white in the area `area` of the frame. The
+/// threads draw horizontal stripes of the area: each thread draws all of the board on its own
+/// stripe pixmap, with the screen rows of the stripe (an integer translation gives the same pixels).
+fn draw_board_stripes(c: &mut Canvas, (ax, ay, aw, ah): (usize, usize, usize, usize), looks: &[(crate::game::Cell, CellLook)], threads: usize) {
+    let fw = c.pm.width();
+    let fonts = c.fonts;
+    // The stripes end at the borders of cell rows: a glyph that the edge of the pixmap clips gets
+    // other pixels (tiny-skia cuts its curves), and no glyph crosses these borders.
+    let by = board_y() as usize;
+    let mut edges: Vec<usize> = (1..threads).map(|k| by + (9 * k / threads) * CELL as usize).collect();
+    edges.insert(0, ay);
+    edges.push(ay + ah);
+    edges.dedup();
+    let stripes: Vec<(usize, usize, usize, Pixmap)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = edges
+            .windows(2)
+            .map(|e| {
+                let (y0, h) = (e[0], e[1] - e[0]);
+                scope.spawn(move || {
+                    // The clip at the edge of a pixmap changes the pixels near it: the stripe pixmap
+                    // has STRIPE_MARGIN more rows above and below.
+                    let top = y0 - STRIPE_MARGIN.min(y0);
+                    let mut pm = Pixmap::new(fw, (y0 - top + h + STRIPE_MARGIN) as u32).unwrap();
+                    pm.fill(tiny_skia::Color::WHITE);
+                    let mut s = Canvas { pm: &mut pm, fonts, units: Units::Screen, record: None, top: top as i32 };
+                    for &(cell, look) in looks {
+                        let (x, y) = cell_origin(cell);
+                        draw_cell(&mut s, look, x as f32, y as f32);
+                    }
+                    board_lines(&mut s, |_, _| true, None);
+                    (y0, y0 - top, h, pm)
+                })
+            })
+            .collect();
+        handles.into_iter().map(|h| h.join().expect("board stripe thread")).collect()
+    });
+    for (y0, sy, h, pm) in stripes {
+        copy_px(&pm, ax, sy, aw, h, c.pm, ax, y0);
     }
 }
 
@@ -1671,4 +1701,40 @@ fn bin(c: &mut Canvas, bx: f32, cy: f32, col: Rgb) {
 pub fn rgb_at(pm: &Pixmap, x: i32, y: i32) -> Rgb {
     let p = pm.pixel(x as u32, y as u32).expect("pixel in the pixmap");
     [p.red(), p.green(), p.blue()]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_board_in_stripes_is_the_same_as_the_board_in_one_drawing() {
+        // `draw_board_stripes`: each thread draws a stripe of the board. All cell looks (numbers in
+        // all colors, the "?", pencil marks at all positions, the micro-cell lines) at all rows.
+        let fonts = Fonts::repo().unwrap();
+        // Each digit in each cell, then all pencil marks (with micro-cell lines), then "?".
+        for pattern in 0..11 {
+            let looks: Vec<_> = cells()
+                .map(|cell| {
+                    let k = (cell.0 * 9 + cell.1) as usize;
+                    let look = match pattern {
+                        0..=8 => CellLook::Value(((k + pattern) % 9) as u8 + 1, if k.is_multiple_of(2) { WHITE } else { gray(90) }, BLACK),
+                        9 => CellLook::Empty(0x1FF, Some(gray(50))),
+                        _ => CellLook::Question,
+                    };
+                    (cell, look)
+                })
+                .collect();
+            let draw = |threads: usize| {
+                let mut pm = Pixmap::new(screen_w(), screen_h()).unwrap();
+                let area = board_area(&pm).unwrap();
+                draw_board_stripes(&mut Canvas::new(&mut pm, &fonts), area, &looks, threads);
+                pm
+            };
+            let one = draw(1);
+            for threads in 2..=4 {
+                assert!(draw(threads).data() == one.data(), "pattern {pattern}, {threads} stripes");
+            }
+        }
+    }
 }
