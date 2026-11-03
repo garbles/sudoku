@@ -170,7 +170,9 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `invariants.rs`: checks of the rules in INVARIANTS.md. Debug builds check them after each input.
 - `layout.rs`, `render.rs`, `font.rs`: positions, drawing (tiny-skia) and the font of the tablet.
   `render.rs` keeps the pixels of each board cell in a cache (tiles at their true position). Each
-  `Canvas` operation records the area that it can change (for the `FrameRecord`).
+  `Canvas` operation records the area that it can change (for the `FrameRecord`). On a frame with
+  a record, `put_overlay` also keeps the pixels of the meter and of the menu button with the
+  toolbar (the key must contain all that the pixels depend on).
 - `store.rs`, `settings.rs`: the SQLite results, the settings and the saved game (JSON).
 - `update.rs`: the update state, the signed `version.json` and the installation of a release
   archive. No network: `platform/` downloads the files on a background thread (ureq, rustls).

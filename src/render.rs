@@ -304,6 +304,12 @@ impl<'a> Canvas<'a> {
         }
     }
 
+    /// True if a drawing of this frame (after the board tiles) touched the area `a` (or the record
+    /// does not know the frame).
+    fn frame_touched(&self, a: &Area) -> bool {
+        self.record.as_ref().and_then(|r| r.known.as_ref()).is_none_or(|k| k.marks.iter().any(|m| m.overlaps(a)))
+    }
+
     /// True if the board slot `i` of the record has the tile `key`.
     fn slot_has(&self, i: usize, key: &TileKey) -> bool {
         self.record.as_ref().and_then(|r| r.known.as_ref()).is_some_and(|k| k.slots[i].1.as_ref() == Some(key))
@@ -661,15 +667,108 @@ fn draw_game(c: &mut Canvas, app: &App) {
         let text = format!("Completed in {}", format_clock(g.seconds()));
         c.text(Weight::Medium, 25.0, (board_x() + BOARD_SIZE / 2) as f32, (meter_y() + 9) as f32, Anchor::Middle, &text, BLACK);
     } else {
-        labeled_slider(c, meter_xl(), meter_xr(), meter_y(), g.mode);
+        put_overlay(c, OverlayLook::Meter(g.mode), |c| labeled_slider(c, meter_xl(), meter_xr(), meter_y(), g.mode));
     }
 
     // The menu button. Its icon shows the menu state (NAV-7). The toolbar of a right-handed player
     // shows the mirror image of the icon.
-    c.image(toggle_icon(app.ui.menu.is_open()), tb_x(), 0, layout::right_handed());
-    if let Menu::Open(panel) = app.ui.menu {
-        draw_toolbar(c, app, panel);
+    let menu = OverlayLook::Menu {
+        panel: app.ui.menu.is_open().then(|| app.ui.menu.panel()),
+        caution: app.update.caution(),
+        undo: app.game.can_undo(),
+        redo: app.game.can_redo(),
+    };
+    put_overlay(c, menu, |c| {
+        c.image(toggle_icon(app.ui.menu.is_open()), tb_x(), 0, layout::right_handed());
+        if let Menu::Open(panel) = app.ui.menu {
+            draw_toolbar(c, app, panel);
+        }
+    });
+    if let Menu::Open(Some(panel)) = app.ui.menu {
+        draw_panel(c, app, panel);
     }
+}
+
+/// A group of drawings out of the board that the overlay cache keeps (refer to `put_overlay`): all
+/// that its pixels depend on, with the layout.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum OverlayLook {
+    /// The difficulty meter at this mode.
+    Meter(u8),
+    /// The menu button and, if `panel` is Some, the toolbar with the button of this panel active
+    /// (`draw_toolbar`, without the panel).
+    Menu { panel: Option<Option<Panel>>, caution: bool, undo: bool, redo: bool },
+}
+
+/// The key of a cached overlay: the fonts (address), the layout (rotation and hand) and the look.
+type OverlayKey = (usize, layout::Rotation, bool, OverlayLook);
+
+/// The pixels of each cached overlay: one piece for each area of its drawings.
+type OverlayCache = std::collections::HashMap<OverlayKey, Vec<(Area, Pixmap)>, std::hash::BuildHasherDefault<FxHasher>>;
+
+/// More cached overlays than this: the cache starts again.
+const MAX_OVERLAYS: usize = 64;
+
+thread_local! {
+    static OVERLAYS: std::cell::RefCell<OverlayCache> =
+        std::cell::RefCell::new(Default::default());
+}
+
+/// Draws the group `draw` with the look `look`. On a frame with a record, the pixels come from the
+/// cache. A copy of the cached area gives the same pixels as the drawing only if the area is white:
+/// no other drawing of this frame and no board tile is in it. Else (and without a record) the group
+/// is drawn. A group that was drawn on a white area goes into the cache.
+fn put_overlay(c: &mut Canvas, look: OverlayLook, draw: impl FnOnce(&mut Canvas)) {
+    let board = board_area(c.pm).map(|(x, y, w, h)| Area::xywh(x, y, w, h));
+    let (Some(board), true) = (board, c.record.as_ref().is_some_and(|r| r.known.is_some())) else {
+        draw(c);
+        return;
+    };
+    let key = (c.fonts as *const Fonts as usize, layout::rotation(), layout::right_handed(), look);
+    let copied = OVERLAYS.with(|o| {
+        let o = o.borrow();
+        let pieces = o.get(&key).filter(|p| !p.iter().any(|(a, _)| c.frame_touched(a)))?;
+        for (a, tile) in pieces {
+            copy_px(tile, 0, 0, tile.width() as usize, tile.height() as usize, c.pm, a.x0 as usize, a.y0 as usize);
+        }
+        Some(pieces.iter().map(|(a, _)| *a).collect::<Vec<_>>())
+    });
+    if let Some(areas) = copied {
+        let rec = c.record.as_deref_mut().unwrap();
+        for a in areas {
+            rec.touch(a);
+        }
+        return;
+    }
+    // Draw the group, with its own list of areas.
+    let earlier = std::mem::take(&mut c.record.as_deref_mut().unwrap().known.as_mut().unwrap().marks);
+    draw(c);
+    let Some(k) = c.record.as_deref_mut().and_then(|r| r.known.as_mut()) else {
+        // The group changed pixels that the record does not know.
+        return;
+    };
+    let group = std::mem::replace(&mut k.marks, earlier);
+    // The group was drawn on white if no earlier drawing of this frame and no tile is in its areas.
+    let on_white = !group.is_empty() && group.iter().all(|a| !a.overlaps(&board) && !k.marks.iter().any(|m| m.overlaps(a)));
+    if on_white {
+        let pieces = group
+            .iter()
+            .map(|a| {
+                let (x, y, w, h) = (a.x0 as usize, a.y0 as usize, (a.x1 - a.x0) as usize, (a.y1 - a.y0) as usize);
+                let mut tile = Pixmap::new(w as u32, h as u32).unwrap();
+                copy_px(c.pm, x, y, w, h, &mut tile, 0, 0);
+                (*a, tile)
+            })
+            .collect();
+        OVERLAYS.with(|o| {
+            let mut o = o.borrow_mut();
+            if o.len() >= MAX_OVERLAYS {
+                o.clear();
+            }
+            o.insert(key, pieces);
+        });
+    }
+    k.marks.extend(group);
 }
 
 /// The look of one cell: all that its pixels depend on.
@@ -1124,11 +1223,14 @@ fn draw_toolbar(c: &mut Canvas, app: &App, panel: Option<Panel>) {
     c.circle(tb_cx(), hy, 19.0, None, Some((BLACK, 3.0)));
     c.text(Weight::Medium, 26.0, tb_cx(), hy + 9.0, Anchor::Middle, "?", BLACK);
 
+}
+
+/// The open panel of the menu.
+fn draw_panel(c: &mut Canvas, app: &App, panel: Panel) {
     match panel {
-        Some(Panel::Colors) => draw_colors_panel(c, &app.settings),
-        Some(Panel::Settings) => draw_settings_panel(c, &app.settings, &app.update),
-        Some(Panel::NewGame) => draw_new_game_panel(c, app.ui.slider),
-        None => {}
+        Panel::Colors => draw_colors_panel(c, &app.settings),
+        Panel::Settings => draw_settings_panel(c, &app.settings, &app.update),
+        Panel::NewGame => draw_new_game_panel(c, app.ui.slider),
     }
 }
 

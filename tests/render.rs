@@ -168,3 +168,67 @@ fn a_retained_frame_is_the_same_as_a_full_drawing() {
     }
     sudoku::layout::set_right_handed(false);
 }
+
+#[test]
+fn a_retained_frame_follows_each_change_of_the_cached_overlays() {
+    // render.rs keeps the pixels of the meter, the menu button and the toolbar (put_overlay). A
+    // random sequence of states changes each input of these pixels (the menu, the panel, undo and
+    // redo, the caution, the mode, the hand) and puts ink over them. Each retained frame must be the
+    // same as a full drawing.
+    use sudoku::app::{Menu, Panel};
+    use sudoku::render::{draw, Canvas, FrameRecord};
+    use tiny_skia::Pixmap;
+    let fonts = fonts();
+    let mut pm = Pixmap::new(1, 1).unwrap();
+    let mut record = FrameRecord::default();
+    let mut seed = 12345u64;
+    let mut next = |n: u64| {
+        seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+        (seed >> 33) % n
+    };
+    for step in 0..400 {
+        let right = next(4) == 0;
+        sudoku::layout::set_right_handed(right);
+        let mut a = reference::app(&fonts);
+        a.game = reference::sample_game();
+        // No undo (can redo: no), a few undos (both), or all (can undo: no).
+        let undos = [0, 3, usize::MAX][next(3) as usize];
+        for _ in 0..undos {
+            if !a.game.can_undo() {
+                break;
+            }
+            a.game.undo();
+        }
+        a.game.mode = next(7) as u8;
+        a.ui.menu = match next(5) {
+            0 => Menu::Closed,
+            1 => Menu::Open(None),
+            2 => Menu::Open(Some(Panel::NewGame)),
+            3 => Menu::Open(Some(Panel::Colors)),
+            _ => Menu::Open(Some(Panel::Settings)),
+        };
+        if next(4) == 0 {
+            a.update = reference::update_state(true);
+        }
+        let (w, h) = (sudoku::layout::screen_w() as f32, sudoku::layout::screen_h() as f32);
+        let tb = sudoku::layout::tb_x() as f32 + 50.0;
+        let my = sudoku::layout::meter_y() as f32;
+        a.live_stroke = match next(4) {
+            // Over the toolbar, over the meter, or from the toolbar to the meter.
+            0 => Some((0..20).map(|i| (tb + i as f32, 40.0 + i as f32 * 30.0)).collect()),
+            1 => Some((0..20).map(|i| (w / 2.0 + i as f32 * 10.0, my - 5.0 + (i % 3) as f32 * 5.0)).collect()),
+            2 => Some(vec![(tb, h / 3.0), (w / 2.0, my)]),
+            _ => None,
+        };
+        let (w, h) = (sudoku::layout::screen_w(), sudoku::layout::screen_h());
+        if (pm.width(), pm.height()) != (w, h) {
+            pm = Pixmap::new(w, h).unwrap();
+            record = FrameRecord::default();
+        }
+        draw(&mut Canvas::retained(&mut pm, &mut record, &fonts), &a);
+        let mut full = Pixmap::new(w, h).unwrap();
+        draw(&mut Canvas::new(&mut full, &fonts), &a);
+        assert!(pm.data() == full.data(), "step {step}: the retained frame is not the same as a full drawing");
+    }
+    sudoku::layout::set_right_handed(false);
+}
