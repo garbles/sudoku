@@ -12,6 +12,16 @@
 #   default-key                     A different key of the computer opens the tablet.
 #   model, os                       The device model and the software version.
 #   vellum, appload, hashtab, xovi  The parts that are installed or on.
+#   vellum-stale                    Vellum says "reenable has not been run" (the tablet software
+#                                   changed).
+#   vellum-sync-fails               sync-vellum fails.
+#   vellum-still-stale              The Vellum state is stale after sync-vellum (the reenable did not
+#                                   complete).
+#   tripletap                       The systemd unit xovi-tripletap is enabled and active.
+#   tripletap-off                   The starter is installed, but the unit is not enabled and active.
+#   tripletap-enable-sh             The file /home/root/xovi-tripletap/enable.sh is present.
+#   tripletap-install-fails         Vellum cannot install the power-button starter.
+#   tripletap-repair-fails          The repair does not enable and start the unit.
 #   app                             The SHA-256 checksum of the installed executable.
 #   patch                           The SHA-256 checksum of the installed ink patch.
 #   stamp                           The SHA-256 checksum in the stamp file of the ink patch.
@@ -108,9 +118,11 @@ case "$name" in
   authorize) IFS= read -r k && echo "$k" >>"$S/authorized" ;;
   info) cat "$S/model" "$S/os" ;;
   has-vellum) yes_no vellum ;;
+  has-vellum-stale) yes_no vellum-stale ;;
   has-appload) yes_no appload ;;
   has-hashtab) yes_no hashtab ;;
   has-xovi) yes_no xovi ;;
+  has-tripletap) yes_no tripletap ;;
   has-internet) if count offline; then echo no; else echo yes; fi ;;
   install-vellum)
     grep -q 'Vellum bootstrap' || { echo "fake ssh: no bootstrap script on stdin" >&2; exit 1; }
@@ -135,6 +147,23 @@ Run 'exec bash --login' to use vellum.
 EOF
     touch "$S/vellum"
     ;;
+  sync-vellum)
+    if [ -e "$S/vellum-sync-fails" ]; then
+      echo "ERROR: vellum: could not upgrade the packages."
+      exit 1
+    fi
+    if [ -e "$S/vellum-still-stale" ]; then
+      echo "warning: reenable has not been run since last OS upgrade."
+      echo "OS upgraded... Run vellum upgrade... Run vellum reenable..."
+      exit 0
+    fi
+    echo "Re-enabling packages after OS upgrade..."
+    echo "  tripletap"
+    echo "Done."
+    # Vellum reenable restores the systemd unit of the power-button starter.
+    rm -f "$S/vellum-stale"
+    touch "$S/tripletap"
+    ;;
   install-appload)
     cat <<'EOF'
 fetch https://packages.vellum.delivery/aarch64/APKINDEX.tar.gz
@@ -154,6 +183,33 @@ EOF
     ;;
   make-hashtab) touch "$S/hashtab"; rm -f "$S/xovi" ;; # rebuild_hashtable stops the user interface
   start-xovi) touch "$S/xovi" ;;
+  install-tripletap)
+    if [ -e "$S/tripletap-install-fails" ]; then
+      echo "ERROR: could not install tripletap: the download failed."
+      exit 1
+    fi
+    cat <<'EOF'
+fetch https://packages.vellum.delivery/aarch64/APKINDEX.tar.gz
+OK: 113 distinct packages available
+(1/1) Installing xovi-tripletap (1.1.1-r0)
+OK: 1 MiB in 2 packages
+EOF
+    # The Vellum package enables and starts the service, unless the state says that it does not.
+    [ -e "$S/tripletap-off" ] || touch "$S/tripletap"
+    ;;
+  repair-tripletap)
+    if [ -e "$S/tripletap-repair-fails" ]; then
+      echo "xovi-tripletap: the service did not start."
+      exit 1
+    fi
+    if [ -e "$S/tripletap-enable-sh" ]; then
+      echo "xovi-tripletap: enabled and started with enable.sh."
+    else
+      echo "xovi-tripletap: re-enabled and started with vellum."
+    fi
+    rm -f "$S/tripletap-off"
+    touch "$S/tripletap"
+    ;;
   app-hash) cat "$S/app" 2>/dev/null; true ;;
   patch-hash)
     echo "patch=$(cat "$S/patch" 2>/dev/null)"

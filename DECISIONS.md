@@ -288,3 +288,111 @@ Review finding (HARD-1) and owner decision, 2026-11-02:
   on the board operates as usual. This is true for the two layouts and for "< Back" from the manual
   and from Statistics (REQUIREMENTS.md §9, INVARIANTS.md NAV-16).
 - Rejected option: accept the risk and make no change.
+
+### Owner request: the installer adds the power-button starter, 2026-11-03
+
+The owner asked: "lets add triple-tap to the installer". The owner approved the terminal output of
+`install.sh` in a simulation on 2026-11-03 (beads issue remarkable-sudoku-kuj). The tablet was not
+reachable, thus the owner examined no restart of the tablet and no press of the power button on the
+tablet. The open bead remarkable-sudoku-rjw records the device test. The change is now in
+REQUIREMENTS.md (§14.4, §14.6). INVARIANTS.md does not change: its rules tell the states of the
+app, and the installer runs on the computer. The rules INS-1 to INS-6 give the behavior.
+
+| Item | Approved result |
+|---|---|
+| Steps | The installer has 11 steps. The new step 10 is "Power button starter". It is after step 9 "Start xovi" and before step 11 "Sudoku". The header comment of `install.sh` lists 11 steps. |
+| Step 10, done already | The installer shows "The power button starts xovi. (done already)" and changes nothing. |
+| Step 10, not done | The installer shows the two information lines, examines the internet connection of the tablet, shows "Installing the power-button starter...", and installs the starter with Vellum. Then it examines the service and shows "The power button starts xovi.". |
+| The service is not on | The installer shows "Repairing the power-button starter...", runs the starter's `enable.sh` (else `vellum reenable` and `systemctl start xovi-tripletap`), and examines the service again. |
+| A failure | The installer stops before Sudoku. Vellum: "Vellum did not install the power-button starter." The service: "The power-button starter is not on." Sudoku is not installed. |
+| The final box | "After a restart, xovi is off. AppLoad is not in the menu." / "Press the power button 3 times to start xovi. The screen" / "starts again after some seconds." |
+
+Owner decisions, 2026-11-03:
+
+1. If Vellum cannot install the starter, the installer stops before Sudoku. The final box always
+   tells the truth about the power button.
+2. If the starter is on the tablet but the service is not on (for example after a tablet software
+   update or a stopped service), the installer tries a repair, examines the service again, and
+   stops if the service is still not on.
+3. The manual installation in README.md and R§14.4 also installs the starter, and it tells the user
+   about the power button.
+4. README.md and the site warn the user: if xovi is on, a triple press starts the interface again
+   and closes Sudoku.
+
+Exact values, 2026-11-03:
+
+- `STEPS=11`. The title of step 10 is "Power button starter". The skip text and the success text are
+  "The power button starts xovi.".
+- The two information lines: "After a restart, xovi is off, and AppLoad is not in the menu." and
+  "A triple press of the power button starts xovi again.".
+- The install command:
+  `/home/root/.vellum/bin/vellum update && /home/root/.vellum/bin/vellum add tripletap`.
+- The repair: `/home/root/xovi-tripletap/enable.sh` if it is present; else
+  `/home/root/.vellum/bin/vellum reenable` and `systemctl start xovi-tripletap`.
+- The condition for the skip and for the examination of the service: the systemd unit
+  `xovi-tripletap` is enabled and active.
+- The failure texts: "Vellum did not install the power-button starter." and "The power-button starter
+  is not on.".
+- No new environment variable. Steps 1 to 9 and step 11 do not change, except the numbers.
+- No value was rejected.
+
+Items that the owner did not examine in the simulation, 2026-11-03:
+
+- The restart of the tablet and the physical power button: the simulation cannot prove them. The
+  open bead remarkable-sudoku-rjw records the device test.
+- The repair after an update of the tablet software. The owner examined it later on the device, on
+  2026-11-03: it failed (refer to the bug record below). The repair is now automatic.
+- Another starter that starts xovi at boot: the installer does not examine it. The box line "After a
+  restart, xovi is off" is correct for a tablet with only this starter.
+- An old version of the tripletap package (before 1.1.1): the installer does not examine the
+  version. The Vellum package is the latest version.
+
+### Bug: the installer stopped after an update of the tablet software, 2026-11-03
+
+Beads bug remarkable-sudoku-3ed. The tablet software changed from 3.29.0.153 to 3.29.1.0. Then the
+owner ran `install.sh` from the computer, and it stopped at step 10. Vellum printed:
+
+- "warning: reenable has not been run since last OS upgrade. Run 'vellum reenable'..."
+- "OS upgraded (3.29.0.153 -> 3.29.1.0). Run 'vellum upgrade'... Run 'vellum reenable'..."
+
+The installer printed "Vellum did not install the power-button starter." The install command of the
+starter failed, because Vellum blocks changes until the upgrade and the reenable. The systemd unit
+`xovi-tripletap` was missing after the update, and the xovi hashtable was stale. The file
+`/home/root/.vellum/state/osver` gave 3.29.0.153.
+
+The owner recovered the tablet manually:
+
+1. `/home/root/.vellum/bin/vellum upgrade` (syncs the OS version of Vellum).
+2. `/home/root/.vellum/bin/vellum reenable` (restores qt-resource-rebuilder and the unit
+   `xovi-tripletap`).
+3. `/home/root/xovi/rebuild_hashtable`.
+4. `/home/root/xovi/start`.
+
+The tablet is recovered.
+
+The fix is in `install.sh` and keeps 11 steps:
+
+- Step 7 examines the Vellum state after an update of the tablet software: `vellum info remarkable-os`
+  gives the warning "reenable has not been run". When Vellum says that the software changed, the step
+  tells the user "The tablet software changed. The installer updates Vellum and the xovi files.",
+  examines the internet connection of the tablet, shows the "Before you continue" box and pause,
+  shows "Updating Vellum after the tablet software change...", runs `vellum upgrade` and
+  `vellum reenable`, and then rebuilds the hashtable also when the hashtab file exists. The step
+  remembers that xovi must start again.
+- If the command fails, or Vellum still reports the stale state, the installer stops with "Vellum
+  could not update the packages after the tablet software change." It does not rebuild the hashtable,
+  does not start xovi and does not install Sudoku.
+- Step 9 starts xovi again after the change, also when xovi is on. It shows "xovi must start again
+  after the tablet software change." after the message for the ink patch when that also applies.
+  The warning that the screen stops was already shown in step 7, thus step 9 has no second pause.
+- Step 10 is unchanged: after the sync, it skips when the unit `xovi-tripletap` is enabled and
+  active, and it installs the package when the package is absent.
+
+The behavior is in REQUIREMENTS.md §14.6 (steps 7 and 9, INS-7 and INS-8). The automatic stale path
+is examined in the simulation only (`tests/install/run.sh` with the fake ssh). The device was
+recovered manually; the installer was not run on a stale tablet.
+
+Remaining limitation (follow-up bead remarkable-sudoku-63a): if the user runs `vellum upgrade` and
+`vellum reenable` manually, but not `/home/root/xovi/rebuild_hashtable`, Vellum does not report the
+stale state. Then step 7 skips because the hashtab file exists, and the installer does not detect the
+stale hashtable. The installer has no OS-version stamp for the hashtable.

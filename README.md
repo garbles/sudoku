@@ -66,16 +66,23 @@ The installer tells you what to do at each step:
    find it.
 
 4. It installs [Vellum](https://github.com/vellum-dev/vellum) and the AppLoad launcher, makes the
-   xovi hashtable, copies the ink patch and starts xovi. The tablet must be connected to Wi-Fi for
-   this step. With the ink patch, the ink has no gaps while you write.
+   xovi hashtable, copies the ink patch and starts xovi. Then it installs the power-button
+   starter: after a restart, press the power button 3 times to start xovi. The tablet must be
+   connected to Wi-Fi for this step. With the ink patch, the ink has no gaps while you write.
 
 5. It copies Sudoku to AppLoad.
 
 The installer skips each step that is done. Thus you can run it again at all times:
 
-- After a restart of the tablet, xovi is off, and AppLoad is not in the menu. Run the installer
-  again to start xovi.
+- After an update of the tablet software. The installer updates Vellum and the xovi files, and it
+  starts xovi again.
 - To install a new version. (Sudoku also tells you about new versions in its Settings panel.)
+
+After a restart of the tablet, xovi is off, and AppLoad is not in the menu. Press the power button
+3 times to start xovi. The screen starts again after some seconds.
+
+**If xovi is on, a triple press of the power button starts the interface again, and Sudoku closes.
+Close Sudoku before you press the power button 3 times.**
 
 To use Wi-Fi in place of the USB cable, set the address of the tablet:
 `curl -fsSL .../install.sh | REMARKABLE_HOST=192.168.1.20 bash`, or
@@ -111,20 +118,25 @@ To select the version without the question, set its name from the
    `10.11.99.1` is the address of the tablet on a USB connection. On Wi-Fi, use the IP address of
    the tablet.
 
-4. Copy the ink patch, write its stamp file (the version and the SHA-256 checksum of the patch) and
-   start xovi. The user interface of the tablet starts again:
+4. Copy the ink patch, write its stamp file (the version and the SHA-256 checksum of the patch),
+   start xovi and install the power-button starter. The user interface of the tablet starts again:
 
    ```bash
      scp sudoku-penregion.qmd root@10.11.99.1:/home/root/xovi/exthome/qt-resource-rebuilder/
      ssh root@10.11.99.1 'cd /home/root/xovi/exthome/qt-resource-rebuilder && printf "{\"version\": \"%s\", \"sha256\": \"%s\"}\n" v<version> "$(sha256sum sudoku-penregion.qmd | cut -d " " -f 1)" > sudoku-penregion.json'
      ssh root@10.11.99.1 /home/root/xovi/start
+     ssh root@10.11.99.1 '/home/root/.vellum/bin/vellum update && /home/root/.vellum/bin/vellum add tripletap'
    ```
 
    An update in the app replaces the ink patch only when its checksum is different from the
    checksum in `sudoku-penregion.json`, or when this file is missing or not correct. Then the app
    asks you to start the interface again.
 
-   After a restart of the tablet, run `/home/root/xovi/start` again.
+   After a restart of the tablet, press the power button 3 times to start xovi.
+
+   After an update of the tablet software, run `/home/root/.vellum/bin/vellum upgrade`,
+   `/home/root/.vellum/bin/vellum reenable`, `/home/root/xovi/rebuild_hashtable` and
+   `/home/root/xovi/start`.
 
 5. Open AppLoad on the tablet and tap **Sudoku**.
 

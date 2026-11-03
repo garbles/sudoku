@@ -1,6 +1,6 @@
 ---
 name: remarkable-dev
-description: Develop each requested feature or change of behavior of the Sudoku app (the UI, the game rules, the input, the helpers, the puzzles, the recognizer, the saved data, the update, the installer). First make a fast prototype, install the dev build on the tablet and get the approval of the user. A dev-prototype-reviewer agent then reviews only the approved prototype. Then write a description of the approved change, revert the prototype, and give the description to a team of agents in three waves - the documents (REQUIREMENTS.md, INVARIANTS.md, README.md and the other affected documents) in parallel, then the source, then the tests, the images and the other media in parallel. Use when the user asks for a new feature, or for a change to what the app does or how it looks.
+description: Develop each requested feature or change of behavior of the Sudoku app (the UI, the game rules, the input, the helpers, the puzzles, the recognizer, the saved data, the update, the installer). First make a fast prototype, install the dev build on the tablet and get the approval of the user. For a simple request, keep the approved code and finish the documents, the tests, the images and the bench directly (the fast track, 5 steps). For a complex request, a dev-prototype-reviewer agent reviews the approved prototype. Then write a description of the change, revert the prototype, and give the description to a team of agents in three waves - the documents (REQUIREMENTS.md, INVARIANTS.md, README.md and the other affected documents) in parallel, then the source, then the tests, the images and the other media in parallel. Use when the user asks for a new feature, or for a change to what the app does or how it looks.
 ---
 
 # Develop a feature
@@ -9,18 +9,23 @@ Write all messages and files in ASD-STE100 Simplified Technical English (refer t
 
 The user must try a feature on the tablet before the documents and the tests change. A change
 that looks correct in the code can look or feel wrong on the e-paper display, with the pen. Thus
-this skill has two phases:
+you first make a prototype and install it on the tablet. That part is the same for all requests.
 
-1. **Prototype.** You change the code fast, with no documents and no tests, and install it on the
-   tablet until the user is satisfied. Then a `dev-prototype-reviewer` agent reviews only the approved
-   prototype, and its findings go into the description for the team.
-2. **Implementation.** You write a description of the approved change, revert the prototype, and
-   give the description to a team of agents. The team does the work in the usual order of
-   AGENTS.md, in three waves: first the documents (3 agents in parallel), then the source
-   (1 agent), then the tests and the media (N agents in parallel).
+Then this skill has two tracks:
 
-The prototype is only a tool to find the correct result. Its code does not go into the final
-change.
+1. **Fast track (simple request).** Keep the approved prototype as the final code. You change the
+   documents, the tests, the images and the bench directly. There is no review, no description,
+   no revert and no team. This track has 5 steps.
+2. **Full track (complex request, the default).** A `dev-prototype-reviewer` agent reviews only
+   the approved prototype, and its findings go into the description for the team. You write a
+   description of the approved change, revert the prototype, and give the description to a team
+   of agents. The team does the work in the usual order of AGENTS.md, in three waves: first the
+   documents (3 agents in parallel), then the source (1 agent), then the tests and the media
+   (N agents in parallel).
+
+The prototype is only a tool to find the correct result. On the full track, its code does not go
+into the final change. On the fast track, its code becomes the final code only after you examine
+it with the checklist in "Fast track" below.
 
 ## When to use this skill
 
@@ -34,7 +39,114 @@ Use a different skill for these tasks:
 - A refactor with no change of behavior: `improve-architecture`.
 - An audit of the documents: `audit-doc-claims`.
 
-## Phase 1: prototype
+## Choose the track
+
+Choose the track before you change the code. Use the fast track only when all these items are true:
+
+1. **One behavior, one place.** One sentence describes the result. One short action on the tablet
+   shows it. There is no new screen, panel, dialog, button, icon, image file, manual page, input
+   gesture or key.
+2. **No new state.** There is no new state field, saved value, setting, file-format field, game
+   rule or state transition. An existing value can change: the text, a color, a position, a size,
+   a time, a limit or a default. §0 of INVARIANTS.md stays the same.
+3. **Small code.** At most two files in `src/` change. You add no file in `src/`. You do not touch
+   `generator.rs`, `solver.rs`, `recognizer.rs`, `update.rs`, `install.sh`, `appload/` or the
+   corpus feature. `src/reference.rs` (the reference states of the snapshot tool) does not count
+   as one of the two files. You can examine the diff in one pass.
+4. **Small work.** Besides REQUIREMENTS.md, DECISIONS.md, the comments in `src/` and `bench/`,
+   the change touches at most one document group (for example the design images, or README.md),
+   one test group and one media rebuild (the images or the videos). You can do this work yourself
+   in one turn.
+5. **No doubt.** If one item is not true, or you are not sure, use the full track. The fast track
+   is not a shortcut for a request that you do not understand.
+
+Examples of the fast track: the text, the color or the position of one existing element; an
+existing limit, time or default value; the order of the existing menu items; one message that the
+app shows.
+
+Examples of the full track: a new screen, panel, dialog, button, setting or input; a new state,
+saved value or game rule; a change to the puzzles, the recognizer, the update, the installer or
+the ink patch; a change that needs a new image or more than one image group; a different sequence
+in the demo video.
+
+If the user asks for the fast track, examine the same items. If one item is not true, tell the
+user which item, and ask what to do. Do not use the fast track for a request that fails the
+checklist.
+
+Tell the user which track you use before you change the code. Write the answer to each item above
+in the notes of the issue.
+
+## Fast track (simple change)
+
+The fast track replaces steps 1 to 12 of the full track below. Do all 5 steps. Do not start an
+agent.
+
+**F1. Prepare.** Make a beads issue (`bd create --type=feature` or `task`, then `bd update <id>
+--claim`). Write the request of the user in its description. Record the baseline of the working
+tree:
+
+```bash
+BASE=$(git stash create); BASE=${BASE:-$(git rev-parse HEAD)}
+git status --porcelain > SCRATCH/dev-baseline-status.txt
+```
+
+Write `BASE` in the notes of the issue (`bd update <id> --notes`). Read the related sections of
+REQUIREMENTS.md and INVARIANTS.md, and the related images (`images/INDEX.md`). Write their IDs in
+the notes. Record each file that you change or add.
+
+**F2. Change the code and install.** Change only what the request needs (step 4 of the full
+track). Do not change the documents, the tests or `images/` yet. Install the dev build with the
+`remarkable-install-dev` skill (step 5 of the full track). Tell the user what changed and how to
+see it. Tell the user to close Sudoku and open it again from AppLoad.
+
+**F3. Get the approval on the tablet.** Ask the user (AskUserQuestion) if the result is correct.
+Give the options "Correct", "Change it" and "Stop and revert". If the user asks for a change, do
+F2 again. Change one thing at a time when the user is not sure what is wrong. Record each value
+that the user rejected and the reason in the notes of the issue. If the user selects "Stop and
+revert", do step 9 of the full track (revert), close the issue with a reason, and stop.
+
+**F4. Keep the code and finish the change.** Do this only after the user selects "Correct".
+
+1. Examine the code of the prototype as if another agent wrote it. Change it if it has any of
+   these:
+   - debug output, commented-out code, a value in two places, or an unused value;
+   - a name that does not tell the behavior, or a comment that is not true now;
+   - a change that the user did not approve.
+   If you change the behavior, do F2 again. Also examine the edge cases that the user did not try
+   (the limits, the other orientations, the completed game). If an edge case needs a decision that
+   changes what the user sees, ask the user (AskUserQuestion).
+2. Update the documents and the scripts that the change touches, with the table in "Documents"
+   below. REQUIREMENTS.md and DECISIONS.md always. INVARIANTS.md if a rule changes. README.md and
+   `site/` if they give the behavior or the instructions. The design image scripts and
+   `images/INDEX.md` if a screen, a panel, a dialog or the icon looks different. The manual
+   scripts if a manual page tells about or shows the change. The video event scripts if the demo
+   shows the change, or if an event misses its target now (change the first part of
+   `video/demo-full.txt` also).
+3. Build the media group that changed: `make media-images` or `make media-video`. Read the new
+   images or some frames of the video. They must show the approved result. If they do not, change
+   the scripts and build again.
+4. Add or change the tests and the reference states (`src/reference.rs`, `tests/render.rs`) if the
+   behavior or the pixels changed. Write each test from REQUIREMENTS.md and INVARIANTS.md, not
+   from the code, so that the test can fail. Each test gives the rule IDs that it examines.
+5. Run `cargo build --release --bins` with no warnings, `cargo test`, and `make snapshot`. The
+   snapshot tool must agree with `images/`.
+6. If the pixels, the reference states, the puzzles, the recognizer or `video/demo-full.txt`
+   change, run `scripts/bench.sh` and compare with the baseline. Each changed hash must have a
+   cause in the change. Then save the bench baselines again (refer to "Performance" in AGENTS.md).
+   If `src/present.rs` or the platform code changes, run `make test-linux`.
+7. If the binary changed after the approval, install the final dev build with the
+   `remarkable-install-dev` skill and ask the user to examine it one time. The documents and the
+   tests do not change the binary. A manual page change does.
+
+**F5. Close and report.** Run `cargo test` one more time. Close the issue (`bd close`). Give the
+changed files, the test results and the commands that you suggest (for example a commit). Do not
+commit or push unless the user asks.
+
+If a fact in F4 contradicts the test in "Choose the track" (for example the change needs a new
+rule or a third document group), stop and tell the user. Do the rest with the full track from
+step 8.
+
+## Full track: phase 1 (prototype)
 
 1. **Make a beads issue.** `bd create --type=feature` (or `task`), then `bd update <id> --claim`.
    In the description, write the request of the user with their words.
@@ -114,7 +226,7 @@ Use a different skill for these tasks:
 
    This is the only review. Phase 2 has no review.
 
-## Phase 2: implementation
+## Full track: phase 2 (implementation)
 
 8. **Write the description of the change.** Write it to `SCRATCH/dev-change-<id>.md` and copy it to
    the design field of the issue (`bd update <id> --design`). The description tells **what** the
@@ -250,6 +362,8 @@ Use a different skill for these tasks:
 The agent types are in `.claude/agents/`. Each file gives the task, the input, the rules and the
 report of its agent. If the procedure of a phase changes, change the agent file also.
 
+The fast track does not start an agent. The agents below belong to the full track.
+
 | Agent type                | Step or wave      | Owns                                                         |
 | ------------------------- | ----------------- | ------------------------------------------------------------ |
 | `dev-prototype-reviewer`  | Step 7 (phase 1)  | Nothing (read-only review of the prototype diff)             |
@@ -272,6 +386,10 @@ Examine each row for each change. In the description (step 8), give the rows tha
 touches. If a document has no owner in the waves of step 10, the change does not touch it. Make
 sure of this before you start the team.
 
+On the fast track, you own each row, and you do its work in F4. The rows that need work beyond
+REQUIREMENTS.md, DECISIONS.md, the comments in `src/` and `bench/` must be at most one. If they
+are more, stop and use the full track.
+
 | Document                                                  | It changes when                                          | Owner (wave)        |
 | --------------------------------------------------------- | -------------------------------------------------------- | ------------------- |
 | REQUIREMENTS.md (also §15 and §17)                        | Always                                                   | REQUIREMENTS (1)    |
@@ -292,11 +410,14 @@ tell the user.
 
 ## Rules
 
-- Never update REQUIREMENTS.md, INVARIANTS.md, the tests or `images/` in phase 1.
-- Never give the code or the diff of the prototype to the team. The description is the only input.
-- Never remove changes in the working tree that were there before step 2.
+- Never update REQUIREMENTS.md, INVARIANTS.md, the tests or `images/` before the user approves
+  the change on the tablet.
+- On the full track, never give the code or the diff of the prototype to the team. The description
+  is the only input.
+- Never remove changes in the working tree that were there before step 2 (or F1).
 - If you cannot connect to the tablet, tell the user. Then run
   `cargo run --release --bin snapshot -- DIR` with a `DIR` in the scratchpad, give the full paths
   of the PNG files that show the change, and ask if the images are sufficient for the approval. Do
   not decide this yourself, and do not copy the files into `images/`.
-- If the user approves only a part, the description contains only that part.
+- If the user approves only a part, keep only that part: the description contains only that part
+  on the full track, and the code contains only that part on the fast track.

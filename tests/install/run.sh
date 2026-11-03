@@ -12,7 +12,8 @@
 #   first     A new tablet in developer mode: all steps operate.
 #   connect   The tablet is not connected, then developer mode is off. All other steps are done.
 #   again     All steps are done.
-#   restart   After a restart of the tablet (xovi is off) with an earlier version of Sudoku.
+#   restart   After a restart of the tablet (xovi is off) with an earlier version of Sudoku. The
+#             power-button starter stays on.
 #   twice     The scenario "first", then the installer again. The output is the output of the second run.
 #   password  "first" with an incorrect password three times.
 #   hostkey   The tablet has a new host key after a factory reset.
@@ -32,6 +33,27 @@
 #   wifi      All steps are done. REMARKABLE_HOST gives a Wi-Fi address. The first connection fails,
 #             and the user selects "Try again".
 #   wifi-usb  As "wifi", but Wi-Fi does not operate. The user selects "Use the USB cable".
+#   tablet-update
+#             The tablet software was updated: the Vellum state is stale, the hashtab file stays,
+#             and the power-button unit is missing. Step 7 syncs Vellum and rebuilds the hashtab,
+#             step 9 restarts xovi, and steps 10 and 11 are done.
+#   tablet-update-sync-fail
+#             As "tablet-update", but sync-vellum fails. The installer stops at step 7.
+#   tablet-update-still-stale
+#             As "tablet-update", but the Vellum state is still stale after sync-vellum. The
+#             installer stops at step 7.
+#   tripletap-repair
+#             All steps are done, but the power-button service is off. Vellum installs the starter,
+#             the service stays off, and the repair with the starter's enable.sh starts it.
+#   tripletap-repair-fail
+#             As "tripletap-repair", but the repair (with vellum reenable) does not start the
+#             service. The installer stops before Sudoku.
+#   tripletap-install-fail
+#             All steps are done, but Vellum cannot install the power-button starter. The installer
+#             stops before Sudoku.
+#   tripletap-offline
+#             All steps are done, but the tablet has no internet at the power-button step. The user
+#             connects the tablet to Wi-Fi and continues.
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$(cd "$HERE/../.." && pwd)"
@@ -76,7 +98,7 @@ installed() {
   mkdir -p "$SIM/home/.ssh"
   PATH="$HERE/fake:$PATH" ssh-keygen -q -t ed25519 -N "" -C sudoku-installer -f "$SIM/home/.ssh/id_ed25519_remarkable"
   cat "$SIM/home/.ssh/id_ed25519_remarkable.pub" >>"$S/authorized"
-  touch "$S/vellum" "$S/appload" "$S/hashtab" "$S/xovi"
+  touch "$S/vellum" "$S/appload" "$S/hashtab" "$S/xovi" "$S/tripletap"
   printf '%s\n' "$APP" >"$S/app"
   printf '%s\n' "$PATCH" >"$S/patch"
   printf '%s\n' "$PATCH" >"$S/stamp"
@@ -135,6 +157,13 @@ case "$SCENARIO" in
   typed) installed; preview; input 2 "$PRE" ;;
   wifi) installed; RHOST=192.168.1.20; echo 1 >"$S/wifi-unreachable"; input "" "" ;;
   wifi-usb) installed; RHOST=192.168.1.20; touch "$S/wifi-down"; input "" 2 ;;
+  tablet-update) installed; rm "$S/tripletap"; touch "$S/vellum-stale"; input "" "" ;;
+  tablet-update-sync-fail) installed; rm "$S/tripletap"; touch "$S/vellum-stale" "$S/vellum-sync-fails"; input "" "" ;;
+  tablet-update-still-stale) installed; rm "$S/tripletap"; touch "$S/vellum-stale" "$S/vellum-still-stale"; input "" "" ;;
+  tripletap-repair) installed; rm "$S/tripletap"; touch "$S/tripletap-off" "$S/tripletap-enable-sh"; input "" ;;
+  tripletap-repair-fail) installed; rm "$S/tripletap"; touch "$S/tripletap-off" "$S/tripletap-repair-fails"; input "" ;;
+  tripletap-install-fail) installed; rm "$S/tripletap"; touch "$S/tripletap-install-fails"; input "" ;;
+  tripletap-offline) installed; rm "$S/tripletap"; echo 1 >"$S/offline"; input "" "" ;;
   *) echo "run.sh: unknown scenario: $SCENARIO" >&2; exit 2 ;;
 esac
 run

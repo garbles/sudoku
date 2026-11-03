@@ -269,7 +269,7 @@
         <li>The installer asks which version you want: the latest version (push Enter), or a different version from a list of all releases, for example a preview version. Then it downloads the release and its ink patch, and examines their checksums.</li>
         <li>It finds the tablet on the USB cable. If developer mode is off, it tells you how to turn it on.</li>
         <li>It makes an SSH key and adds it to the tablet. If the tablet does not accept another SSH key of your computer, you type the SSH password of the tablet one time. The installer tells you where to find it.</li>
-        <li>It installs <a href="https://github.com/vellum-dev/vellum">Vellum</a> and the AppLoad launcher, makes the xovi hashtable, copies the ink patch and starts xovi. The tablet must be connected to Wi-Fi. With the ink patch, the ink has no gaps while you write.</li>
+        <li>It installs <a href="https://github.com/vellum-dev/vellum">Vellum</a> and the AppLoad launcher, makes the xovi hashtable, copies the ink patch and starts xovi. Then it installs the power-button starter: after a restart, press the power button 3 times to start xovi. The tablet must be connected to Wi-Fi. With the ink patch, the ink has no gaps while you write.</li>
         <li>It copies Sudoku to AppLoad. Open AppLoad on the tablet and tap <strong>Sudoku</strong>.</li>
       </ol>
 
@@ -278,11 +278,15 @@
       <h2>Run it again</h2>
       <p class="note">The installer skips each step that is done. Thus you can run it again at all times:</p>
       <ul class="notes">
-        <li>After a restart of the tablet, AppLoad is not in the menu. Run the installer again to start xovi.</li>
+        <li>After an update of the tablet software. The installer updates Vellum and the xovi files, and it starts xovi again.</li>
         <li>To install a new version. Sudoku also tells you about new versions in its Settings panel.</li>
         <li>To use Wi-Fi in place of the USB cable, set <code>REMARKABLE_HOST=&lt;address&gt;</code> before <code>bash</code>, or export it before the command. If the tablet does not answer on Wi-Fi, the installer asks if you want to try again or use the USB cable.</li>
         <li>To select the version without the question, set <code>SUDOKU_VERSION=&lt;version&gt;</code> (a name from the <a href="https://github.com/garbles/sudoku/releases">Releases</a> page) before <code>bash</code>.</li>
       </ul>
+
+      <p>After a restart of the tablet, xovi is off, and AppLoad is not in the menu. Press the power button 3 times to start xovi. The screen starts again after some seconds.</p>
+
+      <div class="warn"><strong>If xovi is on, a triple press of the power button starts the interface again, and Sudoku closes.</strong> Close Sudoku before you press the power button 3 times.</div>
 
       <p class="note" style="margin-top:28px">
         For the manual installation and the build, refer to the

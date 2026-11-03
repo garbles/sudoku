@@ -5,8 +5,7 @@
 #
 # The script runs on your computer (macOS or Linux). It connects to the tablet with SSH and does the
 # steps below. It examines each step first and skips it if it is done. Thus you can run the script
-# again at all times, for example after a restart of the tablet (xovi then stops) or for a new
-# version of Sudoku.
+# again at all times, for example for a new version of Sudoku.
 #
 #   1. Examine the programs on this computer (ssh, ssh-keygen, curl, tar).
 #   2. Select the version (the latest version, or a version from a list of all releases). Download
@@ -20,7 +19,8 @@
 #   8. Install the ink patch (a QML patch that xovi applies when it starts) and its stamp file (the
 #      version that installed the patch and the checksum of the patch).
 #   9. Start xovi (again, if the ink patch changed).
-#  10. Install the Sudoku folder in AppLoad.
+#  10. Install the power-button starter. A triple press of the power button starts xovi.
+#  11. Install the Sudoku folder in AppLoad.
 #
 # Environment variables:
 #   REMARKABLE_HOST     The address of the tablet on Wi-Fi, for example 192.168.1.20. Default (not
@@ -60,10 +60,11 @@ VELLUM_BOOTSTRAP="https://github.com/vellum-dev/vellum-cli/releases/latest/downl
 HOST="${REMARKABLE_HOST:-10.11.99.1}"
 KEY="${SUDOKU_SSH_KEY:-$HOME/.ssh/id_ed25519_remarkable}"
 TTY="${SUDOKU_INSTALL_TTY:-/dev/tty}"
-STEPS=10
+STEPS=11
 WIDTH=66 # the width of the text in a box. All box text is ASCII.
 UI_WARNED=0
 PATCH_CHANGED=0
+XOVI_RESTART=0 # 1 while xovi must start again after an update of the tablet software
 # The ink patch: AppLoad shows the ink of Sudoku with the fast pen waveform (no gaps). Each release
 # has the patch as a separate file. The stamp file next to it gives the version that installed the
 # patch and the checksum of the patch (the same file as src/update.rs writes).
@@ -95,6 +96,7 @@ step_appload
 step_hashtable
 step_patch
 step_xovi
+step_tripletap
 step_sudoku
 finish
 }
@@ -823,13 +825,26 @@ step_appload() {
   ok "AppLoad is installed."
 }
 
+# An update of the tablet software makes the Vellum packages stale. Then the installer must run
+# "vellum upgrade" and "vellum reenable" before it changes the xovi files.
+vellum_stale() {
+  check has-vellum-stale '/home/root/.vellum/bin/vellum info remarkable-os 2>&1 | grep -q "reenable has not been run"'
+}
+
 step_hashtable() {
   step 7 "xovi hashtable"
-  if check has-hashtab '[ -s /home/root/xovi/exthome/qt-resource-rebuilder/hashtab ]'; then
+  local stale=0
+  vellum_stale && stale=1
+  if [ "$stale" = 0 ] && check has-hashtab '[ -s /home/root/xovi/exthome/qt-resource-rebuilder/hashtab ]'; then
     skip "The hashtable is available."
     return
   fi
-  info "xovi needs a table of the user interface files of the tablet."
+  if [ "$stale" = 1 ]; then
+    info "The tablet software changed. The installer updates Vellum and the xovi files."
+    need_internet
+  else
+    info "xovi needs a table of the user interface files of the tablet."
+  fi
   box "$YELLOW" "Before you continue" \
     "The installer stops the user interface of the tablet for 1 to 2" \
     "minutes. During this time, the screen does not change. This is" \
@@ -839,6 +854,13 @@ step_hashtable() {
     "2. If the tablet asks for its passcode, type it on the tablet."
   pause "Ready?"
   UI_WARNED=1
+  if [ "$stale" = 1 ]; then
+    act "Updating Vellum after the tablet software change..."
+    stream ': sync-vellum; printf "y\n" | /home/root/.vellum/bin/vellum upgrade && /home/root/.vellum/bin/vellum reenable' ||
+      failed "Vellum could not update the packages after the tablet software change."
+    vellum_stale && failed "Vellum could not update the packages after the tablet software change."
+    XOVI_RESTART=1
+  fi
   act "Making the hashtable. Wait 1 to 2 minutes..."
   stream ': make-hashtab; printf "\n" | /home/root/xovi/rebuild_hashtable > /tmp/sudoku-hashtab.log 2>&1; [ -s /home/root/xovi/exthome/qt-resource-rebuilder/hashtab ] || { tail -n 20 /tmp/sudoku-hashtab.log; exit 1; }' ||
     failed "xovi could not make the hashtable."
@@ -885,14 +907,15 @@ step_patch() {
 step_xovi() {
   step 9 "Start xovi"
   if check has-xovi 'p=$(pidof xochitl) && grep -q xovi.so /proc/${p%% *}/maps 2>/dev/null'; then
-    if [ "$PATCH_CHANGED" = 0 ]; then
+    if [ "$PATCH_CHANGED" = 0 ] && [ "$XOVI_RESTART" = 0 ]; then
       skip "xovi is on."
       return
     fi
-    info "xovi must start again to apply the ink patch."
+    [ "$PATCH_CHANGED" = 1 ] && info "xovi must start again to apply the ink patch."
   else
     info "xovi adds AppLoad to the tablet. Each restart of the tablet stops xovi."
   fi
+  [ "$XOVI_RESTART" = 1 ] && info "xovi must start again after the tablet software change."
   if [ "$UI_WARNED" = 0 ]; then
     box "$YELLOW" "Before you continue" \
       "The user interface of the tablet starts again. This takes some" \
@@ -905,8 +928,36 @@ step_xovi() {
   ok "xovi is on."
 }
 
+# The power-button starter starts xovi on a triple press of the power button. It does not start xovi
+# at boot. Step 10 is done when the systemd unit xovi-tripletap is enabled and active.
+tripletap_on() {
+  check has-tripletap 'systemctl is-enabled xovi-tripletap >/dev/null 2>&1 && systemctl is-active xovi-tripletap >/dev/null 2>&1'
+}
+
+step_tripletap() {
+  step 10 "Power button starter"
+  if tripletap_on; then
+    skip "The power button starts xovi."
+    return
+  fi
+  info "After a restart, xovi is off, and AppLoad is not in the menu."
+  info "A triple press of the power button starts xovi again."
+  need_internet
+  act "Installing the power-button starter..."
+  stream ': install-tripletap; /home/root/.vellum/bin/vellum update && /home/root/.vellum/bin/vellum add tripletap' ||
+    failed "Vellum did not install the power-button starter."
+  if ! tripletap_on; then
+    act "Repairing the power-button starter..."
+    # An update of the tablet software can remove the service. The starter's enable.sh installs and
+    # repairs it. An older starter has no enable.sh: then Vellum re-enables the system files.
+    stream ': repair-tripletap; if [ -f /home/root/xovi-tripletap/enable.sh ]; then bash /home/root/xovi-tripletap/enable.sh; else /home/root/.vellum/bin/vellum reenable && systemctl start xovi-tripletap; fi'
+    tripletap_on || failed "The power-button starter is not on."
+  fi
+  ok "The power button starts xovi."
+}
+
 step_sudoku() {
-  step 10 "Sudoku $SUDOKU_VERSION"
+  step 11 "Sudoku $SUDOKU_VERSION"
   local installed
   installed="$(remote ': app-hash; sha256sum /home/root/xovi/exthome/appload/sudoku/sudoku 2>/dev/null | cut -d " " -f 1')" || lost
   if [ "$installed" = "$APP_HASH" ]; then
@@ -935,9 +986,9 @@ finish() {
     "" \
     "If Sudoku was open, close it and open it again." \
     "" \
-    "Each restart of the tablet stops xovi. Then AppLoad is not in the" \
-    "menu. To start xovi again, run this installer again. It skips the" \
-    "other steps."
+    "After a restart, xovi is off. AppLoad is not in the menu." \
+    "Press the power button 3 times to start xovi. The screen" \
+    "starts again after some seconds."
   printf '\n  %sTo run the installer again:%s\n' "$GRAY" "$R"
   printf '  %scurl -fsSL %s/releases/latest/download/install.sh | bash%s\n\n' "$CODE" "$REPO" "$R"
 }

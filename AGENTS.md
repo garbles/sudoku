@@ -216,10 +216,12 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   rule IDs that they examine.
 - Each requested feature (a new behavior, or a change to what the app does or how it looks) uses
   the `remarkable-dev` skill (`.claude/skills/remarkable-dev/`). First make a prototype and install
-  the dev build on the tablet. When the user approves the result, write a description of the
-  change (no code), revert the prototype, and give the description to a team of agents. The team
-  updates the documents in parallel (REQUIREMENTS.md, INVARIANTS.md, README.md and the other
-  affected documents), then the source, then the tests and the media in parallel.
+  the dev build on the tablet. The skill gives the test for a simple request. For a simple
+  request, use its fast track: keep the approved prototype and finish the documents, the tests
+  and the media yourself. For a complex request, write a description of the change (no code),
+  revert the prototype, and give the description to a team of agents. The team updates the
+  documents in parallel (REQUIREMENTS.md, INVARIANTS.md, README.md and the other affected
+  documents), then the source, then the tests and the media in parallel.
 - DECISIONS.md records how the app was examined (pixels, handwriting, device). If the code needs a
   detail that the requirements do not give, ask the owner before you add it to REQUIREMENTS.md or
   INVARIANTS.md.

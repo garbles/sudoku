@@ -107,10 +107,10 @@ with the output). The font is DejaVu Sans Mono (`scripts/fonts/`).
 
 | Image | Scenario | Content |
 |---|---|---|
-| `install-first.png` | `first` | A new tablet in developer mode. All 10 steps operate: the SSH key and the password, Vellum, AppLoad, the hashtable, the ink patch, xovi and Sudoku. |
+| `install-first.png` | `first` | A new tablet in developer mode. All 11 steps operate: the SSH key and the password, Vellum, AppLoad, the hashtable, the ink patch, xovi, the power-button starter and Sudoku. |
 | `install-connect.png` | `connect` | The tablet does not answer (instructions for the USB cable), then SSH is off (instructions for developer mode). All other steps are done already. |
-| `install-restart.png` | `restart` | After a restart of the tablet with an earlier version of Sudoku: the installer starts xovi and replaces the app. |
-| `install-again.png` | `again` | The installation steps (4 to 10) are done already. The installer changes nothing on the tablet. |
+| `install-restart.png` | `restart` | After a restart of the tablet with an earlier version of Sudoku: the installer starts xovi, the power-button starter is on already, and the installer replaces the app. |
+| `install-again.png` | `again` | The installation steps (4 to 11) are done already. The installer changes nothing on the tablet. |
 | `install-menu.png` | `select` (in a terminal) | The user selected "A different version". The list of versions is open: the newest first, the type (`latest`, `stable` or `preview`) and the date. The arrow is on the preview version `pre-1a2b3c4`. |
 | `install-select.png` | `select` (in a terminal) | The complete run after the selection of `pre-1a2b3c4`: the menus changed to the line "Version: pre-1a2b3c4.", with the warning for a preview version. |
 

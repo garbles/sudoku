@@ -33,11 +33,14 @@ fn strip_ansi(s: &str) -> String {
     out
 }
 
-/// The lines of the step "n/10 ..." up to the next step.
+/// The number of steps of install.sh (STEPS=11, INS-1).
+const STEPS: u32 = 11;
+
+/// The lines of the step "n/11 ..." up to the next step.
 fn step(out: &str, n: u32) -> String {
-    let start = out.find(&format!(" {n}/10 ")).unwrap_or_else(|| panic!("no step {n}:\n{out}"));
+    let start = out.find(&format!(" {n}/{STEPS} ")).unwrap_or_else(|| panic!("no step {n}:\n{out}"));
     let rest = &out[start + 1..];
-    let end = rest.find(&format!(" {}/10 ", n + 1)).unwrap_or(rest.len());
+    let end = rest.find(&format!(" {}/{STEPS} ", n + 1)).unwrap_or(rest.len());
     rest[..end].to_string()
 }
 
@@ -45,9 +48,9 @@ fn assert_has(out: &str, text: &str) {
     assert!(out.contains(text), "the output does not contain {text:?}:\n{out}");
 }
 
-/// All 10 steps show "(done already)" and none does an action.
+/// All 11 steps show "(done already)" and none does an action.
 fn assert_all_done(out: &str) {
-    for n in 2..=10 {
+    for n in 2..=STEPS {
         let s = step(out, n);
         if n == 2 || n == 3 {
             continue; // the download and the connection always operate
@@ -56,6 +59,15 @@ fn assert_all_done(out: &str) {
         assert!(!s.contains('→'), "step {n} does an action:\n{s}");
     }
     assert_has(out, "Sudoku is ready");
+}
+
+/// INS-2: step 10 is done. It shows "(done already)" and it changes nothing.
+fn assert_starter_done(out: &str) {
+    let s = step(out, 10);
+    assert_has(&s, "Power button starter");
+    assert_has(&s, "The power button starts xovi. (done already)");
+    assert!(!s.contains("Installing the power-button starter"), "step 10 installs:\n{s}");
+    assert!(!s.contains("Repairing the power-button starter"), "step 10 repairs:\n{s}");
 }
 
 #[test]
@@ -71,12 +83,28 @@ fn first_installation_does_all_steps() {
     assert_has(&step(&out, 6), "AppLoad is installed.");
     assert_has(&step(&out, 7), "Before you continue");
     assert_has(&step(&out, 7), "The hashtable is available.");
+    // INS-7: without a tablet software change, step 7 shows the old information line.
+    assert_has(&step(&out, 7), "xovi needs a table of the user interface files of the tablet.");
     assert_has(&step(&out, 8), "Copying the ink patch to the tablet...");
     assert_has(&step(&out, 8), "The ink patch is installed.");
     // The hashtable step warned already. Step 9 does not ask again.
     assert!(!step(&out, 9).contains("Before you continue"), "{out}");
     assert_has(&step(&out, 9), "xovi is on.");
-    assert_has(&step(&out, 10), "Sudoku v0.1.2 is installed.");
+    // INS-1, INS-3, INS-4: the power-button starter is step 10, before Sudoku (step 11).
+    let s = step(&out, 10);
+    assert_has(&s, "Power button starter");
+    assert_has(&s, "After a restart, xovi is off, and AppLoad is not in the menu.");
+    assert_has(&s, "A triple press of the power button starts xovi again.");
+    assert_has(&s, "Installing the power-button starter...");
+    assert_has(&s, "Installing xovi-tripletap");
+    assert!(!s.contains("Repairing the power-button starter"), "the service was on:\n{s}");
+    assert_has(&s, "The power button starts xovi.");
+    // INS-1: Sudoku is step 11, after the power-button starter.
+    assert_has(&step(&out, 11), "Sudoku v0.1.2 is installed.");
+    // INS-5: the final box gives the restart lines.
+    assert_has(&out, "After a restart, xovi is off. AppLoad is not in the menu.");
+    assert_has(&out, "Press the power button 3 times to start xovi. The screen");
+    assert_has(&out, "starts again after some seconds.");
     assert!(!out.contains("(done already)"), "{out}");
 }
 
@@ -85,6 +113,10 @@ fn second_run_skips_all_steps() {
     let (out, code) = run("twice");
     assert_eq!(code, 0, "{out}");
     assert_all_done(&out);
+    // INS-2: the starter is on, and the step changes nothing.
+    assert_starter_done(&out);
+    // INS-5: every run that reaches step 11 shows the final box.
+    assert_has(&out, "Press the power button 3 times to start xovi. The screen");
     assert!(!out.contains("password:"), "the second run must not ask for the password:\n{out}");
 }
 
@@ -93,6 +125,12 @@ fn complete_installation_skips_all_steps() {
     let (out, code) = run("again");
     assert_eq!(code, 0, "{out}");
     assert_all_done(&out);
+    // INS-2: the starter is on, and the step changes nothing.
+    assert_starter_done(&out);
+    // INS-5: the final box gives the restart lines.
+    assert_has(&out, "After a restart, xovi is off. AppLoad is not in the menu.");
+    assert_has(&out, "Press the power button 3 times to start xovi. The screen");
+    assert_has(&out, "starts again after some seconds.");
 }
 
 #[test]
@@ -115,9 +153,11 @@ fn restart_starts_xovi_and_replaces_an_old_version() {
     assert_has(&step(&out, 8), "(done already)");
     assert_has(&step(&out, 9), "Before you continue");
     assert_has(&step(&out, 9), "xovi is on.");
-    assert_has(&step(&out, 10), "A different version of Sudoku is on the tablet.");
-    assert_has(&step(&out, 10), "Your games, settings and statistics stay on the tablet.");
-    assert_has(&step(&out, 10), "Sudoku v0.1.2 is installed.");
+    // INS-2: a restart stops xovi, but the power-button starter stays on: step 10 is done.
+    assert_starter_done(&out);
+    assert_has(&step(&out, 11), "A different version of Sudoku is on the tablet.");
+    assert_has(&step(&out, 11), "Your games, settings and statistics stay on the tablet.");
+    assert_has(&step(&out, 11), "Sudoku v0.1.2 is installed.");
 }
 
 /// A new ink patch: the installer copies it, and xovi starts again (one time) to apply it.
@@ -130,7 +170,8 @@ fn new_ink_patch_starts_xovi_again() {
     assert_has(&step(&out, 9), "xovi must start again to apply the ink patch.");
     assert_has(&step(&out, 9), "Before you continue");
     assert_has(&step(&out, 9), "xovi is on.");
-    assert_has(&step(&out, 10), "(done already)");
+    assert_starter_done(&out);
+    assert_has(&step(&out, 11), "(done already)");
 }
 
 /// The ink patch is installed, but an earlier installer did not write the stamp file. The installer
@@ -143,7 +184,8 @@ fn missing_stamp_file_is_written_without_a_restart() {
     assert_has(&step(&out, 8), "The ink patch is installed.");
     assert!(!step(&out, 8).contains("Copying the ink patch"), "{out}");
     assert_has(&step(&out, 9), "xovi is on. (done already)");
-    assert_has(&step(&out, 10), "(done already)");
+    assert_starter_done(&out);
+    assert_has(&step(&out, 11), "(done already)");
 }
 
 /// A patch that does not agree with the checksum of the release stops the installer before it
@@ -154,7 +196,7 @@ fn bad_patch_checksum_stops_the_installer() {
     assert_ne!(code, 0, "{out}");
     assert_has(&step(&out, 2), "Downloading the ink patch...");
     assert_has(&step(&out, 2), "The checksum of the download is not correct.");
-    assert!(!out.contains("3/10"), "{out}");
+    assert!(!out.contains("3/11"), "{out}");
 }
 
 /// REMARKABLE_HOST gives a Wi-Fi address. The first connection fails, and the user tries again on
@@ -218,6 +260,128 @@ fn tablet_without_internet_gets_wifi_help() {
     assert_has(&step(&out, 5), "Vellum is installed.");
 }
 
+/// INS-3: the service is off after Vellum installs the starter. The repair runs the starter's
+/// enable.sh and starts the service. Then Sudoku (step 11) is installed.
+#[test]
+fn power_button_starter_is_repaired() {
+    let (out, code) = run("tripletap-repair");
+    assert_eq!(code, 0, "{out}");
+    let s = step(&out, 10);
+    assert_has(&s, "Installing the power-button starter...");
+    assert_has(&s, "Repairing the power-button starter...");
+    assert_has(&s, "xovi-tripletap: enabled and started with enable.sh.");
+    assert_has(&s, "The power button starts xovi.");
+    assert!(
+        s.find("Repairing the power-button starter...").unwrap() < s.find("The power button starts xovi.").unwrap(),
+        "{s}"
+    );
+    assert_has(&step(&out, 11), "Sudoku v0.1.2 is installed.");
+    // INS-5: the final box comes after Sudoku (step 11).
+    assert_has(&out, "Press the power button 3 times to start xovi. The screen");
+}
+
+/// INS-3: Vellum cannot install the power-button starter. The installer stops before Sudoku, and it
+/// does not show the final box (INS-5).
+#[test]
+fn vellum_failure_stops_before_sudoku() {
+    let (out, code) = run("tripletap-install-fail");
+    assert_eq!(code, 1, "{out}");
+    let s = step(&out, 10);
+    assert_has(&s, "Installing the power-button starter...");
+    assert_has(&s, "Vellum did not install the power-button starter.");
+    assert!(!s.contains("Repairing the power-button starter"), "{s}");
+    assert!(!out.contains(" 11/11 "), "{out}");
+    assert!(!out.contains("Sudoku is ready"), "{out}");
+    assert!(!out.contains("Press the power button 3 times"), "{out}");
+}
+
+/// INS-3: the repair does not start the service. The installer stops with "The power-button starter
+/// is not on." before Sudoku.
+#[test]
+fn power_button_starter_not_on_stops_the_installer() {
+    let (out, code) = run("tripletap-repair-fail");
+    assert_eq!(code, 1, "{out}");
+    let s = step(&out, 10);
+    assert_has(&s, "Repairing the power-button starter...");
+    assert_has(&s, "The power-button starter is not on.");
+    assert!(!out.contains(" 11/11 "), "{out}");
+    assert!(!out.contains("Sudoku is ready"), "{out}");
+    assert!(!out.contains("Press the power button 3 times"), "{out}");
+}
+
+/// INS-3: the tablet has no internet when step 10 starts. The installer shows the Wi-Fi box and the
+/// pause before it installs the starter.
+#[test]
+fn power_button_starter_needs_internet() {
+    let (out, code) = run("tripletap-offline");
+    assert_eq!(code, 0, "{out}");
+    let s = step(&out, 10);
+    assert_has(&s, "The tablet is not connected to the internet.");
+    assert_has(&s, "Settings > Wi-Fi");
+    assert_has(&s, "Installing the power-button starter...");
+    assert_has(&s, "The power button starts xovi.");
+    assert_has(&step(&out, 11), "Sudoku v0.1.2 is installed.");
+}
+
+/// INS-7: the tablet software was updated. Step 7 syncs Vellum before it rebuilds the hashtable
+/// (the hashtab file exists), step 9 restarts xovi, and steps 10 and 11 are done.
+#[test]
+fn tablet_update_syncs_vellum_and_restarts_xovi() {
+    let (out, code) = run("tablet-update");
+    assert_eq!(code, 0, "{out}");
+    let s = step(&out, 7);
+    assert_has(&s, "The tablet software changed. The installer updates Vellum and the xovi files.");
+    assert!(!s.contains("xovi needs a table of the user interface files of the tablet."), "{s}");
+    assert_has(&s, "Before you continue");
+    assert_has(&s, "Updating Vellum after the tablet software change...");
+    assert_has(&s, "Re-enabling packages after OS upgrade...");
+    assert_has(&s, "  tripletap");
+    assert_has(&s, "Done.");
+    // INS-7: the sync is before the hashtable rebuild, and the rebuild is forced.
+    assert!(
+        s.find("Updating Vellum after the tablet software change...").unwrap()
+            < s.find("Making the hashtable. Wait 1 to 2 minutes...").unwrap(),
+        "{s}"
+    );
+    assert!(!s.contains("(done already)"), "step 7 is skipped:\n{s}");
+    assert_has(&s, "The hashtable is available.");
+    // INS-7: step 9 shows the restart information line and starts xovi.
+    let x = step(&out, 9);
+    assert_has(&x, "xovi must start again after the tablet software change.");
+    assert_has(&x, "xovi is on.");
+    assert!(!x.contains("(done already)"), "step 9 is skipped:\n{x}");
+    // INS-7: steps 10 and 11 are done, and the final box shows.
+    assert_starter_done(&out);
+    assert_has(&step(&out, 11), "Sudoku v0.1.2 is installed. (done already)");
+    assert_has(&out, "Press the power button 3 times to start xovi. The screen");
+}
+
+/// INS-8: a sync failure and a still-stale Vellum state stop with "Vellum could not update the
+/// packages after the tablet software change." before the hashtable rebuild and before step 9.
+#[test]
+fn vellum_sync_failure_stops_at_step_7() {
+    for scenario in ["tablet-update-sync-fail", "tablet-update-still-stale"] {
+        let (out, code) = run(scenario);
+        assert_eq!(code, 1, "{scenario}:\n{out}");
+        let s = step(&out, 7);
+        assert_has(&s, "Updating Vellum after the tablet software change...");
+        assert_has(&s, "Vellum could not update the packages after the tablet software change.");
+        assert!(!out.contains("Making the hashtable"), "{scenario}:\n{out}");
+        assert!(!out.contains(" 9/11 "), "{scenario}:\n{out}");
+        assert!(!out.contains("Sudoku is ready"), "{scenario}:\n{out}");
+        assert!(!out.contains("Press the power button 3 times"), "{scenario}:\n{out}");
+    }
+}
+
+/// INS-1: the header of install.sh lists 11 steps, and the power-button starter is step 10.
+#[test]
+fn header_lists_the_steps() {
+    let script = include_str!("../install.sh");
+    assert!(script.contains("\nSTEPS=11\n"), "STEPS is not 11");
+    assert!(script.contains("\n#  10. Install the power-button starter."), "step 10 is not in the header");
+    assert!(script.contains("\n#  11. Install the Sudoku folder in AppLoad."), "step 11 is not in the header");
+}
+
 #[test]
 fn failed_download_tries_again() {
     let (out, code) = run("download");
@@ -231,7 +395,7 @@ fn q_stops_the_installer() {
     let (out, code) = run("stop");
     assert_eq!(code, 1, "{out}");
     assert_has(&out, "The installer stopped. Run the same command again to continue.");
-    assert!(!out.contains(" 4/10 "), "{out}");
+    assert!(!out.contains(" 4/11 "), "{out}");
 }
 
 #[test]
@@ -239,7 +403,7 @@ fn other_tablet_needs_a_confirmation() {
     let (out, code) = run("other");
     assert_eq!(code, 1, "{out}");
     assert_has(&out, "This tablet is not a reMarkable Paper Pro");
-    assert!(!out.contains(" 5/10 "), "{out}");
+    assert!(!out.contains(" 5/11 "), "{out}");
 }
 
 #[test]
@@ -249,7 +413,7 @@ fn selected_version_replaces_the_version_of_the_installer() {
     assert_has(&out, "Installer · preview pre-1a2b3c4");
     assert_has(&step(&out, 2), "pre-1a2b3c4 is a preview version.");
     assert_has(&step(&out, 2), "Downloaded Sudoku pre-1a2b3c4 and the ink patch. The checksums are correct.");
-    assert_has(&step(&out, 10), "Sudoku pre-1a2b3c4 is installed.");
+    assert_has(&step(&out, 11), "Sudoku pre-1a2b3c4 is installed.");
     assert!(!out.contains("Which version"), "SUDOKU_VERSION: no question:\n{out}");
 }
 
@@ -280,7 +444,7 @@ fn list_of_versions_selects_a_preview_version() {
     assert_eq!(s.matches("Type a number from 1 to 4.").count(), 2, "{s}");
     assert_has(&s, "Version: pre-1a2b3c4.");
     assert_has(&s, "Downloaded Sudoku pre-1a2b3c4 and the ink patch. The checksums are correct.");
-    assert_has(&step(&out, 10), "Sudoku pre-1a2b3c4 is installed.");
+    assert_has(&step(&out, 11), "Sudoku pre-1a2b3c4 is installed.");
 }
 
 #[test]
@@ -288,7 +452,7 @@ fn no_list_of_versions_lets_the_user_type_the_version() {
     let (out, code) = run("typed");
     assert_eq!(code, 0, "{out}");
     assert_has(&step(&out, 2), "GitHub did not give the list of versions.");
-    assert_has(&step(&out, 10), "Sudoku pre-1a2b3c4 is installed.");
+    assert_has(&step(&out, 11), "Sudoku pre-1a2b3c4 is installed.");
 }
 
 #[test]
@@ -296,7 +460,7 @@ fn unknown_version_stops_the_installer() {
     let (out, code) = run("missing");
     assert_eq!(code, 1, "{out}");
     assert_has(&step(&out, 2), "Sudoku v9.9.9 is not available.");
-    assert!(!out.contains(" 3/10 "), "{out}");
+    assert!(!out.contains(" 3/11 "), "{out}");
 }
 
 /// The menus in a terminal (tests/install/tty.py pushes the keys). It needs python3.
@@ -320,9 +484,16 @@ fn arrow_keys_select_a_version_in_a_terminal() {
 }
 
 /// All boxes have the same width, and no line is wider than the 90 columns of the screenshots.
+/// INS-5: the three restart lines of the final box fit in the box (72 columns with the two leading
+/// spaces). INS-7 and INS-8: the new lines of a tablet software change fit also.
 #[test]
 fn output_fits_the_terminal() {
-    for scenario in ["first", "connect", "password", "hostkey", "offline", "download", "stop", "other", "patch", "stamp", "missing", "select", "typed", "wifi", "wifi-usb"] {
+    for scenario in [
+        "first", "connect", "password", "hostkey", "offline", "download", "stop", "other", "patch", "stamp",
+        "missing", "select", "typed", "wifi", "wifi-usb", "restart", "again", "tripletap-repair",
+        "tripletap-repair-fail", "tripletap-install-fail", "tripletap-offline", "tablet-update",
+        "tablet-update-sync-fail", "tablet-update-still-stale",
+    ] {
         let (out, _) = run(scenario);
         for line in out.lines() {
             let width = line.chars().count();
@@ -331,6 +502,21 @@ fn output_fits_the_terminal() {
                 assert_eq!(width, 72, "{scenario}: box line: {line}");
             }
         }
+    }
+}
+
+/// INS-5: the final box gives the three approved restart lines, each in a 72-column box line.
+#[test]
+fn final_box_gives_the_restart_lines() {
+    let (out, code) = run("first");
+    assert_eq!(code, 0, "{out}");
+    for text in [
+        "After a restart, xovi is off. AppLoad is not in the menu.",
+        "Press the power button 3 times to start xovi. The screen",
+        "starts again after some seconds.",
+    ] {
+        let line = out.lines().find(|l| l.contains(text)).unwrap_or_else(|| panic!("no line {text:?}:\n{out}"));
+        assert_eq!(line.chars().count(), 72, "{line:?}");
     }
 }
 
