@@ -270,8 +270,6 @@ pub fn run() -> Result<(), String> {
             libc::signal(sig, on_signal as *const () as libc::sighandler_t);
         }
     }
-    // The recognizer prepares its examples while the app starts.
-    std::thread::spawn(crate::recognizer::warm_up);
     let fonts = Fonts::load()?;
     // The toolbar is at the side of the hand that does not write (REQUIREMENTS.md §3.1).
     // SUDOKU_XOCHITL_CONF replaces the path of the file (for the tests).
@@ -370,6 +368,9 @@ pub fn run() -> Result<(), String> {
     conn.set_refresh_mode(refresh_mode).ok();
     presenter.draw_all(&app, &fonts, conn.pixels());
     conn.update_all().map_err(|e| format!("qtfb update: {e}"))?;
+    // The recognizer prepares its examples now, on threads. It starts after the first frame: the
+    // first frame also uses all cores (the board stripes). A reading before the end waits for it.
+    std::thread::spawn(crate::recognizer::warm_up);
     for m in early_input {
         if let Some(input) = to_input(&m, &eraser) {
             app.handle(input, now_ms());
