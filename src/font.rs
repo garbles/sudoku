@@ -112,9 +112,10 @@ impl Font {
         text.chars().map(|ch| self.advance(self.glyph(ch), s)).sum()
     }
 
-    /// Draws a text with its baseline at y. `transform` maps the result to the screen.
+    /// Draws a text with its baseline at y. `transform` maps the result to the screen. Returns the
+    /// path of the glyphs (None: no glyph outline).
     #[allow(clippy::too_many_arguments)]
-    pub fn draw(&self, pixmap: &mut Pixmap, size: f32, x: f32, y: f32, anchor: Anchor, text: &str, color: [u8; 3], transform: Transform) {
+    pub fn draw(&self, pixmap: &mut Pixmap, size: f32, x: f32, y: f32, anchor: Anchor, text: &str, color: [u8; 3], transform: Transform) -> Option<tiny_skia::Path> {
         let s = self.scale(size);
         let w = self.width(size, text);
         let mut pen_x = match anchor {
@@ -138,7 +139,9 @@ impl Font {
             paint.set_color_rgba8(color[0], color[1], color[2], 255);
             paint.anti_alias = true;
             pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
+            return Some(path);
         }
+        None
     }
 }
 

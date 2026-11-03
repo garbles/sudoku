@@ -132,3 +132,39 @@ fn landscape_analytics_agrees_with_the_reference_images() {
     }
     sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
 }
+
+#[test]
+fn a_retained_frame_is_the_same_as_a_full_drawing() {
+    // render::FrameRecord: with a record, a drawing of the game screen writes only the areas that can
+    // change. Each reference state after each other state (and after ink that goes away) must give
+    // the same pixels as a full drawing.
+    use sudoku::render::{draw, Canvas, FrameRecord};
+    use tiny_skia::Pixmap;
+    reference::use_utc();
+    let fonts = fonts();
+    let ink: (&str, reference::Setup) = ("ink", reference::ink_state);
+    let no_ink: (&str, reference::Setup) = ("no ink", |a| a.game = reference::sample_game());
+    let states = reference::states();
+    let mut order = vec![ink, no_ink, ink];
+    for s in states.iter().chain(states.iter().rev()) {
+        order.extend([*s, ink, *s, no_ink]);
+    }
+    let mut pm = Pixmap::new(1, 1).unwrap();
+    let mut record = FrameRecord::default();
+    for (name, setup) in order {
+        sudoku::layout::set_right_handed(false);
+        let mut a = reference::app(&fonts);
+        setup(&mut a);
+        let (w, h) = (sudoku::layout::screen_w(), sudoku::layout::screen_h());
+        if (pm.width(), pm.height()) != (w, h) {
+            // A new size (the presenter after a rotation): a new frame and a new record.
+            pm = Pixmap::new(w, h).unwrap();
+            record = FrameRecord::default();
+        }
+        draw(&mut Canvas::retained(&mut pm, &mut record, &fonts), &a);
+        let mut full = Pixmap::new(w, h).unwrap();
+        draw(&mut Canvas::new(&mut full, &fonts), &a);
+        assert!(pm.data() == full.data(), "{name}: the retained frame is not the same as a full drawing");
+    }
+    sudoku::layout::set_right_handed(false);
+}

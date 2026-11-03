@@ -6,7 +6,7 @@
 
 use std::sync::OnceLock;
 
-use tiny_skia::{FillRule, LineCap, LineJoin, Paint, PathBuilder, Pixmap, PixmapPaint, Rect as SkRect, Stroke, Transform};
+use tiny_skia::{FillRule, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Rect as SkRect, Stroke, Transform};
 
 use crate::app::{average_seconds, App, Menu, Panel, Screen, MANUAL_PAGES};
 use crate::font::{Anchor, Fonts, Weight};
@@ -75,9 +75,139 @@ impl Units {
 }
 
 pub struct Canvas<'a> {
-    pub pm: &'a mut Pixmap,
+    pm: &'a mut Pixmap,
     pub fonts: &'a Fonts,
     units: Units,
+    /// The record of the frame (refer to [`FrameRecord`]). None: each drawing writes the full frame.
+    record: Option<&'a mut FrameRecord>,
+}
+
+/// An area of the screen in px (x1 and y1 are not included).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Area {
+    pub x0: i32,
+    pub y0: i32,
+    pub x1: i32,
+    pub y1: i32,
+}
+
+impl Area {
+    fn xywh(x: usize, y: usize, w: usize, h: usize) -> Area {
+        Area { x0: x as i32, y0: y as i32, x1: (x + w) as i32, y1: (y + h) as i32 }
+    }
+
+    /// The pixels that a drawing in the box `b` (screen px) can change, with `margin` px more on
+    /// each side, in the frame of `w` x `h` px. None if no pixel of the frame.
+    fn around(b: SkRect, margin: f32, w: u32, h: u32) -> Option<Area> {
+        let a = Area {
+            x0: ((b.left() - margin).floor() as i32).max(0),
+            y0: ((b.top() - margin).floor() as i32).max(0),
+            x1: ((b.right() + margin).ceil() as i32 + 1).min(w as i32),
+            y1: ((b.bottom() + margin).ceil() as i32 + 1).min(h as i32),
+        };
+        (a.x0 < a.x1 && a.y0 < a.y1).then_some(a)
+    }
+
+    fn overlaps(&self, o: &Area) -> bool {
+        self.x0 < o.x1 && o.x0 < self.x1 && self.y0 < o.y1 && o.y0 < self.y1
+    }
+
+    fn contains(&self, o: &Area) -> bool {
+        self.x0 <= o.x0 && self.y0 <= o.y0 && o.x1 <= self.x1 && o.y1 <= self.y1
+    }
+
+    fn union(&self, o: &Area) -> Area {
+        Area { x0: self.x0.min(o.x0), y0: self.y0.min(o.y0), x1: self.x1.max(o.x1), y1: self.y1.max(o.y1) }
+    }
+}
+
+/// The areas of a frame that changed since the last [`FrameRecord::take_damage`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Damage {
+    /// All pixels can have changed.
+    All,
+    /// Only the pixels in these areas can have changed.
+    Areas(Vec<Area>),
+}
+
+/// More damage areas than this become `Damage::All`.
+const MAX_DAMAGE: usize = 1024;
+/// More marks than this become one mark: the box of all marks.
+const MAX_MARKS: usize = 256;
+
+/// What a frame contains after the drawings of a [`Canvas::retained`] on it. With it, the next
+/// drawing of the game screen writes only the areas that can change: the tiles of the board that
+/// are not in the frame, and the areas of the other drawings. It also gives the damage: the areas
+/// that the presenter must compare with the screen.
+pub struct FrameRecord {
+    /// None: the record does not know the pixels of the frame.
+    known: Option<Known>,
+    damage: Damage,
+}
+
+impl Default for FrameRecord {
+    fn default() -> FrameRecord {
+        FrameRecord { known: None, damage: Damage::All }
+    }
+}
+
+/// The pixels of a frame of the game screen.
+struct Known {
+    /// The size of the frame, and the board origin (the hand of the player moves the board).
+    size: (u32, u32),
+    board: (i32, i32),
+    /// The area of each board slot (refer to `board_slots`) and the tile in it. None: the slot has
+    /// other pixels.
+    slots: Vec<(Area, Option<TileKey>)>,
+    /// The areas of the drawings after the board tiles. Out of the board, all other pixels are white.
+    marks: Vec<Area>,
+}
+
+impl FrameRecord {
+    /// The damage since the last call.
+    pub fn take_damage(&mut self) -> Damage {
+        std::mem::replace(&mut self.damage, Damage::Areas(Vec::new()))
+    }
+
+    fn damage(&mut self, a: Area) {
+        if let Damage::Areas(v) = &mut self.damage {
+            if v.len() >= MAX_DAMAGE {
+                self.damage = Damage::All;
+            } else if v.last().is_none_or(|l| !l.contains(&a)) {
+                v.push(a);
+            }
+        }
+    }
+
+    /// The frame has pixels that the record does not know.
+    fn forget(&mut self) {
+        self.known = None;
+        self.damage = Damage::All;
+    }
+
+    /// A drawing (not a board tile) changed the pixels of `a`.
+    fn touch(&mut self, a: Area) {
+        self.damage(a);
+        if let Some(k) = &mut self.known {
+            if k.marks.last().is_none_or(|l| !l.contains(&a)) {
+                k.marks.push(a);
+            }
+            if k.marks.len() > MAX_MARKS {
+                let all = k.marks.iter().skip(1).fold(k.marks[0], |b, m| b.union(m));
+                k.marks = vec![all];
+            }
+        }
+    }
+}
+
+impl Known {
+    fn unset_slots(&mut self, a: &Area) {
+        for (slot, tile) in &mut self.slots {
+            if slot.overlaps(a) {
+                *tile = None;
+            }
+        }
+    }
 }
 
 fn paint(c: Rgb) -> Paint<'static> {
@@ -98,7 +228,103 @@ fn stroke(w: f32, round: bool) -> Stroke {
 
 impl<'a> Canvas<'a> {
     pub fn new(pm: &'a mut Pixmap, fonts: &'a Fonts) -> Canvas<'a> {
-        Canvas { pm, fonts, units: Units::Screen }
+        Canvas { pm, fonts, units: Units::Screen, record: None }
+    }
+
+    /// A canvas that keeps `record` (refer to [`FrameRecord`]). All drawings on `pm` after the first
+    /// drawing with `record` must use the same record.
+    pub fn retained(pm: &'a mut Pixmap, record: &'a mut FrameRecord, fonts: &'a Fonts) -> Canvas<'a> {
+        Canvas { pm, fonts, units: Units::Screen, record: Some(record) }
+    }
+
+    /// Records that a drawing in the box `b` (screen px), with `margin` px more on each side, can
+    /// change pixels.
+    fn touched(&mut self, b: SkRect, margin: f32) {
+        let (w, h) = (self.pm.width(), self.pm.height());
+        if let (Some(rec), Some(a)) = (self.record.as_deref_mut(), Area::around(b, margin, w, h)) {
+            rec.touch(a);
+        }
+    }
+
+    /// Records that a drawing can change all pixels.
+    fn touched_all(&mut self) {
+        if let Some(rec) = self.record.as_deref_mut() {
+            rec.forget();
+        }
+    }
+
+    /// Records a drawing of `path` with `tf`. A stroke of the width `w` (before the transform) goes
+    /// out of the path by less than 2 w: the miter limit of tiny-skia is 4 half widths.
+    fn touched_path(&mut self, path: &Path, tf: Transform, w: f32) {
+        let b = path.bounds();
+        let mut pts = [
+            tiny_skia::Point::from_xy(b.left(), b.top()),
+            tiny_skia::Point::from_xy(b.right(), b.top()),
+            tiny_skia::Point::from_xy(b.left(), b.bottom()),
+            tiny_skia::Point::from_xy(b.right(), b.bottom()),
+        ];
+        tf.map_points(&mut pts);
+        let (x0, x1) = pts.iter().fold((f32::MAX, f32::MIN), |(a, c), p| (a.min(p.x), c.max(p.x)));
+        let (y0, y1) = pts.iter().fold((f32::MAX, f32::MIN), |(a, c), p| (a.min(p.y), c.max(p.y)));
+        let scale = tf.sx.abs().max(tf.sy.abs()).max(tf.kx.abs()).max(tf.ky.abs());
+        // A box with no width or height (a straight line) gets a small size.
+        match SkRect::from_ltrb(x0, y0, x1.max(x0 + 0.01), y1.max(y0 + 0.01)) {
+            Some(r) => self.touched(r, 2.0 * (w + STROKE_EXTRA) * scale + 2.0),
+            None => self.touched_all(),
+        }
+    }
+
+    /// Starts a drawing of the game screen: the area `board` (the board slots) gets its tiles in
+    /// `draw_board`, and the other pixels must be white. With a record of the same layout, only the
+    /// areas of the last drawings outside the tiles get white.
+    fn start_game_frame(&mut self, board: (usize, usize, usize, usize)) {
+        let size = (self.pm.width(), self.pm.height());
+        let origin = (board_x(), board_y());
+        let known = self.record.as_deref_mut().and_then(|r| r.known.as_mut()).filter(|k| k.size == size && k.board == origin);
+        let Some(k) = known else {
+            self.clear_except(board);
+            if let Some(rec) = self.record.as_deref_mut() {
+                rec.known = Some(Known { size, board: origin, slots: board_slots().map(|a| (a, None)).collect(), marks: Vec::new() });
+                rec.damage = Damage::All;
+            }
+            return;
+        };
+        let marks = std::mem::take(&mut k.marks);
+        let fw = size.0 as usize;
+        let data = self.pm.data_mut();
+        for a in &marks {
+            k.unset_slots(a);
+            for r in a.y0 as usize..a.y1 as usize {
+                data[(r * fw + a.x0 as usize) * 4..(r * fw + a.x1 as usize) * 4].fill(255);
+            }
+        }
+        let rec = self.record.as_deref_mut().unwrap();
+        for a in marks {
+            rec.damage(a);
+        }
+    }
+
+    /// True if the board slot `i` of the record has the tile `key`.
+    fn slot_has(&self, i: usize, key: &TileKey) -> bool {
+        self.record.as_ref().and_then(|r| r.known.as_ref()).is_some_and(|k| k.slots[i].1.as_ref() == Some(key))
+    }
+
+    /// The board slot `i` has the tile `key` now.
+    fn set_slot(&mut self, i: usize, key: TileKey) {
+        if let Some(rec) = self.record.as_deref_mut() {
+            if let Some(k) = rec.known.as_mut() {
+                k.slots[i].1 = Some(key);
+                let a = k.slots[i].0;
+                rec.damage(a);
+            }
+        }
+    }
+
+    /// Draws with `draw`, without records of the drawings (for the pixels of the board slots).
+    fn untracked(&mut self, draw: impl FnOnce(&mut Self)) {
+        let rec = self.record.take();
+        draw(self);
+        self.record = rec;
     }
 
     fn tf(&self) -> Transform {
@@ -108,6 +334,7 @@ impl<'a> Canvas<'a> {
 
     pub fn clear(&mut self) {
         self.pm.fill(tiny_skia::Color::WHITE);
+        self.touched_all();
     }
 
     /// Makes all pixels white, except the rectangle (x, y, w, h).
@@ -128,11 +355,13 @@ impl<'a> Canvas<'a> {
         if let Some(r) = SkRect::from_ltrb(x0 - h, y0 - h, x1 + h, y1 + h) {
             let tf = self.tf();
             self.pm.fill_rect(r, &paint(c), tf, None);
+            self.touched_path(&PathBuilder::from_rect(r), tf, 0.0);
         }
     }
 
     /// A rectangle with a transparent white fill (the pale list behind a dialog).
     fn veil(&mut self, alpha: f32) {
+        self.touched_all();
         let mut p = Paint::default();
         p.set_color(tiny_skia::Color::from_rgba(1.0, 1.0, 1.0, alpha).unwrap());
         // On an opaque screen, each channel of the result depends only on the same channel of the
@@ -178,6 +407,7 @@ impl<'a> Canvas<'a> {
             let path = PathBuilder::from_rect(r);
             let tf = self.tf();
             self.pm.stroke_path(&path, &paint(c), &stroke(w, false), tf, None);
+            self.touched_path(&path, tf, w);
         }
     }
 
@@ -190,6 +420,7 @@ impl<'a> Canvas<'a> {
         if let Some(path) = pb.finish() {
             let tf = self.tf();
             self.pm.stroke_path(&path, &paint(c), &stroke(w, round), tf, None);
+            self.touched_path(&path, tf, w);
         }
     }
 
@@ -207,6 +438,7 @@ impl<'a> Canvas<'a> {
         s.line_cap = LineCap::Square;
         let tf = self.tf();
         self.pm.stroke_path(&path, &paint(c), &s, tf, None);
+        self.touched_path(&path, tf, w);
     }
 
     /// A line with flat ends.
@@ -223,12 +455,14 @@ impl<'a> Canvas<'a> {
         if let Some((c, w)) = line {
             self.pm.stroke_path(&path, &paint(c), &stroke(w, true), tf, None);
         }
+        self.touched_path(&path, tf, line.map_or(0.0, |l| l.1));
     }
 
     fn path_stroke(&mut self, pb: PathBuilder, tf: Transform, w: f32, c: Rgb) {
         if let Some(path) = pb.finish() {
             let tf = tf.post_concat(self.tf());
             self.pm.stroke_path(&path, &paint(c), &stroke(w, true), tf, None);
+            self.touched_path(&path, tf, w);
         }
     }
 
@@ -236,6 +470,7 @@ impl<'a> Canvas<'a> {
         if let Some(path) = pb.finish() {
             let tf = tf.post_concat(self.tf());
             self.pm.fill_path(&path, &paint(c), FillRule::Winding, tf, None);
+            self.touched_path(&path, tf, 0.0);
         }
     }
 
@@ -245,7 +480,9 @@ impl<'a> Canvas<'a> {
         let tf = self.tf();
         let (dx, dy) = self.units.text_offset();
         let scale = self.units.scale();
-        font.draw(self.pm, size, x + dx / scale, y + dy / scale, anchor, s, c, tf);
+        if let Some(path) = font.draw(self.pm, size, x + dx / scale, y + dy / scale, anchor, s, c, tf) {
+            self.touched_path(&path, tf, 0.0);
+        }
     }
 
     /// Sets the units of the coordinates of the next drawing operations.
@@ -264,6 +501,10 @@ impl<'a> Canvas<'a> {
     pub fn image(&mut self, img: &Pixmap, x: i32, y: i32, mirror: bool) {
         let tf = if mirror { Transform::from_row(-1.0, 0.0, 0.0, 1.0, (2 * x + img.width() as i32) as f32, 0.0) } else { Transform::identity() };
         self.pm.draw_pixmap(x, y, img.as_ref(), &PixmapPaint::default(), tf, None);
+        match SkRect::from_xywh(x as f32, y as f32, img.width() as f32, img.height() as f32) {
+            Some(r) => self.touched(r, 1.0),
+            None => self.touched_all(),
+        }
     }
 }
 
@@ -357,7 +598,7 @@ fn manual_page(page: u8) -> &'static (Pixmap, bool) {
 pub fn draw(c: &mut Canvas, app: &App) {
     // `draw_board` writes all pixels of the board area: the clear does not need to write them.
     match board_area(c.pm).filter(|_| app.screen == Screen::Game) {
-        Some(a) => c.clear_except(a),
+        Some(a) => c.start_game_frame(a),
         None => c.clear(),
     }
     match app.screen {
@@ -367,6 +608,7 @@ pub fn draw(c: &mut Canvas, app: &App) {
             if *opaque && page.width() == c.pm.width() && page.height() == c.pm.height() {
                 // An opaque page covers the full screen: the result of the drawing is the page.
                 c.pm.data_mut().copy_from_slice(page.data());
+                c.touched_all();
             } else {
                 c.image(page, 0, 0, false);
             }
@@ -643,7 +885,6 @@ fn put_cached(c: &mut Canvas, key: TileKey, x: usize, y: usize, w: usize, h: usi
 /// then all lines, then all text. The band around the cells has only lines on white.
 fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, highlight: Option<u8>, question: Option<crate::game::Cell>) {
     let (bx, by) = (board_x(), board_y());
-    let m = BOARD_MARGIN as i32;
     let Some(area) = board_area(c.pm) else {
         // Not on the screen: draw without the cache (this does not occur with the layouts).
         for cell in cells() {
@@ -655,67 +896,92 @@ fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, highlight: Option<u
     };
     let fonts = c.fonts as *const Fonts as usize;
     let n = CELL as usize + 1;
-    // The band around the cells: top, bottom, left and right.
-    let (mu, bu, s) = (BOARD_MARGIN, BOARD_SIZE as usize, (bx - m) as usize);
-    let (bxu, byu) = (bx as usize, by as usize);
-    let bands = [
-        (s, byu - mu, bu + 1 + 2 * mu, mu),
-        (s, byu + bu + 1, bu + 1 + 2 * mu, mu),
-        (s, byu, mu, bu + 1),
-        (bxu + bu + 1, byu, mu, bu + 1),
-    ];
     let looks: Vec<_> = cells().map(|cell| (cell, cell_look(g, settings, highlight, question, cell))).collect();
-    let key = |x: usize, y: usize, look| (fonts, bx, by, x as i32, y as i32, look);
+    let key = |a: &Area, look| (fonts, bx, by, a.x0, a.y0, look);
+    // The slots of the board: the cells (in the order of `cells`), then the band.
+    let slots: Vec<(Area, TileKey)> = board_slots()
+        .zip(looks.iter().map(|&(_, look)| Some(look)).chain(std::iter::repeat(None)))
+        .map(|(a, look)| (a, key(&a, look)))
+        .collect();
     let missing = TILES.with(|t| {
         let mut t = t.borrow_mut();
         t.begin_frame();
-        looks.iter().filter(|&&(cell, look)| {
-            let (x, y) = cell_origin(cell);
-            !t.map.contains_key(&key(x as usize, y as usize, Some(look)))
-        }).count()
+        slots[..looks.len()].iter().filter(|(_, k)| !t.map.contains_key(k)).count()
     });
     if missing > COLD_TILES {
         // Many new tiles (for example the first frame): one full drawing of the board is faster.
         // Then the tiles come from the frame.
         let (ax, ay, aw, ah) = area;
-        let fw = c.pm.width() as usize;
-        for r in ay..ay + ah {
-            c.pm.data_mut()[(r * fw + ax) * 4..(r * fw + ax + aw) * 4].fill(255);
-        }
-        for &(cell, look) in &looks {
-            let (x, y) = cell_origin(cell);
-            draw_cell(c, look, x as f32, y as f32);
-        }
-        board_lines(c, |_, _| true, None);
-        TILES.with(|t| {
-            let mut t = t.borrow_mut();
-            let mut take = |k: TileKey, x: usize, y: usize, w: usize, h: usize| {
-                let mut tile = Pixmap::new(w as u32, h as u32).unwrap();
-                copy_px(c.pm, x, y, w, h, &mut tile, 0, 0);
-                t.insert(k, tile);
-            };
+        c.untracked(|c| {
+            let fw = c.pm.width() as usize;
+            for r in ay..ay + ah {
+                c.pm.data_mut()[(r * fw + ax) * 4..(r * fw + ax + aw) * 4].fill(255);
+            }
             for &(cell, look) in &looks {
                 let (x, y) = cell_origin(cell);
-                take(key(x as usize, y as usize, Some(look)), x as usize, y as usize, n, n);
+                draw_cell(c, look, x as f32, y as f32);
             }
-            for (x, y, w, h) in bands {
-                take(key(x, y, None), x, y, w, h);
+            board_lines(c, |_, _| true, None);
+        });
+        TILES.with(|t| {
+            let mut t = t.borrow_mut();
+            for (a, k) in &slots {
+                let (w, h) = ((a.x1 - a.x0) as u32, (a.y1 - a.y0) as u32);
+                let mut tile = Pixmap::new(w, h).unwrap();
+                copy_px(c.pm, a.x0 as usize, a.y0 as usize, w as usize, h as usize, &mut tile, 0, 0);
+                t.insert(*k, tile);
             }
         });
+        for (i, (_, k)) in slots.iter().enumerate() {
+            c.set_slot(i, *k);
+        }
         return;
     }
-    for &(cell, look) in &looks {
-        let (x, y) = cell_origin(cell);
-        let (r, k) = (cell.0 as i32, cell.1 as i32);
-        put_cached(c, key(x as usize, y as usize, Some(look)), x as usize, y as usize, n, n, |c| {
-            draw_cell(c, look, x as f32, y as f32);
-            let near = Some((x, y, x + CELL, y + CELL));
-            board_lines(c, |i, vertical| if vertical { i == k || i == k + 1 } else { i == r || i == r + 1 }, near);
-        });
+    for (i, (a, k)) in slots.iter().enumerate() {
+        if c.slot_has(i, k) {
+            // The frame has the pixels of this tile. The cache keeps it as a tile of this frame.
+            TILES.with(|t| {
+                let _ = t.borrow_mut().get(k);
+            });
+            continue;
+        }
+        let (x, y, w, h) = (a.x0 as usize, a.y0 as usize, (a.x1 - a.x0) as usize, (a.y1 - a.y0) as usize);
+        match k.5 {
+            Some(look) => {
+                let (row, col) = looks[i].0;
+                let (r, kc) = (row as i32, col as i32);
+                let (xi, yi) = (a.x0, a.y0);
+                put_cached(c, *k, x, y, n, n, |c| {
+                    draw_cell(c, look, xi as f32, yi as f32);
+                    let near = Some((xi, yi, xi + CELL, yi + CELL));
+                    board_lines(c, |i, vertical| if vertical { i == kc || i == kc + 1 } else { i == r || i == r + 1 }, near);
+                });
+            }
+            None => put_cached(c, *k, x, y, w, h, |c| board_lines(c, |_, _| true, None)),
+        }
+        c.set_slot(i, *k);
     }
-    for (x, y, w, h) in bands {
-        put_cached(c, key(x, y, None), x, y, w, h, |c| board_lines(c, |_, _| true, None));
-    }
+}
+
+/// The slots of the board: the area of each cell tile (CELL + 1 px, in the order of `cells`), then
+/// the band around the cells (top, bottom, left and right). Together they are the board area.
+fn board_slots() -> impl Iterator<Item = Area> {
+    let n = CELL as usize + 1;
+    let (mu, bu) = (BOARD_MARGIN, BOARD_SIZE as usize);
+    let (bxu, byu) = (board_x() as usize, board_y() as usize);
+    let s = bxu - mu;
+    let bands = [
+        Area::xywh(s, byu - mu, bu + 1 + 2 * mu, mu),
+        Area::xywh(s, byu + bu + 1, bu + 1 + 2 * mu, mu),
+        Area::xywh(s, byu, mu, bu + 1),
+        Area::xywh(bxu + bu + 1, byu, mu, bu + 1),
+    ];
+    cells()
+        .map(move |cell| {
+            let (x, y) = cell_origin(cell);
+            Area::xywh(x as usize, y as usize, n, n)
+        })
+        .chain(bands)
 }
 
 /// The board area that `draw_board` writes fully: the cells and the band around them (x, y, w, h).

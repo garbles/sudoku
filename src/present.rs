@@ -10,7 +10,7 @@ use tiny_skia::Pixmap;
 use crate::app::App;
 use crate::font::Fonts;
 use crate::layout::{screen_h, screen_w};
-use crate::render::{self, Canvas};
+use crate::render::{self, Canvas, Damage, FrameRecord};
 
 /// The shortest time between two updates of the ink while the pen writes.
 const INK_UPDATE_INTERVAL_MS: u64 = 30;
@@ -155,7 +155,9 @@ pub struct Times {
 }
 
 pub struct Presenter {
-    pub frame: Pixmap,
+    frame: Pixmap,
+    /// What the frame contains (refer to `FrameRecord`): all drawings on the frame use it.
+    record: FrameRecord,
     /// The live stroke (`App::live_stroke_count`) and the quantity of its points that the frame shows.
     ink_drawn: (u64, usize),
     /// The area of ink that is drawn in the frame but not yet sent. AppLoad repaints the screen for
@@ -195,6 +197,7 @@ impl Presenter {
     pub fn new() -> Presenter {
         Presenter {
             frame: Pixmap::new(screen_w(), screen_h()).unwrap(),
+            record: FrameRecord::default(),
             ink_drawn: (0, 0),
             ink_box: None,
             last_ink_update: 0,
@@ -214,11 +217,26 @@ impl Presenter {
     /// Starts again after a rotation: the frame has the new size.
     pub fn reset(&mut self) {
         self.frame = Pixmap::new(screen_w(), screen_h()).unwrap();
+        self.record = FrameRecord::default();
         self.ink_box = None;
         // The full window is drawn again with the new size.
         self.scheduler = Scheduler::new(self.scheduler.wave_ms);
         self.scheduler.fast = self.pen_region.map(PhysicalRect::pixel_cells);
         self.shown = None;
+    }
+
+    /// The frame: the drawing of the app.
+    pub fn frame(&self) -> &Pixmap {
+        &self.frame
+    }
+
+    /// Draws the full app and copies it into `fb` (the first drawing, before the main loop). Returns
+    /// the changed physical rectangle.
+    pub fn draw_all(&mut self, app: &App, fonts: &Fonts, fb: &mut [u8]) -> Option<Update> {
+        render::draw(&mut Canvas::retained(&mut self.frame, &mut self.record, fonts), app);
+        self.record.take_damage();
+        self.shown = None;
+        blit(&self.frame, fb)
     }
 
     /// Sets the time that an update needs on the panel (default INK_WAVE_MS).
@@ -288,7 +306,7 @@ impl Presenter {
                 .and_then(|s| bounding_box(s.iter().map(|&(x, y)| (x as i32, y as i32))))
                 .map(|b: ScreenRect| b.expand(render::INK_WIDTH.ceil() as i32 + 1).clip_to_screen());
             let t = Instant::now();
-            render::draw(&mut Canvas::new(&mut self.frame, fonts), app);
+            render::draw(&mut Canvas::retained(&mut self.frame, &mut self.record, fonts), app);
             self.times.draw = t.elapsed();
             app.redraw = false;
             self.ink_drawn = (app.live_stroke_count, app.live_stroke.as_ref().map_or(0, |s| s.len()));
@@ -304,7 +322,7 @@ impl Presenter {
             // is too slow to follow the pen.
             let t = Instant::now();
             let new = &s[drawn.max(1) - 1..];
-            Canvas::new(&mut self.frame, fonts).polyline(new, render::INK_WIDTH, render::BLACK, true);
+            Canvas::retained(&mut self.frame, &mut self.record, fonts).polyline(new, render::INK_WIDTH, render::BLACK, true);
             self.times.ink_draw = t.elapsed();
             let (x0, y0, x1, y1) = new.iter().fold((f32::MAX, f32::MAX, f32::MIN, f32::MIN), |(a, b, c, d), &(x, y)| {
                 (a.min(x), b.min(y), c.max(x), d.max(y))
@@ -555,33 +573,50 @@ impl Presenter {
     /// and adds the changed pixels of each row to `spans` (physical rectangles).
     fn blit(&mut self, fb: &mut [u8], spans: &mut Vec<PhysicalRect>) -> Option<PhysicalRect> {
         let frame = &self.frame;
+        let damage = self.record.take_damage();
         let Some(shown) = self.shown.as_mut().filter(|s| s.width() == frame.width() && s.height() == frame.height()) else {
             let r = blit(frame, fb).map(PhysicalRect::from_update);
             self.shown = Some(frame.clone());
             spans.extend(r);
             return r;
         };
-        let w = frame.width() as usize;
+        let (w, h) = (frame.width() as usize, frame.height() as usize);
+        // The pixels of each row that can have changed: x from `rows[y].0` to `rows[y].1` (not
+        // included). Out of the damage, the frame is the same as `shown`.
+        let rows: Vec<(usize, usize)> = match damage {
+            Damage::All => vec![(0, w); h],
+            Damage::Areas(areas) => {
+                let mut rows = vec![(w, 0); h];
+                for a in areas {
+                    for r in &mut rows[a.y0 as usize..a.y1 as usize] {
+                        *r = (r.0.min(a.x0 as usize), r.1.max(a.x1 as usize));
+                    }
+                }
+                rows
+            }
+        };
         let (base, sx, sy) = crate::layout::physical_steps();
         // The screen box of the changed pixels.
         let mut changed: Option<ScreenRect> = None;
         let (new, old) = (frame.data(), shown.data_mut());
-        for y in 0..frame.height() as usize {
-            let row = y * w * 4..(y + 1) * w * 4;
+        for (y, &(x0, x1)) in rows.iter().enumerate().filter(|(_, r)| r.0 < r.1) {
+            let row = (y * w + x0) * 4..(y * w + x1) * 4;
             let (a, b) = (&new[row.clone()], &mut old[row]);
             let Some((first, last)) = changed_span::<4>(a, b) else {
                 continue;
             };
-            let mut i = base + y as i64 * sy + first as i64 * sx;
+            let mut i = base + y as i64 * sy + (x0 + first) as i64 * sx;
             for p in a[first * 4..(last + 1) * 4].chunks_exact(4) {
                 fb[i as usize * 3..i as usize * 3 + 3].copy_from_slice(&p[..3]);
                 i += sx;
             }
             b[first * 4..(last + 1) * 4].copy_from_slice(&a[first * 4..(last + 1) * 4]);
-            let row_span = ScreenRect::new(first as i32, y as i32, last as i32, y as i32);
+            let row_span = ScreenRect::new((x0 + first) as i32, y as i32, (x0 + last) as i32, y as i32);
             spans.push(row_span.physical());
             grow(&mut changed, row_span);
         }
+        // The damage contains all changes of the frame: after the copy, `shown` is the frame.
+        debug_assert!(new == &old[..], "a change of the frame is not in the damage of the frame record");
         changed.map(ScreenRect::physical)
     }
 }

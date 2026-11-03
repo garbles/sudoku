@@ -162,10 +162,15 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   `remarkable-corpus` skill gives the procedure.
 - `app.rs`: screens, menu, panels, overlays, pen and touch input, the clock. No input or output.
 - `present.rs`: the output of the main loop: the drawing, the copy of the changes into the
-  framebuffer and the ink updates. No input or output, thus the bench uses the same code.
+  framebuffer and the ink updates. No input or output, thus the bench uses the same code. The
+  frame of the presenter has a `render::FrameRecord`: a redraw of the game screen writes only the
+  board tiles that changed and the areas of the other drawings, and the copy compares only the
+  damaged rows. Each drawing on the frame must use `Canvas::retained` with the same record (debug
+  builds examine it after each copy).
 - `invariants.rs`: checks of the rules in INVARIANTS.md. Debug builds check them after each input.
 - `layout.rs`, `render.rs`, `font.rs`: positions, drawing (tiny-skia) and the font of the tablet.
-  `render.rs` keeps the pixels of each board cell in a cache (tiles at their true position).
+  `render.rs` keeps the pixels of each board cell in a cache (tiles at their true position). Each
+  `Canvas` operation records the area that it can change (for the `FrameRecord`).
 - `store.rs`, `settings.rs`: the SQLite results, the settings and the saved game (JSON).
 - `update.rs`: the update state, the signed `version.json` and the installation of a release
   archive. No network: `platform/` downloads the files on a background thread (ureq, rustls).

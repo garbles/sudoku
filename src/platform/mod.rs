@@ -13,7 +13,7 @@ use crate::app::{App, Input, Tool, DEFAULT_PAUSE_MS};
 use crate::font::Fonts;
 use crate::game::Game;
 use crate::present::{self, Presenter};
-use crate::render::{self, Canvas};
+use crate::render;
 use crate::settings::Settings;
 use crate::store::{self, ResultsDb};
 use crate::system::SystemEnv;
@@ -358,8 +358,7 @@ pub fn run() -> Result<(), String> {
         .unwrap_or(qtfb::RefreshMode::Ui);
     eprintln!("sudoku: refresh mode {refresh_mode:?}");
     conn.set_refresh_mode(refresh_mode).ok();
-    render::draw(&mut Canvas::new(&mut presenter.frame, &fonts), &app);
-    present::blit(&presenter.frame, conn.pixels());
+    presenter.draw_all(&app, &fonts, conn.pixels());
     conn.update_all().map_err(|e| format!("qtfb update: {e}"))?;
     for m in early_input {
         if let Some(input) = to_input(&m, &eraser) {

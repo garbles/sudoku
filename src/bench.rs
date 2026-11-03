@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use crate::app::{App, Input, DEFAULT_PAUSE_MS};
 use crate::font::Fonts;
 use crate::layout::{PHYSICAL_H, PHYSICAL_W};
-use crate::present::{self, Presenter, Update};
+use crate::present::{Presenter, Update};
 use crate::render::{self, Canvas};
 use crate::script::{self, Ev};
 
@@ -31,11 +31,14 @@ pub struct Options {
     /// Writes the framebuffer at each check of the script into this folder (frame-NNN.rgb), and each
     /// reference state (state-NAME.rgba), to find the pixels that an optimization changed.
     pub dump: Option<std::path::PathBuf>,
+    /// Compares the frame after each redraw with a full drawing of the app (for the tests: the
+    /// presenter draws only the areas that can change).
+    pub check_frames: bool,
 }
 
 impl Default for Options {
     fn default() -> Options {
-        Options { script: SCRIPT.to_string(), gen_seeds: 3, recognize_step: 5, draw_reps: 5, dump: None }
+        Options { script: SCRIPT.to_string(), gen_seeds: 3, recognize_step: 5, draw_reps: 5, dump: None, check_frames: false }
     }
 }
 
@@ -133,8 +136,7 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
     let t = Instant::now();
     let mut presenter = Presenter::new();
     let mut fb = vec![0u8; (PHYSICAL_W * PHYSICAL_H * 3) as usize];
-    render::draw(&mut Canvas::new(&mut presenter.frame, &fonts), &app);
-    present::blit(&presenter.frame, &mut fb);
+    presenter.draw_all(&app, &fonts, &mut fb);
     phases.add("startup.first_frame", t.elapsed());
 
     let mut updates = Hash::new();
@@ -144,6 +146,7 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
     checks.sort_by_key(|c| (c.0, c.1));
     let mut checks = checks.into_iter().peekable();
     let mut now = 0u64;
+    let mut frame_err = None;
     app.tick(now);
 
     // One step of the main loop at `now`: the input (if any), the timers, the output.
@@ -158,6 +161,13 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
         presenter.present(app, &fonts, fb, now, |u: Update| sent.push(u));
         let total = t.elapsed();
         let times = presenter.times;
+        if opts.check_frames && !times.draw.is_zero() && frame_err.is_none() {
+            let mut full = tiny_skia::Pixmap::new(presenter.frame().width(), presenter.frame().height()).unwrap();
+            render::draw(&mut Canvas::new(&mut full, &fonts), app);
+            if full.data() != presenter.frame().data() {
+                frame_err = Some(format!("at {:.2} s: the frame is not the same as a full drawing", now as f64 / 1000.0));
+            }
+        }
         if input.is_some() {
             phases.add("handle", handle);
         }
@@ -222,7 +232,7 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
             checks.next();
         }
     }
-    if let Some(e) = verify_err {
+    if let Some(e) = verify_err.or(frame_err) {
         return Err(e);
     }
     frames.bytes(&fb);
@@ -353,5 +363,19 @@ pub fn main(args: Vec<String>, load_fonts: impl FnOnce() -> Result<Fonts, String
             println!("{json}");
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn each_redraw_of_the_demo_is_the_same_as_a_full_drawing() {
+        // The presenter keeps a record of its frame and draws only the areas that can change
+        // (render::FrameRecord). In debug builds, it also examines that the damage contains each
+        // change of the frame.
+        let opts = Options { gen_seeds: 0, recognize_step: 0, draw_reps: 0, check_frames: true, ..Options::default() };
+        run(Fonts::repo, &opts).unwrap();
     }
 }
