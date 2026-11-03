@@ -26,7 +26,7 @@ text 972 290 50 black start "Highlight a number"
 text 972 355 38 gray25 start "Tap a number with the pen. All cells with"
 text 972 405 38 gray25 start "the same number become green. To remove"
 text 972 455 38 gray25 start "the green, tap the number again or do a"
-text 972 505 38 gray25 start "different action. Green is the default color."
+text 972 505 38 gray25 start "different action. Settings can turn it off."
 picture_w 972 560 828 "$(shot "$UI/screen-highlight.png" 1336x894+142+412)"
 
 text 936 1290 32 gray40 middle "You can turn off each helper in the Settings panel (the gear in the menu)."

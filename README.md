@@ -66,7 +66,6 @@ The installer tells you what to do at each step:
    find it.
 
 4. It installs [Vellum](https://github.com/vellum-dev/vellum) and the AppLoad launcher, makes the
-
    xovi hashtable, copies the ink patch and starts xovi. The tablet must be connected to Wi-Fi for
    this step. With the ink patch, the ink has no gaps while you write.
 
@@ -98,7 +97,6 @@ To select the version without the question, set its name from the
    ```
 
 2. Download `sudoku-<version>.tar.gz` and the ink patch `sudoku-penregion.qmd` from the
-
    [Releases](https://github.com/garbles/sudoku/releases) page. Extract the archive to `dist/`
    (`mkdir -p dist && tar -xzf sudoku-<version>.tar.gz -C dist`). Or build the app (refer to
    [Build](#build)): then the ink patch is `dist/sudoku/sudoku-penregion.qmd`.
@@ -150,7 +148,7 @@ You need:
 - Docker, to build the program for the tablet.
 - The reMarkable Sans font files `scripts/fonts/rmsans-400.ttf` and `scripts/fonts/rmsans-500.ttf`.
   reMarkable owns the font, so the repository does not contain these files. The tests and the
-  Docker builds need them. [`scripts/fonts/README.md`](scripts/fonts/README.md) tells how to make
+  Docker builds of the tests, the images and the videos need them. [`scripts/fonts/README.md`](scripts/fonts/README.md) tells how to make
   them from a tablet.
 
 | Task                            | Command                                                               |
@@ -160,7 +158,8 @@ You need:
 | Build for the tablet (no tests) | `docker build --platform linux/arm64 --output type=local,dest=dist .` |
 
 The Docker build makes the folder `dist/sudoku/`. It contains the program `sudoku`, the AppLoad
-manifest `external.manifest.json` and the launcher icon `icon.png`.
+manifest `external.manifest.json`, the launcher icon `icon.png` and the ink patch
+`sudoku-penregion.qmd`.
 
 To keep the address of your tablet, copy `.env.sample` to `.env` and set `REMARKABLE_HOST` (git
 ignores `.env`). Then load it into your shell before you run the installer or `ssh` and `scp`:
@@ -180,8 +179,7 @@ tablet self-test) and the release procedure.
 This app was started with **"Reverse Visual Regression Testing Driven Development"**. I had Claude generate screenshots of a non-existant application before any source code was written. A usual visual regression test compares the app with screenshots of an earlier version of the app. Here, the "screenshots" came first, before the app existed:
 
 1. **Reference images.** Scripts in [`scripts/`](scripts/) draw exact images of each screen, panel and
-
-   dialog at 1620×2160 in portrait, the statistics screens at 2160×1620 in landscape, and the 9 pages
+   dialog at 1620×2160 in portrait, the statistics screens also at 2160×1620 in landscape, and the 9 pages
    of the manual in portrait and in landscape. The images are in [`images/`](images/), and
    [`images/INDEX.md`](images/INDEX.md) gives a list of them.
 

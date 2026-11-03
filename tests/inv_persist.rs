@@ -323,7 +323,7 @@ fn a_saved_number_with_a_wrong_list_of_removed_marks_is_not_used() {
 
     let mut bad = old.clone();
     *bad.undo.last_mut().unwrap() = Change::AddNumber { cell, digit: d, removed: vec![p1, p2] };
-    assert_rejected(&old, &bad, "MRK-4", "removed-list-wrong");
+    assert_rejected(&old, &bad, "UND-4", "removed-list-wrong");
 }
 
 #[test]

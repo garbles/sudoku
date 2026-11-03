@@ -12,7 +12,8 @@
 #   2. Select the version (the latest version, or a version from a list of all releases). Download
 #      the release archive and the ink patch of the release, and examine their SHA-256 checksums.
 #   3. Find the tablet (USB cable, developer mode).
-#   4. Make an SSH key and add it to the tablet. The user types the root password one time.
+#   4. Make an SSH key and add it to the tablet, with a different SSH key of this computer or with
+#      the root password (the user types it one time).
 #   5. Install Vellum, the package manager.
 #   6. Install AppLoad (with xovi) with Vellum.
 #   7. Make the hashtable of xovi.

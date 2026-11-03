@@ -54,7 +54,7 @@ open, the close button shows at the top left.
 
 ## Statistics
 
-`scripts/analytics.py` also makes the three screens for landscape (`analytics-landscape.png`,
+`scripts/analytics.py` also makes the four screens for landscape (`analytics-landscape.png`,
 `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png`, 2160×1620). The games list then is
 one table across the full width, with 6 games on each page.
 

@@ -74,7 +74,7 @@ stateDiagram-v2
 |---|---|
 | Game | [`screen.png`](images/screen.png), [`screen-in-progress.png`](images/screen-in-progress.png), [`screen-completed.png`](images/screen-completed.png) and the menu images in §9 |
 | Manual | [`manual-how-to-play.png`](images/manual-how-to-play.png) to [`manual-finished.png`](images/manual-finished.png) (§12) |
-| Statistics summary | [`analytics.png`](images/analytics.png) |
+| Statistics summary | [`analytics.png`](images/analytics.png), [`analytics-delete-all.png`](images/analytics-delete-all.png) |
 | Completed games list | [`analytics-games.png`](images/analytics-games.png), [`analytics-delete.png`](images/analytics-delete.png) |
 
 ## 3. The game screen
@@ -86,7 +86,7 @@ open ([§9](#9-the-menu)): refer to [`screen-toolbar.png`](images/screen-toolbar
 
 | Item | Position and size | Notes |
 |---|---|---|
-| Board | 9×9 cells of **147 px**; x 148–1471, y 418–1741 (at the center of the screen) | Lines of 12 px are around the board and the 3×3 boxes. Lines of 3 px are between the cells. |
+| Board | 9×9 cells of **147 px**; x 148–1471, y 418–1741 (at the center of the screen) | Lines of 13 px are around the board and the 3×3 boxes. Lines of 3 px are between the cells. |
 | Micro-cells | Each cell has a very faint 3×3 grid of **49 px** micro-cells (2 px lines, default `gray90`; the player can select a different gray or no lines, §10) | Each micro-cell is for one digit. The positions are the same as a keypad: 1 2 3 / 4 5 6 / 7 8 9. |
 | Difficulty meter | Below the board, at the center, 50 px from the board | The player cannot change it. It shows "Easy", seven stops and "Hard". The large knob shows the mode of the current puzzle. When the puzzle is complete, "Completed in …" replaces the meter. |
 | Menu button | Top right, circle of 38 px, center at (1563.5, 55.5) | Closed icon: dot at the bottom left. Open icon: dot at the top left. Both icons are copies from the device. |
@@ -159,7 +159,7 @@ The landscape layout has the same items, at the same sizes, as the portrait layo
 | Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. |
 | Close button | Top left, as in portrait. For a right-handed player, the toolbar is at the left edge (x 0–112) and the close button is at the top right (§3.1). |
 | Manual | Each page has a landscape version with two columns (`manual-*-landscape.png`, made by `scripts/manual-*-landscape.sh`). The content is the same as in portrait. |
-| Statistics | The same scale as in portrait, across the full width. The games list is one table across the full width. Each page shows 6 games, because the height is too small for 12. When the tablet turns, the list shows the page with the first game of the page before the turn. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, made by `scripts/analytics.py`). |
+| Statistics | The same scale as in portrait, across the full width. The games list is one table across the full width. Each page shows 6 games, because the height is too small for 12. When the tablet turns, the list shows the page with the first game of the page before the turn. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png`, made by `scripts/analytics.py`). |
 
 When the tablet turns, the game does not change. Ink that waits for the recognition pause and touches
 in progress are removed, because their positions are not correct after the turn.
@@ -194,8 +194,8 @@ stateDiagram-v2
     [*] --> Given: the generator makes the puzzle
     [*] --> Empty: the generator makes the puzzle
 
-    Empty --> Marked: tap a micro-cell (adds its digit, if no peer has it)
-    Marked --> Marked: tap a micro-cell (adds or removes its digit, if no peer has it)
+    Empty --> Marked: tap a micro-cell (adds its digit, if the switch is off or no peer has it)
+    Marked --> Marked: tap a micro-cell (adds or removes its digit, if the switch is off or no peer has it)
     Marked --> Empty: tap removes the last mark
     Marked --> Marked: a number in a peer cell hides a mark (if the switch is on)
     Marked --> Empty: a number in a peer cell hides the last mark (if the switch is on)
@@ -234,9 +234,12 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
 - A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs
   and the screen buttons (for example "< Back"). The pen can also operate these items.
 - In the manual and the games list, a finger swipe turns the page. Refer to [§12](#12-manual-help) and
-  [§13](#13-statistics).
+  [§13](#13-statistics). A swipe is a horizontal finger movement of 120 px or more, with more
+  horizontal than vertical movement.
 - A **tap** is a pen touch that stays in one micro-cell from start to end. If the pen moves out of the
-  micro-cell before it lifts, the touch is writing, not a tap.
+  micro-cell before it lifts, the touch is writing, not a tap. While ink waits in a cell, each pen
+  touch that starts in that cell is writing, also if it stays in one micro-cell. Thus a short stroke
+  of a number (for example the bar of a 7) does not become a pencil mark (confirmed 2026-10-25).
 - The ink shows from the pen down, also for a tap. After a tap that has no effect (for example a
   mark that a peer hides), a redraw removes the ink (owner decision 2026-11-02).
 - **Writing** is a pen stroke that is not a tap. The app collects the strokes in one cell until the
@@ -244,6 +247,9 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
   one stroke (for example 4, 5 or 7) is correct.
 - After the pause, the app reads all of the strokes as one item. Neat handwriting is not necessary.
   The app removes the ink and shows the typed number.
+- The writing belongs to the cell where the pen touch started. A pen touch that starts in a
+  different cell, or a press on a different item (for example a menu button), makes the app read the
+  waiting ink immediately (confirmed 2026-10-25).
 - **Accuracy target** (confirmed 2026-10-25): for writers that are not in the examples of the
   recognizer, the app reads 96 % or more of the digits correctly and reads 1.2 % or less as a
   different digit. The other digits show the "?". The test `writer_independent_accuracy` examines this
@@ -259,6 +265,8 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
   number. The micro-cells and the pencil marks of that cell show again.
 - The eraser has no effect on other cells. It does not change starting numbers. It does not change
   empty cells. Only a tap removes a pencil mark. A number only hides the marks of its peers (§6.1).
+- The eraser on the cell of ink that waits for the recognition pause removes that ink. The app does
+  not read it, thus the board and the undo history do not change (owner decision 2026-11-02).
 - Pen input on the board of a completed puzzle has no effect
   ([§8](#8-puzzle-states-and-the-clock)).
 
@@ -275,10 +283,12 @@ flowchart TD
     B -- pen --> C{Puzzle complete?}
     C -- yes --> X2[No change to the board]
     C -- no --> D{Eraser end?}
-    D -- yes --> E{Does the cell have your number?}
+    D -- yes --> EW{Does ink wait in that cell?}
+    EW -- yes --> EI[Remove the ink; do not read it]
+    EW -- no --> E{Does the cell have your number?}
     E -- yes --> E1[Remove the number, show the pencil marks of the cell, find clashes]
     E -- no --> X3[No effect on starting numbers and empty cells]
-    D -- no --> F{Did the touch stay in one micro-cell?}
+    D -- no --> F{Did the touch stay in one micro-cell, and does no ink wait in that cell?}
     F -- yes, tap --> G{Does the cell have a number?}
     G -- yes --> GS{Is Highlight numbers on?}
     GS -- no --> X5[No highlight]
@@ -491,14 +501,20 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
   tap a number to make a highlight.
 - When a panel is open, a tap outside the panel only closes the panel. The tap has no other effect,
   also when it is on the board.
-- When the menu is open, the **close button** shows at the top left. A tap on it closes the app. The
-  app then shows the launcher ([§14.4](#144-launcher)).
+- When the menu is open, the **close button** shows at the top left (at the top right for a
+  right-handed player, [§3.1](#31-layout)). When no panel is open, a tap on it closes the app. The
+  app then shows the launcher ([§14.4](#144-launcher)). When a panel is open, a tap on it only closes
+  the panel (owner decision 2026-11-02).
 - When a panel is open, its button is white on a black square. The panel touches the button. The
   pop-up menus of the device do the same.
 - A finger operates the menu buttons, the panels, the dialogs and the screen buttons while the app
-  is open. The only exception is a dialog that shows: then only its two buttons operate
-  ([§9.2](#92-updates)). A touch for which the app does not get a release (for example a palm touch
-  that the system cancels) does not stop the next touches.
+  is open. There are two exceptions. When a dialog shows, only its two buttons operate
+  ([§9.2](#92-updates)). A second finger, while the first finger moves or presses (an event less
+  than 0.15 s before), operates no item, but it removes a highlight and the "?" (owner decision
+  2026-11-02).
+- A touch for which the app does not get a release (for example a palm touch that the system
+  cancels) does not stop the next touches. The app forgets that touch when a new press with the same
+  touch id starts, or when a new touch starts and that touch has had no event for 0.15 s.
 
 ```mermaid
 stateDiagram-v2
@@ -714,7 +730,8 @@ Image: [`images/color-menu.png`](images/color-menu.png).
 - The panel opens next to the paint bucket. The top of the panel aligns with the button. The panel is
   400 px wide and has a 2 px border. The pen-color menu of the device has the same design.
 - The panel has four sections. Each section is 360 px high, thus the panel (y 112 to 1552) also fits
-  in landscape. Lines of 2 px are between the sections. The sections are **Starting numbers**,
+  in landscape. Lines of 2 px are between the sections. Each line is the top 2 px of the lower
+  section, thus the sections start 360 px apart (y 112, 472, 832 and 1192). The sections are **Starting numbers**,
   **Clashing numbers**, **Highlighted numbers** and **Micro-cell lines** (owner decision 2026-11-02).
 - Each section has a title (reMarkable Sans Medium, 25 px) and a 3×3 grid of cells, 112 px wide and
   90 px high. Each cell has a color dot of 38 px and the name below the dot.
@@ -973,7 +990,9 @@ The app keeps:
 - The time on the clock.
 - The completion state.
 
-When the app closes, no progress is lost.
+When the app closes, no progress is lost. A power loss can lose a maximum of 5 seconds of the clock,
+because the app saves the clock each 5 seconds (owner decision 2026-11-02). All other data is saved
+after each change.
 
 The app does **not** keep temporary UI states. The app always opens again at the game screen, with
 the menu open, the panels closed, no highlight and no "?". If the app closes during the recognition
@@ -1065,7 +1084,10 @@ For each attempt, the generator:
    techniques of the level of the mode, can complete the grid. Thus the puzzle has only one solution.
    Easy stops at 44 starting numbers.
 3. Grades the puzzle with all techniques. If the puzzle does not need the level of the mode, the
-   generator makes a new attempt (a maximum of 400 attempts).
+   generator makes a new attempt (a maximum of 400 attempts). If no attempt of the 400 needs the
+   level of the mode, the generator gives the attempt with the most difficult grade (the first of
+   them). Then the level of the puzzle can be easier than the level of the mode (owner decision
+   2026-11-02).
 
 The generator uses its own random number generator (SplitMix64). Thus a change of a library does not
 change the puzzle of a saved seed. The code is in `src/generator.rs`.
@@ -1125,7 +1147,7 @@ The steps:
 | 3. Connection | SSH to `REMARKABLE_HOST` if it is set, else to `10.11.99.1` (the USB cable). The installer tells which of the two it uses | No answer on USB: instructions for the USB cable. No answer on Wi-Fi (`REMARKABLE_HOST`): instructions for Wi-Fi, then a menu: "Try again" (Wi-Fi again) or "Use the USB cable" (the installer continues with `10.11.99.1`). Connection refused: instructions for developer mode (with the caution that it erases the tablet). Changed host key: the installer removes the old key after a confirmation. |
 | 4. SSH key | `~/.ssh/id_ed25519_remarkable`, and the tablet accepts it | Makes the key (ed25519, no passphrase). Adds it to `/home/root/.ssh/authorized_keys`, with a different key of the computer or with the root password. The installer tells where the password is (Settings > General > Help > About > Copyrights and licenses). Shows the tablet model and software version. A tablet that is not a Paper Pro needs a confirmation. |
 | 5. Vellum | `/home/root/.vellum/bin/vellum` | Examines the internet connection of the tablet (instructions for Wi-Fi). Downloads the latest Vellum bootstrap script on the computer (curl examines the TLS certificate) and runs it on the tablet. The installer keeps no checksum of this script, because each Vellum release changes it. |
-| 6. AppLoad | `/home/root/xovi/extensions.d/appload.so` | `vellum update`, then `vellum add appload`. |
+| 6. AppLoad | `/home/root/xovi/extensions.d/appload.so` | Examines the internet connection of the tablet (instructions for Wi-Fi). Then `vellum update`, then `vellum add appload`. |
 | 7. Hashtable | `/home/root/xovi/exthome/qt-resource-rebuilder/hashtab` | Tells the user that the screen stops for 1 to 2 minutes, then runs `xovi/rebuild_hashtable`. |
 | 8. Ink patch | The SHA-256 checksum of `sudoku-penregion.qmd` in `xovi/exthome/qt-resource-rebuilder` and the checksum in its stamp file `sudoku-penregion.json` are equal to the checksum of the downloaded patch | Copies the ink patch (§14.4) to the tablet. The tablet examines the checksum before it replaces the patch. Then it writes the stamp file with the version of the installer and the checksum. If only the stamp file is missing or different, the installer writes it, and step 9 does not start xovi again. |
 | 9. xovi | `xochitl` has `xovi.so`, and step 8 did not replace the patch | Runs `xovi/start` (the user interface starts again). The patch operates only after this start. |
@@ -1140,7 +1162,7 @@ the user runs the installer again.
 |---|---|
 | Screen | 1620×2160, 229 DPI |
 | Board | Cells of 147 px, micro-cells of 49 px, origin (148, 418) |
-| Board lines | Box and border 12 px black; cell 3 px black; micro-cell 2 px, default `gray90` (§10) |
+| Board lines | Box and border 13 px black; cell 3 px black; micro-cell 2 px, default `gray90` (§10) |
 | Numbers | reMarkable Sans Regular 104 px; starting numbers black, your numbers `gray35` |
 | Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell |
 | "?" | reMarkable Sans Regular 104 px, `gray40` |

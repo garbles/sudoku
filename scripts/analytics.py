@@ -5,8 +5,8 @@
 #   analytics-delete-all.png the summary after a tap on "Delete all games": a confirmation dialog
 #   update-restart.png   settings-restart.png (toolbar.sh) with the dialog "Restart the interface?" of
 #                        an update that replaced the ink patch (REQUIREMENTS.md §9.2)
-# and the same three screens for landscape (analytics-landscape.png, analytics-games-landscape.png,
-# analytics-delete-landscape.png): 1872x1404 units with the same scale, on 2160x1620. The positions
+# and the same four screens for landscape (analytics-landscape.png, analytics-games-landscape.png,
+# analytics-delete-landscape.png, analytics-delete-all-landscape.png): 1872x1404 units with the same scale, on 2160x1620. The positions
 # are the same as in src/layout.rs.
 # All screens use one list of sample games (the same data as the SQLite results table). Thus the
 # summary and the table agree. The layout uses the 1404x1872 units of the manual, with a scale to 1620x2160.

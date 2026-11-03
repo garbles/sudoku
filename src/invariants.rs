@@ -94,9 +94,10 @@ fn check_change_applies(g: &Game, change: &Change) -> Result<(), String> {
             }
             let expected: Vec<_> =
                 crate::game::peers(*cell).filter(|&p| g.marks_at(p) & crate::game::mark_bit(*digit) != 0).collect();
-            // MRK-4 (automatic removal on): all peers with the mark. MRK-9 (off): no cell.
+            // A new number has no removed list. A number of an earlier version removed the mark of all
+            // peers that had it (the exception of MRK-5, UND-4).
             if *removed != expected && !removed.is_empty() {
-                return Err(format!("removed marks {removed:?} are not {expected:?} (MRK-4, MRK-9)"));
+                return Err(format!("removed marks {removed:?} are not {expected:?} (MRK-5, UND-4)"));
             }
         }
         Change::Erase { cell, digit } => {

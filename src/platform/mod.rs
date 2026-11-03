@@ -397,6 +397,10 @@ pub fn run() -> Result<(), String> {
             // The ink timers have ms steps: wait one ms more, so that the loop does not spin.
             wait = wait.min(w + 1);
         }
+        if !app.game.completed {
+            // PER-7: wake for the next clock save, not only at the next tick.
+            wait = wait.min(CLOCK_SAVE_INTERVAL.saturating_sub(last_clock_save.elapsed()).as_millis() as u64);
+        }
         let mut pfd = libc::pollfd { fd: conn.fd(), events: libc::POLLIN, revents: 0 };
         // SAFETY: one valid pollfd.
         unsafe { libc::poll(&mut pfd, 1, wait as libc::c_int) };

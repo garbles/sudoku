@@ -80,6 +80,7 @@ ListUI
 
 Settings
   color_starting, color_clash, color_highlight ∈ Palette
+  micro_line      ∈ {None, gray90, gray80, gray70, gray60, gray55, gray50, gray45, gray40}   (Cell colors panel; default gray90; COL-7)
   last_mode       ∈ 0..6
   highlight_on    : bool                       (Settings panel; default true)
   auto_hide_on    : bool                       (Settings panel; default true)
@@ -90,6 +91,10 @@ Update
   checking        : bool                       (a request for version.json is in progress)
   up_to_date_shown : bool                      (the row shows "Sudoku is up to date"; UPD-9)
   dialog          : bool                       (the dialog "Restart the interface?" shows; UPD-10)
+                                               (code: these three fields are in the variants of
+                                                UpdateState: CheckFailed { checking },
+                                                UpToDate(CheckButton | Checking | UpToDateText) and
+                                                Installed(Replaced { dialog }); refer to src/update.rs)
 
 Palette = {Gray, White, Yellow, Blue, Red, Green, Cyan, Magenta, Orange}
 
@@ -114,7 +119,7 @@ Terms:
 | PUZ-3 | For each starting number, `value = solution`. Thus two starting numbers never clash. | R§14.5 |
 | PUZ-4 | `given` does not change after the generator makes the puzzle. It changes only when a new puzzle replaces the game. | R§4.1 |
 | PUZ-5 | `(seed, mode)` and the version of the generator set the full game. The same values always give the same starting numbers and the same solution. A saved game whose starting numbers or solution are not `generate_version(generator, seed, mode)` is not correct: the app does not use it (PER-5). A new game has the current version (2). Version 1 has only the modes 0..4. A game file with no version is version 1. | R§14.1, R§14.5 (confirmed 2026-10-25; versions: owner decision 2026-10-25) |
-| PUZ-6 | The generator sets the level (the most difficult group of techniques) of each mode. The human-style solver, with all techniques, completes each puzzle, and the most difficult technique that it needs is of the level of the mode. Easy has 44 starting numbers. No other part of the app uses a fixed level or a fixed quantity of starting numbers. | R§11, R§14.5 (owner decision 2026-10-25) |
+| PUZ-6 | The generator sets the level (the most difficult group of techniques) of each mode. The human-style solver, with all techniques, completes each puzzle, and the most difficult technique that it needs is of the level of the mode. Exception: if no attempt of the 400 needs the level of the mode, the puzzle is the attempt with the most difficult grade, and its level can be easier (R§14.5). Easy has 44 starting numbers. No other part of the app uses a fixed level or a fixed quantity of starting numbers. | R§11, R§14.5 (owner decisions 2026-10-25 and 2026-11-02) |
 
 ## 2. Cells
 
@@ -184,7 +189,7 @@ Terms:
 | INP-11 | While ink waits in a cell, each pen touch that starts in the same cell is writing. This is also true if the touch stays in one micro-cell. Thus a short stroke of a number (for example the bar of a 7) does not become a pencil mark. | R§5.1 (confirmed 2026-10-25) |
 | INP-12 | Writing belongs to the cell where the pen touch started. A pen touch that starts in a different cell, or a press on a different item, makes the app read the waiting ink immediately. | R§5.1 (confirmed 2026-10-25) |
 | INP-13 | The eraser removes all of your numbers that it touches in one stroke. Each removal is one change in the undo history. | R§5.1, UND-1 (confirmed 2026-10-25) |
-| INP-14 | A finger swipe is a horizontal movement of 120 px or more, with more horizontal than vertical movement. | R§12, R§13.2 (confirmed 2026-10-25) |
+| INP-14 | A finger swipe is a horizontal movement of 120 px or more, with more horizontal than vertical movement. | R§5.1, R§12, R§13.2 (confirmed 2026-10-25) |
 | INP-15 | A finger press on an item that is not on the board (INP-1: menu buttons, panels, dialogs, screen buttons) operates it while the app is open. The only exception is a dialog that shows: then only its two buttons operate. If the app does not get the release of a touch, that touch does not stop other presses: the app forgets it when a new press with the same touch id starts, or when a new touch starts and that touch has had no event for 0.15 s. A second finger while the first finger moves or presses (an event less than 0.15 s before) operates no item, but it removes a highlight and the "?" (HLT-2, QST-4). | R§9, R§5.1 |
 | INP-16 | The writing timer (a redraw waits, R§14.4) runs only on the game screen of a game that is not complete. Each stroke on the board starts it again (1 s). A press that does not write stops it. | R§5.1, R§14.4 (owner decision 2026-11-02) |
 
@@ -233,7 +238,7 @@ Terms:
 | NAV-3 | When Manual or Statistics shows Game again, `menu = Open` and `panel = None`. | R§9, R§12, R§13.1 (owner decision 2026-11-02) |
 | NAV-4 | `panel ≠ None ⇒ menu = Open`. Only one panel can be open at a time. | R§9 |
 | NAV-5 | `screen ≠ Game ⇒ menu = Closed, panel = None`. The menu is a part of the game screen. When the game screen shows again, the menu opens (NAV-3). | R§9 |
-| NAV-6 | The close button shows only when `screen = Game` and `menu = Open`. A tap on it closes the app after the app saves the game (PER-1). | R§3.1, R§9 |
+| NAV-6 | The close button shows only when `screen = Game` and `menu = Open`. When `panel = None`, a tap on it closes the app after the app saves the game (PER-1). When `panel ≠ None`, a tap on it only closes the panel (NAV-12). | R§3.1, R§9 (owner decision 2026-11-02) |
 | NAV-7 | Icon of the menu button: the dot is at the bottom left only when `menu = Closed`. The dot is at the top left only when `menu = Open`. For a right-handed player the icon is a mirror image (the dot is at the right; NAV-15). | R§3.1 |
 | NAV-8 | The button of a panel is white on black only when that panel is open. The other buttons have their usual appearance. | R§9 |
 | NAV-9 | After Start new game, `menu = Open` and `panel = None`. | R§9, R§11 (owner decision 2026-11-02) |
@@ -299,7 +304,7 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| PER-1 | At each point where the app can close or be suspended, the saved game is equal to the game in memory: `seed`, `mode`, starting numbers, `value`, `marks`, the two stacks, `elapsed` and `completed`. | R§14.3 |
+| PER-1 | At each point where the app can close or be suspended, the saved game is equal to the game in memory: `seed`, `mode`, the `generator` version, starting numbers, `value`, `marks`, the two stacks, `elapsed` and `completed`. | R§14.3 |
 | PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Open`, `panel = None`, `highlight = None`, `question = None` and `pending_ink = None`. The app does not keep the menu state. This is true for a new game and for a saved game. | R§9, R§14.3 (owner decision 2026-11-02) |
 | PER-3 | The settings (`color_*`, `micro_line`, `last_mode`, `highlight_on` and `auto_hide_on`) stay the same when the app closes and opens again. | R§14.2 |
 | PER-4 | `results` stays the same when the app closes and opens again. Only ANA-2 changes it. | R§14.1 |

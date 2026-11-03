@@ -268,7 +268,7 @@
       <ol class="steps">
         <li>The installer asks which version you want: the latest version (push Enter), or a different version from a list of all releases, for example a preview version. Then it downloads the release and its ink patch, and examines their checksums.</li>
         <li>It finds the tablet on the USB cable. If developer mode is off, it tells you how to turn it on.</li>
-        <li>It makes an SSH key and adds it to the tablet. If the tablet does not accept another SSH key of your computer, you type the SSH password of the tablet one time.</li>
+        <li>It makes an SSH key and adds it to the tablet. If the tablet does not accept another SSH key of your computer, you type the SSH password of the tablet one time. The installer tells you where to find it.</li>
         <li>It installs <a href="https://github.com/vellum-dev/vellum">Vellum</a> and the AppLoad launcher, makes the xovi hashtable, copies the ink patch and starts xovi. The tablet must be connected to Wi-Fi. With the ink patch, the ink has no gaps while you write.</li>
         <li>It copies Sudoku to AppLoad. Open AppLoad on the tablet and tap <strong>Sudoku</strong>.</li>
       </ol>
@@ -276,6 +276,7 @@
       <div class="warn"><strong>Developer mode erases all data on the tablet.</strong> Sync your notebooks to the cloud first.</div>
 
       <h2>Run it again</h2>
+      <p class="note">The installer skips each step that is done. Thus you can run it again at all times:</p>
       <ul class="notes">
         <li>After a restart of the tablet, AppLoad is not in the menu. Run the installer again to start xovi.</li>
         <li>To install a new version. Sudoku also tells you about new versions in its Settings panel.</li>
