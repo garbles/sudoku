@@ -173,11 +173,13 @@ pub struct Script {
 }
 
 impl Script {
-    /// The app at the start of the script: the puzzle of the script, no saved settings, no results,
-    /// a fixed clock, and the slider at the mode of the puzzle.
+    /// The app at the start of the script: the puzzle of the script, the settings of a player whose
+    /// last new game had the mode of the puzzle (thus the slider is at that mode, DIF-4), no
+    /// results and a fixed clock.
     pub fn app(&self, fonts: &Fonts) -> App {
-        let mut app = App::new(Some(new_game(self.seed, self.mode)), None, ResultsDb::in_memory(), Box::new(FixedEnv(self.seed)), render::ng_stops(fonts));
-        app.ui.slider = self.mode;
+        let settings = crate::settings::Settings { last_mode: self.mode, ..Default::default() };
+        let app = App::new(Some(new_game(self.seed, self.mode)), Some(settings), ResultsDb::in_memory(), Box::new(FixedEnv(self.seed)), render::ng_stops(fonts));
+        let mut app = app;
         // The real app opens with the menu open (PER-2). The scripts start with the menu closed:
         // they show the empty board first, and then they open the menu with a tap. Thus the
         // videos and the output hashes of the bench do not change (DECISIONS.md).
