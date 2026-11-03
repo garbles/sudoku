@@ -21,9 +21,9 @@ const IDLE_WAKE_MS: u64 = 1000;
 
 /// The bench plays the events with no real time between them. On the device, the main loop waits
 /// for the next input or timer, and the background reading of the ink (`recognizer::read_early`)
-/// continues. The bench lets it finish (not measured) at a wake this time or more after the last
-/// input: a generous limit of the reading time on the tablet. The pause before the app reads the
-/// ink (DEFAULT_PAUSE_MS) is longer.
+/// continues. The bench lets it finish (not measured) before a wake (a timer or an input) this time
+/// or more after the last input: a generous limit of the reading time on the tablet. The pause
+/// before the app reads the ink (DEFAULT_PAUSE_MS) is longer.
 const EARLY_READ_MS: u64 = 100;
 
 pub struct Options {
@@ -224,10 +224,11 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
         if input.is_none() && wake > end {
             break;
         }
+        if wake >= last_input + EARLY_READ_MS {
+            crate::recognizer::finish_early();
+        }
         if input.is_some() {
             last_input = wake;
-        } else if wake >= last_input + EARLY_READ_MS {
-            crate::recognizer::finish_early();
         }
         now = wake;
         step(&mut app, &mut presenter, &mut fb, now, input, &mut phases);

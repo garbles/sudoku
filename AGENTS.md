@@ -58,7 +58,8 @@ builds in parallel).
   `gen`, `recognize`, `startup.*`) and gives hashes of the output: the framebuffer at each check of
   the script, the update rectangles, the reference states, the puzzles and the recognizer matches.
   The bench plays the events with no real time between them. At a wake 100 ms or more after the
-  last input, it lets the background reading of the ink finish (not measured), as on the device.
+  last input (a timer or an input), it lets the background reading of the ink finish (not
+  measured), as on the device.
 - `scripts/bench.sh` builds the bench, does one warm-up run and 5 runs, keeps the median, compares
   it with `bench/baseline-computer.json` and adds one line to `bench/history.jsonl`. `--save`
   writes a new baseline. `--note TEXT` describes the change in the history.
