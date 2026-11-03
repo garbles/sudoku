@@ -365,19 +365,11 @@ fn example_features(s: &Sample) -> Vec<(u8, Vec<f32>)> {
         .iter()
         .filter_map(|&(k, rot, sx)| {
             let (sin, cos) = rot.to_radians().sin_cos();
-            let strokes: Vec<Stroke> = s
-                .strokes
-                .iter()
-                .map(|st| {
-                    st.iter()
-                        .map(|&(x, y)| {
-                            let (x, y) = ((x + k * (255.0 - y) - 128.0) * sx, y - 128.0);
-                            (x * cos - y * sin + 128.0, x * sin + y * cos + 128.0)
-                        })
-                        .collect()
-                })
-                .collect();
-            features_of(&strokes).map(|f| (s.class, f))
+            let ink = Flat::new(&s.strokes, |(x, y)| {
+                let (x, y) = ((x + k * (255.0 - y) - 128.0) * sx, y - 128.0);
+                (x * cos - y * sin + 128.0, x * sin + y * cos + 128.0)
+            });
+            flat_features(ink).map(|f| (s.class, f))
         })
         .collect()
 }
@@ -451,33 +443,64 @@ fn side_by_side(strokes: &[Stroke]) -> bool {
     groups.iter().filter(|g| g.2 >= 0.35 * height).count() >= 2
 }
 
+/// Strokes in one list of points (fewer allocations): stroke k is `points[starts[k]..starts[k + 1]]`.
+struct Flat {
+    points: Vec<Point>,
+    starts: Vec<usize>,
+}
+
+impl Flat {
+    /// The strokes with `map` on each point.
+    fn new(strokes: &[Stroke], map: impl Fn(Point) -> Point) -> Flat {
+        let mut points = Vec::with_capacity(strokes.iter().map(Vec::len).sum());
+        let mut starts = Vec::with_capacity(strokes.len() + 1);
+        starts.push(0);
+        for st in strokes {
+            points.extend(st.iter().map(|&p| map(p)));
+            starts.push(points.len());
+        }
+        Flat { points, starts }
+    }
+
+    fn strokes(&self) -> impl Iterator<Item = &[Point]> {
+        self.starts.windows(2).map(|w| &self.points[w[0]..w[1]])
+    }
+}
+
 /// The strokes in a unit box (the same scale for x and y), with the center of the ink at the center.
-fn normalize(strokes: &[Stroke]) -> Option<Vec<Stroke>> {
-    let (x0, y0, x1, y1) = bbox(strokes.iter().flatten());
+fn normalize(mut ink: Flat) -> Option<Flat> {
+    let (x0, y0, x1, y1) = bbox(ink.points.iter());
     let size = (x1 - x0).max(y1 - y0);
     if size.is_nan() || size <= 0.0 {
         return None;
     }
     let (ox, oy) = (0.5 - (x1 - x0) / size / 2.0, 0.5 - (y1 - y0) / size / 2.0);
-    Some(strokes.iter().map(|s| s.iter().map(|&(x, y)| ((x - x0) / size + ox, (y - y0) / size + oy)).collect()).collect())
+    for p in &mut ink.points {
+        *p = ((p.0 - x0) / size + ox, (p.1 - y0) / size + oy);
+    }
+    Some(ink)
 }
 
 /// The feature vector: the pen directions in a grid, then the pen path.
 fn features_of(strokes: &[Stroke]) -> Option<Vec<f32>> {
-    let ns = normalize(strokes)?;
+    flat_features(Flat::new(strokes, |p| p))
+}
+
+fn flat_features(ink: Flat) -> Option<Vec<f32>> {
+    let ns = normalize(ink)?;
     let mut f = directions(&ns);
-    f.extend(pen_path(&ns).into_iter().map(|v| v * PATH_WEIGHT));
+    pen_path(&ns.points, &mut f);
     debug_assert_eq!(f.len(), DIM);
     Some(f)
 }
 
 /// The length of the pen movement in each grid cell and each of 8 directions (with the sense of the
 /// movement), with a small blur. The result has a length of 1.
-fn directions(strokes: &[Stroke]) -> Vec<f32> {
+fn directions(ink: &Flat) -> Vec<f32> {
     use std::f32::consts::TAU;
     let (g, d) = (GRID, DIRS);
     let mut f = [0f32; GRID * GRID * DIRS];
-    for s in strokes {
+    for s in ink.strokes() {
         for w in s.windows(2) {
             let (a, b) = (w[0], w[1]);
             let len = dist(a, b);
@@ -539,16 +562,16 @@ fn directions(strokes: &[Stroke]) -> Vec<f32> {
     out
 }
 
-/// The strokes joined in the order of writing, at PATH_POINTS equal distances: x0, y0, x1, y1, ...
-fn pen_path(strokes: &[Stroke]) -> Vec<f32> {
-    let pts: Vec<Point> = strokes.iter().flatten().copied().collect();
-    let total: f32 = path_length(&pts);
-    let mut out = Vec::with_capacity(2 * PATH_POINTS);
+/// The strokes joined in the order of writing (`pts`), at PATH_POINTS equal distances: x0, y0, x1,
+/// y1, ... Each value goes into `out` with the weight PATH_WEIGHT.
+fn pen_path(pts: &[Point], out: &mut Vec<f32>) {
+    let mut put = |x: f32, y: f32| out.extend([x * PATH_WEIGHT, y * PATH_WEIGHT]);
+    let total: f32 = path_length(pts);
     if total <= 0.0 {
         for _ in 0..PATH_POINTS {
-            out.extend([pts[0].0, pts[0].1]);
+            put(pts[0].0, pts[0].1);
         }
-        return out;
+        return;
     }
     let step = total / (PATH_POINTS - 1) as f32;
     let (mut acc, mut i) = (0.0, 0);
@@ -561,13 +584,12 @@ fn pen_path(strokes: &[Stroke]) -> Vec<f32> {
         if i + 1 < pts.len() {
             let d = dist(pts[i], pts[i + 1]);
             let t = if d > 0.0 { ((target - acc) / d).clamp(0.0, 1.0) } else { 0.0 };
-            out.extend([pts[i].0 + t * (pts[i + 1].0 - pts[i].0), pts[i].1 + t * (pts[i + 1].1 - pts[i].1)]);
+            put(pts[i].0 + t * (pts[i + 1].0 - pts[i].0), pts[i].1 + t * (pts[i + 1].1 - pts[i].1));
         } else {
             let p = pts[pts.len() - 1];
-            out.extend([p.0, p.1]);
+            put(p.0, p.1);
         }
     }
-    out
 }
 
 /// An example of the digit `d` by the writer `writer`, in a box of `size` px at (x, y). The tests use
