@@ -13,10 +13,10 @@ The log category is `rm.framebuffer.updates`. Its debug messages are off by defa
    folder each time that it starts xochitl:
 
    ```bash
-   ssh ... root@HOST 'printf "[Service]\nEnvironment=\"QT_LOGGING_RULES=rm.framebuffer.updates.debug=true\"\n" > /home/root/xovi/services/xochitl.service/90-sudoku-debug.conf'
+   scripts/tablet-ssh.sh HOST 'printf "[Service]\nEnvironment=\"QT_LOGGING_RULES=rm.framebuffer.updates.debug=true\"\n" > /home/root/xovi/services/xochitl.service/90-sudoku-debug.conf'
    ```
 
-2. Restart xochitl with xovi: `ssh ... root@HOST /home/root/xovi/start`. **This closes all the open
+2. Restart xochitl with xovi: `scripts/tablet-ssh.sh HOST /home/root/xovi/start`. **This closes all the open
    documents and apps.** Ask the owner before you do it.
 
 3. Make sure that the log is on: `ls /home/root/xovi/services/xochitl.service/` shows
@@ -28,7 +28,7 @@ The log category is `rm.framebuffer.updates`. Its debug messages are off by defa
 Do the test on the tablet. Then copy the log to the computer (a file in the scratchpad):
 
 ```bash
-ssh ... root@HOST 'journalctl -u xochitl --since "-10min" --no-pager -o short-precise' > xochitl.log
+scripts/tablet-ssh.sh HOST 'journalctl -u xochitl --since "-10min" --no-pager -o short-precise' > xochitl.log
 ```
 
 Use a relative time (`-10min`). The clock of the tablet can change while it sleeps or when it gets

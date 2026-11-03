@@ -9,14 +9,18 @@ Write all messages in ASD-STE100 Simplified Technical English (refer to AGENTS.m
 
 ## SSH command
 
-Use the SSH key of the installer (`install.sh`). Use these options for all SSH commands to the
-tablet:
+Use the SSH key of the installer (`install.sh`). Use the script `scripts/tablet-ssh.sh` for all
+SSH commands to the tablet. It works in each shell (sh, bash, zsh) and sends its standard input to
+the command:
 
 ```bash
-ssh -o ConnectTimeout=5 -o BatchMode=yes -o IdentitiesOnly=yes \
-    -o StrictHostKeyChecking=accept-new -o LogLevel=ERROR \
-    -i "${SUDOKU_SSH_KEY:-$HOME/.ssh/id_ed25519_remarkable}" root@HOST 'COMMAND'
+scripts/tablet-ssh.sh HOST 'COMMAND'
 ```
+
+Do not write the SSH options yourself, and do not put them in a shell variable: zsh does not split
+a variable into words, thus the command fails. The script has these options: `ConnectTimeout=5`,
+`BatchMode=yes`, `IdentitiesOnly=yes`, `StrictHostKeyChecking=accept-new`, `LogLevel=ERROR` and
+the key `${SUDOKU_SSH_KEY:-$HOME/.ssh/id_ed25519_remarkable}`.
 
 `accept-new` is necessary: the tablet has a different host entry for each address. If the key
 file is not there, tell the user to run the installer one time (README.md, "Installation"). It

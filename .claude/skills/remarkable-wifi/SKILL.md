@@ -16,7 +16,8 @@ This skill does not connect the tablet to a Wi-Fi network. The user does that on
 
 ## SSH command
 
-Use the SSH command of the `remarkable-host` skill (installer key, `accept-new`).
+Use `scripts/tablet-ssh.sh HOST 'COMMAND'` for all SSH commands (refer to the `remarkable-host`
+skill). Do not put the SSH options in a shell variable: zsh does not split it.
 
 ## Procedure
 

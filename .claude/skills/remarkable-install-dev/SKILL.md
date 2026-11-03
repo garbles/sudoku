@@ -9,8 +9,9 @@ Write all messages in ASD-STE100 Simplified Technical English (refer to AGENTS.m
 
 ## SSH command
 
-Use the SSH command of the `remarkable-host` skill (installer key, `accept-new`). In the steps
-below, `HOST` is the address that you select in step 1.
+Use `scripts/tablet-ssh.sh HOST 'COMMAND'` for all SSH commands (refer to the `remarkable-host`
+skill). Do not put the SSH options in a shell variable: zsh does not split it. In the steps below,
+`HOST` is the address that you select in step 1.
 
 ## Procedure
 
@@ -60,7 +61,7 @@ below, `HOST` is the address that you select in step 1.
    from adding `._*` files:
 
    ```bash
-   COPYFILE_DISABLE=1 tar -C dist -czf - sudoku | ssh ... root@HOST 'set -e; d=/home/root/xovi/exthome/appload; t=$d/.sudoku-install; rm -rf "$t"; mkdir -p "$t"; tar -xzf - -C "$t"; chmod 755 "$t/sudoku/sudoku"; rm -rf "$d/sudoku.old"; if [ -d "$d/sudoku" ]; then mv "$d/sudoku" "$d/sudoku.old"; fi; mv "$t/sudoku" "$d/sudoku"; rm -rf "$d/sudoku.old" "$t"'
+   COPYFILE_DISABLE=1 tar -C dist -czf - sudoku | scripts/tablet-ssh.sh HOST 'set -e; d=/home/root/xovi/exthome/appload; t=$d/.sudoku-install; rm -rf "$t"; mkdir -p "$t"; tar -xzf - -C "$t"; chmod 755 "$t/sudoku/sudoku"; rm -rf "$d/sudoku.old"; if [ -d "$d/sudoku" ]; then mv "$d/sudoku" "$d/sudoku.old"; fi; mv "$t/sudoku" "$d/sudoku"; rm -rf "$d/sudoku.old" "$t"'
    ```
 
 5. **Examine the result.** Compare `sha256sum dist/sudoku/sudoku` (on the computer: `shasum -a 256`)

@@ -14,8 +14,8 @@ default.
 Example:
 
 ```bash
-ssh ... root@HOST 'echo 600 > /home/root/.local/share/rm-sudoku/ink-wave-ms'
-ssh ... root@HOST 'touch /home/root/.local/share/rm-sudoku/log-input'
+scripts/tablet-ssh.sh HOST 'echo 600 > /home/root/.local/share/rm-sudoku/ink-wave-ms'
+scripts/tablet-ssh.sh HOST 'touch /home/root/.local/share/rm-sudoku/log-input'
 ```
 
 When it starts, the app writes the selected values to its standard error output. AppLoad runs the

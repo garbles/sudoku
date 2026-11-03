@@ -8,7 +8,7 @@ description: Examine the Sudoku app on the reMarkable Paper Pro when the screen 
 Write all messages and files in ASD-STE100 Simplified Technical English (refer to AGENTS.md).
 
 This skill tells how to examine the app on the reMarkable Paper Pro. DECISIONS.md records the
-results. The commands use the SSH command of the `remarkable-host` skill (`ssh ... root@HOST`).
+results. The commands use `scripts/tablet-ssh.sh HOST` (refer to the `remarkable-host` skill).
 
 Do not put xochitl internals (addresses, hashes, decompiled names) in the files of this skill.
 

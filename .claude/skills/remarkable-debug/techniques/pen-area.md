@@ -11,7 +11,7 @@ xochitl in the AppLoad window (REQUIREMENTS.md §14.4). The app writes the area 
    no `--time-style`, but `stat -c` operates):
 
    ```bash
-   ssh ... root@HOST 'stat -c %y /home/root/xovi/exthome/qt-resource-rebuilder/sudoku-penregion.qmd; systemctl show xochitl -p ActiveEnterTimestamp'
+   scripts/tablet-ssh.sh HOST 'stat -c %y /home/root/xovi/exthome/qt-resource-rebuilder/sudoku-penregion.qmd; systemctl show xochitl -p ActiveEnterTimestamp'
    ```
 
 2. If the patch is newer, run `/home/root/xovi/start` (ask the owner first).
@@ -28,7 +28,7 @@ xochitl in the AppLoad window (REQUIREMENTS.md §14.4). The app writes the area 
 ## Watch the area while the user writes
 
 ```bash
-ssh ... root@HOST 'for i in $(seq 200); do cat /tmp/sudoku-pen-region; echo; sleep 0.05; done' | uniq
+scripts/tablet-ssh.sh HOST 'for i in $(seq 200); do cat /tmp/sudoku-pen-region; echo; sleep 0.05; done' | uniq
 ```
 
 Each line is one area. While the player writes in a cell, the area is the inside of that cell. When
