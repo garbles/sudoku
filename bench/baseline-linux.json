@@ -1,116 +1,116 @@
 {
   "phases": {
     "blit": {
-      "max_us": 2927.1,
-      "mean_us": 148.5,
+      "max_us": 2926.2,
+      "mean_us": 156.3,
       "n": 80,
-      "p50_us": 86.4,
-      "p95_us": 197.6,
-      "total_ms": 11.9
+      "p50_us": 93.7,
+      "p95_us": 200.9,
+      "total_ms": 12.5
     },
     "draw": {
-      "max_us": 4108.3,
-      "mean_us": 333.0,
+      "max_us": 4256.3,
+      "mean_us": 355.5,
       "n": 80,
-      "p50_us": 219.2,
-      "p95_us": 494.3,
-      "total_ms": 26.6
+      "p50_us": 234.0,
+      "p95_us": 524.6,
+      "total_ms": 28.4
     },
     "draw.states": {
-      "max_us": 15075.2,
-      "mean_us": 3410.1,
+      "max_us": 15312.8,
+      "mean_us": 3596.4,
       "n": 130,
-      "p50_us": 2245.6,
-      "p95_us": 8703.2,
-      "total_ms": 443.3
+      "p50_us": 2445.7,
+      "p95_us": 8509.9,
+      "total_ms": 467.5
     },
     "gen": {
-      "max_us": 7992.3,
-      "mean_us": 2721.0,
+      "max_us": 7930.3,
+      "mean_us": 2738.5,
       "n": 21,
-      "p50_us": 1661.3,
-      "p95_us": 7473.8,
-      "total_ms": 57.1
+      "p50_us": 1662.8,
+      "p95_us": 7492.8,
+      "total_ms": 57.5
     },
     "handle": {
-      "max_us": 1105.1,
-      "mean_us": 6.4,
+      "max_us": 1206.6,
+      "mean_us": 6.8,
       "n": 2412,
       "p50_us": 0.0,
-      "p95_us": 1.4,
-      "total_ms": 15.4
+      "p95_us": 1.5,
+      "total_ms": 16.4
     },
     "ink.blit": {
-      "max_us": 7.4,
+      "max_us": 11.6,
       "mean_us": 2.1,
       "n": 676,
-      "p50_us": 1.8,
+      "p50_us": 1.9,
       "p95_us": 3.8,
       "total_ms": 1.4
     },
     "ink.draw": {
-      "max_us": 20.9,
-      "mean_us": 4.5,
+      "max_us": 26.9,
+      "mean_us": 4.6,
       "n": 2104,
-      "p50_us": 4.0,
-      "p95_us": 7.0,
-      "total_ms": 9.4
+      "p50_us": 4.1,
+      "p95_us": 7.1,
+      "total_ms": 9.6
     },
     "ink.step": {
-      "max_us": 24.8,
-      "mean_us": 4.7,
+      "max_us": 33.2,
+      "mean_us": 4.9,
       "n": 2548,
-      "p50_us": 4.1,
-      "p95_us": 8.7,
-      "total_ms": 12.1
+      "p50_us": 4.2,
+      "p95_us": 9.1,
+      "total_ms": 12.4
     },
     "input_to_pixels": {
-      "max_us": 5342.9,
-      "mean_us": 971.4,
+      "max_us": 5565.1,
+      "mean_us": 1006.4,
       "n": 80,
-      "p50_us": 1113.3,
-      "p95_us": 1680.7,
-      "total_ms": 77.7
+      "p50_us": 1138.7,
+      "p95_us": 1873.2,
+      "total_ms": 80.5
     },
     "recognize": {
-      "max_us": 1685.7,
-      "mean_us": 883.5,
+      "max_us": 3688.3,
+      "mean_us": 928.0,
       "n": 2016,
-      "p50_us": 899.9,
-      "p95_us": 1006.5,
-      "total_ms": 1781.2
+      "p50_us": 915.4,
+      "p95_us": 1143.5,
+      "total_ms": 1870.8
     },
     "startup.app": {
-      "max_us": 636.8,
-      "mean_us": 636.8,
+      "max_us": 615.0,
+      "mean_us": 615.0,
       "n": 1,
-      "p50_us": 636.8,
-      "p95_us": 636.8,
+      "p50_us": 615.0,
+      "p95_us": 615.0,
       "total_ms": 0.6
     },
     "startup.first_frame": {
-      "max_us": 12639.8,
-      "mean_us": 12639.8,
+      "max_us": 13085.2,
+      "mean_us": 13085.2,
       "n": 1,
-      "p50_us": 12639.8,
-      "p95_us": 12639.8,
-      "total_ms": 12.6
+      "p50_us": 13085.2,
+      "p95_us": 13085.2,
+      "total_ms": 13.1
     },
     "startup.fonts": {
-      "max_us": 195.3,
-      "mean_us": 195.3,
+      "max_us": 236.4,
+      "mean_us": 236.4,
       "n": 1,
-      "p50_us": 195.3,
-      "p95_us": 195.3,
+      "p50_us": 236.4,
+      "p95_us": 236.4,
       "total_ms": 0.2
     },
     "startup.recognizer": {
-      "max_us": 37432.0,
-      "mean_us": 37432.0,
+      "max_us": 37676.9,
+      "mean_us": 37676.9,
       "n": 1,
-      "p50_us": 37432.0,
-      "p95_us": 37432.0,
-      "total_ms": 37.4
+      "p50_us": 37676.9,
+      "p95_us": 37676.9,
+      "total_ms": 37.7
     }
   },
   "hashes": {
@@ -120,5 +120,5 @@
     "script.frames": "44fe8181a954bdc0",
     "script.updates": "892 8f5246004ac07aea"
   },
-  "runs": 5
+  "runs": 7
 }

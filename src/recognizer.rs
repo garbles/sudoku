@@ -230,7 +230,10 @@ impl Recognizer {
                 .chunks(samples.len().div_ceil(threads).max(1))
                 .map(|part| {
                     scope.spawn(move || {
-                        let (mut classes, mut features) = (Vec::new(), Vec::new());
+                        // The exact size at the start: a vector that grows makes copies and frees
+                        // large blocks.
+                        let copies: usize = part.iter().map(|s| if s.class == 0 { 1 } else { DIGIT_COPIES.len() }).sum();
+                        let (mut classes, mut features) = (Vec::with_capacity(copies), Vec::with_capacity(copies * DIM));
                         for s in part {
                             example_features(s, &mut classes, &mut features);
                         }
