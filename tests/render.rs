@@ -232,3 +232,22 @@ fn a_retained_frame_follows_each_change_of_the_cached_overlays() {
     }
     sudoku::layout::set_right_handed(false);
 }
+
+#[test]
+fn the_cached_items_of_the_colors_panel_are_the_same_as_a_new_drawing() {
+    // The Cell colors panel keeps the pixels of each item. After a change of a color, most items
+    // come from the cache. They must be the same as a drawing with no cache (a new thread).
+    let fonts = fonts();
+    fn colors_panel(a: &mut sudoku::app::App) {
+        a.ui.menu = sudoku::app::Menu::Open(Some(sudoku::app::Panel::Colors));
+    }
+    fn orange(a: &mut sudoku::app::App) {
+        colors_panel(a);
+        a.settings.color_clash = Color::Orange;
+    }
+    let first = reference::render(&fonts, colors_panel);
+    let cached = reference::render(&fonts, orange);
+    let fresh = std::thread::scope(|s| s.spawn(|| reference::render(&fonts, orange)).join().unwrap());
+    assert_ne!(first.data(), cached.data(), "the change of the color shows");
+    assert!(cached.data() == fresh.data(), "the cached items are the same as a new drawing");
+}

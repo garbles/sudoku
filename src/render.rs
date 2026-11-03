@@ -1432,7 +1432,7 @@ fn draw_colors_panel(c: &mut Canvas, settings: &Settings) {
 }
 
 /// The state of an item in a section of the Cell colors panel.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Swatch {
     Available,
     Selected,
@@ -1452,23 +1452,74 @@ fn color_section(c: &mut Canvas, index: usize, title: &str, items: &[(Rgb, Strin
     c.text(Weight::Medium, 25.0, (pl + 33) as f32, (top + COLOR_TITLE_Y) as f32, Anchor::Start, title, BLACK);
     for (i, (rgb, name, state)) in items.iter().enumerate() {
         let cell = layout::color_grid_cell(index, i);
-        let (x0, y0) = (cell.x0 as f32, cell.y0 as f32);
-        // The swatch: centered in the width of the cell, above the name.
-        let (cx, cy) = (x0 + (COLOR_CELL / 2) as f32, y0 + 30.0);
-        let (fg, ring) = match state {
-            Swatch::Selected => {
-                c.rect(x0, y0, (cell.x1 - 1) as f32, (cell.y1 - 1) as f32, BLACK);
-                (WHITE, WHITE)
-            }
-            Swatch::Taken => (gray(70), gray(70)),
-            Swatch::Available => (BLACK, BLACK),
-        };
-        c.circle(cx, cy, 19.0, Some(*rgb), Some((ring, 2.0)));
-        if *state == Swatch::Taken {
-            c.line(cx - 17.0, cy + 17.0, cx + 17.0, cy - 17.0, 2.5, gray(50));
-        }
-        c.text(Weight::Medium, 25.0, cx, y0 + 76.0, Anchor::Middle, name, fg);
+        put_swatch(c, (cell.x0, cell.y0, cell.x1, cell.y1), (*rgb, name, *state), |c| color_item(c, cell, *rgb, name, *state));
     }
+}
+
+/// The key of a cached item of the Cell colors panel: the fonts (address), the layout, the box of
+/// the item and all that its pixels depend on.
+type SwatchKey = (usize, layout::Rotation, bool, (i32, i32, i32, i32), Rgb, String, Swatch);
+
+/// More cached items than this: the cache starts again.
+const MAX_SWATCHES: usize = 256;
+
+thread_local! {
+    static SWATCHES: std::cell::RefCell<std::collections::HashMap<SwatchKey, Pixmap, std::hash::BuildHasherDefault<FxHasher>>> =
+        std::cell::RefCell::new(Default::default());
+}
+
+/// Draws an item of the Cell colors panel in its box. The panel is white under the box and the
+/// item draws only in its box, thus the cached pixels of the box are the same as a new drawing.
+/// A tap in the panel changes few items: the others come from the cache.
+fn put_swatch(c: &mut Canvas, (x0, y0, x1, y1): (i32, i32, i32, i32), (rgb, name, state): (Rgb, &str, Swatch), draw: impl FnOnce(&mut Canvas)) {
+    if c.units != Units::Screen || c.top != 0 {
+        draw(c);
+        return;
+    }
+    let key = (c.fonts as *const Fonts as usize, layout::rotation(), layout::right_handed(), (x0, y0, x1, y1), rgb, name.to_string(), state);
+    let (x, y, w, h) = (x0 as usize, y0 as usize, (x1 - x0) as usize, (y1 - y0) as usize);
+    let hit = SWATCHES.with(|t| {
+        let t = t.borrow();
+        let tile = t.get(&key)?;
+        copy_px(tile, 0, 0, w, h, c.pm, x, y);
+        Some(())
+    });
+    if hit.is_some() {
+        if let Some(r) = SkRect::from_ltrb(x0 as f32, y0 as f32, x1 as f32, y1 as f32) {
+            c.touched(r, 0.0);
+        }
+        return;
+    }
+    draw(c);
+    let mut tile = Pixmap::new(w as u32, h as u32).unwrap();
+    copy_px(c.pm, x, y, w, h, &mut tile, 0, 0);
+    SWATCHES.with(|t| {
+        let mut t = t.borrow_mut();
+        if t.len() >= MAX_SWATCHES {
+            t.clear();
+        }
+        t.insert(key, tile);
+    });
+}
+
+/// One item of the Cell colors panel: the swatch, and its name below it.
+fn color_item(c: &mut Canvas, cell: Rect, rgb: Rgb, name: &str, state: Swatch) {
+    let (x0, y0) = (cell.x0 as f32, cell.y0 as f32);
+    // The swatch: centered in the width of the cell, above the name.
+    let (cx, cy) = (x0 + (COLOR_CELL / 2) as f32, y0 + 30.0);
+    let (fg, ring) = match state {
+        Swatch::Selected => {
+            c.rect(x0, y0, (cell.x1 - 1) as f32, (cell.y1 - 1) as f32, BLACK);
+            (WHITE, WHITE)
+        }
+        Swatch::Taken => (gray(70), gray(70)),
+        Swatch::Available => (BLACK, BLACK),
+    };
+    c.circle(cx, cy, 19.0, Some(rgb), Some((ring, 2.0)));
+    if state == Swatch::Taken {
+        c.line(cx - 17.0, cy + 17.0, cx + 17.0, cy - 17.0, 2.5, gray(50));
+    }
+    c.text(Weight::Medium, 25.0, cx, y0 + 76.0, Anchor::Middle, name, fg);
 }
 
 fn draw_new_game_panel(c: &mut Canvas, slider_level: u8) {
