@@ -108,18 +108,37 @@ pub fn generate_version(version: u8, seed: u64, mode: u8) -> Puzzle {
 fn generate_v2(seed: u64, mode: u8) -> Puzzle {
     assert!(mode < MODES, "mode {mode} is not in 0..{MODES}");
     let level = MODE_LEVELS[mode as usize];
-    let mut best: Option<(Level, Puzzle)> = None;
-    for attempt in 0..MAX_ATTEMPTS {
+    let attempt = |attempt: u64| -> (Level, Puzzle) {
         let mut rng = Rng::new(seed ^ (u64::from(mode) << 56) ^ (u64::from(VERSION) << 48) ^ attempt.wrapping_mul(0xA24B_AED4_963E_E407));
         let solution = full_grid(&mut rng);
         let givens = dig(&mut rng, solution, level, MIN_GIVENS[mode as usize]);
         let grade = solver::grade(&givens, level).expect("the dig keeps a puzzle that the solver completes");
-        let p = Puzzle { solution, givens };
-        if grade == level {
-            return p;
-        }
-        if best.as_ref().map(|(g, _)| grade > *g).unwrap_or(true) {
-            best = Some((grade, p));
+        (grade, Puzzle { solution, givens })
+    };
+    // The attempts do not depend on each other: after the first attempt (it is often correct), the
+    // threads make batches of attempts. The results are examined in the order of the attempts, thus
+    // the puzzle is the same as with one attempt after the other (PUZ-5).
+    let threads = std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4) as u64;
+    let mut best: Option<(Level, Puzzle)> = None;
+    let mut next = 0;
+    while next < MAX_ATTEMPTS {
+        let n = if next == 0 { 1 } else { threads.min(MAX_ATTEMPTS - next) };
+        let batch: Vec<(Level, Puzzle)> = if n == 1 {
+            vec![attempt(next)]
+        } else {
+            std::thread::scope(|s| {
+                let handles: Vec<_> = (next..next + n).map(|a| s.spawn(move || attempt(a))).collect();
+                handles.into_iter().map(|h| h.join().expect("generator thread")).collect()
+            })
+        };
+        next += n;
+        for (grade, p) in batch {
+            if grade == level {
+                return p;
+            }
+            if best.as_ref().map(|(g, _)| grade > *g).unwrap_or(true) {
+                best = Some((grade, p));
+            }
         }
     }
     best.expect("one attempt or more").1

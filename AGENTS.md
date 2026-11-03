@@ -153,6 +153,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 
 - `game.rs`: the board, the pencil marks, the undo and redo history, clashes and completion.
 - `generator.rs`: the puzzle generator with a seed (only one solution). Version 1 stays for old saves.
+  After the first attempt, up to 4 threads make batches of attempts; the results are examined in
+  the order of the attempts, thus the puzzle does not depend on the threads (PUZ-5).
 - `solver.rs`: the human-style solver. It grades a puzzle by the most difficult technique it needs.
 - `recognizer.rs`: reads handwriting in a cell ($P point-cloud recognizer with templates).
 - `corpus.rs`: only in the corpus build (Cargo feature `corpus`, a development build). A blank

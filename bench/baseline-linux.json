@@ -1,63 +1,63 @@
 {
   "phases": {
     "blit": {
-      "max_us": 2941.8,
-      "mean_us": 152.3,
+      "max_us": 2831.2,
+      "mean_us": 148.9,
       "n": 80,
-      "p50_us": 94.5,
-      "p95_us": 184.5,
-      "total_ms": 12.2
+      "p50_us": 92.6,
+      "p95_us": 190.7,
+      "total_ms": 11.9
     },
     "draw": {
-      "max_us": 4125.2,
-      "mean_us": 341.8,
+      "max_us": 4169.0,
+      "mean_us": 339.5,
       "n": 80,
-      "p50_us": 233.0,
-      "p95_us": 513.3,
-      "total_ms": 27.3
+      "p50_us": 231.2,
+      "p95_us": 506.7,
+      "total_ms": 27.2
     },
     "draw.states": {
-      "max_us": 19523.4,
-      "mean_us": 3382.2,
+      "max_us": 15232.4,
+      "mean_us": 3318.2,
       "n": 130,
-      "p50_us": 2132.6,
-      "p95_us": 8435.9,
-      "total_ms": 439.7
+      "p50_us": 2195.8,
+      "p95_us": 8727.8,
+      "total_ms": 431.4
     },
     "gen": {
-      "max_us": 20534.9,
-      "mean_us": 5009.2,
+      "max_us": 8655.5,
+      "mean_us": 2970.9,
       "n": 21,
-      "p50_us": 2528.3,
-      "p95_us": 12945.0,
-      "total_ms": 105.2
+      "p50_us": 1779.9,
+      "p95_us": 7634.4,
+      "total_ms": 62.4
     },
     "handle": {
-      "max_us": 1255.7,
-      "mean_us": 8.2,
+      "max_us": 1294.3,
+      "mean_us": 8.3,
       "n": 2412,
       "p50_us": 0.0,
       "p95_us": 1.4,
-      "total_ms": 19.7
+      "total_ms": 20.0
     },
     "ink.blit": {
-      "max_us": 7.5,
+      "max_us": 11.0,
       "mean_us": 2.0,
       "n": 676,
       "p50_us": 1.8,
-      "p95_us": 3.7,
+      "p95_us": 3.6,
       "total_ms": 1.4
     },
     "ink.draw": {
-      "max_us": 22.3,
+      "max_us": 24.9,
       "mean_us": 4.4,
       "n": 2104,
       "p50_us": 4.0,
-      "p95_us": 6.9,
+      "p95_us": 6.8,
       "total_ms": 9.3
     },
     "ink.step": {
-      "max_us": 22.9,
+      "max_us": 29.3,
       "mean_us": 4.7,
       "n": 2548,
       "p50_us": 4.1,
@@ -65,52 +65,52 @@
       "total_ms": 11.9
     },
     "input_to_pixels": {
-      "max_us": 5366.9,
-      "mean_us": 1113.9,
+      "max_us": 5384.1,
+      "mean_us": 1115.6,
       "n": 80,
-      "p50_us": 1363.8,
-      "p95_us": 1893.6,
-      "total_ms": 89.1
+      "p50_us": 1360.0,
+      "p95_us": 1929.8,
+      "total_ms": 89.2
     },
     "recognize": {
-      "max_us": 2227.1,
-      "mean_us": 1070.9,
+      "max_us": 2137.0,
+      "mean_us": 1077.7,
       "n": 2016,
-      "p50_us": 1078.6,
-      "p95_us": 1215.9,
-      "total_ms": 2158.9
+      "p50_us": 1085.1,
+      "p95_us": 1240.1,
+      "total_ms": 2172.6
     },
     "startup.app": {
-      "max_us": 619.5,
-      "mean_us": 619.5,
+      "max_us": 663.0,
+      "mean_us": 663.0,
       "n": 1,
-      "p50_us": 619.5,
-      "p95_us": 619.5,
-      "total_ms": 0.6
+      "p50_us": 663.0,
+      "p95_us": 663.0,
+      "total_ms": 0.7
     },
     "startup.first_frame": {
-      "max_us": 13180.3,
-      "mean_us": 13180.3,
+      "max_us": 12991.7,
+      "mean_us": 12991.7,
       "n": 1,
-      "p50_us": 13180.3,
-      "p95_us": 13180.3,
-      "total_ms": 13.2
+      "p50_us": 12991.7,
+      "p95_us": 12991.7,
+      "total_ms": 13.0
     },
     "startup.fonts": {
-      "max_us": 210.7,
-      "mean_us": 210.7,
+      "max_us": 211.3,
+      "mean_us": 211.3,
       "n": 1,
-      "p50_us": 210.7,
-      "p95_us": 210.7,
+      "p50_us": 211.3,
+      "p95_us": 211.3,
       "total_ms": 0.2
     },
     "startup.recognizer": {
-      "max_us": 73072.0,
-      "mean_us": 73072.0,
+      "max_us": 75240.3,
+      "mean_us": 75240.3,
       "n": 1,
-      "p50_us": 73072.0,
-      "p95_us": 73072.0,
-      "total_ms": 73.1
+      "p50_us": 75240.3,
+      "p95_us": 75240.3,
+      "total_ms": 75.2
     }
   },
   "hashes": {
