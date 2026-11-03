@@ -702,6 +702,8 @@ impl App {
                     }
                     ink.strokes.push(stroke);
                     ink.last_lift_at = Some(now);
+                    // The pause gives the time to read the ink (INP-5): read_ink then gets the result.
+                    recognizer::read_early(&ink.strokes);
                 }
                 self.writing_until = Some(now + WRITING_IDLE_MS);
             }

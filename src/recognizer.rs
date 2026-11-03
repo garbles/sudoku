@@ -10,7 +10,7 @@
 //! examples is "not 1–9". Before the match, the recognizer rejects ink that is too small, ink with two
 //! or more characters side by side (for example 12) and scribbles.
 
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 pub type Point = (f32, f32);
 pub type Stroke = Vec<Point>;
@@ -47,9 +47,55 @@ const DIGIT_COPIES: [(f32, f32, f32); 9] = [
 ];
 const DIM: usize = GRID * GRID * DIRS + 2 * PATH_POINTS;
 
-/// Reads the ink with the examples of all 60 writers.
+/// Reads the ink with the examples of all 60 writers. If `read_early` started a reading of the
+/// same strokes, this gives its result (it waits for the end of that reading).
 pub fn recognize(strokes: &[Stroke]) -> Option<u8> {
-    default().read(strokes)
+    let early = early().take_if(|e| e.strokes == strokes);
+    match early {
+        // If the thread did not start yet, this calculates the result, and the thread then does nothing.
+        Some(e) => *e.result.get_or_init(|| default().read(strokes)),
+        None => default().read(strokes),
+    }
+}
+
+/// A reading of the pending ink that started before the end of the pause (INP-5). The result is a
+/// function of the strokes only, thus a reading that starts early gives the same result.
+struct Early {
+    strokes: Vec<Stroke>,
+    result: Arc<OnceLock<Option<u8>>>,
+}
+
+/// The last reading that started early. A new reading replaces it.
+fn early() -> std::sync::MutexGuard<'static, Option<Early>> {
+    static EARLY: Mutex<Option<Early>> = Mutex::new(None);
+    // The slot has no state that a panic can make incorrect.
+    EARLY.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Starts to read `strokes` on a background thread. The app calls this at each pen lift, so that
+/// `recognize` at the end of the pause does not wait for the recognizer. The reading uses one
+/// thread fewer than `recognize`: the main loop can draw the ink of the next stroke.
+pub fn read_early(strokes: &[Stroke]) {
+    let result = Arc::new(OnceLock::new());
+    *early() = Some(Early { strokes: strokes.to_vec(), result: Arc::clone(&result) });
+    let strokes = strokes.to_vec();
+    std::thread::spawn(move || {
+        result.get_or_init(|| default().read_in(&strokes, (threads() - 1).max(1)));
+    });
+}
+
+/// Waits for the end of the reading that started early, if there is one (the bench uses this: the
+/// device waits for the next input or timer while the reading continues).
+pub fn finish_early() {
+    let early = early().as_ref().map(|e| (e.strokes.clone(), Arc::clone(&e.result)));
+    if let Some((strokes, result)) = early {
+        result.get_or_init(|| default().read(&strokes));
+    }
+}
+
+/// The quantity of threads of a reading (the ranges of the examples).
+fn threads() -> usize {
+    std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4)
 }
 
 /// The nearest examples of the ink (for an examination of the recognizer).
@@ -258,14 +304,19 @@ impl Recognizer {
     }
 
     pub fn read(&self, strokes: &[Stroke]) -> Option<u8> {
-        let m = self.matches(strokes)?;
+        self.read_in(strokes, threads())
+    }
+
+    /// `read` with `threads` ranges of the examples (the same result for each quantity).
+    fn read_in(&self, strokes: &[Stroke], threads: usize) -> Option<u8> {
+        let m = self.matches_in(strokes, threads)?;
         (m.digit_distance <= self.alpha * m.other_distance).then_some(m.digit)
     }
 
     /// The nearest examples, or None if the ink is not one character (too small, two characters side
     /// by side, or a scribble).
     pub fn matches(&self, strokes: &[Stroke]) -> Option<Match> {
-        self.matches_in(strokes, std::thread::available_parallelism().map_or(1, |n| n.get()).clamp(1, 4))
+        self.matches_in(strokes, threads())
     }
 
     /// `matches` with `threads` ranges of the examples.
@@ -633,6 +684,28 @@ mod tests {
     /// Puts an example on a cell of the board, with the size of handwriting (approximately 100 px).
     fn place(s: &Sample) -> Vec<Stroke> {
         s.strokes.iter().map(|st| st.iter().map(|&(x, y)| (300.0 + x * 0.4, 600.0 + y * 0.4)).collect()).collect()
+    }
+
+    #[test]
+    fn a_reading_that_starts_early_gives_the_same_result() {
+        // INP-5, INP-6: the app starts the reading at each pen lift. The result at the end of the
+        // pause must be the same as a reading at that time, also when a stroke came after the start
+        // (other strokes) and when the reading did not finish yet.
+        let r = default();
+        let inks: Vec<Vec<Stroke>> = samples().iter().step_by(97).map(place).collect();
+        for (k, ink) in inks.iter().enumerate() {
+            let want = r.read(ink);
+            read_early(ink);
+            if k % 2 == 0 {
+                finish_early();
+            }
+            assert_eq!(recognize(ink), want, "ink {k}");
+            // The first strokes only: the early reading of all strokes is not used.
+            if ink.len() > 1 {
+                read_early(ink);
+                assert_eq!(recognize(&ink[..1]), r.read(&ink[..1]), "ink {k}, first stroke");
+            }
+        }
     }
 
     #[test]

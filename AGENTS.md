@@ -57,6 +57,8 @@ builds in parallel).
   (`present.rs`). It measures each phase (`input_to_pixels`, `draw`, `blit`, `ink.*`, `handle`,
   `gen`, `recognize`, `startup.*`) and gives hashes of the output: the framebuffer at each check of
   the script, the update rectangles, the reference states, the puzzles and the recognizer matches.
+  The bench plays the events with no real time between them. At a wake 100 ms or more after the
+  last input, it lets the background reading of the ink finish (not measured), as on the device.
 - `scripts/bench.sh` builds the bench, does one warm-up run and 5 runs, keeps the median, compares
   it with `bench/baseline-computer.json` and adds one line to `bench/history.jsonl`. `--save`
   writes a new baseline. `--note TEXT` describes the change in the history.
@@ -158,7 +160,9 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `solver.rs`: the human-style solver. It grades a puzzle by the most difficult technique it needs.
 - `recognizer.rs`: reads handwriting in a cell ($P point-cloud recognizer with templates). Up to 4
   threads scan ranges of the examples; the main thread plays the accepted examples of all ranges
-  again in order, thus the result is the same bit for bit.
+  again in order, thus the result is the same bit for bit. At each pen lift, the app starts the
+  reading of the pending ink on a background thread (`read_early`). At the end of the pause,
+  `recognize` uses that result if the strokes are the same.
 - `corpus.rs`: only in the corpus build (Cargo feature `corpus`, a development build). A blank
   board and a log of each stroke and erasure with its cell (`app::StrokeLog`), in a separate data
   folder. `examples/corpus.rs` makes a

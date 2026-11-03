@@ -19,6 +19,13 @@ pub const SCRIPT: &str = include_str!("../video/demo-full.txt");
 /// The longest wait of the main loop without input or timers (platform/mod.rs).
 const IDLE_WAKE_MS: u64 = 1000;
 
+/// The bench plays the events with no real time between them. On the device, the main loop waits
+/// for the next input or timer, and the background reading of the ink (`recognizer::read_early`)
+/// continues. The bench lets it finish (not measured) at a wake this time or more after the last
+/// input: a generous limit of the reading time on the tablet. The pause before the app reads the
+/// ink (DEFAULT_PAUSE_MS) is longer.
+const EARLY_READ_MS: u64 = 100;
+
 pub struct Options {
     /// The script text.
     pub script: String,
@@ -196,6 +203,7 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
     let end = events.last().map_or(0, |e| e.0).max(checks.clone().last().map_or(0, |c| c.0)) + IDLE_WAKE_MS;
     let mut events = events.into_iter().peekable();
     let mut verify_err = None;
+    let mut last_input = 0;
     loop {
         // The next wake of the main loop: an input, a timer of the app, an ink timer, or the idle wake.
         let mut wake = now + IDLE_WAKE_MS;
@@ -215,6 +223,11 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
         };
         if input.is_none() && wake > end {
             break;
+        }
+        if input.is_some() {
+            last_input = wake;
+        } else if wake >= last_input + EARLY_READ_MS {
+            crate::recognizer::finish_early();
         }
         now = wake;
         step(&mut app, &mut presenter, &mut fb, now, input, &mut phases);
