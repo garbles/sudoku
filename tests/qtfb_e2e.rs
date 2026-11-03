@@ -274,8 +274,9 @@ fn the_clock_ticks_and_is_saved_with_no_input() {
 
     // SIGINT saves the clock: the next clock save is not yet due.
     let before = *saves.last().unwrap();
-    stop_with(&mut child, libc::SIGINT);
+    // The clock stops at the signal: the time to close the app (the last save) is not on the clock.
     let at_stop = shown.elapsed().as_millis() as u64;
+    stop_with(&mut child, libc::SIGINT);
     let g = read_game(&game_path);
     assert!(g.elapsed_ms > before, "SIGINT saves the clock: {} ms, last clock save {before} ms", g.elapsed_ms);
     assert!(g.elapsed_ms + SLACK_MS >= at_stop, "CLK-6: the clock {} ms counts all of {at_stop} ms", g.elapsed_ms);
