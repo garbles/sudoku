@@ -182,14 +182,36 @@ fonts: ## Copy reMarkable Sans from the tablet and make scripts/fonts/rmsans-{40
 
 ## --- Release --------------------------------------------------------------------------------
 
-bump-patch: ## Increase the patch version (Cargo.toml and Cargo.lock)
-	cargo set-version --bump patch
+# Increase the version in Cargo.toml and Cargo.lock, make the commit <version> and the tag
+# v<version>. cargo set-version changes only the two files, thus this recipe runs the git commands.
+# The git working tree must be clean, thus the commit contains only the version.
+define bump_version
+	@if [ -n "$$(git status --porcelain)" ]; then \
+		echo "The git working tree is not clean. Commit or remove these changes first:" >&2; \
+		git status --short >&2; \
+		exit 1; \
+	fi
+	cargo set-version --bump $(1)
+	@version="$$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json, sys; print(json.load(sys.stdin)["packages"][0]["version"])')"; \
+	if git rev-parse -q --verify "refs/tags/v$$version" > /dev/null; then \
+		echo "The tag v$$version is already on this computer. The version is not committed." >&2; \
+		echo "Delete the tag, or restore the files: git restore Cargo.toml Cargo.lock" >&2; \
+		exit 1; \
+	fi; \
+	git commit -m "$$version" -- Cargo.toml Cargo.lock; \
+	git tag "v$$version"; \
+	echo "Made the commit $$version and the tag v$$version."; \
+	echo "Push them: git push origin main v$$version"
+endef
 
-bump-minor: ## Increase the minor version (Cargo.toml and Cargo.lock)
-	cargo set-version --bump minor
+bump-patch: ## Increase the patch version: commit it and tag v<version>
+	$(call bump_version,patch)
 
-bump-major: ## Increase the major version (Cargo.toml and Cargo.lock)
-	cargo set-version --bump major
+bump-minor: ## Increase the minor version: commit it and tag v<version>
+	$(call bump_version,minor)
+
+bump-major: ## Increase the major version: commit it and tag v<version>
+	$(call bump_version,major)
 
 clean: ## Remove target/ and dist/
 	cargo clean

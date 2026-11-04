@@ -1,15 +1,16 @@
-# Tests, builds and releases the app for the reMarkable Paper Pro. One workflow, two events:
+# Tests, builds and releases the app for the reMarkable Paper Pro. One workflow, two push events:
 #
 # - A push to main makes the prerelease `pre-<sha>` (a preview version).
-# - A manual run (workflow_dispatch) on main makes the stable release `v<version>`, with the version
-#   of Cargo.toml. If this tag is already on GitHub, the run fails. Increase the version first, or
-#   set the input `replace`: the run then deletes the old release and its tag, after the new build
-#   passes all tests. Only one stable run can operate at a time.
+# - A push of a valid version tag makes the stable release with the name of the tag. A valid version
+#   tag has the form `v<major>.<minor>.<patch>` and agrees with the version in Cargo.toml. If the
+#   release of the tag is already on GitHub, the run fails. A rerun of the workflow replaces the old
+#   release, after the new build passes all tests. Only one stable release can operate at a time.
 #
 # The jobs version, media, test and build run in parallel (build starts after version). The job
 # release starts only when all of them pass:
 #
-# 1. version: finds the name of the release and makes sure that a stable version is new.
+# 1. version: finds and examines the name of the release. A version tag makes a stable release, and
+#    its release must be new.
 # 2. media: Dockerfile.images, Dockerfile.installer and Dockerfile.video make the images, the
 #    AppLoad icon and the demo videos again (one job for each Dockerfile). They must be the same as
 #    the files in git.
@@ -28,20 +29,15 @@ name: Release
 on:
   push:
     branches: [main]
-  workflow_dispatch:
-    inputs:
-      replace:
-        description: Replace the release v<version> if it is already on GitHub
-        type: boolean
-        default: false
+    tags: ['v[0-9]*']
 
 permissions:
   contents: read
 
-# A new push to main cancels the run of an older push. A manual run is never canceled by a push.
+# A new push to main cancels the run of an older push. A tag push does not cancel a release.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'push' && github.ref || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'push' }}
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref_type == 'branch' }}
 
 jobs:
   version:
@@ -53,43 +49,49 @@ jobs:
       replace: ${{ steps.tag.outputs.replace }}
     env:
       GH_TOKEN: ${{ github.token }}
-      STABLE: ${{ github.event_name == 'workflow_dispatch' }}
-      # False for a push, because a push has no inputs.
-      REPLACE: ${{ inputs.replace == true }}
+      # True for a version tag push (a stable release), false for a push to main (a prerelease).
+      STABLE: ${{ github.ref_type == 'tag' }}
+      # A rerun replaces an old release of the same tag, after all tests pass.
+      REPLACE: ${{ github.run_attempt > 1 }}
     steps:
-      - name: Stable releases only from main
-        if: env.STABLE == 'true' && github.ref != 'refs/heads/main'
-        run: |
-          echo "::error::Start the stable release from the main branch."
-          exit 1
-
       - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
+      # A version tag has the form v<major>.<minor>.<patch> (src/update.rs, parse_version). The
+      # version in Cargo.toml gives the version of the build, thus the two must agree.
       - name: Find the stable version
         if: env.STABLE == 'true'
         id: stable
+        env:
+          TAG: ${{ github.ref_name }}
         run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::The tag $TAG is not a valid version tag (v<major>.<minor>.<patch>)."
+            exit 1
+          fi
           # tomllib is the TOML parser of the Python standard library (Python 3.11 and later).
           cargo_version="$(python3 -c 'import tomllib; print(tomllib.load(open("Cargo.toml", "rb"))["package"]["version"])')"
-          echo "version=v$cargo_version" >> "$GITHUB_OUTPUT"
-          echo "Version: v$cargo_version"
+          if [ "$TAG" != "v$cargo_version" ]; then
+            echo "::error::The tag $TAG does not agree with the version v$cargo_version in Cargo.toml. Make a new version with make bump-patch|minor|major and push the new tag."
+            exit 1
+          fi
+          echo "version=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Version: $TAG"
 
-      # The tag of each release has the name of the release. An API error stops the run.
-      - name: Make sure that the stable version is new
+      # The release of a version tag that is already on GitHub is an error, unless this is a rerun.
+      - name: Make sure that the stable release is new
         if: env.STABLE == 'true'
         id: tag
         env:
           VERSION: ${{ steps.stable.outputs.version }}
         run: |
-          tags="$(gh api "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/$VERSION" --jq '.[].ref')"
-          if grep -qx "refs/tags/$VERSION" <<< "$tags"; then
+          if gh release view "$VERSION" > /dev/null 2>&1; then
             if [ "$REPLACE" = true ]; then
-              echo "::warning::The tag $VERSION is already on GitHub. The run replaces it."
+              echo "::warning::The release $VERSION is already on GitHub. The run replaces it."
               echo "replace=true" >> "$GITHUB_OUTPUT"
             else
-              echo "::error::The tag $VERSION is already on GitHub. Increase the version in Cargo.toml, or set the input replace."
+              echo "::error::The release $VERSION is already on GitHub. Rerun the workflow to replace it."
               exit 1
             fi
           fi
@@ -249,11 +251,11 @@ jobs:
     permissions:
       contents: write
     concurrency:
-      group: ${{ github.event_name == 'workflow_dispatch' && 'release-stable' || format('release-pre-{0}', github.sha) }}
+      group: ${{ github.ref_type == 'tag' && 'release-stable' || format('release-pre-{0}', github.sha) }}
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
-      STABLE: ${{ github.event_name == 'workflow_dispatch' }}
+      STABLE: ${{ github.ref_type == 'tag' }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -309,14 +311,14 @@ jobs:
           else
             echo "::warning::The secret SUDOKU_SIGNING_KEY is not set. The prerelease has no version.json.sig."
           fi
-          # Delete the old release only now, after the new build passes all tests.
-          if [ "$REPLACE_OLD" = true ]; then
-            if gh release view "$VERSION" > /dev/null 2>&1; then
-              gh release delete "$VERSION" --cleanup-tag --yes
-            else
-              gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/tags/$VERSION"
-            fi
+          # Delete the old release only now, after the new build passes all tests. Keep the tag: it
+          # started this run.
+          if [ "$REPLACE_OLD" = true ] && gh release view "$VERSION" > /dev/null 2>&1; then
+            gh release delete "$VERSION" --yes
           fi
           if [ "$STABLE" = true ]; then kind=--latest; else kind=--prerelease; fi
-          gh release create "$VERSION" "${files[@]}" --target "$GITHUB_SHA" \
+          # A stable release uses the version tag of this run. A prerelease makes its tag.
+          target=()
+          if [ "$STABLE" != true ]; then target=(--target "$GITHUB_SHA"); fi
+          gh release create "$VERSION" "${files[@]}" "${target[@]}" \
             --title "$VERSION" --generate-notes "$kind"

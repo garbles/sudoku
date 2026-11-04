@@ -113,14 +113,17 @@ builds in parallel).
   release, only when all other jobs pass. The event selects the type of release.
 - Prereleases (preview versions): each push to `main` runs the workflow. When all checks pass, it
   makes the prerelease `pre-<sha>`. A new push cancels the run of an older push.
-- Stable releases: the owner starts the **Release** workflow manually (workflow_dispatch) on `main`. The release gets
-  the name `v<version>`, with the version in `Cargo.toml`. Increase the version before each stable
-  release. Use `cargo set-version --bump patch|minor|major` (from `cargo-edit`), not a manual edit.
-  This command changes `Cargo.toml` and `Cargo.lock` together. Commit the two files. If the tag
-  `v<version>` is already on GitHub, the run fails. To make the same release again, set the input
-  `replace`. The run deletes the old release and its tag only after the new build passes all tests.
-  A tablet that has the old build of this version does not update to the new build, because the
-  version is not newer.
+- Stable releases: push a version tag, `v<major>.<minor>.<patch>`, to a commit. The version in the
+  tag must agree with the version in `Cargo.toml`; a different tag fails the run. Increase the
+  version before each stable release: run `make bump-patch`, `make bump-minor` or `make bump-major`.
+  Each target runs `cargo set-version --bump` (from `cargo-edit`), which changes `Cargo.toml` and
+  `Cargo.lock` together. It also makes the commit `<version>` and the tag `v<version>`. The target
+  fails when the git working tree is not clean. Push the commit and the tag
+  (`git push origin main v<version>`). The release gets the name of the tag. If
+  the release `v<version>` is already on GitHub, the run fails. Rerun the workflow of the tag to
+  replace the old release: the run deletes the old release, not the tag, only after the new build
+  passes all tests. A tablet that has the old build of this version does not update to the new
+  build, because the version is not newer.
 - Website: `site/index.html` is the GitHub Pages site (https://garbles.github.io/sudoku/).
   `pages.yml` publishes it on each push to `main` that changes `site/`, `video/demo-full.mp4` or
   the app icon. The workflow adds `demo-full.mp4` and `icon.svg` to the site. The instructions on the
