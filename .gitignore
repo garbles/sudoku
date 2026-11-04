@@ -23,4 +23,4 @@ scripts/fonts/rmsans-*.ttf
 .claude/worktrees
 
 # Bench marks
-bench/history.jsonl
+bench/*
