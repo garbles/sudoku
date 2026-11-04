@@ -1062,6 +1062,10 @@ const STRIPE_MARGIN: usize = 8;
 fn draw_board_stripes(c: &mut Canvas, (ax, ay, aw, ah): (usize, usize, usize, usize), looks: &[(crate::game::Cell, CellLook)], threads: usize) {
     let fw = c.pm.width();
     let fonts = c.fonts;
+    // The rotation and the hand are thread-local: a new thread starts with the portrait layout of a
+    // left-handed player. The positions of the board (cell_origin, board_lines) use these values, thus
+    // each stripe thread gets the values of this thread.
+    let (rotation, right_handed) = (crate::layout::rotation(), crate::layout::right_handed());
     // The stripes end at the borders of cell rows: a glyph that the edge of the pixmap clips gets
     // other pixels (tiny-skia cuts its curves), and no glyph crosses these borders.
     let by = board_y() as usize;
@@ -1075,6 +1079,8 @@ fn draw_board_stripes(c: &mut Canvas, (ax, ay, aw, ah): (usize, usize, usize, us
             .map(|e| {
                 let (y0, h) = (e[0], e[1] - e[0]);
                 scope.spawn(move || {
+                    crate::layout::set_rotation(rotation);
+                    crate::layout::set_right_handed(right_handed);
                     // The clip at the edge of a pixmap changes the pixels near it: the stripe pixmap
                     // has STRIPE_MARGIN more rows above and below.
                     let top = y0 - STRIPE_MARGIN.min(y0);

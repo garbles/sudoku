@@ -134,6 +134,103 @@ fn landscape_analytics_agrees_with_the_reference_images() {
 }
 
 #[test]
+fn the_board_is_at_its_position_in_each_orientation() {
+    // R§3.3, NAV-10: the board is at the center of the screen in portrait and in landscape. The
+    // board is drawn in stripes on threads (render::draw_board_stripes): each thread must get the
+    // rotation and the hand of the drawing thread, or the board goes to the portrait position.
+    let fonts = fonts();
+    reference::use_utc();
+    for o in [sudoku::layout::Orientation::Portrait, sudoku::layout::Orientation::Landscape] {
+        sudoku::layout::set_orientation(o);
+        let pm = reference::render(&fonts, |a| a.game = reference::sample_game());
+        let (bx, by) = (sudoku::layout::board_x(), sudoku::layout::board_y());
+        let b = sudoku::layout::BOARD_SIZE;
+        // The four thick borders of the board.
+        for (x, y) in [(bx, by + b / 2), (bx + b, by + b / 2), (bx + b / 2, by), (bx + b / 2, by + b)] {
+            let p = rgb_at(&pm, x, y);
+            assert!(p[0] < 60, "{o:?}: no board border at ({x}, {y}): {p:?}");
+        }
+        // The white edge of the screen, at the left of and above the board.
+        assert_eq!(rgb_at(&pm, bx - 20, by + b / 2), [255, 255, 255], "{o:?}: pixels at the left of the board");
+        assert_eq!(rgb_at(&pm, bx + b / 2, by - 20), [255, 255, 255], "{o:?}: pixels above the board");
+    }
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
+}
+
+/// The screen pixels of the framebuffer (physical, with the rotation of the tablet): the screenshot
+/// of what the player sees.
+fn screenshot(fb: &[u8]) -> tiny_skia::Pixmap {
+    let (w, h) = (sudoku::layout::screen_w(), sudoku::layout::screen_h());
+    let mut pm = tiny_skia::Pixmap::new(w, h).unwrap();
+    let (base, sx, sy) = sudoku::layout::physical_steps();
+    for y in 0..h as usize {
+        for x in 0..w as usize {
+            let i = (base + x as i64 * sx + y as i64 * sy) as usize * 3;
+            let px = tiny_skia::PremultipliedColorU8::from_rgba(fb[i], fb[i + 1], fb[i + 2], 255).unwrap();
+            pm.pixels_mut()[y * w as usize + x] = px;
+        }
+    }
+    pm
+}
+
+/// Writes a screenshot to `target/screenshots/`, to examine the screen after a failure.
+fn save_screenshot(name: &str, pm: &tiny_skia::Pixmap) {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/screenshots");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = std::fs::File::create(dir.join(name)).unwrap();
+    let mut enc = png::Encoder::new(std::io::BufWriter::new(file), pm.width(), pm.height());
+    enc.set_color(png::ColorType::Rgb);
+    enc.set_depth(png::BitDepth::Eight);
+    let mut writer = enc.write_header().unwrap();
+    let rgb: Vec<u8> = pm.data().chunks_exact(4).flat_map(|px| px[..3].to_vec()).collect();
+    writer.write_image_data(&rgb).unwrap();
+}
+
+#[test]
+fn a_turn_from_portrait_to_landscape_shows_the_landscape_screen() {
+    // R§3.3, NAV-10, NAV-13: the app starts in portrait; a turn draws the landscape screen with the
+    // board at the landscape position. The test takes a screenshot of the framebuffer before and
+    // after the turn (target/screenshots/).
+    reference::use_utc();
+    let fonts = fonts();
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
+    let mut app = reference::app(&fonts);
+    app.game = reference::sample_game();
+    let mut presenter = sudoku::present::Presenter::new();
+    let n = (sudoku::layout::PHYSICAL_W * sudoku::layout::PHYSICAL_H * 3) as usize;
+    let mut fb = vec![0u8; n];
+    presenter.draw_all(&app, &fonts, &mut fb);
+    save_screenshot("screen-portrait.png", &screenshot(&fb));
+
+    // The tablet turns: the platform sets the rotation, the app removes the ink that waits, and the
+    // presenter starts with a new frame.
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Landscape);
+    app.rotate(sudoku::render::ng_stops(&fonts));
+    presenter.reset();
+    let mut updates = Vec::new();
+    for step in 0..100 {
+        presenter.present(&mut app, &fonts, &mut fb, 100 + step * 30, |u| updates.push(u));
+    }
+    assert!(!updates.is_empty(), "the app did not send an update after the turn");
+
+    let shot = screenshot(&fb);
+    save_screenshot("screen-landscape-after-turn.png", &shot);
+    // The screenshot is the full drawing of the app in landscape.
+    let (w, h) = (sudoku::layout::screen_w(), sudoku::layout::screen_h());
+    let mut want = tiny_skia::Pixmap::new(w, h).unwrap();
+    sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut want, &fonts), &app);
+    assert!(shot.data() == want.data(), "the screenshot after the turn is not the landscape screen");
+    // The board is at the landscape position: its four thick borders (NAV-10).
+    let (bx, by) = (sudoku::layout::board_x(), sudoku::layout::board_y());
+    let b = sudoku::layout::BOARD_SIZE;
+    for (x, y) in [(bx, by + b / 2), (bx + b, by + b / 2), (bx + b / 2, by), (bx + b / 2, by + b)] {
+        let p = rgb_at(&shot, x, y);
+        assert!(p[0] < 60, "no board border after the turn at ({x}, {y}): {p:?}");
+    }
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
+}
+
+#[test]
 fn a_retained_frame_is_the_same_as_a_full_drawing() {
     // render::FrameRecord: with a record, a drawing of the game screen writes only the areas that can
     // change. Each reference state after each other state (and after ink that goes away) must give

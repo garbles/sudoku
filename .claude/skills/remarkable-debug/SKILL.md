@@ -71,6 +71,13 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
   the first cell can be wide (it also changes pencil marks and highlights), and it covers the next
   cell. Ink that waits for it does not show while the pen moves. Thus a redraw waits until the app
   has read the last ink, and ink in the pen area does not wait for older updates.
+- **The layout of the drawing is a value of each thread.** The rotation and the hand of the player
+  are thread-local values (`layout::rotation`, `layout::right_handed`). A drawing on a new thread
+  starts with the portrait layout of a left-handed player. Each thread that draws must get the
+  values of the main thread. A landscape screen that shows the board at the portrait position (and
+  only a part of the board in the board area) had this cause in `render::draw_board_stripes`. The
+  landscape screens are examined on the computer (refer to
+  [techniques/check-the-orientations.md](techniques/check-the-orientations.md)).
 - **One process drives the panel.** AppLoad runs in xochitl, thus the app must use the framebuffer of
   xochitl through qtfb. The app cannot drive the panel itself.
 - **There is no screen layer for the pen.** xochitl has one framebuffer. Its "layers" are layers of

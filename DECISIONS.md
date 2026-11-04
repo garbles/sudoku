@@ -396,3 +396,52 @@ Remaining limitation (follow-up bead remarkable-sudoku-63a): if the user runs `v
 `vellum reenable` manually, but not `/home/root/xovi/rebuild_hashtable`, Vellum does not report the
 stale state. Then step 7 skips because the hashtab file exists, and the installer does not detect the
 stale hashtable. The installer has no OS-version stamp for the hashtable.
+
+### Bug: the landscape board was at the portrait position, 2026-11-03
+
+Beads bug remarkable-sudoku-wg2. The owner reported: "when i turn the machine, the puzzle is no
+longer re-rendered on the screen". The rest of the landscape screen (the toolbar, the meter, the
+panels) was correct; the board moved to the position that it has in portrait, and the board area
+showed only a part of it.
+
+Cause: `render::draw_board_stripes` draws the board in stripes on threads (the first frame, and each
+turn: a tile key contains the board origin, thus a turn makes the 85 tiles of the board new). The
+rotation and the hand of the player are thread-local values (`layout::rotation`,
+`layout::right_handed`). A new thread starts with the default value: the portrait layout of a
+left-handed player. Thus each stripe thread put the cells and the lines at the portrait position,
+and the copy put only the part of them that is in the landscape board area. The portrait screen was
+correct because its position is the default value. The player does not see this bug at the first
+drawing of a portrait screen; the owner saw it at the turn, when the screen is drawn again.
+
+Fix: each stripe thread gets the rotation and the hand of the drawing thread before it draws.
+`tests/render.rs::the_board_is_at_its_position_in_each_orientation` examines the four thick borders
+of the board in portrait and in landscape. It failed before the fix ("Landscape: no board border at
+(418, 809)") and passes after it.
+
+`tests/render.rs::a_turn_from_portrait_to_landscape_shows_the_landscape_screen` examines the turn
+itself: it draws the portrait screen, gives the turn (the new layout, `App::rotate`, `Presenter::reset`
+and the present calls of the main loop), and takes a screenshot of the framebuffer before and after
+the turn (`target/screenshots/screen-portrait.png` and `target/screenshots/screen-landscape-after-turn.png`).
+It fails before the fix ("no board border after the turn at (418, 809)") and passes after it. The
+screenshots show the complete screen, thus they also show a missing drawing after a turn.
+
+Examination on the computer, 2026-11-03:
+
+- `cargo test`: all tests pass, except `tests/install.rs::arrow_keys_select_a_version_in_a_terminal`:
+  the computer has no free pty device ("out of pty devices"). This test does not touch the screen
+  and it fails with and without this change.
+- `cargo run --release --bin snapshot -- DIR`: the portrait states agree with `images/` as before.
+  The landscape states (`landscape-*.png`, not in `images/`) show the board at the center in the
+  same way as `layout.rs` gives it.
+- The output hashes of the bench do not change: the bench draws the portrait screen for a
+  left-handed player, thus each stripe thread had the correct values before the fix also.
+
+REQUIREMENTS.md and INVARIANTS.md do not change: R§3.3 and NAV-10 already give the landscape layout
+and the position of the board. The design images do not change (no landscape game screen is an
+image).
+
+Device test, 2026-11-03 (USB 10.11.99.1): passed. The owner started the development build from
+AppLoad, opened a game with a puzzle, turned the tablet to landscape and back, and tapped a cell and
+wrote a number. The board shows at the center and the puzzle is complete in landscape, and the input
+operates in both orientations. The checksum of `dist/sudoku/sudoku` agrees with the file on the
+tablet. Bead remarkable-sudoku-j46 is closed.
