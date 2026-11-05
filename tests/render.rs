@@ -32,6 +32,30 @@ fn screens_agree_with_the_reference_images() {
 }
 
 #[test]
+fn the_icon_sheet_shows_each_icon() {
+    // Each tile (all looks of all icons, then the AppLoad icon) has pixels of an icon around its
+    // center. The corner of the area is the background of the tile: white, or the black slot.
+    let fonts = fonts();
+    let sheet = reference::icon_sheet(&fonts);
+    let tiles = reference::icon_tiles().len() as u32 + 1;
+    assert_eq!(sheet.width(), reference::ICON_COLUMNS * reference::ICON_TILE_W);
+    // images/icons.png is the current sheet (make media-images makes it again).
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let want = decode_png(&std::fs::read(root.join("images/icons.png")).unwrap());
+    assert_eq!((want.width(), want.height()), (sheet.width(), sheet.height()), "images/icons.png: size");
+    let (mean, big) = reference::compare(&sheet, &want);
+    assert!(mean < 0.1 && big < 0.0005, "images/icons.png: mean difference {mean:.3}, {:.3}% of pixels differ", big * 100.0);
+    for i in 0..tiles {
+        let cx = (i % reference::ICON_COLUMNS * reference::ICON_TILE_W + reference::ICON_TILE_W / 2) as i32;
+        let cy = (i / reference::ICON_COLUMNS * reference::ICON_TILE_H + reference::ICON_CENTER_Y) as i32;
+        let background = rgb_at(&sheet, cx - 50, cy - 50);
+        let area = (cx - 50..=cx + 50).flat_map(|x| (cy - 50..=cy + 50).map(move |y| (x, y)));
+        let drawn = area.filter(|&(x, y)| rgb_at(&sheet, x, y) != background).count();
+        assert!(drawn >= 20, "tile {i}: {drawn} pixels of an icon");
+    }
+}
+
+#[test]
 fn cell_colors_follow_the_settings() {
     // BRD-7, COL-3: the board shows the selected colors immediately.
     let fonts = fonts();

@@ -6,7 +6,8 @@
 #   sh scripts/build.sh [screens] [installer] [icon]
 #
 # The arguments select the parts. With no argument, the script makes all parts:
-#   screens    the design images (all images except install-*.png). Dockerfile.images.
+#   screens    the design images (all images except install-*.png and icons.png). Dockerfile.images.
+#              The snapshot tool makes icons.png (also in Dockerfile.images).
 #   installer  the terminal output of the installer (install-*.png). Dockerfile.installer.
 #   icon       the AppLoad icon. Dockerfile.images.
 set -e

@@ -1,11 +1,13 @@
 # check=skip=FromPlatformFlagConstDisallowed
-# Makes the design images (images/*.png, but not images/install-*.png) and the AppLoad icon
-# (appload/sudoku/icon.png) again. Dockerfile.installer makes images/install-*.png.
+# Makes the design images (images/*.png, but not images/install-*.png), the AppLoad icon
+# (appload/sudoku/icon.png) and the icon sheet (images/icons.png) again. Dockerfile.installer makes
+# images/install-*.png.
 #
 #   docker build --platform linux/arm64 -f Dockerfile.images --output type=local,dest=. .
 #
-# Alpine 3.22 gives fixed versions of ImageMagick and rsvg-convert, so each computer makes the same
-# files. The GitHub workflow runs this build and fails when the result is different from the files in git.
+# Alpine 3.22 gives fixed versions of ImageMagick and rsvg-convert, and the stage icons gives a fixed
+# version of Rust, so each computer makes the same files. The GitHub workflow runs this build and
+# fails when the result is different from the files in git.
 # The images use the fonts scripts/fonts/rmsans-{400,500}.ttf (refer to scripts/fonts/README.md).
 FROM --platform=linux/arm64 alpine:3.22 AS build
 RUN apk add --no-cache imagemagick rsvg-convert python3 fontconfig
@@ -16,6 +18,25 @@ COPY icon.svg icon.svg
 RUN mkdir -p images appload/sudoku && sh scripts/build.sh screens icon \
  && magick mogrify -define png:exclude-chunks=date,time images/*.png
 
+# The snapshot tool draws the icon sheet with the code of the app. The app contains the manual pages
+# of the stage build (include_bytes!), and the sheet shows the AppLoad icon of that stage.
+FROM --platform=linux/arm64 rust:1.97-alpine3.22 AS icons
+RUN apk add --no-cache musl-dev
+WORKDIR /src
+# Download and compile the dependencies first, so that a change of the source does not do this again.
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir -p src/bin && for b in sudoku snapshot video bench; do echo 'fn main() {}' > src/bin/$b.rs; done \
+ && echo '' > src/lib.rs && cargo build --release --locked --bin snapshot && rm -rf src
+COPY src src
+COPY assets assets
+COPY scripts scripts
+COPY tests/fixtures tests/fixtures
+COPY video/demo-full.txt video/demo-full.txt
+COPY --from=build /src/images images
+COPY --from=build /src/appload/sudoku/icon.png appload/sudoku/icon.png
+RUN touch src/lib.rs src/bin/*.rs && cargo run --release --locked --bin snapshot -- --icons images/icons.png
+
 FROM scratch AS export
 COPY --from=build /src/images/*.png /images/
+COPY --from=icons /src/images/icons.png /images/icons.png
 COPY --from=build /src/appload/sudoku/icon.png /appload/sudoku/icon.png

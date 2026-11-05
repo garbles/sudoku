@@ -512,3 +512,15 @@ Rejected value, 2026-11-04:
 
 - An x at the center of the full cell: 56×56 px, line 8 px, `gray40`, the marks of the cell hidden, at
   the position of the "?". Reason: the x must be only in the micro-cell.
+
+Owner decision, 2026-11-05: the circular arrow of "Check for updates" has the look of an image from
+the owner: the arc goes from the upper right (330 degrees) clockwise to the top, and a 7 px arrow head
+points to the right, with its tip 5 px to the right of the top. A dev build has no update row, thus
+the owner examined the icon in a snapshot of the Settings panel, not on the tablet.
+
+Rejected values, 2026-11-05:
+
+- The old icon: an arc from 0 to 255 degrees, a gap, and an 8 px arrow head on the circle at 330 degrees.
+  Reason: the owner gave an image with a different look.
+- The tip of the head at the top of the circle, and 2.5 px to the right of the top. Reason: the head
+  must be farther to the right.

@@ -200,8 +200,8 @@ caution() {
 # the sides of the panel and from 22 px to 90 px below the top of the row, the icon 40 px from the left of the
 # box, and the text 72 px from the left of the box. The icon of "Update to v<version>" is a down arrow into a
 # tray. The icon of "Check for updates" (check) is a circular arrow: an arc (radius 12 px) clockwise from
-# 0 to 255 degrees, a gap, and an arrow head on the circle at 330 degrees that points clockwise (two 8 px
-# strokes, 45 degrees to each side of the line back from its tip). The icon of "Restart interface"
+# 330 to 630 degrees, a straight line to a tip 5 px to the right of the top, and an arrow head that points
+# to the right (two 7 px strokes, 45 degrees to each side of the line back from its tip). The icon of "Restart interface"
 # (restart) is a power symbol: an arc (radius 12 px) clockwise from 300 to 600 degrees, with the gap at
 # the top, and a line from 15 px to 3 px above the center.
 update_button() {
@@ -216,9 +216,10 @@ update_button() {
   elif [ "$2" = check ]; then
     awk -v x=$ix -v y=$cy 'BEGIN{
       r = atan2(0, -1) / 180; s = "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round polyline"
-      for (k = 0; k <= 17; k++) { a = 15*k * r; s = s sprintf(" %.2f,%.2f", x + 12*cos(a), y + 12*sin(a)) }
-      print s; ex = x + 12*cos(330*r); ey = y + 12*sin(330*r)
-      printf "polyline %.2f,%.2f %.2f,%.2f %.2f,%.2f\n", ex+8*cos(195*r), ey+8*sin(195*r), ex, ey, ex+8*cos(285*r), ey+8*sin(285*r) }' >> $M
+      for (k = 0; k <= 20; k++) { a = (330 + 15*k) * r; s = s sprintf(" %.2f,%.2f", x + 12*cos(a), y + 12*sin(a)) }
+      ex = x + 5; ey = y - 12
+      print s sprintf(" %.2f,%.2f", ex, ey)
+      printf "polyline %.2f,%.2f %.2f,%.2f %.2f,%.2f\n", ex+7*cos(225*r), ey+7*sin(225*r), ex, ey, ex+7*cos(135*r), ey+7*sin(135*r) }' >> $M
   else
     echo "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round line $ix,$((cy-13)) $ix,$((cy+5))" >> $M
     echo "polyline $((ix-8)),$((cy-3)) $ix,$((cy+5)) $((ix+8)),$((cy-3))" >> $M
