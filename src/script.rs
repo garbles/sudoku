@@ -293,6 +293,7 @@ pub fn parse(text: &str, pause_ms: u64) -> Result<Script, String> {
                     "starting" => Section::Starting,
                     "clashing" => Section::Clash,
                     "highlighted" => Section::Highlight,
+                    "completed" => Section::Completed,
                     _ => return Err(err(format!("unknown section {section:?}"))),
                 };
                 let c = Color::ALL

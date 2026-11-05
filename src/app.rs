@@ -1205,8 +1205,8 @@ impl App {
         let live = usize::from(self.live_stroke.as_ref().is_some_and(|s| s.len() >= 2));
         (pending + live).hash(&mut h);
         (self.manual_page, self.list.filter, self.list.page, self.list.confirm.as_ref().map(|r| r.id)).hash(&mut h);
-        (self.settings.color_starting, self.settings.color_clash, self.settings.color_highlight).hash(&mut h);
-        (self.settings.highlight_on, self.settings.auto_hide_on, self.settings.micro_line, self.confirm_all).hash(&mut h);
+        (self.settings.color_starting, self.settings.color_clash, self.settings.color_highlight, self.settings.color_completed).hash(&mut h);
+        (self.settings.highlight_on, self.settings.auto_hide_on, self.settings.completed_color_on, self.settings.micro_line, self.confirm_all).hash(&mut h);
         (&self.update.current, &self.update.state, self.update.row_text()).hash(&mut h);
         self.results.len().hash(&mut h);
         self.results.iter().for_each(|r| r.id.hash(&mut h));

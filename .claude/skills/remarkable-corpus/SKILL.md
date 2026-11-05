@@ -17,8 +17,8 @@ makes the review images, and the user reviews them.
 - **The corpus build**: the Cargo feature `corpus` (`src/corpus.rs`). The source uses
   `#[cfg(feature = "corpus")]` only at two places: `store::data_dir` and the call
   `corpus::setup` in `platform::run`. The build has these differences:
-  - The board is blank (no starting numbers), the menu is closed, and clashes and the highlight do
-    not show.
+  - The board is blank (no starting numbers), the menu is closed, and clashes, the highlight and the
+    completed color do not show.
   - The data folder is `/home/root/.local/share/rm-sudoku-corpus`. Thus the build does not change
     the game, the settings or the results of the player.
   - Each pen stroke and each erasure on the board goes to `corpus-ink.jsonl` in that folder, with

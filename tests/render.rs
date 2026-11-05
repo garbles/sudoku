@@ -158,6 +158,45 @@ fn landscape_analytics_agrees_with_the_reference_images() {
 }
 
 #[test]
+fn landscape_color_menu_agrees_with_the_reference_image() {
+    // NAV-17, COL-8, R§3.3, §15: the Cell colors panel in landscape. reference::states() draws in
+    // portrait, thus this test uses the state of color-menu.png in landscape. Box 0 of this state is
+    // full and has a clash with a cell outside the box. It is out of the panel and has no completed
+    // color (COL-8).
+    reference::use_utc();
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Landscape);
+    let setup = reference::states().into_iter().find(|s| s.0 == "color-menu.png").expect("reference state").1;
+    let pm = reference::render(&fonts, setup);
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
+    let want = decode_png(&std::fs::read(root.join("images/color-menu-landscape.png")).unwrap());
+    // compare() stops at the end of the shorter picture: the two sizes must be the same.
+    assert_eq!((want.width(), want.height()), (2160, 1620), "the size of the image");
+    assert_eq!((pm.width(), pm.height()), (2160, 1620), "the size of the app");
+    let (mean, big) = reference::compare(&pm, &want);
+    assert!(mean < 1.5 && big < 0.008, "mean difference {mean:.2}, {:.3}% of pixels differ", big * 100.0);
+    let off2 = reference::differences_off_edges(&pm, &want, 2);
+    assert!(off2.is_empty(), "pixels that differ away from all edges: {:?}", &off2[..off2.len().min(10)]);
+    let off1 = reference::differences_off_edges(&pm, &want, 1);
+    assert!(off1.len() <= 2, "pixels that differ more than 1 px from an edge: {:?}", &off1[..off1.len().min(10)]);
+    // A panel at a different position by some pixels stays near the edges of the image. Thus the
+    // lines of the panel must be at the exact pixels in the app and in the image.
+    let probes = [(1248, 800), (1648, 800), (2046, 800), (1500, 112), (1900, 112), (1500, 1191), (1900, 1191)];
+    for (x, y) in probes {
+        assert_eq!(rgb_at(&pm, x, y), [0, 0, 0], "app: no line of the panel at ({x}, {y})");
+        assert_eq!(rgb_at(&want, x, y), [0, 0, 0], "image: no line of the panel at ({x}, {y})");
+    }
+    // The empty space below the Micro-cell lines section is plain white (NAV-17).
+    for y in 840..1185 {
+        for x in (1655..2040).step_by(5) {
+            assert_eq!(rgb_at(&pm, x, y), [255, 255, 255], "app: the empty space at ({x}, {y})");
+            assert_eq!(rgb_at(&want, x, y), [255, 255, 255], "image: the empty space at ({x}, {y})");
+        }
+    }
+}
+
+#[test]
 fn the_board_is_at_its_position_in_each_orientation() {
     // R§3.3, NAV-10: the board is at the center of the screen in portrait and in landscape. The
     // board is drawn in stripes on threads (render::draw_board_stripes): each thread must get the
@@ -689,4 +728,391 @@ fn portrait_manual_pages_are_the_portrait_images() {
         let want = decode_png(&std::fs::read(root.join(format!("images/manual-{name}.png"))).unwrap());
         assert_eq!(reference::compare(&pm, &want).1, 0.0, "page {}", i + 1);
     }
+}
+
+/// The state of a reference image.
+fn reference_setup(name: &str) -> reference::Setup {
+    reference::states().into_iter().find(|s| s.0 == name).expect("reference state").1
+}
+
+/// A point of the cell without lines, digits or marks.
+fn cell_background(pm: &tiny_skia::Pixmap, cell: sudoku::game::Cell) -> [u8; 3] {
+    let (x, y) = sudoku::layout::cell_origin(cell);
+    rgb_at(pm, x + 8, y + 140)
+}
+
+/// The darkest pixel of the middle of a cell, with the three channels added: the color of its digit.
+/// An edge pixel of the glyph can have a low red value and a higher green value.
+fn digit_color(pm: &tiny_skia::Pixmap, cell: sudoku::game::Cell) -> [u8; 3] {
+    let (ox, oy) = sudoku::layout::cell_origin(cell);
+    let sum = |p: [u8; 3]| p.iter().map(|&v| v as u32).sum::<u32>();
+    let mut dark = [255, 255, 255];
+    for y in oy + 30..oy + 118 {
+        for x in ox + 30..ox + 118 {
+            let p = rgb_at(pm, x, y);
+            if sum(p) < sum(dark) {
+                dark = p;
+            }
+        }
+    }
+    dark
+}
+
+/// The cells of box 0, column 4 and row 7: the completed groups of screen-completed-group.png. This
+/// list does not use the code of the app.
+fn in_the_three_groups((r, c): sudoku::game::Cell) -> bool {
+    (r < 3 && c < 3) || c == 4 || r == 7
+}
+
+fn reset_layout() {
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
+    sudoku::layout::set_right_handed(false);
+}
+
+#[test]
+fn the_completed_group_image_shows_the_colors_of_each_cell() {
+    // BRD-7, COL-8, §15: the general comparison permits a difference of 64. This test requires the
+    // exact color of each cell, in the app and in the image. The cell where column 4 and row 7 cross
+    // has the color, and the starting numbers in the groups also have it. The other starting numbers
+    // stay gray and the other numbers of the player stay white.
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let pm = reference::render(&fonts, reference_setup("screen-completed-group.png"));
+    let image = decode_png(&std::fs::read(root.join("images/screen-completed-group.png")).unwrap());
+    let g = reference::completed_group_game();
+    assert!(!g.completed);
+    assert!(cells().all(|c| !g.is_clashing(c)), "the state has no clash");
+    let (mut green, mut gray, mut white) = (0, 0, 0);
+    for cell in cells() {
+        let want = if !g.is_filled(cell) {
+            white += 1;
+            Color::White
+        } else if in_the_three_groups(cell) {
+            green += 1;
+            Color::Green
+        } else if g.is_given(cell) {
+            gray += 1;
+            Color::Gray
+        } else {
+            white += 1;
+            Color::White
+        };
+        assert_eq!(cell_background(&pm, cell), want.rgb(), "app, cell {cell:?}");
+        assert_eq!(cell_background(&image, cell), want.rgb(), "image, cell {cell:?}");
+    }
+    // Box 0 (9 cells), column 4 (9 cells) and row 7 (9 cells), with the crossing cell (7, 4) one time.
+    assert_eq!(green, 26);
+    assert!(gray > 0 && white > 0);
+    // A digit keeps its color on the completed color: black for a starting number, gray18 for a
+    // number of the player.
+    for (cell, want) in [((0, 0), [0, 0, 0]), ((0, 2), [0x2e, 0x2e, 0x2e]), ((7, 1), [0x2e, 0x2e, 0x2e]), ((7, 4), [0, 0, 0])] {
+        assert_eq!(digit_color(&pm, cell), want, "app, cell {cell:?}");
+        assert_eq!(digit_color(&image, cell), want, "image, cell {cell:?}");
+    }
+}
+
+#[test]
+fn the_completed_groups_have_the_color_in_each_layout() {
+    // BRD-7, COL-8, R§3.1, R§3.3: the same cells in each orientation, with each hand. The stripes of
+    // the board use other threads: each thread must get the same colors.
+    let fonts = fonts();
+    let g = reference::completed_group_game();
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let mut app = reference::app(&fonts);
+        app.game = g.clone();
+        let pm = draw_app(&fonts, &app);
+        for cell in cells() {
+            let want = match (g.is_filled(cell) && in_the_three_groups(cell), g.is_given(cell)) {
+                (true, _) => Color::Green,
+                (false, true) => Color::Gray,
+                (false, false) => Color::White,
+            };
+            assert_eq!(cell_background(&pm, cell), want.rgb(), "{layout:?}, cell {cell:?}");
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn a_full_box_with_a_clash_outside_the_box_has_no_completed_color() {
+    // COL-8, COL-10: box 0 of the sample game is full. Its 9 at (2, 1) clashes with the 9 at (5, 1), in
+    // a different box. Thus box 0 is not complete, in the app and in screen-in-progress.png. The
+    // erasure of (5, 1) removes the clash, and box 0, far from the erased cell, gets the color.
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let image = decode_png(&std::fs::read(root.join("images/screen-in-progress.png")).unwrap());
+    let sample = reference::sample_game();
+    let the_box = || (0..3u8).flat_map(|r| (0..3u8).map(move |c| (r, c)));
+    assert!(the_box().all(|c| sample.is_filled(c)), "box 0 is full");
+    assert!(sample.is_clashing((2, 1)) && sample.is_clashing((5, 1)));
+    for cell in cells() {
+        assert_ne!(cell_background(&image, cell), Color::Green.rgb(), "image, cell {cell:?}");
+    }
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let mut app = reference::app(&fonts);
+        app.game = sample.clone();
+        let with_clash = draw_app(&fonts, &app);
+        for cell in cells() {
+            assert_ne!(cell_background(&with_clash, cell), Color::Green.rgb(), "{layout:?}, clash, cell {cell:?}");
+        }
+        assert_eq!(cell_background(&with_clash, (2, 1)), Color::Red.rgb(), "{layout:?}");
+        app.game.erase((5, 1));
+        let erased = draw_app(&fonts, &app);
+        for cell in cells() {
+            let want = if the_box().any(|c| c == cell) {
+                Color::Green
+            } else if app.game.is_given(cell) {
+                Color::Gray
+            } else {
+                Color::White
+            };
+            assert_eq!(cell_background(&erased, cell), want.rgb(), "{layout:?}, erased, cell {cell:?}");
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_highlight_is_on_top_of_the_completed_color() {
+    // BRD-7: the highlight color comes before the completed color, in a group and out of a group. The
+    // completed color comes before the starting color. The test also changes the colors, thus the
+    // result does not come from a fixed color.
+    let fonts = fonts();
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let mut app = reference::app(&fonts);
+        app.game = reference::completed_group_game();
+        app.settings.color_starting = Color::Yellow;
+        app.settings.color_highlight = Color::Magenta;
+        app.settings.color_completed = Color::Orange;
+        app.ui.highlight = Some(5);
+        let pm = draw_app(&fonts, &app);
+        let g = &app.game;
+        let (mut highlighted_in_group, mut highlighted_out) = (0, 0);
+        for cell in cells() {
+            let filled = g.is_filled(cell);
+            let in_group = filled && in_the_three_groups(cell);
+            let want = if filled && g.value_at(cell) == 5 {
+                if in_group {
+                    highlighted_in_group += 1;
+                } else {
+                    highlighted_out += 1;
+                }
+                Color::Magenta
+            } else if in_group {
+                Color::Orange
+            } else if g.is_given(cell) {
+                Color::Yellow
+            } else {
+                Color::White
+            };
+            assert_eq!(cell_background(&pm, cell), want.rgb(), "{layout:?}, cell {cell:?}");
+        }
+        assert!(highlighted_in_group > 0 && highlighted_out > 0, "{layout:?}: the test does not examine the two cases");
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_switch_off_and_white_give_the_same_board_with_no_completed_color() {
+    // COL-11, BRD-7: the two conditions give the same pixels of the board: a starting number keeps
+    // its starting color. The menu is closed, thus the settings do not show in a panel.
+    let fonts = fonts();
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let mut app = reference::app(&fonts);
+        app.game = reference::completed_group_game();
+        let on = draw_app(&fonts, &app);
+        app.settings.completed_color_on = false;
+        let off = draw_app(&fonts, &app);
+        app.settings.completed_color_on = true;
+        app.settings.color_completed = Color::White;
+        let white = draw_app(&fonts, &app);
+        assert!(off.data() == white.data(), "{layout:?}: the switch off and White are not the same");
+        assert!(on.data() != off.data(), "{layout:?}: the switch changes nothing");
+        for cell in cells() {
+            let want = if app.game.is_given(cell) { Color::Gray } else { Color::White };
+            assert_eq!(cell_background(&off, cell), want.rgb(), "{layout:?}, cell {cell:?}");
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn a_completed_game_shows_no_completed_color() {
+    // COL-12: all groups are full with no clash, but the board has the normal colors, in the app and in
+    // screen-completed.png. A saved completed game has the same state.
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let image = decode_png(&std::fs::read(root.join("images/screen-completed.png")).unwrap());
+    let g = reference::completed_game();
+    assert!(g.completed);
+    let want = |cell| if g.is_given(cell) { Color::Gray.rgb() } else { Color::White.rgb() };
+    for cell in cells() {
+        assert_eq!(cell_background(&image, cell), want(cell), "image, cell {cell:?}");
+    }
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let mut app = reference::app(&fonts);
+        app.game = g.clone();
+        let pm = draw_app(&fonts, &app);
+        for cell in cells() {
+            assert_eq!(cell_background(&pm, cell), want(cell), "{layout:?}, cell {cell:?}");
+        }
+        // The switch does not change the board of a completed game.
+        app.settings.completed_color_on = false;
+        assert!(draw_app(&fonts, &app).data() == pm.data(), "{layout:?}: the switch changes a completed game");
+    }
+    reset_layout();
+}
+
+#[test]
+fn a_retained_frame_follows_each_change_of_the_completed_color() {
+    // BRD-7, COL-3, COL-10, COL-11, COL-12: render.rs keeps the pixels of each board cell. The key of a
+    // cell must contain the completed color. A far recolor changes cells that are not peers of the
+    // changed cell. Each frame must be the same as a full drawing.
+    use sudoku::render::{Canvas, FrameRecord};
+    let fonts = fonts();
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let mut app = reference::app(&fonts);
+        let mut pm = tiny_skia::Pixmap::new(sudoku::layout::screen_w(), sudoku::layout::screen_h()).unwrap();
+        let mut record = FrameRecord::default();
+        let mut check = |app: &sudoku::app::App, step: &str| {
+            sudoku::render::draw(&mut Canvas::retained(&mut pm, &mut record, &fonts), app);
+            assert!(pm.data() == draw_app(&fonts, app).data(), "{layout:?}, {step}: not the same as a full drawing");
+        };
+        app.game = reference::sample_game();
+        check(&app, "clash");
+        app.game.erase((5, 1)); // Box 0 gets the color: the cells are far from (5, 1).
+        check(&app, "erasure");
+        app.game.undo();
+        check(&app, "undo");
+        app.game.redo();
+        check(&app, "redo");
+        app.game = reference::completed_group_game();
+        check(&app, "three groups");
+        app.game.add_number((2, 5), 9); // A clash stops the groups of the clashing cells.
+        check(&app, "new clash");
+        app.game.undo();
+        check(&app, "the clash goes away");
+        app.settings.color_completed = Color::Orange;
+        check(&app, "other color");
+        app.ui.highlight = Some(5);
+        check(&app, "highlight");
+        app.ui.highlight = None;
+        check(&app, "no highlight");
+        app.settings.completed_color_on = false;
+        check(&app, "switch off");
+        app.settings.completed_color_on = true;
+        check(&app, "switch on");
+        app.settings.color_completed = Color::White;
+        check(&app, "white");
+        app.settings.color_completed = Color::Green;
+        check(&app, "green");
+        app.game = reference::completed_game();
+        check(&app, "completed game");
+        app.game = reference::completed_group_game();
+        check(&app, "new game");
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_framebuffer_shows_the_recolor_of_a_far_group() {
+    // COL-10: the output of the main loop (present.rs). The erasure of (5, 1) recolors box 0, and the
+    // copy to the framebuffer must contain all these cells.
+    let fonts = fonts();
+    let n = (sudoku::layout::PHYSICAL_W * sudoku::layout::PHYSICAL_H * 3) as usize;
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let mut app = reference::app(&fonts);
+        app.game = reference::sample_game();
+        let mut presenter = sudoku::present::Presenter::new();
+        let mut fb = vec![0u8; n];
+        presenter.draw_all(&app, &fonts, &mut fb);
+        app.game.erase((5, 1));
+        app.redraw = true;
+        let mut updates = 0;
+        for step in 0..100 {
+            presenter.present(&mut app, &fonts, &mut fb, 100 + step * 30, |_| updates += 1);
+        }
+        assert!(updates > 0, "{layout:?}: no update shows the color");
+        let shown = screenshot(&fb);
+        assert!(shown.data() == draw_app(&fonts, &app).data(), "{layout:?}: the framebuffer does not show the color");
+        assert_eq!(cell_background(&shown, (0, 0)), Color::Green.rgb(), "{layout:?}");
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_colors_panel_has_the_same_pixels_and_covers_nothing_in_each_layout() {
+    // NAV-17: the panel is at its x range and at y 112 to 1192. The items of the panel are the same in
+    // the four layouts, thus the order of the columns does not change with the hand. Out of the panel,
+    // only the toolbar slot of the paint bucket changes when the panel opens: the panel does not cover
+    // a toolbar button, the close button, the meter or "Completed in".
+    use sudoku::app::{Menu, Panel};
+    let fonts = fonts();
+    let mut first: Option<Vec<[u8; 3]>> = None;
+    for (layout, x0) in LAYOUTS.into_iter().zip([708, 112, 1248, 112]) {
+        set_layout(layout);
+        for (game, name) in [(reference::sample_game(), "game"), (reference::completed_game(), "completed game")] {
+            let at = format!("{layout:?}, {name}");
+            let mut app = reference::app(&fonts);
+            app.game = game;
+            app.ui.menu = Menu::Open(None);
+            let closed = draw_app(&fonts, &app);
+            app.ui.menu = Menu::Open(Some(Panel::Colors));
+            let open = draw_app(&fonts, &app);
+            let tb = sudoku::layout::tb_x();
+            let mut slots = std::collections::BTreeSet::new();
+            for (x, y) in changed_pixels(&open, &closed) {
+                if (x0..x0 + 800).contains(&x) && (112..=1192).contains(&y) {
+                    continue;
+                }
+                assert!((tb..tb + sudoku::layout::TB_SLOT).contains(&x), "{at}: the panel changes ({x}, {y})");
+                slots.insert(y / sudoku::layout::TB_SLOT);
+            }
+            assert_eq!(slots.len(), 1, "{at}: the panel changes the toolbar slots {slots:?}");
+            // The inner pixels of the panel: all of them, except the two side lines.
+            let mut inner = Vec::with_capacity(796 * 1081);
+            for y in 112..=1192 {
+                for x in x0 + 2..x0 + 798 {
+                    inner.push(rgb_at(&open, x, y));
+                }
+            }
+            let first = first.get_or_insert_with(|| inner.clone());
+            assert!(*first == inner, "{at}: the panel does not have the same pixels as in the first layout");
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_cached_items_of_the_completed_section_are_the_same_as_a_new_drawing() {
+    // COL-5, §10: a change of the completed color changes the state of items in the other sections
+    // (a color that a section uses is not available). The cached items must follow it.
+    let fonts = fonts();
+    fn orange(a: &mut sudoku::app::App) {
+        a.ui.menu = sudoku::app::Menu::Open(Some(sudoku::app::Panel::Colors));
+        a.settings.color_completed = Color::Orange;
+    }
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let green = reference::render(&fonts, |a| a.ui.menu = sudoku::app::Menu::Open(Some(sudoku::app::Panel::Colors)));
+        let cached = reference::render(&fonts, orange);
+        assert!(green.data() != cached.data(), "{layout:?}: the change of the color does not show");
+        let fresh = std::thread::scope(|s| {
+            s.spawn(|| {
+                set_layout(layout);
+                reference::render(&fonts, orange)
+            })
+            .join()
+            .unwrap()
+        });
+        assert!(cached.data() == fresh.data(), "{layout:?}: the cached items are not the same as a new drawing");
+    }
+    reset_layout();
 }

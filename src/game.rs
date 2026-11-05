@@ -29,6 +29,59 @@ pub fn peers((r, c): Cell) -> impl Iterator<Item = Cell> {
     })
 }
 
+/// A group of nine cells (INVARIANTS.md §0). Each index is 0..9. A box has its index row by row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Group {
+    Row(u8),
+    Column(u8),
+    Box(u8),
+}
+
+impl Group {
+    /// All 27 groups.
+    pub fn all() -> impl Iterator<Item = Group> {
+        (0..9).flat_map(|i| [Group::Row(i), Group::Column(i), Group::Box(i)])
+    }
+
+    /// The nine cells of the group.
+    pub fn cells(self) -> [Cell; 9] {
+        std::array::from_fn(|i| {
+            let i = i as u8;
+            match self {
+                Group::Row(r) => (r, i),
+                Group::Column(c) => (i, c),
+                Group::Box(b) => (b / 3 * 3 + i / 3, b % 3 * 3 + i % 3),
+            }
+        })
+    }
+}
+
+/// A set of cells of the board.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct CellSet(u128);
+
+impl CellSet {
+    fn bit((r, c): Cell) -> u128 {
+        1 << (r as u32 * 9 + c as u32)
+    }
+
+    pub fn insert(&mut self, cell: Cell) {
+        self.0 |= Self::bit(cell);
+    }
+
+    pub fn contains(self, cell: Cell) -> bool {
+        self.0 & Self::bit(cell) != 0
+    }
+}
+
+/// The sets of a board that the drawing needs. They come from `value` only (CLS-1, COL-9).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct BoardSets {
+    pub clashing: CellSet,
+    /// The cells of the completed groups.
+    pub completed: CellSet,
+}
+
 /// One change to the board. Each change is one item in the undo history (REQUIREMENTS.md §7).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Change {
@@ -156,6 +209,30 @@ impl Game {
     pub fn is_clashing(&self, cell: Cell) -> bool {
         let v = self.value_at(cell);
         v != 0 && peers(cell).any(|p| self.value_at(p) == v)
+    }
+
+    /// The group is full and none of its cells clashes, also with a cell outside the group (§6.4, COL-8).
+    pub fn is_completed_group(&self, group: Group) -> bool {
+        group.cells().into_iter().all(|c| self.is_filled(c) && !self.is_clashing(c))
+    }
+
+    /// The clashing cells and the cells of the completed groups. It examines each cell one time for
+    /// clashes, thus a drawing of the board calls it one time, not for each cell.
+    pub fn board_sets(&self) -> BoardSets {
+        let mut clashing = CellSet::default();
+        cells().filter(|&c| self.is_clashing(c)).for_each(|c| clashing.insert(c));
+        let mut completed = CellSet::default();
+        for group in Group::all().map(Group::cells) {
+            if group.iter().all(|&c| self.is_filled(c) && !clashing.contains(c)) {
+                group.into_iter().for_each(|c| completed.insert(c));
+            }
+        }
+        BoardSets { clashing, completed }
+    }
+
+    /// The cells of the completed groups (COL-8, COL-9).
+    pub fn completed_cells(&self) -> CellSet {
+        self.board_sets().completed
     }
 
     pub fn givens_count(&self) -> u8 {
@@ -409,6 +486,56 @@ mod tests {
         assert!(g.is_clashing((8, 0)));
         assert!(!g.completed);
         assert!(g.is_clashing((0, 0)));
+    }
+
+    #[test]
+    fn groups_have_nine_different_cells() {
+        assert_eq!(Group::all().count(), 27);
+        for g in Group::all() {
+            let unique: std::collections::HashSet<_> = g.cells().into_iter().collect();
+            assert_eq!(unique.len(), 9, "{g:?}");
+        }
+        assert_eq!(Group::Box(5).cells()[0], (3, 6));
+        assert_eq!(Group::Box(5).cells()[8], (5, 8));
+    }
+
+    #[test]
+    fn a_completed_group_is_full_and_has_no_clash() {
+        // COL-8
+        let mut g = sample(&[(0, 0), (0, 1)]);
+        assert!(!g.is_completed_group(Group::Row(0)), "the row is not full");
+        assert!(g.is_completed_group(Group::Row(1)));
+        assert!(!g.completed_cells().contains((0, 0)), "an empty cell is never in a group");
+        assert!(g.completed_cells().contains((0, 2)), "column 2 is full");
+        g.add_number((0, 0), 3); // Column 0 has a starting 3 at (8, 0).
+        g.add_number((0, 1), 5); // Column 1 has a starting 5 at (3, 1).
+        assert!(!g.is_completed_group(Group::Row(0)), "the row has no two equal digits, but its cells clash with cells outside it");
+        assert!(!g.completed_cells().contains((0, 1)));
+        assert!(!g.is_completed_group(Group::Column(0)));
+        assert!(!g.is_completed_group(Group::Box(0)));
+    }
+
+    #[test]
+    fn an_erasure_can_complete_a_group_far_from_the_cell() {
+        // COL-10: the erasure of (0, 0) removes the clash of the far cell (8, 0), thus row 8 is complete.
+        let mut g = sample(&[(0, 0)]);
+        g.add_number((0, 0), 3);
+        assert!(!g.is_completed_group(Group::Row(8)), "row 8 has the clashing 3 at (8, 0)");
+        assert_eq!(g.erase((0, 0)), Outcome::Changed);
+        assert!(g.is_completed_group(Group::Row(8)));
+        assert_eq!(g.undo.len(), 2, "UND-2: only the two changes of the board");
+    }
+
+    #[test]
+    fn the_set_of_cells_agrees_with_a_check_of_each_group() {
+        let mut g = sample(&[(0, 0), (4, 4), (8, 8)]);
+        g.add_number((4, 4), 1);
+        let set = g.board_sets();
+        for c in cells() {
+            assert_eq!(set.clashing.contains(c), g.is_clashing(c), "{c:?}");
+            let in_group = Group::all().any(|x| g.is_completed_group(x) && x.cells().contains(&c));
+            assert_eq!(set.completed.contains(c), in_group, "{c:?}");
+        }
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Helpers for the tests: an app with a known environment, and input as a player gives it.
 #![allow(dead_code)]
 
-use sudoku::app::{App, Env, Input, Menu, Tool};
+use sudoku::app::{App, Env, Input, Menu, Panel, Tool};
 use sudoku::font::Fonts;
 use sudoku::game::{cells, Cell, Game};
 use sudoku::layout::{self, cell_origin, Rect, CELL};
@@ -270,4 +270,170 @@ pub fn refused_pairs(g: &Game) -> Vec<(Cell, u8)> {
 /// The first pair of `refused_pairs`.
 pub fn refused_pair(g: &Game) -> (Cell, u8) {
     refused_pairs(g)[0]
+}
+
+// ---- A separate model of the cell colors (BRD-7, COL-8, COL-9). It uses only `value`, `given` and
+// the settings, and it does not use the code of the app that calculates the groups or the clashes.
+
+/// A solved board for tests that give their own starting numbers.
+pub const SOLUTION: [&str; 9] =
+    ["534678912", "672195348", "198342567", "859761423", "426853791", "713924856", "961537284", "287419635", "345286179"];
+
+pub fn digits(rows: &[&str; 9]) -> [[u8; 9]; 9] {
+    let mut g = [[0u8; 9]; 9];
+    for (r, row) in rows.iter().enumerate() {
+        for (c, ch) in row.bytes().enumerate() {
+            g[r][c] = if ch == b'.' { 0 } else { ch - b'0' };
+        }
+    }
+    g
+}
+
+/// The starting numbers of a puzzle with only one solution, `SOLUTION` (PUZ-2). A test that sends
+/// input to the app uses it, because debug builds examine the rules after each input.
+pub const PUZZLE: [&str; 9] =
+    ["53..7....", "6..195...", ".98....6.", "8...6...3", "4..8.3..1", "7...2...6", ".6....28.", "...419..5", "....8..79"];
+
+/// `PUZZLE` with entries: the player wrote each number of `entries`.
+pub fn puzzle_with(entries: &[(Cell, u8)]) -> Game {
+    let mut g = board_of(&PUZZLE);
+    for &(cell, v) in entries {
+        g.add_number(cell, v);
+    }
+    g
+}
+
+/// A game with the solution `SOLUTION` and these starting numbers (a '.' is an empty cell). It is not
+/// a puzzle of the generator, thus `App::new` does not accept it as a saved game (PER-5). These starting
+/// numbers do not always have only one solution: use it only for tests that send no input to the app.
+pub fn board_of(rows: &[&str; 9]) -> Game {
+    let solution = digits(&SOLUTION);
+    let given = digits(rows);
+    for (r, c) in cells() {
+        let v = given[r as usize][c as usize];
+        assert!(v == 0 || v == solution[r as usize][c as usize], "PUZ-3: the starting number at ({r},{c})");
+    }
+    Game::new(1, 2, solution, given)
+}
+
+/// A board with only the starting numbers at `given` (values of `SOLUTION`).
+pub fn board_with(given: &[Cell]) -> Game {
+    let solution = digits(&SOLUTION);
+    let mut g = [[0u8; 9]; 9];
+    for &(r, c) in given {
+        g[r as usize][c as usize] = solution[r as usize][c as usize];
+    }
+    Game::new(1, 2, solution, g)
+}
+
+/// The 27 groups: 9 rows, 9 columns and 9 boxes.
+pub fn model_groups() -> Vec<Vec<Cell>> {
+    let mut groups = Vec::new();
+    for i in 0..9u8 {
+        groups.push((0..9u8).map(|k| (i, k)).collect());
+        groups.push((0..9u8).map(|k| (k, i)).collect());
+        groups.push((0..9u8).map(|k| (i / 3 * 3 + k / 3, i % 3 * 3 + k % 3)).collect());
+    }
+    groups
+}
+
+/// CLS-1: the cell is filled and another cell of one of its groups has the same value.
+pub fn model_clashing(g: &Game, cell: Cell) -> bool {
+    let v = g.value_at(cell);
+    v != 0 && model_groups().iter().filter(|group| group.contains(&cell)).any(|group| group.iter().any(|&o| o != cell && g.value_at(o) == v))
+}
+
+/// COL-8: all nine cells are filled and no cell is clashing, also with a cell outside the group.
+pub fn model_completed_groups(g: &Game) -> Vec<Vec<Cell>> {
+    model_groups().into_iter().filter(|group| group.iter().all(|&c| g.value_at(c) != 0 && !model_clashing(g, c))).collect()
+}
+
+pub fn model_in_completed_group(g: &Game, cell: Cell) -> bool {
+    model_completed_groups(g).iter().any(|group| group.contains(&cell))
+}
+
+/// BRD-7: the background of a cell, from the first rule that applies.
+pub fn model_background(app: &App, cell: Cell) -> [u8; 3] {
+    let (g, s) = (&app.game, &app.settings);
+    let v = g.value_at(cell);
+    if v == 0 {
+        Color::White.rgb()
+    } else if model_clashing(g, cell) {
+        s.color_clash.rgb()
+    } else if app.ui.highlight == Some(v) {
+        s.color_highlight.rgb()
+    } else if s.completed_color_on && s.color_completed != Color::White && !g.completed && model_in_completed_group(g, cell) {
+        s.color_completed.rgb()
+    } else if g.is_given(cell) {
+        s.color_starting.rgb()
+    } else {
+        Color::White.rgb()
+    }
+}
+
+/// The screen of an app, in the current layout.
+pub fn draw_screen(app: &App, fonts: &Fonts) -> tiny_skia::Pixmap {
+    let mut pm = tiny_skia::Pixmap::new(layout::screen_w(), layout::screen_h()).unwrap();
+    sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, fonts), app);
+    pm
+}
+
+/// A point of a cell that has only the background: no digit, no mark, no line.
+fn background_point(cell: Cell) -> (i32, i32) {
+    let (x, y) = cell_origin(cell);
+    (x + 10, y + 135)
+}
+
+pub fn cell_background(pm: &tiny_skia::Pixmap, cell: Cell) -> [u8; 3] {
+    let (x, y) = background_point(cell);
+    sudoku::render::rgb_at(pm, x, y)
+}
+
+/// Each cell that the open panel does not cover has the background of the model, and the game agrees
+/// with the model for the completed groups (BRD-7, COL-8, COL-9).
+pub fn assert_board(app: &App, fonts: &Fonts, case: &str) {
+    let pm = draw_screen(app, fonts);
+    let set = app.game.completed_cells();
+    for group in model_completed_groups(&app.game) {
+        let mut d: Vec<u8> = group.iter().map(|&c| app.game.value_at(c)).collect();
+        d.sort_unstable();
+        assert_eq!(d, [1, 2, 3, 4, 5, 6, 7, 8, 9], "COL-9, {case}: {group:?}");
+    }
+    let panel = app.ui.menu.panel().map(|p| match p {
+        Panel::Colors => layout::colors_panel(),
+        Panel::Settings => layout::settings_panel(app.update.has_row()),
+        Panel::NewGame => layout::ng_panel(),
+    });
+    for c in cells() {
+        assert_eq!(set.contains(c), model_in_completed_group(&app.game, c), "COL-8, {case}: {c:?}");
+        let (x, y) = background_point(c);
+        if panel.is_some_and(|p| p.contains(x as f32, y as f32)) {
+            continue;
+        }
+        assert_eq!(cell_background(&pm, c), model_background(app, c), "BRD-7, {case}: {c:?}");
+    }
+}
+
+/// The x range of the Cell colors panel in the current layout, with the two ends (NAV-17).
+pub fn documented_colors_x() -> (i32, i32) {
+    match (layout::right_handed(), layout::screen_w() == 2160) {
+        (true, _) => (112, 911),
+        (false, false) => (708, 1507),
+        (false, true) => (1248, 2047),
+    }
+}
+
+/// The x range of the Settings panel in the current layout, with the two ends (NAV-14, NAV-15).
+pub fn documented_settings_x() -> (i32, i32) {
+    match (layout::right_handed(), layout::screen_w() == 2160) {
+        (true, _) => (112, 511),
+        (false, false) => (1108, 1507),
+        (false, true) => (1648, 2047),
+    }
+}
+
+/// The first y of row `i` (from 0) of the Settings panel: y 224, a 2 px border and lines, rows of
+/// 112 px (REQUIREMENTS.md §9.1).
+pub fn documented_settings_row_y(i: i32) -> i32 {
+    224 + 2 + i * 114
 }

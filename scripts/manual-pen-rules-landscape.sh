@@ -49,7 +49,7 @@ for row in 0 1; do
     filled 1100 $Y 7 "$GIVEN_BG"; ink 1100 $Y "$THREE"; arrow 1290 1350 $AY; filled 1365 $Y 7 "$GIVEN_BG"
     text 1320 $((Y+CW+50)) 34 gray25 middle "Starting number: no change"
   else
-    filled 1100 $Y 4 "" gray35; ink 1100 $Y "$SEVEN"; arrow 1290 1350 $AY; filled 1365 $Y 4 "" gray35
+    filled 1100 $Y 4 "" $ENTRY_FG; ink 1100 $Y "$SEVEN"; arrow 1290 1350 $AY; filled 1365 $Y 4 "" $ENTRY_FG
     text 1320 $((Y+CW+50)) 34 gray25 middle "Your number: no change"
   fi
 done

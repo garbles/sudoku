@@ -21,7 +21,7 @@
 //!     erase rRcC                  eraser end rubs the cell
 //!     tap menu|colors|settings|undo|redo|newgame|start   (newgame: the New game button of the
 //!                                     open menu; start: Start new game in its panel)
-//!     tap color starting|clashing|highlighted COLOR
+//!     tap color starting|clashing|highlighted|completed COLOR
 //!
 //! It uses the fonts in scripts/fonts (refer to scripts/fonts/README.md) and ffmpeg. After the MP4, the
 //! tool makes a smaller GIF from it with the same name (for example video/demo.gif), for README.md.

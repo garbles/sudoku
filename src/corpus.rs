@@ -5,7 +5,8 @@
 //! - The board is blank: no starting numbers, no numbers of the player, no pencil marks.
 //! - The data folder is `rm-sudoku-corpus` (`store::data_dir`), thus the build never changes the
 //!   game, the settings or the results of the player.
-//! - Clashes and the highlight do not show, because the player writes the same number in many cells.
+//! - Clashes, the highlight and the completed color do not show, because the player writes the same
+//!   number in many cells, or nine different numbers in a group.
 //! - Each pen stroke and each erasure on the board goes to `LOG_FILE` in the data folder: one JSON
 //!   line `{"cell": [r, c], "stroke": [[x, y], ...]}` (screen pixels) or `{"cell": [r, c], "erase":
 //!   true}`. The log has all strokes, also a stroke that the app discards on a filled cell. Thus
@@ -36,6 +37,7 @@ pub fn setup(app: &mut App, data_dir: &Path) {
     app.ui.highlight = None;
     app.settings.highlight_on = false;
     app.settings.color_clash = Color::White;
+    app.settings.completed_color_on = false;
     app.settings_dirty = true;
     let log_path = data_dir.join(LOG_FILE);
     app.stroke_log = Some(Box::new(move |input| {

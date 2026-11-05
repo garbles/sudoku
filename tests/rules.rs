@@ -95,9 +95,9 @@ fn an_incorrect_number_without_a_clash_looks_like_a_correct_number() {
     sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &app);
     let (x, y) = layout::cell_origin(cell);
     assert_eq!(rgb_at(&pm, x + 8, y + 140), Color::White.rgb(), "no color for an incorrect number");
-    // The digit has the color of your numbers (gray35).
-    let darkest = (x + 20..x + 127).flat_map(|px| (y + 20..y + 127).map(move |py| (px, py))).map(|(px, py)| rgb_at(&pm, px, py)[0]).min().unwrap();
-    assert_eq!(darkest, sudoku::render::gray(35)[0]);
+    // BRD-8: the digit has the color of your numbers (gray18, #2E2E2E).
+    let darkest = (x + 20..x + 127).flat_map(|px| (y + 20..y + 127).map(move |py| (px, py))).map(|(px, py)| rgb_at(&pm, px, py)).min().unwrap();
+    assert_eq!(darkest, [0x2E, 0x2E, 0x2E]);
 }
 
 #[test]
@@ -148,9 +148,11 @@ fn the_selected_color_of_each_section_has_the_black_box() {
         a.settings.color_starting = Color::Blue;
         a.settings.color_clash = Color::White;
         a.settings.color_highlight = Color::Magenta;
+        a.settings.color_completed = Color::Orange;
         a.ui.menu = Menu::Open(Some(Panel::Colors));
     });
-    let selected = [Color::Blue, Color::White, Color::Magenta];
+    let selected = [Color::Blue, Color::White, Color::Magenta, Color::Orange];
+    assert_eq!(Section::ALL.len(), selected.len(), "COL-5: four color sections");
     for s in Section::ALL {
         for c in Color::ALL {
             let cell = layout::color_cell(s, c);
@@ -244,9 +246,12 @@ fn the_landscape_layout_operates() {
     assert_eq!(d.app.game.value_at(cell), 0);
     d.button(Button::Colors);
     assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors));
-    let (x, y) = color_point(Section::Clash, Color::Cyan);
+    let (x, y) = color_point(Section::Clash, Color::Orange);
     d.finger_tap(x, y);
-    assert_eq!(d.app.settings.color_clash, Color::Cyan);
+    assert_eq!(d.app.settings.color_clash, Color::Orange);
+    let (x, y) = color_point(Section::Completed, Color::Yellow);
+    d.finger_tap(x, y);
+    assert_eq!(d.app.settings.color_completed, Color::Yellow);
     d.button(Button::NewGame);
     d.finger_tap(d.app.ng_stops[0], layout::ng_slider_y() as f32);
     d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_start_y() as f32);
@@ -485,6 +490,55 @@ fn black_is_not_in_the_palette() {
 }
 
 #[test]
+fn the_palette_and_the_default_colors_have_the_approved_values() {
+    // COL-1, REQUIREMENTS.md §15: the values and the defaults of the documents.
+    let want = [
+        (Color::Gray, [0xAE, 0xAE, 0xAE]),
+        (Color::White, [0xFF, 0xFF, 0xFF]),
+        (Color::Yellow, [0xFF, 0xD7, 0x40]),
+        (Color::Blue, [0x40, 0x8C, 0xFF]),
+        (Color::Red, [0xFF, 0x8C, 0x8C]),
+        (Color::Green, [0x48, 0xD6, 0x30]),
+        (Color::Cyan, [0x6F, 0xCF, 0xE6]),
+        (Color::Magenta, [0xE6, 0x50, 0xE0]),
+        (Color::Orange, [0xFF, 0x9A, 0x1F]),
+    ];
+    assert_eq!(Color::ALL.len(), want.len());
+    for (c, rgb) in want {
+        assert_eq!(c.rgb(), rgb, "{c:?}");
+    }
+    let s = sudoku::settings::Settings::default();
+    assert_eq!(
+        (s.color_starting, s.color_clash, s.color_highlight, s.color_completed),
+        (Color::Gray, Color::Red, Color::Cyan, Color::Green)
+    );
+    assert!(s.highlight_on && s.auto_hide_on && s.completed_color_on, "NAV-14: the three switches are on");
+}
+
+#[test]
+fn the_digits_have_their_color_on_each_background() {
+    // BRD-8: starting digits are black and entry digits are gray18, also in a completed group
+    // (BRD-7) and with the highlight.
+    let fonts = fonts();
+    let darkest = |pm: &tiny_skia::Pixmap, (r, c): Cell| {
+        let (x, y) = layout::cell_origin((r, c));
+        (x + 20..x + 127).flat_map(|px| (y + 20..y + 127).map(move |py| (px, py))).map(|(px, py)| rgb_at(pm, px, py)).min().unwrap()
+    };
+    let mut d = Driver::new(61);
+    d.app.game = board_of(&["53467891.", ".........", ".........", ".........", ".........", ".........", ".........", ".........", "........."]);
+    d.app.game.add_number((0, 8), 2);
+    d.app.game.add_number((4, 4), 5);
+    for highlight in [None, Some(2), Some(5)] {
+        d.app.ui.highlight = highlight;
+        let pm = draw_screen(&d.app, &fonts);
+        assert_eq!(cell_background(&pm, (0, 8)), if highlight == Some(2) { Color::Cyan.rgb() } else { Color::Green.rgb() });
+        assert_eq!(darkest(&pm, (0, 0)), [0, 0, 0], "a starting digit in a completed group");
+        assert_eq!(darkest(&pm, (0, 8)), [0x2E, 0x2E, 0x2E], "an entry digit in a completed group");
+        assert_eq!(darkest(&pm, (4, 4)), [0x2E, 0x2E, 0x2E], "an entry digit out of a group");
+    }
+}
+
+#[test]
 fn averages_of_the_summary() {
     // ANA-3, ANA-4: the average of `seconds`, or none ("–") if there are no results. The quantities
     // of all modes add up to the total.
@@ -515,7 +569,7 @@ fn the_clash_color_comes_before_the_highlight_color() {
     assert!(nines.iter().any(|&c| g.is_clashing(c)) && nines.iter().any(|&c| !g.is_clashing(c)));
     for c in nines {
         let (x, y) = layout::cell_origin(c);
-        let want = if g.is_clashing(c) { Color::Red } else { Color::Green };
+        let want = if g.is_clashing(c) { Color::Red } else { Color::Cyan };
         assert_eq!(rgb_at(&pm, x + 8, y + 140), want.rgb(), "cell {c:?}");
     }
 }
@@ -564,7 +618,10 @@ fn switches_change_only_the_settings() {
     assert!(!d.app.settings.highlight_on && d.app.settings.auto_hide_on);
     let (x, y) = switch_point(Switch::HideMarksAutomatically);
     d.pen_tap(x, y);
-    assert!(!d.app.settings.auto_hide_on);
+    assert!(!d.app.settings.highlight_on && !d.app.settings.auto_hide_on && d.app.settings.completed_color_on);
+    let (x, y) = switch_point(Switch::ColorCompletedGroups);
+    d.finger_tap(x, y);
+    assert!(!d.app.settings.highlight_on && !d.app.settings.auto_hide_on && !d.app.settings.completed_color_on);
     assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "the panel stays open");
     assert!(d.app.settings_dirty);
     assert_eq!((d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len()), before);
@@ -824,11 +881,11 @@ fn a_switch_does_not_change_the_changes_in_the_history() {
     let marks = d.app.game.marks;
     let history = (d.app.game.undo.clone(), d.app.game.redo.clone());
     open_settings(&mut d);
-    for s in [Switch::HideMarksAutomatically, Switch::HighlightNumbers] {
+    for s in Switch::ALL {
         let (x, y) = switch_point(s);
         d.finger_tap(x, y);
     }
-    assert!(!d.app.settings.highlight_on && !d.app.settings.auto_hide_on);
+    assert!(!d.app.settings.highlight_on && !d.app.settings.auto_hide_on && !d.app.settings.completed_color_on);
     assert_eq!((d.app.game.undo.clone(), d.app.game.redo.clone(), d.app.game.marks), (history.0, history.1, marks));
     assert_ne!(d.app.game.visible_marks(peer, false) & mark_bit(v), 0, "MRK-9: the mark shows");
     d.button(Button::Settings);
@@ -840,7 +897,7 @@ fn a_switch_does_not_change_the_changes_in_the_history() {
 
 #[test]
 fn the_switches_are_kept_when_the_app_opens_again() {
-    // PER-3: the two switches go through the settings file.
+    // PER-3: the three switches go through the settings file.
     let mut d = Driver::new(56);
     open_settings(&mut d);
     for s in Switch::ALL {
@@ -858,7 +915,7 @@ fn the_switches_are_kept_when_the_app_opens_again() {
         sudoku::app::App::placeholder_ng_stops(),
     );
     std::fs::remove_dir_all(&dir).ok();
-    assert!(!app.settings.highlight_on && !app.settings.auto_hide_on);
+    assert!(!app.settings.highlight_on && !app.settings.auto_hide_on && !app.settings.completed_color_on);
     assert_eq!(app.settings, d.app.settings);
 }
 

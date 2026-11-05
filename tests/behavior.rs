@@ -8,6 +8,8 @@ use common::*;
 use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, BACK_GUARD_MS, OVERLAY_MS};
 use sudoku::game::{cells, mark_bit, peers, Cell};
 use sudoku::layout::{self, Button};
+use sudoku::reference;
+use sudoku::render::rgb_at;
 use sudoku::settings::{Color, Section, Settings, Switch};
 use sudoku::store::ResultsDb;
 
@@ -380,8 +382,8 @@ fn cell_colors() {
         d.pen_tap(x, y);
     }
     assert_eq!(
-        (d.app.settings.color_starting, d.app.settings.color_clash, d.app.settings.color_highlight),
-        (Color::White, Color::White, Color::White)
+        (d.app.settings.color_starting, d.app.settings.color_clash, d.app.settings.color_highlight, d.app.settings.color_completed),
+        (Color::White, Color::White, Color::White, Color::White)
     );
     assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors), "the panel stays open");
 }
@@ -565,7 +567,12 @@ fn saved_game_opens_again_exactly() {
     d.button(Button::Menu);
     d.button(Button::Undo);
     d.button(Button::Colors);
-    let (x, y) = color_point(Section::Highlight, Color::Cyan);
+    // Colors that are not the defaults, thus the test examines a change of the state.
+    assert_ne!(d.app.settings.color_highlight, Color::Yellow);
+    assert_ne!(d.app.settings.color_completed, Color::Magenta);
+    let (x, y) = color_point(Section::Highlight, Color::Yellow);
+    d.finger_tap(x, y);
+    let (x, y) = color_point(Section::Completed, Color::Magenta);
     d.finger_tap(x, y);
     d.wait(4000);
     // Ink that waits when the app closes is removed.
@@ -583,7 +590,8 @@ fn saved_game_opens_again_exactly() {
     let app = App::new(sudoku::store::load_json(&gp), sudoku::store::load_json(&sp), ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 99 }), App::placeholder_ng_stops());
     assert_eq!(app.game, d.app.game);
     assert_eq!(app.settings, d.app.settings);
-    assert_eq!(app.settings.color_highlight, Color::Cyan);
+    assert_eq!(app.settings.color_highlight, Color::Yellow);
+    assert_eq!(app.settings.color_completed, Color::Magenta);
     assert_eq!(app.screen, Screen::Game);
     assert_eq!(app.ui.menu, Menu::Open(None), "PER-2: the menu is open and the app does not keep the menu state");
     assert!(app.ui.highlight.is_none() && app.ui.question.is_none() && app.ui.refused.is_none() && app.ui.pending_ink.is_none());
@@ -2170,4 +2178,907 @@ fn an_incorrect_number_in_a_peer_causes_the_x() {
     d.tap_micro(b, w);
     assert_eq!(d.app.ui.refused, None, "MRK-18");
     assert_ne!(d.app.game.marks_at(b) & mark_bit(w), 0);
+}
+
+// ---- Completed groups, the Settings panel and the Cell colors panel (REQUIREMENTS.md §4.2, §6.4, §9.1,
+// §10; BRD-7, COL-3, COL-5, COL-8 to COL-12, NAV-14, NAV-17, UPD-1). Each expected color comes from the
+// documents or from the separate model in tests/common/mod.rs.
+
+const GRAY: [u8; 3] = [0xAE, 0xAE, 0xAE];
+const WHITE: [u8; 3] = [0xFF, 0xFF, 0xFF];
+const RED: [u8; 3] = [0xFF, 0x8C, 0x8C];
+const GREEN: [u8; 3] = [0x48, 0xD6, 0x30];
+const CYAN: [u8; 3] = [0x6F, 0xCF, 0xE6];
+
+/// The entries that fill row 0 of `PUZZLE` with the solution. (0, 0), (0, 1) and (0, 4) are starting numbers.
+const ROW_0: [(Cell, u8); 6] = [((0, 2), 4), ((0, 3), 6), ((0, 5), 8), ((0, 6), 9), ((0, 7), 1), ((0, 8), 2)];
+
+/// `PUZZLE` with the completed group row 0, and no other completed group.
+fn row_0_board() -> sudoku::game::Game {
+    puzzle_with(&ROW_0)
+}
+
+/// A board with each case of BRD-7. Row 0 is a completed group, with the starting numbers (0, 0) and
+/// (0, 4) and the entry (0, 8). The digit 7 is at (0, 4), at the clashing cells (5, 0) (a starting number)
+/// and (5, 2) (an entry), at the starting number (8, 7) and at the entry (4, 6). (1, 0) is a starting number
+/// and (3, 1) an entry with no color. (8, 0) is empty.
+fn order_board() -> sudoku::game::Game {
+    let mut g = row_0_board();
+    g.add_number((5, 2), 7);
+    g.add_number((4, 6), 7);
+    g.add_number((3, 1), 5);
+    g
+}
+
+/// Each listed cell has the color.
+fn assert_cells(d: &Driver, fonts: &sudoku::font::Fonts, case: &str, want: &[(Cell, [u8; 3])]) {
+    let pm = draw_screen(&d.app, fonts);
+    for &(cell, rgb) in want {
+        assert_eq!(cell_background(&pm, cell), rgb, "{case}: {cell:?}");
+    }
+    assert_board(&d.app, fonts, case);
+}
+
+#[test]
+fn the_background_of_a_filled_cell_is_the_first_rule_that_applies() {
+    // BRD-7, §4.2, HLT-5: clash, highlight, completed, starting number, white. All layouts.
+    let fonts = fonts();
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(200);
+        d.app.game = order_board();
+        assert_cells(
+            &d,
+            &fonts,
+            layout_case,
+            &[
+                ((0, 0), GREEN), // Completed over starting.
+                ((0, 4), GREEN),
+                ((0, 8), GREEN), // Completed over white.
+                ((5, 0), RED),   // Clash over starting.
+                ((5, 2), RED),
+                ((1, 0), GRAY),
+                ((8, 7), GRAY),
+                ((3, 1), WHITE),
+                ((4, 6), WHITE),
+                ((8, 0), WHITE),
+            ],
+        );
+        // A pen tap makes the highlight of the digit 7.
+        d.tap_cell((0, 4));
+        assert_eq!(d.app.ui.highlight, Some(7));
+        assert_cells(
+            &d,
+            &fonts,
+            layout_case,
+            &[
+                ((0, 4), CYAN), // Highlight over completed.
+                ((8, 7), CYAN), // Highlight over starting.
+                ((4, 6), CYAN), // Highlight over white.
+                ((5, 0), RED),  // Clash over highlight.
+                ((5, 2), RED),
+                ((0, 0), GREEN),
+                ((1, 0), GRAY),
+            ],
+        );
+        // A second tap removes the highlight, and the cell has the completed color again.
+        d.tap_cell((0, 4));
+        assert_eq!(d.app.ui.highlight, None);
+        assert_cells(&d, &fonts, layout_case, &[((0, 4), GREEN), ((8, 7), GRAY)]);
+    });
+}
+
+#[test]
+fn the_order_of_the_colors_does_not_depend_on_the_selected_colors() {
+    // BRD-7, COL-3, COL-11: the order with other colors, and with White in each section. A White
+    // section that applies gives white: the next rule does not apply.
+    let fonts = fonts();
+    let mut d = Driver::new(201);
+    d.app.game = order_board();
+    d.app.settings.color_starting = Color::Yellow;
+    d.app.settings.color_clash = Color::Blue;
+    d.app.settings.color_highlight = Color::Magenta;
+    d.app.settings.color_completed = Color::Orange;
+    d.app.ui.highlight = Some(7);
+    let c = |x: Color| x.rgb();
+    assert_cells(
+        &d,
+        &fonts,
+        "other colors",
+        &[((0, 0), c(Color::Orange)), ((0, 4), c(Color::Magenta)), ((5, 0), c(Color::Blue)), ((1, 0), c(Color::Yellow)), ((3, 1), WHITE)],
+    );
+    d.app.settings.color_highlight = Color::White;
+    assert_cells(&d, &fonts, "a White highlight", &[((0, 4), WHITE), ((8, 7), WHITE), ((0, 0), c(Color::Orange))]);
+    d.app.settings.color_clash = Color::White;
+    assert_cells(&d, &fonts, "a White clash", &[((5, 0), WHITE), ((5, 2), WHITE)]);
+    d.app.ui.highlight = None;
+    d.app.settings.color_starting = Color::White;
+    assert_cells(&d, &fonts, "a White starting color", &[((0, 0), c(Color::Orange)), ((1, 0), WHITE)]);
+}
+
+#[test]
+fn a_cell_with_a_question_mark_has_no_completed_color() {
+    // BRD-7, COL-8, QST-1: the cell of the "?" is empty, thus its row is not a completed group.
+    let fonts = fonts();
+    let mut d = Driver::new(202);
+    d.app.game = puzzle_with(&ROW_0[..5]);
+    d.write_strokes(&scribble_ink((0, 8)));
+    d.wait(d.app.pause_ms + 10);
+    assert!(d.app.ui.question.is_some(), "the app did not read a number");
+    assert_cells(&d, &fonts, "with the question mark", &[((0, 8), WHITE), ((0, 0), GRAY)]);
+    assert!(!d.app.game.completed_cells().contains((0, 8)));
+    d.wait(OVERLAY_MS);
+    assert!(d.app.ui.question.is_none());
+    d.write((0, 8), 2);
+    assert_cells(&d, &fonts, "with the number", &[((0, 8), GREEN), ((0, 0), GREEN)]);
+}
+
+#[test]
+fn each_group_gets_the_color_when_its_last_cell_is_filled() {
+    // COL-8: all 27 groups. Only the nine cells of the group get the color, also when the
+    // group has one entry.
+    let fonts = fonts();
+    let groups = model_groups();
+    assert_eq!(groups.len(), 27);
+    let mut d = Driver::new(203);
+    for group in &groups {
+        let last = group[8];
+        d.app.game = board_with(&group[..8]);
+        assert!(d.app.game.completed_cells() == Default::default(), "{group:?}: one cell is empty");
+        assert_board(&d.app, &fonts, "eight cells");
+        let v = digits(&SOLUTION)[last.0 as usize][last.1 as usize];
+        d.app.game.add_number(last, v);
+        let pm = draw_screen(&d.app, &fonts);
+        for c in cells() {
+            let want = if group.contains(&c) { GREEN } else { WHITE };
+            assert_eq!(cell_background(&pm, c), want, "{group:?}: {c:?}");
+        }
+    }
+}
+
+#[test]
+fn a_row_a_column_and_a_box_get_the_color_with_the_pen_in_all_layouts() {
+    // COL-8, COL-10: the same with the input of a player. One cell is in the row, the column and the
+    // box of the same number, and the three groups become completed at the same time.
+    let fonts = fonts();
+    let solution = digits(&SOLUTION);
+    let row = (0..9).map(|c| (4u8, c));
+    let column = (0..9).map(|r| (r, 4u8));
+    let boxed = (3..6).flat_map(|r| (3..6u8).map(move |c| (r, c)));
+    let puzzle = board_of(&PUZZLE);
+    let entries: Vec<(Cell, u8)> = row
+        .chain(column)
+        .chain(boxed)
+        .filter(|&c| c != (4, 4) && !puzzle.is_given(c))
+        .map(|c| (c, solution[c.0 as usize][c.1 as usize]))
+        .collect();
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(204);
+        d.app.game = puzzle_with(&entries);
+        // White starting numbers: only the completed color can show on these cells.
+        d.app.settings.color_starting = Color::White;
+        assert_cells(&d, &fonts, layout_case, &[((4, 0), WHITE), ((0, 4), WHITE), ((3, 3), WHITE)]);
+        d.write((4, 4), 5);
+        assert_eq!(d.app.game.value_at((4, 4)), 5);
+        assert_cells(&d, &fonts, layout_case, &[((4, 4), GREEN), ((4, 0), GREEN), ((0, 4), GREEN), ((3, 3), GREEN), ((8, 8), WHITE)]);
+        d.erase((4, 4));
+        assert_cells(&d, &fonts, layout_case, &[((4, 4), WHITE), ((4, 0), WHITE), ((0, 4), WHITE), ((3, 3), WHITE)]);
+    });
+}
+
+#[test]
+fn a_clash_with_a_cell_outside_the_group_stops_the_group() {
+    // COL-8, CLS-2, COL-10: all 27 groups. The group is full and has the digits 1 to 9 one time, but a
+    // cell of the group clashes with a cell outside it. The erasure of that cell completes the group.
+    let fonts = fonts();
+    let solution = digits(&SOLUTION);
+    let groups = model_groups();
+    let mut d = Driver::new(205);
+    for group in &groups {
+        let p = group[0];
+        let v = solution[p.0 as usize][p.1 as usize];
+        let q = groups.iter().filter(|o| o.contains(&p)).flatten().copied().find(|c| !group.contains(c)).unwrap();
+        d.app.game = board_with(group);
+        assert_cells(&d, &fonts, "full", &[(p, GREEN), (group[8], GREEN)]);
+        d.app.game.add_number(q, v);
+        let mut in_group: Vec<u8> = group.iter().map(|&c| d.app.game.value_at(c)).collect();
+        in_group.sort_unstable();
+        assert_eq!(in_group, [1, 2, 3, 4, 5, 6, 7, 8, 9], "{group:?}");
+        assert_cells(&d, &fonts, "outside clash", &[(p, RED), (q, RED), (group[1], GRAY), (group[8], GRAY)]);
+        d.app.game.erase(q);
+        assert_cells(&d, &fonts, "after the erasure", &[(p, GREEN), (q, WHITE), (group[8], GREEN)]);
+    }
+}
+
+#[test]
+fn a_group_with_an_incorrect_number_can_be_a_completed_group() {
+    // COL-9, CLS-4, BRD-5: the color comes only from `value`. Two entries are incorrect and no cell
+    // clashes: the group has the same colors as a correct group.
+    let fonts = fonts();
+    let mut d = Driver::new(206);
+    d.app.game = puzzle_with(&[((0, 2), 4), ((0, 3), 6), ((0, 5), 8), ((0, 8), 2)]);
+    // The solution has 9 at (0, 6) and 1 at (0, 7).
+    d.write((0, 6), 1);
+    d.write((0, 7), 9);
+    let g = d.app.game.clone();
+    assert_eq!((g.value_at((0, 6)), g.value_at((0, 7))), (1, 9));
+    assert_eq!((g.solution[0][6], g.solution[0][7]), (9, 1), "the entries are incorrect");
+    assert_cells(&d, &fonts, "incorrect entries", &[((0, 6), GREEN), ((0, 7), GREEN), ((0, 8), GREEN), ((0, 0), GREEN)]);
+    // The solution has no effect on the colors: the same board with a different solution.
+    let incorrect = draw_screen(&d.app, &fonts);
+    let swapped = |v: u8| match v {
+        1 => 9,
+        9 => 1,
+        v => v,
+    };
+    d.app.game.solution = g.solution.map(|row| row.map(swapped));
+    assert_eq!(d.app.game.value_at((0, 7)), d.app.game.solution[0][7], "now the entries are correct");
+    assert_eq!(d.app.game.completed_cells(), g.completed_cells());
+    assert!(draw_screen(&d.app, &fonts).data() == incorrect.data(), "CLS-4: the screen does not change");
+    // The app does not save the groups (COL-9): the saved game has no data for them, and the
+    // set comes again from the numbers.
+    let json = serde_json::to_string(&g).unwrap();
+    assert!(!json.contains("group"), "{json}");
+    let saved: sudoku::game::Game = serde_json::from_str(&json).unwrap();
+    assert_eq!(saved.completed_cells(), g.completed_cells());
+}
+
+#[test]
+fn a_full_group_of_starting_numbers_has_the_color_from_the_first_frame() {
+    // COL-9, §6.4: Easy puzzles of the generator (PUZ-5) with a row, a column, a box, or two groups
+    // that are full at the start. There is no exception for them.
+    let fonts = fonts();
+    let cases: [(u64, Cell); 4] = [(323, (0, 8)), (4, (8, 0)), (249, (2, 8)), (368, (5, 8))];
+    for (seed, cell) in cases {
+        let game = sudoku::app::new_game(seed, 0);
+        let d = Driver::opened(app_with_game(game.clone(), START_TIME, seed));
+        assert_eq!(d.app.game, game, "the app accepts the puzzle");
+        assert!(d.app.game.is_given(cell) && d.app.game.undo.is_empty(), "seed {seed}");
+        let groups = model_completed_groups(&d.app.game);
+        assert!(!groups.is_empty(), "seed {seed}");
+        assert!(groups.iter().flatten().all(|&c| d.app.game.is_given(c)), "seed {seed}");
+        assert_cells(&d, &fonts, "first frame", &[(cell, GREEN)]);
+    }
+}
+
+#[test]
+fn a_new_game_gets_the_colors_of_its_own_numbers() {
+    // COL-10: a new game replaces the colors of the old board, in one action and with empty stacks.
+    let fonts = fonts();
+    for_each_layout(|layout_case| {
+        let settings = Settings { last_mode: 0, ..Settings::default() };
+        let app = App::new(None, Some(settings), ResultsDb::in_memory(), Box::new(sudoku::script::FixedEnv(323)), App::placeholder_ng_stops());
+        let mut d = Driver::from(app);
+        d.app.game = order_board();
+        d.button(Button::Menu);
+        d.button(Button::NewGame);
+        d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_start_y() as f32);
+        assert_eq!(d.app.game, sudoku::app::new_game(323, 0), "{layout_case}");
+        assert!(d.app.game.undo.is_empty() && d.app.game.redo.is_empty());
+        // Row 0 of this puzzle is full. (5, 0) of the old board clashed.
+        assert_cells(&d, &fonts, layout_case, &[((0, 8), GREEN)]);
+        assert_ne!(cell_background(&draw_screen(&d.app, &fonts), (5, 0)), RED, "{layout_case}");
+    });
+}
+
+/// The steps of the far recolor: row 8 is full, and a number in (6, 0) clashes with the entry (8, 0) of that
+/// row. `at` gets the name, the two stack lengths without the six entries of the start, and whether row 8
+/// is a completed group.
+fn far_recolor_steps(d: &mut Driver, mut at: impl FnMut(&Driver, &str, (usize, usize), bool)) {
+    d.app.game = puzzle_with(&[((8, 0), 3), ((8, 1), 4), ((8, 2), 5), ((8, 3), 2), ((8, 5), 6), ((8, 6), 1)]);
+    d.button(Button::Menu);
+    at(d, "start", (0, 0), true);
+    d.write((6, 0), 3);
+    assert_eq!(d.app.game.value_at((6, 0)), 3);
+    at(d, "a number", (1, 0), false);
+    d.erase((6, 0));
+    at(d, "an erasure", (2, 0), true);
+    d.button(Button::Undo);
+    at(d, "undo of the erasure", (1, 1), false);
+    d.button(Button::Redo);
+    at(d, "redo of the erasure", (2, 0), true);
+    d.button(Button::Undo);
+    d.button(Button::Undo);
+    at(d, "undo of the number", (0, 2), true);
+    d.button(Button::Redo);
+    at(d, "redo of the number", (1, 1), false);
+}
+
+#[test]
+fn one_input_recolors_cells_far_from_the_changed_cell() {
+    // COL-10, UND-2, UND-5: (8, 8) and (8, 4) are not peers of (6, 0), but their row gets and loses the
+    // color at each number, erasure, undo and redo. Only the changes of the board go to the stacks.
+    let fonts = fonts();
+    assert!(!peers((6, 0)).any(|p| p == (8, 8) || p == (8, 4)));
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(207);
+        far_recolor_steps(&mut d, |d, case, stacks, complete| {
+            let case = format!("{layout_case}, {case}");
+            assert_eq!((d.app.game.undo.len() - 6, d.app.game.redo.len()), stacks, "{case}");
+            assert_eq!(d.app.game.completed_cells().contains((8, 8)), complete, "{case}");
+            // Far starting numbers, a far entry, and the entry that clashes.
+            let (far, far_entry, near) = if complete { (GREEN, GREEN, GREEN) } else { (GRAY, WHITE, RED) };
+            assert_cells(d, &fonts, &case, &[((8, 8), far), ((8, 4), far), ((8, 6), far_entry), ((8, 0), near)]);
+            assert!(!d.app.game.completed && d.app.results.is_empty(), "{case}");
+        });
+    });
+}
+
+#[test]
+fn the_color_does_not_change_the_game_the_clock_or_the_results() {
+    // COL-10, UND-2, CLK-1: the same inputs with and without the color give the same game, with the
+    // same stacks, the same clock, the same `completed` and the same results.
+    let run = |on: bool| {
+        let mut d = Driver::new(208);
+        d.app.settings.completed_color_on = on;
+        far_recolor_steps(&mut d, |_, _, _, _| {});
+        d
+    };
+    let (on, off) = (run(true), run(false));
+    assert_eq!(on.app.game, off.app.game);
+    assert!(on.app.game.elapsed_ms > 0);
+    assert_eq!(on.app.results.len(), off.app.results.len());
+    assert_eq!(on.now, off.now);
+}
+
+#[test]
+fn the_switch_changes_the_board_immediately_and_nothing_else() {
+    // NAV-14, COL-11, UND-2, BRD-7: a tap on the third row. The cell (0, 4) is not under the Settings
+    // panel in any layout.
+    let fonts = fonts();
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(209);
+        d.app.game = row_0_board();
+        d.tap_micro((4, 4), 5);
+        d.app.game.undo();
+        let game = d.app.game.clone();
+        d.button(Button::Menu);
+        d.button(Button::Settings);
+        let (x0, _) = documented_settings_x();
+        let (x, y) = ((x0 + 200) as f32, (documented_settings_row_y(2) + 56) as f32);
+        assert_cells(&d, &fonts, layout_case, &[((0, 4), GREEN)]);
+        d.finger_tap(x, y);
+        assert!(!d.app.settings.completed_color_on, "{layout_case}");
+        assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "the panel stays open");
+        assert!(d.app.settings_dirty, "PER-7");
+        assert_cells(&d, &fonts, layout_case, &[((0, 4), GRAY)]);
+        d.pen_tap(x, y);
+        assert!(d.app.settings.completed_color_on, "{layout_case}");
+        assert_cells(&d, &fonts, layout_case, &[((0, 4), GREEN)]);
+        assert_eq!((&d.app.game.value, &d.app.game.marks), (&game.value, &game.marks));
+        assert_eq!((&d.app.game.undo, &d.app.game.redo), (&game.undo, &game.redo), "UND-2");
+    });
+}
+
+#[test]
+fn the_switch_off_and_white_give_the_same_board() {
+    // COL-11, BRD-7: the two conditions give the same pixels, and a starting number keeps its starting
+    // color. They do not change the set of completed groups.
+    let fonts = fonts();
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(210);
+        d.app.game = order_board();
+        let set = d.app.game.completed_cells();
+        let on = draw_screen(&d.app, &fonts);
+        d.app.settings.completed_color_on = false;
+        assert_cells(&d, &fonts, layout_case, &[((0, 0), GRAY), ((0, 8), WHITE), ((0, 4), GRAY), ((5, 0), RED)]);
+        let off = draw_screen(&d.app, &fonts);
+        d.app.settings.completed_color_on = true;
+        d.app.settings.color_completed = Color::White;
+        assert_cells(&d, &fonts, layout_case, &[((0, 0), GRAY), ((0, 8), WHITE), ((0, 4), GRAY), ((5, 0), RED)]);
+        let white = draw_screen(&d.app, &fonts);
+        assert!(off.data() == white.data(), "{layout_case}: the two conditions give the same board");
+        assert!(on.data() != off.data(), "{layout_case}");
+        d.app.settings.completed_color_on = false;
+        assert!(draw_screen(&d.app, &fonts).data() == off.data(), "{layout_case}: the two conditions together");
+        assert_eq!(d.app.game.completed_cells(), set, "{layout_case}");
+    });
+}
+
+#[test]
+fn the_completed_section_operates_with_the_switch_off() {
+    // COL-11, COL-5, COL-3: with the switch off, a tap selects a color, the color stays not available
+    // for the other sections, and the board shows the color when the switch is on again.
+    let fonts = fonts();
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(211);
+        d.app.game = row_0_board();
+        d.app.settings.completed_color_on = false;
+        d.button(Button::Menu);
+        d.button(Button::Colors);
+        let tap = |d: &mut Driver, s: Section, c: Color| {
+            let (x, y) = color_point(s, c);
+            d.finger_tap(x, y);
+        };
+        tap(&mut d, Section::Highlight, Color::Green);
+        assert_eq!(d.app.settings.color_highlight, Color::Cyan, "{layout_case}: Green stays not available");
+        tap(&mut d, Section::Completed, Color::Orange);
+        assert_eq!(d.app.settings.color_completed, Color::Orange, "{layout_case}");
+        assert!(!d.app.settings.completed_color_on, "{layout_case}: a color does not change the switch");
+        tap(&mut d, Section::Starting, Color::Orange);
+        assert_eq!(d.app.settings.color_starting, Color::Gray, "{layout_case}: Orange is not available");
+        tap(&mut d, Section::Highlight, Color::Green);
+        assert_eq!(d.app.settings.color_highlight, Color::Green, "{layout_case}: Green is free now");
+        d.button(Button::Colors);
+        assert_cells(&d, &fonts, layout_case, &[((0, 0), GRAY), ((0, 8), WHITE)]);
+        d.button(Button::Settings);
+        let (x0, _) = documented_settings_x();
+        d.finger_tap((x0 + 200) as f32, (documented_settings_row_y(2) + 56) as f32);
+        d.button(Button::Settings);
+        assert_cells(&d, &fonts, layout_case, &[((0, 0), Color::Orange.rgb()), ((0, 8), Color::Orange.rgb())]);
+    });
+}
+
+#[test]
+fn a_new_completed_color_shows_immediately_under_the_open_panel() {
+    // COL-3, COL-4: the panel stays open, and the cells that it does not cover change at the tap.
+    // The game and the stacks do not change.
+    let fonts = fonts();
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(212);
+        d.app.game = row_0_board();
+        let game = d.app.game.clone();
+        d.button(Button::Menu);
+        d.button(Button::Colors);
+        let visible = if layout::right_handed() { (0, 8) } else { (0, 0) };
+        let (px, py) = micro_center(visible, 1);
+        assert!(!layout::colors_panel().contains(px, py), "{layout_case}");
+        assert_cells(&d, &fonts, layout_case, &[(visible, GREEN)]);
+        for color in [Color::Yellow, Color::White, Color::Green] {
+            let (x, y) = color_point(Section::Completed, color);
+            d.finger_tap(x, y);
+            assert_eq!(d.app.settings.color_completed, color, "{layout_case}");
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors), "{layout_case}");
+            // White: no completed color. Then (0, 0) is a starting number and (0, 8) is an entry.
+            let plain = if d.app.game.is_given(visible) { GRAY } else { WHITE };
+            let want = if color == Color::White { plain } else { color.rgb() };
+            assert_cells(&d, &fonts, layout_case, &[(visible, want)]);
+        }
+        assert_eq!((&d.app.game.value, &d.app.game.undo, &d.app.game.redo), (&game.value, &game.undo, &game.redo), "COL-4");
+    });
+}
+
+/// All cells have the normal colors of a complete game: the starting color and white (COL-12).
+fn assert_normal_colors(app: &App, fonts: &sudoku::font::Fonts, starting: [u8; 3], case: &str) {
+    let pm = draw_screen(app, fonts);
+    assert!(app.game.completed, "{case}");
+    for c in cells() {
+        let want = if app.game.is_given(c) { starting } else { WHITE };
+        let (x, y) = micro_center(c, 1);
+        let panel = app.ui.menu.panel().is_some_and(|p| match p {
+            Panel::Colors => layout::colors_panel().contains(x, y + 111.0),
+            Panel::Settings => layout::settings_panel(app.update.has_row()).contains(x, y + 111.0),
+            Panel::NewGame => layout::ng_panel().contains(x, y + 111.0),
+        });
+        if !panel {
+            assert_eq!(cell_background(&pm, c), want, "{case}: {c:?}");
+        }
+    }
+}
+
+#[test]
+fn at_completion_the_groups_lose_the_color() {
+    // COL-12, CMP-6, NAV-14: before the last number, each row except one has the color. At completion
+    // no cell has it. The switch and the Completed groups section still operate, with no effect on the board.
+    let fonts = fonts();
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(213);
+        let last = empty_cell(&d.app.game);
+        fill_except(&mut d, last);
+        let other = (last.0 + 1) % 9;
+        let (given, entry) = (
+            (0..9).map(|c| (other, c)).find(|&c| d.app.game.is_given(c)).expect("a starting number"),
+            (0..9).map(|c| (other, c)).find(|&c| d.app.game.is_entry(c)).expect("an entry"),
+        );
+        assert_cells(&d, &fonts, layout_case, &[(given, GREEN), (entry, GREEN)]);
+        let v = d.app.game.solution[last.0 as usize][last.1 as usize];
+        d.write(last, v);
+        assert_normal_colors(&d.app, &fonts, GRAY, layout_case);
+        assert_eq!(d.app.results.len(), 1, "CMP-5");
+        // COL-11: the set does not depend on the color. All cells are in completed groups.
+        assert!(cells().all(|c| d.app.game.completed_cells().contains(c)), "{layout_case}");
+        // The switch operates and does not change the board.
+        d.button(Button::Menu);
+        d.button(Button::Settings);
+        let (x0, _) = documented_settings_x();
+        let (x, y) = ((x0 + 200) as f32, (documented_settings_row_y(2) + 56) as f32);
+        d.finger_tap(x, y);
+        assert!(!d.app.settings.completed_color_on, "{layout_case}");
+        assert_normal_colors(&d.app, &fonts, GRAY, layout_case);
+        d.finger_tap(x, y);
+        assert!(d.app.settings.completed_color_on, "{layout_case}");
+        assert_normal_colors(&d.app, &fonts, GRAY, layout_case);
+        // A new completed color does not show. A new starting color shows.
+        d.button(Button::Colors);
+        let (x, y) = color_point(Section::Completed, Color::Orange);
+        d.finger_tap(x, y);
+        assert_eq!(d.app.settings.color_completed, Color::Orange, "{layout_case}");
+        assert_normal_colors(&d.app, &fonts, GRAY, layout_case);
+        let (x, y) = color_point(Section::Starting, Color::Yellow);
+        d.finger_tap(x, y);
+        assert_eq!(d.app.settings.color_starting, Color::Yellow, "{layout_case}");
+        d.button(Button::Colors);
+        assert_normal_colors(&d.app, &fonts, Color::Yellow.rgb(), layout_case);
+        assert_eq!(d.app.results.len(), 1, "CMP-5");
+    });
+}
+
+#[test]
+fn a_redo_that_completes_the_game_removes_the_color() {
+    // COL-12, COL-10: the last number comes from a redo.
+    let fonts = fonts();
+    let mut d = Driver::new(214);
+    let last = redo_completes(&mut d);
+    d.button(Button::Menu);
+    let other = ((last.0 + 1) % 9, 0);
+    assert_cells(&d, &fonts, "before the redo", &[(other, GREEN)]);
+    d.button(Button::Redo);
+    assert_normal_colors(&d.app, &fonts, GRAY, "after the redo");
+}
+
+#[test]
+fn a_saved_completed_game_opens_with_the_normal_colors() {
+    // COL-12, PER-1, PER-2: the color does not come back when a completed game opens, in any layout.
+    let fonts = fonts();
+    let mut d = Driver::new(215);
+    let last = empty_cell(&d.app.game);
+    fill_except(&mut d, last);
+    let v = d.app.game.solution[last.0 as usize][last.1 as usize];
+    d.write(last, v);
+    assert!(d.app.game.completed);
+    let dir = std::env::temp_dir().join(format!("sudoku-completed-{}", std::process::id()));
+    let (gp, sp) = (dir.join("game.json"), dir.join("settings.json"));
+    sudoku::store::save_json(&gp, &d.app.game).unwrap();
+    sudoku::store::save_json(&sp, &d.app.settings).unwrap();
+    for_each_layout(|layout_case| {
+        let app = App::new(sudoku::store::load_json(&gp), sudoku::store::load_json(&sp), ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 9 }), App::placeholder_ng_stops());
+        assert_eq!(app.game, d.app.game, "{layout_case}");
+        assert!(app.settings.completed_color_on && app.settings.color_completed == Color::Green, "{layout_case}");
+        assert_normal_colors(&app, &fonts, GRAY, layout_case);
+    });
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_settings_panel_has_three_switches_and_the_version_row_in_row_four() {
+    // NAV-14, UPD-1, §9.1: the panel stays 400 px wide. The positions come from the documents.
+    let fonts = fonts();
+    assert_eq!(Switch::ColorCompletedGroups.label(), ["Color completed", "groups"]);
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(216);
+        d.app.update = sudoku::update::Update::new("dev");
+        let mark = free_cell(&d.app, &[5]);
+        d.tap_micro(mark, 5);
+        let game = (d.app.game.value, d.app.game.marks, d.app.game.undo.clone(), d.app.game.redo.clone());
+        d.button(Button::Menu);
+        d.button(Button::Settings);
+        let (x0, x1) = documented_settings_x();
+        assert_eq!(x1 - x0 + 1, 400, "{layout_case}");
+        let row_center = |i: i32| (documented_settings_row_y(i) + 56) as f32;
+        let switches = |d: &Driver| (d.app.settings.highlight_on, d.app.settings.auto_hide_on, d.app.settings.completed_color_on);
+
+        // A tap on each row changes only its switch, also at the first and the last pixel of the row.
+        let mx = (x0 + 200) as f32;
+        d.finger_tap(mx, row_center(0));
+        assert_eq!(switches(&d), (false, true, true), "{layout_case}");
+        d.pen_tap(mx, row_center(1));
+        assert_eq!(switches(&d), (false, false, true), "{layout_case}");
+        d.finger_tap(mx, row_center(2));
+        assert_eq!(switches(&d), (false, false, false), "{layout_case}");
+        d.finger_tap(x0 as f32, row_center(2));
+        assert_eq!(switches(&d), (false, false, true), "{layout_case}");
+        d.finger_tap(x1 as f32, row_center(2));
+        assert_eq!(switches(&d), (false, false, false), "{layout_case}");
+        assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{layout_case}");
+
+        // The track of the third switch: black when on, white when off (§9.1).
+        let track = (x1 - 33 - 36, row_center(2) as i32);
+        assert_eq!(rgb_at(&draw_screen(&d.app, &fonts), track.0, track.1), WHITE, "{layout_case}: off");
+        d.finger_tap(mx, row_center(2));
+        assert_eq!(rgb_at(&draw_screen(&d.app, &fonts), track.0, track.1), [0, 0, 0], "{layout_case}: on");
+        // The name has two lines of text in the third row.
+        let pm = draw_screen(&d.app, &fonts);
+        let top = documented_settings_row_y(2);
+        let dark = |y0: i32, y1: i32| (x0 + 30..x0 + 250).any(|x| (y0..y1).any(|y| rgb_at(&pm, x, y)[0] < 100));
+        assert!(dark(top + 8, top + 52) && dark(top + 60, top + 104), "{layout_case}: two lines of text");
+
+        // The version row (row 4) changes nothing, and the panel stays open.
+        d.app.settings_dirty = false;
+        let before = d.app.settings.clone();
+        d.finger_tap(mx, row_center(3));
+        d.pen_tap(mx, row_center(3));
+        assert_eq!(d.app.settings, before, "{layout_case}");
+        assert!(!d.app.settings_dirty, "{layout_case}");
+        assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{layout_case}");
+
+        // The game does not change.
+        assert_eq!((d.app.game.value, d.app.game.marks, d.app.game.undo.clone(), d.app.game.redo.clone()), game, "{layout_case}");
+
+        // A tap next to the panel only closes it: the panel is not wider than 400 px (NAV-11, NAV-12).
+        for x in [x0 - 1, x1 + 1] {
+            d.finger_tap(x as f32, row_center(2));
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "{layout_case}, x {x}");
+            assert_eq!(d.app.settings, before, "{layout_case}, x {x}");
+            d.button(Button::Settings);
+        }
+    });
+}
+
+#[test]
+fn the_settings_panel_has_a_fifth_row_only_in_a_build_that_can_update() {
+    // UPD-1, §9.1: four rows when `state = Off`, else five. A tap in the last row keeps the panel open,
+    // and a tap one row lower only closes it.
+    use sudoku::update::Update;
+    let fonts = fonts();
+    let hex40 = "0123456789abcdef0123456789abcdef01234567";
+    let cases = [
+        ("dev".to_string(), 4),
+        ("v1".to_string(), 4),
+        ("pre-abc".to_string(), 4),
+        (format!("pre-{hex40}0"), 4),
+        ("v0.1.0".to_string(), 5),
+        ("pre-abcdef0".to_string(), 5),
+        (format!("pre-{hex40}"), 5),
+    ];
+    for_each_layout(|layout_case| {
+        for (version, rows) in &cases {
+            let case = format!("{layout_case}, {version}");
+            let mut d = Driver::new(217);
+            d.app.update = Update::new(version);
+            d.app.update.request = None;
+            assert_eq!(d.app.update.has_row(), *rows == 5, "{case}");
+            d.button(Button::Menu);
+            d.button(Button::Settings);
+            let (x0, _) = documented_settings_x();
+            // The bottom border is the last 2 px of the panel.
+            let border = documented_settings_row_y(*rows);
+            let pm = draw_screen(&d.app, &fonts);
+            let x = x0 + 200;
+            assert_eq!(rgb_at(&pm, x, border - 2), [0, 0, 0], "{case}");
+            assert_eq!(rgb_at(&pm, x, border - 1), [0, 0, 0], "{case}");
+            let before = d.app.settings.clone();
+            let margin = (x0 + 10) as f32;
+            d.finger_tap(margin, (documented_settings_row_y(*rows - 1) + 56) as f32);
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{case}: the last row");
+            d.finger_tap(margin, (documented_settings_row_y(*rows) + 56) as f32);
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "{case}: below the panel");
+            assert_eq!(d.app.settings, before, "{case}");
+        }
+    });
+}
+
+/// The state of the app that a tap with no effect does not change.
+fn panel_state(d: &Driver) -> impl PartialEq + std::fmt::Debug {
+    (d.app.game.value, d.app.game.marks, d.app.game.undo.clone(), d.app.game.redo.clone(), d.app.settings.clone(), d.app.settings_dirty, d.app.ui.highlight)
+}
+
+#[test]
+fn a_tap_on_the_empty_space_or_a_title_of_the_colors_panel_has_no_effect() {
+    // NAV-17, §10: all the parts of the panel that are not an item, in the four layouts, with the
+    // finger and with the pen. The panel stays open.
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(218);
+        d.button(Button::Menu);
+        d.button(Button::Colors);
+        d.app.settings_dirty = false;
+        let (x0, x1) = documented_colors_x();
+        let before = panel_state(&d);
+        let mut points = vec![
+            // The empty space below the Micro-cell lines section.
+            (x0 + 600, 1012),
+            (x0 + 402, 834),
+            (x1 - 2, 1190),
+            // The line between the columns.
+            (x0 + 400, 300),
+            (x0 + 400, 1000),
+            // The corners of the panel.
+            (x0, 112),
+            (x1, 112),
+            (x0, 1192),
+            (x1, 1192),
+            // The left and the right margin of a grid.
+            (x0 + 10, 300),
+            (x0 + 385, 300),
+            (x0 + 410, 300),
+            (x1 - 10, 300),
+        ];
+        // The five titles.
+        for (left, top) in [(x0, 112), (x0, 472), (x0, 832), (x0 + 400, 112), (x0 + 400, 472)] {
+            points.push((left + 53, top + 36));
+        }
+        for (x, y) in points {
+            d.finger_tap(x as f32, y as f32);
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors), "{layout_case}: finger at ({x}, {y})");
+            d.pen_tap(x as f32, y as f32);
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors), "{layout_case}: pen at ({x}, {y})");
+            assert_eq!(panel_state(&d), before, "{layout_case}: ({x}, {y})");
+        }
+        // One pixel out of the panel: the tap only closes it (NAV-11, NAV-12).
+        for (x, y) in [(x0 - 1, 600), (x1 + 1, 600), (x0 + 100, 111), (x0 + 100, 1193)] {
+            d.finger_tap(x as f32, y as f32);
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "{layout_case}: ({x}, {y})");
+            assert_eq!(panel_state(&d), before, "{layout_case}: ({x}, {y})");
+            d.button(Button::Colors);
+        }
+    });
+}
+
+#[test]
+fn the_colors_panel_does_not_cover_the_other_items() {
+    // NAV-17, NAV-10: the panel changes only the pixels of its area (and the button that opened it). Thus
+    // it does not cover a toolbar button, the close button, the meter or "Completed in".
+    let fonts = fonts();
+    for_each_layout(|layout_case| {
+        let mut games = vec![reference::sample_game()];
+        games.push(reference::completed_game());
+        for game in games {
+            let mut d = Driver::new(219);
+            let completed = game.completed;
+            d.app.game = game;
+            d.app.ui.menu = Menu::Open(None);
+            let without = draw_screen(&d.app, &fonts);
+            d.app.ui.menu = Menu::Open(Some(Panel::Colors));
+            let with = draw_screen(&d.app, &fonts);
+            let (x0, x1) = documented_colors_x();
+            let toolbar = (layout::tb_x(), layout::tb_x() + 112);
+            for y in 0..layout::screen_h() as i32 {
+                for x in 0..layout::screen_w() as i32 {
+                    let in_panel = (x0..=x1).contains(&x) && (112..=1192).contains(&y);
+                    let in_button = (toolbar.0..toolbar.1).contains(&x) && (112..224).contains(&y);
+                    if !in_panel && !in_button {
+                        assert_eq!(rgb_at(&with, x, y), rgb_at(&without, x, y), "{layout_case}, completed {completed}: ({x}, {y})");
+                    }
+                }
+            }
+            // The panel has all of its area: the border at the first and at the last pixel.
+            assert_eq!(rgb_at(&with, x0, 600), [0, 0, 0], "{layout_case}");
+            assert_eq!(rgb_at(&with, x1, 600), [0, 0, 0], "{layout_case}");
+            assert_eq!(rgb_at(&with, x0 + 100, 112), [0, 0, 0], "{layout_case}");
+            assert_eq!(rgb_at(&with, x0 + 100, 1192), [0, 0, 0], "{layout_case}");
+        }
+        // The buttons and the close button are out of the panel.
+        let (x0, x1) = documented_colors_x();
+        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+            let (x, y) = button_center(b);
+            assert!(x < x0 as f32 || x > x1 as f32 || y < 112.0 || y > 1192.0, "{layout_case}: {b:?}");
+        }
+    });
+}
+
+#[test]
+fn each_item_of_the_colors_panel_is_at_its_place() {
+    // NAV-17, §10, COL-2, COL-7: the order of the sections and of the columns is the same for the two
+    // hands. A tap on the place of the documents selects the item of that section.
+    use sudoku::settings::LineGray;
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(220);
+        d.button(Button::Menu);
+        d.button(Button::Colors);
+        let (x0, _) = documented_colors_x();
+        // A color that all sections can select: all sections have White.
+        for s in Section::ALL {
+            let (x, y) = color_point(s, Color::White);
+            d.finger_tap(x, y);
+            assert_eq!(d.app.settings.color(s), Color::White, "{layout_case}: {s:?}");
+        }
+        let places = [(Section::Starting, x0, 112), (Section::Clash, x0, 472), (Section::Highlight, x0, 832), (Section::Completed, x0 + 400, 112)];
+        for (section, left, top) in places {
+            for (i, color) in Color::ALL.into_iter().enumerate() {
+                let r = layout::color_cell(section, color);
+                let x = left + 32 + (i as i32 % 3) * 112;
+                assert_eq!((r.x0, r.x1 - r.x0, r.y1 - r.y0), (x, 112, 90), "{layout_case}: {section:?} {color:?}");
+                assert!(r.y0 >= top && r.y1 <= top + 360, "{layout_case}: {section:?} {color:?}");
+                d.pen_tap((x + 56) as f32, (r.y0 + 40) as f32);
+                assert_eq!(d.app.settings.color(section), color, "{layout_case}: {section:?} {color:?}");
+                assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors));
+            }
+            d.finger_tap((left + 32 + 56 + 112) as f32, (layout::color_cell(section, Color::White).y0 + 40) as f32);
+            assert_eq!(d.app.settings.color(section), Color::White, "{layout_case}: {section:?}");
+        }
+        for (i, gray) in LineGray::ALL.into_iter().enumerate() {
+            let r = layout::line_gray_cell(gray);
+            let x = x0 + 400 + 32 + (i as i32 % 3) * 112;
+            assert_eq!((r.x0, r.x1 - r.x0, r.y1 - r.y0), (x, 112, 90), "{layout_case}: {gray:?}");
+            assert!(r.y0 >= 472 && r.y1 <= 832, "{layout_case}: {gray:?}");
+            d.finger_tap((x + 56) as f32, (r.y0 + 40) as f32);
+            assert_eq!(d.app.settings.micro_line, gray, "{layout_case}: COL-7");
+        }
+        // COL-7: the section of the lines does not change a color.
+        assert!(Section::ALL.iter().all(|&s| d.app.settings.color(s) == Color::White), "{layout_case}");
+    });
+}
+
+#[test]
+fn the_four_color_sections_cannot_have_the_same_color() {
+    // COL-5: with taps, for each pair of the four sections. White is always available. A refused tap
+    // changes nothing, and the panel stays open.
+    use Color::*;
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(221);
+        d.button(Button::Menu);
+        d.button(Button::Colors);
+        let tap = |d: &mut Driver, s: Section, c: Color| {
+            let (x, y) = color_point(s, c);
+            d.finger_tap(x, y);
+        };
+        // The default colors are not available for the other sections.
+        for (taken, owner) in [(Gray, Section::Starting), (Red, Section::Clash), (Cyan, Section::Highlight), (Green, Section::Completed)] {
+            for s in Section::ALL.into_iter().filter(|&s| s != owner) {
+                let before = d.app.settings.clone();
+                tap(&mut d, s, taken);
+                assert_eq!(d.app.settings, before, "{layout_case}: {s:?} with {taken:?}");
+                assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors), "{layout_case}");
+                assert!(d.app.settings.color(s) != taken);
+            }
+        }
+        // Each pair: a color moves from one section to the other when it is free.
+        for a in Section::ALL {
+            for b in Section::ALL.into_iter().filter(|&b| b != a) {
+                let (old_a, old_b) = (d.app.settings.color(a), d.app.settings.color(b));
+                tap(&mut d, a, Yellow);
+                assert_eq!(d.app.settings.color(a), Yellow, "{layout_case}: {a:?}");
+                tap(&mut d, b, Yellow);
+                assert_eq!(d.app.settings.color(b), old_b, "{layout_case}: {b:?} has Yellow of {a:?}");
+                tap(&mut d, a, Magenta);
+                assert_eq!(d.app.settings.color(a), Magenta, "{layout_case}: {a:?}");
+                tap(&mut d, b, Yellow);
+                assert_eq!(d.app.settings.color(b), Yellow, "{layout_case}: Yellow is free");
+                tap(&mut d, b, old_b);
+                assert_eq!(d.app.settings.color(b), old_b, "{layout_case}: {b:?}");
+                assert!(d.app.settings.is_valid(), "{layout_case}");
+                // The next pair starts from the same colors.
+                tap(&mut d, a, old_a);
+                assert_eq!(d.app.settings.color(a), old_a, "{layout_case}: {a:?}");
+            }
+        }
+        // All four can be White, and then each other color is free.
+        for s in Section::ALL {
+            tap(&mut d, s, White);
+            assert_eq!(d.app.settings.color(s), White, "{layout_case}: {s:?}");
+        }
+        assert!(d.app.settings.is_valid(), "{layout_case}");
+        tap(&mut d, Section::Starting, Green);
+        tap(&mut d, Section::Completed, Green);
+        assert_eq!((d.app.settings.color_starting, d.app.settings.color_completed), (Green, White), "{layout_case}");
+    });
+}
+
+#[test]
+fn a_settings_file_of_an_earlier_version_goes_through_the_app() {
+    // PER-8, PER-5, COL-1: from a file, through `App::new`. Each start gives the same result, and the
+    // file changes only at the next change of the settings. (tests/inv_persist.rs examines each case of
+    // the colors.)
+    let dir = std::env::temp_dir().join(format!("sudoku-old-settings-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("settings.json");
+    let start = |path: &std::path::Path| {
+        App::new(None, sudoku::store::load_json(path), ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 3 }), App::placeholder_ng_stops())
+    };
+    let old = r#"{"color_starting":"Gray","color_clash":"Red","color_highlight":"Green","last_mode":1,"highlight_on":false,"auto_remove_on":false}"#;
+    std::fs::write(&path, old).unwrap();
+    for _ in 0..2 {
+        let app = start(&path);
+        assert_eq!(app.settings.color_highlight, Color::Cyan);
+        assert_eq!(app.settings.color_completed, Color::Green);
+        assert!(app.settings.completed_color_on);
+        assert_eq!((app.settings.last_mode, app.settings.highlight_on, app.settings.auto_hide_on), (1, false, false));
+        assert!(!app.settings_dirty, "the file changes only at the next change");
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), old);
+    }
+    // The next change of the settings keeps the new values.
+    let mut d = Driver::from(start(&path));
+    d.button(Button::Menu);
+    d.button(Button::Colors);
+    let (x, y) = color_point(Section::Completed, Color::Orange);
+    d.finger_tap(x, y);
+    assert!(d.app.settings_dirty);
+    sudoku::store::save_json(&path, &d.app.settings).unwrap();
+    assert_eq!(start(&path).settings, d.app.settings);
+    assert_eq!(start(&path).settings.color_highlight, Color::Cyan);
+    // A file that breaks COL-5: the default settings.
+    std::fs::write(&path, r#"{"color_starting":"Red","color_clash":"Red","color_highlight":"Blue","last_mode":1}"#).unwrap();
+    assert_eq!(start(&path).settings, Settings::default());
+    // A file with a completed color that breaks COL-5: the default settings (PER-5).
+    std::fs::write(&path, r#"{"color_starting":"Gray","color_clash":"Red","color_highlight":"Green","color_completed":"Green","last_mode":1}"#).unwrap();
+    assert_eq!(start(&path).settings, Settings::default());
+    std::fs::remove_dir_all(&dir).ok();
 }

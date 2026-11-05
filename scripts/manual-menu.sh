@@ -7,7 +7,7 @@ M=$(mktemp)
 UI=$1
 
 text 72 170 84 black start "The menu"
-text 72 260 38 gray25 start "Tap the menu button in the top right to open the menu."
+text 72 245 38 gray25 start "Tap the menu button in the top right to open the menu."
 
 # row Y ICON HEADING DESCRIPTION : a toolbar icon at its real size, with a heading and one line of description
 row() {
@@ -17,25 +17,22 @@ row() {
 }
 slot() { shot "$UI/screen-toolbar.png" 112x112+1508+$1; }
 slot_on() { shot "$UI/color-menu.png" 112x112+1508+$1; }   # undo and redo are available, as in a game in progress
-row 320  "$(slot 0)" "Menu"                   "Opens and closes the menu."
-row 440  "$(slot 112)" "Cell colors"            "Sets the colors for starting, clashing and highlighted numbers."
-row 560  "$(slot 224)" "Settings"               "Turns highlights and automatic pencil mark hiding on or off."
-row 680  "$(slot_on 336)" "Undo"                   "Cancels your last change to the board."
-row 800  "$(slot_on 448)" "Redo"                   "Makes the last canceled change again."
-row 920  "$(slot 1824)" "Help"                   "Opens this manual."
-row 1040 "$(slot 1936)" "Statistics"             "Shows your completed puzzles and their times."
-row 1160 "$(slot 2048)" "New game"               "Starts a new puzzle. Refer to page 8."
+row 270 "$(slot 0)" "Menu" "Opens and closes the menu."
+row 382 "$(slot 112)" "Cell colors" "Sets the colors of numbers and completed groups."
+row 494 "$(slot 224)" "Settings" "Turns highlights, pencil mark hiding and completed group colors on or off."
+row 606 "$(slot_on 336)" "Undo" "Cancels your last change to the board."
+row 718 "$(slot_on 448)" "Redo" "Makes the last canceled change again."
+row 830 "$(slot 1824)" "Help" "Opens this manual."
+row 942 "$(slot 1936)" "Statistics" "Shows your completed puzzles and their times."
+row 1054 "$(slot 2048)" "New game" "Starts a new puzzle. Refer to page 8."
 
-text 72 1320 50 black start "Select colors"
-text 72 1390 38 gray25 start "Tap Cell colors to open the"
-text 72 1440 38 gray25 start "panel. It has three sections:"
-text 72 1490 38 gray25 start "starting, clashing and"
-text 72 1540 38 gray25 start "highlighted numbers. In each"
-text 72 1590 38 gray25 start "section, tap a color."
-text 72 1660 38 gray25 start "A black box shows the selected"
-text 72 1710 38 gray25 start "color. A line through a color"
-text 72 1760 38 gray25 start "shows that it is in use."
-picture 888 1300 "$(shot "$UI/color-menu.png" 512x450+1108+110)"
+text 72 1205 50 black start "Select colors"
+text 72 1260 38 gray25 start "Tap Cell colors to open the panel. It has five sections: starting,"
+text 72 1310 38 gray25 start "clashing and highlighted numbers, completed groups and micro-cell"
+text 72 1360 38 gray25 start "lines. In each section, tap a color. A black box shows the selected"
+text 72 1410 38 gray25 start "color. A line through a color shows that it is in use. White in"
+text 72 1460 38 gray25 start "Completed groups gives no completed color."
+picture 542 1475 "$(shot "$UI/color-menu.png" $COLOR_PANEL_CROP)"
 
 pagenum 7 9
 render "$1/manual-menu.png"

@@ -4,8 +4,10 @@
 //! Rules about a sequence of states (for example CLK-2 or UND-3) are in the tests.
 
 use crate::app::{App, Menu, Panel, Screen, MANUAL_PAGES};
-use crate::game::{cells, mark_bit, Change, Game};
+use crate::game::{cells, mark_bit, Change, Game, Group};
 use crate::generator::{count_solutions, is_valid_solution, MODES, V1_MODES, VERSION};
+use crate::layout;
+use crate::settings::Color;
 use crate::update::{has_updates, is_update, PatchChange, UpToDateRow, UpdateState};
 
 fn fail(rule: &str, msg: impl std::fmt::Display) -> Result<(), String> {
@@ -55,6 +57,8 @@ pub fn check_game(g: &Game) -> Result<(), String> {
         }
     }
 
+    check_completed_groups(g)?;
+
     // UND-1, UND-3: the board is the result of the changes in the undo history, applied in order to
     // the puzzle. The redo history applies to the current board in the opposite order.
     let mut replay = Game { generator: g.generator, ..Game::new(g.seed, g.mode, g.solution, givens) };
@@ -67,6 +71,27 @@ pub fn check_game(g: &Game) -> Result<(), String> {
     for (i, change) in g.redo.iter().rev().enumerate() {
         check_change_applies(&replay, change).map_err(|e| format!("UND-3: redo item {i}: {e}"))?;
         replay.apply(change);
+    }
+    Ok(())
+}
+
+/// COL-8, COL-9: the completed groups, examined group by group, are the set that the drawing uses.
+fn check_completed_groups(g: &Game) -> Result<(), String> {
+    let set = g.completed_cells();
+    let mut in_group = crate::game::CellSet::default();
+    for group in Group::all() {
+        let cells = group.cells();
+        let full_no_clash = cells.iter().all(|&c| g.is_filled(c) && !g.is_clashing(c));
+        ensure!(g.is_completed_group(group) == full_no_clash, "COL-8", "{group:?}");
+        if full_no_clash {
+            let digits = cells.iter().fold(0, |m, &c| m | mark_bit(g.value_at(c)));
+            ensure!(digits == crate::game::ALL_MARKS, "COL-9", "{group:?} does not have the digits 1 to 9");
+            cells.into_iter().for_each(|c| in_group.insert(c));
+        }
+    }
+    ensure!(set == in_group, "COL-8", "the cells of the completed groups are not the cells of each group");
+    for c in cells() {
+        ensure!(g.is_filled(c) || !set.contains(c), "COL-8", "the empty cell {c:?} is in a completed group");
     }
     Ok(())
 }
@@ -105,6 +130,45 @@ fn check_change_applies(g: &Game, change: &Change) -> Result<(), String> {
                 return Err(format!("erase of {digit} at {cell:?}, which is not that entry"));
             }
         }
+    }
+    Ok(())
+}
+
+/// COL-11, COL-12: the completed color shows only with the switch on and a color on a game in progress.
+fn check_completed_color(app: &App) -> Result<(), String> {
+    let (s, g) = (&app.settings, &app.game);
+    if let Some(color) = s.completed_fill(g) {
+        ensure!(s.completed_color_on, "COL-11", "the completed color shows with the switch off");
+        ensure!(color == s.color_completed && color != Color::White, "COL-11", "the completed color is {color:?}");
+        ensure!(!g.completed, "COL-12", "the completed color shows on a complete game");
+    } else {
+        ensure!(
+            !s.completed_color_on || s.color_completed == Color::White || g.completed,
+            "COL-11",
+            "no completed color with the switch on, the color {:?} and a game in progress",
+            s.color_completed
+        );
+    }
+    Ok(())
+}
+
+/// NAV-14, NAV-17: the positions of the open panel for the current layout.
+fn check_panel_layout(app: &App) -> Result<(), String> {
+    match app.ui.menu.panel() {
+        Some(Panel::Colors) => {
+            let p = layout::colors_panel();
+            let x0 = match (layout::right_handed(), layout::orientation()) {
+                (true, _) => 112,
+                (false, layout::Orientation::Portrait) => 708,
+                (false, layout::Orientation::Landscape) => 1248,
+            };
+            ensure!((p.x0, p.x1, p.y0, p.y1) == (x0, x0 + 800, 112, 1193), "NAV-17", "the Cell colors panel is at {p:?}");
+        }
+        Some(Panel::Settings) => {
+            let p = layout::settings_panel(app.update.has_row());
+            ensure!(p.x1 - p.x0 == 400, "NAV-14", "the Settings panel is at {p:?}");
+        }
+        _ => {}
     }
     Ok(())
 }
@@ -165,6 +229,8 @@ pub fn check_app(app: &App) -> Result<(), String> {
         ensure!(ui.slider == app.settings.last_mode, "DIF-4", "the slider keeps a selection after the panel closed");
     }
     ensure!(app.settings.is_valid(), "COL-5", "settings {:?}", app.settings);
+    check_completed_color(app)?;
+    check_panel_layout(app)?;
     ensure!((1..=MANUAL_PAGES).contains(&app.manual_page), "MAN-1", "manual page {}", app.manual_page);
 
     // Analytics (ANA-1, ANA-5, ANA-6, ANA-7).

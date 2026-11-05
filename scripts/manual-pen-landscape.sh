@@ -18,7 +18,7 @@ text 72 605 38 gray25 start "show its micro-cells and pencil marks."
 Y=700; X1=90; X2=380; X3=670; AY=$((Y+CW/2))
 cell $X1 $Y "1 3 5" ""
 cell $X2 $Y "1 3 5" ""; ink $X2 $Y "$SIX"
-filled $X3 $Y 6
+filled $X3 $Y 6 "" $ENTRY_FG
 arrow $((X1+CW+15)) $((X2-15)) $AY
 arrow $((X2+CW+15)) $((X3-15)) $AY
 CY=$((Y+CW+50))
@@ -33,8 +33,8 @@ text 972 455 38 gray25 start "it shows the micro-cells and the pencil"
 text 972 505 38 gray25 start "marks of the cell again, if they are still"
 text 972 555 38 gray25 start "possible."
 X1=990; X2=1280; X3=1570
-filled $X1 $Y 6
-filled $X2 $Y 6; rub $X2 $Y
+filled $X1 $Y 6 "" $ENTRY_FG
+filled $X2 $Y 6 "" $ENTRY_FG; rub $X2 $Y
 cell $X3 $Y "1 3 5" ""
 arrow $((X1+CW+15)) $((X2-15)) $AY
 arrow $((X2+CW+15)) $((X3-15)) $AY

@@ -15,7 +15,7 @@ text 72 520 38 gray25 start "the app does not show its micro-cells and pencil ma
 Y=600; X1=254; X2=579; X3=904; AY=$((Y+CW/2))
 cell $X1 $Y "1 3 5" ""
 cell $X2 $Y "1 3 5" ""; ink $X2 $Y "$SIX"
-filled $X3 $Y 6
+filled $X3 $Y 6 "" $ENTRY_FG
 arrow $((X1+CW+15)) $((X2-15)) $AY
 arrow $((X2+CW+15)) $((X3-15)) $AY
 CY=$((Y+CW+60))
@@ -28,8 +28,8 @@ text 72 1130 38 gray25 start "Rub the cell with the eraser end of the pen. The a
 text 72 1180 38 gray25 start "the number. Then it shows the micro-cells and the pencil marks"
 text 72 1230 38 gray25 start "of the cell again, if they are still possible."
 Y=1310; AY=$((Y+CW/2))
-filled $X1 $Y 6
-filled $X2 $Y 6; rub $X2 $Y
+filled $X1 $Y 6 "" $ENTRY_FG
+filled $X2 $Y 6 "" $ENTRY_FG; rub $X2 $Y
 cell $X3 $Y "1 3 5" ""
 arrow $((X1+CW+15)) $((X2-15)) $AY
 arrow $((X2+CW+15)) $((X3-15)) $AY

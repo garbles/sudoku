@@ -19,7 +19,7 @@ document does not include unknown behavior.
 3. [The game screen](#3-the-game-screen)
 4. [Cells](#4-cells)
 5. [Pen and touch input](#5-pen-and-touch-input)
-6. [Helpers: pencil mark hiding, highlights, clashes](#6-helpers-pencil-mark-hiding-highlights-clashes)
+6. [Helpers: pencil mark hiding, highlights, clashes, completed groups](#6-helpers-pencil-mark-hiding-highlights-clashes-completed-groups)
 7. [Undo and redo](#7-undo-and-redo)
 8. [Puzzle states and the clock](#8-puzzle-states-and-the-clock)
 9. [The menu](#9-the-menu)
@@ -72,7 +72,7 @@ stateDiagram-v2
 
 | Screen | Images |
 |---|---|
-| Game | [`screen.png`](images/screen.png), [`screen-in-progress.png`](images/screen-in-progress.png), [`screen-completed.png`](images/screen-completed.png) and the menu images in §9 |
+| Game | [`screen.png`](images/screen.png), [`screen-in-progress.png`](images/screen-in-progress.png), [`screen-completed-group.png`](images/screen-completed-group.png), [`screen-completed.png`](images/screen-completed.png) and the menu images in §9 |
 | Manual | [`manual-how-to-play.png`](images/manual-how-to-play.png) to [`manual-finished.png`](images/manual-finished.png) (§12) |
 | Statistics summary | [`analytics.png`](images/analytics.png), [`analytics-delete-all.png`](images/analytics-delete-all.png) |
 | Completed games list | [`analytics-games.png`](images/analytics-games.png), [`analytics-delete.png`](images/analytics-delete.png) |
@@ -102,7 +102,7 @@ The positions above are for a **left-handed** player. The app reads the handedne
 - The toolbar is at the left edge (x 0–112). The menu button is at the top left, center (55.5, 55.5).
   Its icon is a mirror image (the dot is at the right).
 - The close button is at the top right, center (1563.5, 55.5).
-- The panels touch the toolbar at its right side (for example, Cell colors at x 112–511).
+- The panels touch the toolbar at its right side (for example, Cell colors at x 112–911).
 - The other icons and the contents of the panels do not change.
 
 The board, the meter, the manual and the statistics do not change.
@@ -184,7 +184,7 @@ The landscape layout has the same items, at the same sizes, as the portrait layo
 | Item | Landscape position |
 |---|---|
 | Board | At the center: x 418–1741, y 148–1471. The difficulty meter is 50 px below the board. |
-| Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. |
+| Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. The Cell colors panel is at x 1248–2047, y 112–1192 (right-handed: x 112–911; [§10](#10-cell-colors-panel)). |
 | Close button | Top left, as in portrait. For a right-handed player, the toolbar is at the left edge (x 0–112) and the close button is at the top right (§3.1). |
 | Manual | Each page has a landscape version with two columns (`manual-*-landscape.png`, made by `scripts/manual-*-landscape.sh`). The content is the same as in portrait. |
 | Statistics | The same scale as in portrait, across the full width. The games list is one table across the full width. Each page shows 6 games, because the height is too small for 12. When the tablet turns, the list shows the page with the first game of the page before the turn. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png`, made by `scripts/analytics.py`). |
@@ -213,7 +213,7 @@ If automatic hiding is on, a tap on a micro-cell whose digit is a number in a pe
 approximately one second in that micro-cell (owner approval 2026-11-04).
 
 Digits use reMarkable Sans Regular: 104 px for numbers and 31 px for pencil marks. Starting numbers
-are black. Your numbers are dark gray (`gray35`).
+are black. Your numbers are dark gray (`gray18`, `#2E2E2E`; owner approval 2026-11-04 and 2026-11-05).
 
 ```mermaid
 stateDiagram-v2
@@ -249,15 +249,19 @@ stateDiagram-v2
 
 ### 4.2 Cell background color
 
-The app uses the first rule that applies:
+The background of a filled cell is the first rule that applies (owner approval 2026-11-04 and 2026-11-05):
 
-1. **Clash.** The number clashes ([§6.3](#63-clashes)): clash color (default: red).
+1. **Clash.** The number clashes ([§6.3](#63-clashes)): clash color (default: Red).
 2. **Highlight.** The number is the highlighted digit ([§6.2](#62-highlights)): highlight color
-   (default: green).
-3. **Starting number:** starting-number color (default: gray).
-4. All other cells: white.
+   (default: Cyan).
+3. **Completed group.** The cell is in a complete group, and the completed color shows
+   ([§6.4](#64-completed-groups)): completed color (default: Green).
+4. **Starting number:** starting-number color (default: Gray).
+5. All other filled cells: white.
 
-The player selects the three colors in the Cell colors panel ([§10](#10-cell-colors-panel)).
+Empty cells are white. A cell that shows the "?" has no completed color.
+
+The player selects the four colors in the Cell colors panel ([§10](#10-cell-colors-panel)).
 
 ## 5. Pen and touch input
 
@@ -333,7 +337,7 @@ flowchart TD
     D -- yes --> EW{Does ink wait in that cell?}
     EW -- yes --> EI[Remove the ink; do not read it]
     EW -- no --> E{Does the cell have your number?}
-    E -- yes --> E1[Remove the number, show the pencil marks of the cell, find clashes]
+    E -- yes --> E1[Remove the number, show the pencil marks of the cell, find clashes and complete groups]
     E -- no --> X3[No effect on starting numbers and empty cells]
     D -- no --> F{Did the touch stay in one micro-cell, and does no ink wait in that cell?}
     F -- yes, tap --> G{Does the cell have a number?}
@@ -349,7 +353,7 @@ flowchart TD
     H -- yes --> X4[Remove the ink, no other effect]
     H -- no --> I[Collect the strokes until a short pause after the pen lifts, then read them]
     I --> J{Is it a number from 1 to 9?}
-    J -- yes --> K[Add the number, hide the marks of the cell, if Hide pencil marks automatically is on, hide the digit in the marks of the peer cells, find clashes, find completion]
+    J -- yes --> K[Add the number, hide the marks of the cell, if Hide pencil marks automatically is on, hide the digit in the marks of the peer cells, find clashes and complete groups, find completion]
     J -- no --> L[Show ? for approximately one second, then show the cell as before]
 ```
 
@@ -357,7 +361,7 @@ Each action also removes a highlight before the app does the action. A tap on a 
 then makes a new highlight. Each press also removes the "?" and the x before the app does the action
 of that press, with the exception in [§5.1](#51-rules).
 
-## 6. Helpers: pencil mark hiding, highlights, clashes
+## 6. Helpers: pencil mark hiding, highlights, clashes, completed groups
 
 ### 6.1 Automatic pencil mark hiding
 
@@ -405,8 +409,9 @@ portrait, landscape, left-handed and right-handed. Image:
 ### 6.2 Highlights
 
 Tap a number with the pen (a starting number or your number). The app then gives the highlight color
-(default: green) to all cells with that digit. A cell that clashes keeps the clash color
-([§4.2](#42-cell-background-color)).
+(default: Cyan) to all cells with that digit. A cell that clashes keeps the clash color. A cell of a
+complete group that has that digit shows the highlight color, not the completed color
+([§4.2](#42-cell-background-color); owner approval 2026-11-04 and 2026-11-05).
 
 - If you tap the same digit again, the app removes the highlight.
 - If you tap a different number, the highlight moves to the new digit.
@@ -427,8 +432,10 @@ numbers and your numbers.
 
 - The app finds the clashes again after each new number, erasure, undo and redo.
 - When there is no clash, the app removes the clash color.
-- The app shows only clashes. It does not compare your numbers with the solution. Thus a number can
-  be incorrect and not red.
+- The app does not compare your numbers with the solution. The clash color and the completed color
+  ([§6.4](#64-completed-groups)) come only from the current numbers. Thus a number can be incorrect
+  and not in the clash color, and a group with an incorrect number can have the completed color
+  (owner approval 2026-11-04 and 2026-11-05).
 
 Images: [`screen-in-progress.png`](images/screen-in-progress.png) (two 9s in column 2),
 [`manual-mistakes.png`](images/manual-mistakes.png).
@@ -444,6 +451,52 @@ stateDiagram-v2
     Clash --> Clash: a new clash, or one of many clashes removed
 ```
 
+### 6.4 Completed groups
+
+This section has the owner approval 2026-11-04 and 2026-11-05, on the tablet. Image:
+[`screen-completed-group.png`](images/screen-completed-group.png).
+
+A **group** is a row, a column or a 3×3 box. A group is **complete** when all nine cells have a number
+and none of its cells clashes. All nine cells of a complete group get the **completed color** (default:
+Green). [§4.2](#42-cell-background-color) gives the order of the colors.
+
+- **"No errors" means "no clash".** The app does not compare numbers with the solution. Thus a group
+  with an incorrect number and no clash is complete. The color does not tell the player that a number
+  is correct or incorrect.
+- **A clash outside the group.** A cell of the group that clashes with a cell outside the group also
+  stops the group: that group is not complete.
+- **When the color shows.** The color shows only when all of these are true: the switch "Color
+  completed groups" is on ([§9.1](#91-settings-panel)), the selected completed color is not White
+  ([§10](#10-cell-colors-panel)), and the game is not complete.
+- **White.** White in the Completed groups section means "no completed color". Then a starting number
+  keeps its starting color. The result is the same as the switch off.
+- **Completed game.** A completed game shows no completed color. At the moment of completion, the
+  groups lose the color, and the board shows the normal colors: the starting color for starting
+  numbers and white for your numbers. A saved completed game that opens also shows the normal colors.
+- **A full group at the start.** A group with only starting numbers that is full at the start of a
+  game gets the color from the first frame. There is no exception for it. (Measured: 19 of 300 Easy
+  puzzles; no puzzle in the other modes.)
+- **Source of the color.** The color comes only from the current numbers. It is not a separate state,
+  and the app does not save it. It follows each change: a new number, an erasure, undo, redo and a new
+  game. One input can change cells far from the changed cell: an erasure can remove a clash, and then
+  a different group of the other clashing cell becomes complete.
+- **No effect on the game.** A group that gets or loses the color adds nothing to the undo and redo
+  history. It does not change the clock, the results or the completion state.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "No completed color" as Plain
+    state "Completed color shows" as Colored
+    [*] --> Plain: the group is not complete at the start
+    [*] --> Colored: a full group of starting numbers with no clash
+    Plain --> Colored: a change makes all nine cells filled with no clash
+    Colored --> Plain: a change empties a cell or makes a clash in the group
+    Colored --> Plain: switch off, or White selected
+    Plain --> Colored: switch on and not White, and the group is complete
+    Colored --> Plain: the game is complete
+```
+
 ## 7. Undo and redo
 
 - **Undo** cancels the last change to the board. **Redo** makes the last canceled change again.
@@ -455,8 +508,8 @@ stateDiagram-v2
     ([§6.1](#61-automatic-pencil-mark-hiding)).)
   - Erase a number.
 - These actions are not changes to the board and are not a part of undo: highlights, the "?",
-  the x and the refused tap that makes it (§6.1), color changes, switch changes, and the panels and
-  screens that you open.
+  the x and the refused tap that makes it (§6.1), a group that gets or loses the completed color
+  (§6.4), color changes, switch changes, and the panels and screens that you open.
 - A new change after an undo removes the redo history. A refused tap is not a change, thus it does
   not remove the redo history (owner approval 2026-11-04).
 - A new game removes the undo history and the redo history.
@@ -516,6 +569,9 @@ A puzzle is **complete** when all cells have a number and there is no clash. The
   format is `h:mm:ss`. The text uses the UI font and is at the position of the meter.
 - The board **locks**. Writing, the eraser, pencil marks, highlights, undo and redo have no effect.
   The undo and redo buttons are gray.
+- The board shows no completed color. The groups lose the color at this moment, and the board shows
+  the normal colors: the starting color for starting numbers and white for your numbers
+  ([§6.4](#64-completed-groups); owner approval 2026-11-04 and 2026-11-05).
 - The app saves the result in the database ([§14](#14-data-that-the-app-keeps)).
 - **+** and **Start new game** continue to operate. The menu, Help, Statistics, Cell colors and the
   Settings panel continue to operate.
@@ -642,17 +698,21 @@ and redo gray), [`manual-menu.png`](images/manual-menu.png).
 
 ### 9.1 Settings panel
 
-The gear (top slot 2) opens the Settings panel. The panel has the same design as the Cell colors panel:
-it is next to the gear, its top aligns with the button, it is 400 px wide and it has a 2 px border.
-It has three rows of 112 px with a 2 px line between them. The first two rows each have a name
-(reMarkable Sans Medium, 25 px) and a switch at the right. The third row shows the version of the app.
-A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a fourth row for updates
+The gear (top slot 2) opens the Settings panel. The panel is next to the gear, its top aligns with
+the button, it is 400 px wide (x 1108–1507 for a left-handed player in portrait) and it has a 2 px
+border. The Settings panel does not have the width of the Cell colors panel (owner approval 2026-11-04 and 2026-11-05).
+It has four rows of 112 px with a 2 px line between them. The first three rows each have a name
+(reMarkable Sans Medium, 25 px) and a switch at the right. The name in the third row has two lines of
+text: **Color completed** and **groups** (owner approval 2026-11-04 and 2026-11-05). The fourth row
+shows the version of the app.
+A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a fifth row for updates
 ([§9.2](#92-updates)).
 
 | Row | Default | When the switch is off |
 |---|---|---|
 | **Highlight numbers** | On | A tap on a number does not make a highlight ([§6.2](#62-highlights)). |
 | **Hide pencil marks automatically** | On | All pencil marks of the empty cells show, also the digits that are numbers in the peers ([§6.1](#61-automatic-pencil-mark-hiding)). A tap on each micro-cell adds or removes its mark, and no x shows. |
+| **Color completed groups** | On | No cell gets the completed color ([§6.4](#64-completed-groups)). A starting number keeps its starting color. The Completed groups section of the Cell colors panel stays operative, and its color stays not available for the other sections (owner approval 2026-11-04 and 2026-11-05). |
 
 - A tap on a row changes its switch immediately. The panel stays open.
 - The version row has the name **Version** (reMarkable Sans Medium, 25 px, black) at the left. The
@@ -661,9 +721,11 @@ A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a fourth ro
   with the version of Cargo.toml). A development install with a name for the change shows
   `dev/<name>`, for example `dev/update-icons` (owner decision 2026-11-05). All other builds show `dev`. A tap on the version row has no effect, and the panel stays open
   (owner decision 2026-10-26).
-- A change of a switch does not change the board and is not a part of undo. The highlight switch has
-  an effect only on the next actions. The hiding switch changes immediately which pencil marks show.
-  Changes that are already in the undo history do not change.
+- A change of a switch does not change the numbers or the marks and is not a part of undo. The
+  highlight switch has an effect only on the next actions. The hiding switch changes immediately which
+  pencil marks show. The completed-groups switch changes the colors of the board immediately. It also
+  operates in the panel of a completed game, but a completed game shows no completed color
+  ([§6.4](#64-completed-groups); owner approval 2026-11-04 and 2026-11-05). Changes that are already in the undo history do not change.
 - The app keeps the switches when you close the app ([§14.2](#142-settings-kept-when-the-app-closes)).
 - A switch that is on is a black track with a white knob at the right. A switch that is off is a white
   track with a black border and a black knob at the left. The track is 72×36 px with a 3 px border, and
@@ -716,7 +778,7 @@ center of the circle is 16 px to the right of and 16 px above the center of the 
 stays until the app closes (also while the update installs and after it is installed). Image:
 [`screen-toolbar-update.png`](images/screen-toolbar-update.png).
 
-**Update row.** The fourth row of the Settings panel has the same height, lines and border as the
+**Update row.** The fifth row of the Settings panel has the same height, lines and border as the
 other rows. It shows one of these:
 
 | State | Row |
@@ -815,28 +877,58 @@ step 6 fails, the row also shows "Update failed", and a new tap installs the rel
 
 ## 10. Cell colors panel
 
-Image: [`images/color-menu.png`](images/color-menu.png).
+Images: [`images/color-menu.png`](images/color-menu.png),
+[`images/color-menu-landscape.png`](images/color-menu-landscape.png),
+[`images/color-menu-right-handed.png`](images/color-menu-right-handed.png).
 
-- The panel opens next to the paint bucket. The top of the panel aligns with the button. The panel is
-  400 px wide and has a 2 px border. The pen-color menu of the device has the same design.
-- The panel has four sections. Each section is 360 px high, thus the panel (y 112 to 1552) also fits
-  in landscape. Lines of 2 px are between the sections. Each line is the top 2 px of the lower
-  section, thus the sections start 360 px apart (y 112, 472, 832 and 1192). The sections are **Starting numbers**,
-  **Clashing numbers**, **Highlighted numbers** and **Micro-cell lines** (owner decision 2026-11-02).
-- Each section has a title (reMarkable Sans Medium, 25 px) and a 3×3 grid of cells, 112 px wide and
-  90 px high. Each cell has a color dot of 38 px and the name below the dot.
+The positions, the sizes, the sections and the colors of this section have the owner approval 2026-11-04 and 2026-11-05, on the tablet.
+
+- The panel opens next to the paint bucket. The top of the panel aligns with the button. The panel
+  touches the toolbar and has a 2 px border.
+- The panel is **800 px wide** (two columns of 400 px) and has three rows of 360 px: **y 112 to 1192**.
+  It fits in landscape. The x range is:
+
+  | Layout | x range |
+  |---|---|
+  | Left-handed, portrait | 708–1507 |
+  | Left-handed, landscape | 1248–2047 |
+  | Right-handed, portrait and landscape | 112–911 |
+
+- The panel has five sections in two columns. The order of the columns is the same for the two hands:
+
+  | Row | Left column | Right column |
+  |---|---|---|
+  | y 112 | **Starting numbers** | **Completed groups** |
+  | y 472 | **Clashing numbers** | **Micro-cell lines** |
+  | y 832 | **Highlighted numbers** | Empty space |
+
+- A vertical line of 2 px is between the columns, the full height of the panel, at 400 px from the left
+  of the panel. Each section below the first of a column has a horizontal line of 2 px at its top,
+  across its column. There is no line below the Micro-cell lines section. The space below that section
+  is plain white.
+- Each section has a title (reMarkable Sans Medium, 25 px), 33 px from the left of its column, and a
+  3×3 grid of cells, 112 px wide and 90 px high. The grid starts 32 px from the left of its column.
+  Each cell has a color dot of 38 px and the name below the dot. The pen-color menu of the device has
+  the same design.
+- A tap on the empty space or on a title changes nothing, and the panel stays open.
+- The panel does not cover a toolbar button, the close button, the meter or "Completed in" in any of
+  the four layouts. The panel covers approximately 27 cells of the board in portrait and 24 in
+  landscape. The owner accepted this size.
 - A solid black box with white text shows the selected color.
-- The available colors are medium-light, so that the digits are easy to read and the colors are clear on
-  the e-ink display: Gray, White, Yellow, Blue,
-  Red, Green, Cyan, Magenta and Orange. Black is not available.
+- The available colors are Gray, White, Yellow, Blue, Red, Green, Cyan, Magenta and Orange.
+  Black is not available. [§15](#15-visual-specification) gives their values.
 - The default colors are: Starting numbers **Gray**, Clashing numbers **Red**, Highlighted numbers
-  **Green**.
-- **The three sections must use different colors. White is the only exception.** All sections can
-  use White.
-- If a section uses a color, the other sections show that color as not available. The ring and the
-  name are gray, and a line goes through the dot. You cannot select it. White is always available.
+  **Cyan**, Completed groups **Green**.
+- **The four color sections (Starting numbers, Clashing numbers, Highlighted numbers and Completed
+  groups) must use different colors. White is the only exception.** All four can use White.
+- If a color section uses a color, the other color sections show that color as not available. The ring
+  and the name are gray, and a line goes through the dot. You cannot select it. White is always
+  available.
 - When you tap an available color, the app selects it for that section immediately. The board
   shows the new color immediately. The app keeps the selection when you close the app.
+- The **Completed groups** section selects the completed color ([§6.4](#64-completed-groups)). White
+  means "no completed color". The section stays operative when the switch "Color completed groups"
+  ([§9.1](#91-settings-panel)) is off, and its color stays not available for the other sections.
 - The **Micro-cell lines** section selects the gray of the micro-cell lines (§4.1). Its nine items
   are, from the top left: **None** (no lines, a white dot), then the grays 90, 80, 70, 60, 55, 50,
   45 and 40 (ImageMagick `grayN`: N percent of white; the dot has that gray). The default is **90**.
@@ -857,8 +949,12 @@ stateDiagram-v2
         Red --> AnyColor2: tap a color
     }
     state HighlightedNumbers {
+        [*] --> Cyan
+        Cyan --> AnyColor3: tap a color
+    }
+    state CompletedGroups {
         [*] --> Green
-        Green --> AnyColor3: tap a color
+        Green --> AnyColor4: tap a color
     }
     note right of ClashingNumbers: Each section has one color. Two sections cannot have the same color, but all can have White.
 ```
@@ -924,11 +1020,11 @@ stateDiagram-v2
 | 2 | [`manual-candidates.png`](images/manual-candidates.png) | Micro-cells and pencil marks: how to add and remove them. |
 | 3 | [`manual-pen.png`](images/manual-pen.png) | How to write and erase a number. |
 | 4 | [`manual-pen-rules.png`](images/manual-pen-rules.png) | Taps, finger touches, one number for each cell, writing with no effect, the "?". |
-| 5 | [`manual-helpers.png`](images/manual-helpers.png) | Automatic pencil mark hiding and highlights. You can turn each helper off in the Settings panel. One sentence, in portrait and in landscape, tells about the x of a refused tap ([§6.1](#61-automatic-pencil-mark-hiding); owner decision 2026-11-04). The text is exactly: "If you tap the micro-cell of a hidden digit, the tap has no effect and a small x shows there for a moment." |
+| 5 | [`manual-helpers.png`](images/manual-helpers.png) | Automatic pencil mark hiding, highlights and completed groups. A full group with no clash gets the completed color. The color is not a check against the solution. A clash with a cell outside the group stops the color (owner approval 2026-11-04 and 2026-11-05). You can turn each helper off in the Settings panel. One sentence, in portrait and in landscape, tells about the x of a refused tap ([§6.1](#61-automatic-pencil-mark-hiding); owner decision 2026-11-04). The text is exactly: "If you tap the micro-cell of a hidden digit, the tap has no effect and a small x shows there for a moment." |
 | 6 | [`manual-mistakes.png`](images/manual-mistakes.png) | Clashes and how to correct them. |
-| 7 | [`manual-menu.png`](images/manual-menu.png) | All the menu buttons, how to select colors and the two settings. |
+| 7 | [`manual-menu.png`](images/manual-menu.png) | All the menu buttons, how to select colors and the three settings. |
 | 8 | [`manual-new-game.png`](images/manual-new-game.png) | How to start a new game, and the meter of the current difficulty. |
-| 9 | [`manual-finished.png`](images/manual-finished.png) | Completion, the lock, the clock and the saved results. |
+| 9 | [`manual-finished.png`](images/manual-finished.png) | Completion, the lock, the clock and the saved results. A completed game shows no completed color. |
 
 ```mermaid
 stateDiagram-v2
@@ -1061,13 +1157,26 @@ The app adds a row when a puzzle is complete. Only the bin in the games list and
 
 ### 14.2 Settings (kept when the app closes)
 
-- The starting-number color, the clash color and the highlight color.
+- The starting-number color, the clash color, the highlight color and the completed color.
 - The gray of the micro-cell lines (default: 90). A settings file of an earlier version does not
   have it: the app uses the default.
 - The last selected difficulty mode (default: mode 2).
-- The two switches of the Settings panel: highlight numbers (default: on) and hide pencil marks
-  automatically (default: on). A settings file of an earlier version has the name `auto_remove_on`
-  for the second switch. The app reads it.
+- The three switches of the Settings panel: highlight numbers (default: on), hide pencil marks
+  automatically (default: on) and color completed groups (default: on). A settings file of an earlier
+  version has the name `auto_remove_on` for the second switch. The app reads it.
+
+**A settings file of an earlier version** (owner approval 2026-11-04 and 2026-11-05, except the rule
+for a file that breaks COL-5):
+
+- A file that has no completed color, and whose three colors agree with COL-5: if the highlight is
+  Green, it becomes Cyan, or the first free color in panel order that is not White if Cyan is in use.
+  The completed color then becomes Green, or the first free color in the same way. A highlight of
+  another color, also White, does not change. The switch "Color completed groups" is on.
+- A file that already has a completed color does not change, also with a Green highlight.
+- A file that breaks COL-5 before this step goes to the defaults. This rule applies PER-5 to an
+  earlier settings file (source: PER-5 and a review finding; the owner did not examine it on the
+  tablet).
+- The result of each start is the same. The file changes only at the next change of the settings.
 
 ### 14.3 Game in progress (kept when the app closes)
 
@@ -1086,7 +1195,8 @@ after each change.
 
 The app does **not** keep temporary UI states. The app always opens again at the game screen, with
 the menu open, the panels closed, no highlight, no "?" and no x. The app does not save the x (owner
-approval 2026-11-04). If the app closes during the recognition pause, the app removes the ink and does
+approval 2026-11-04). The app does not save the completed color of a group: it comes from the numbers
+([§6.4](#64-completed-groups); owner approval 2026-11-04 and 2026-11-05). If the app closes during the recognition pause, the app removes the ink and does
 not read it.
 
 ### 14.4 Launcher
@@ -1285,14 +1395,18 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Screen | 1620×2160, 229 DPI |
 | Board | Cells of 147 px, micro-cells of 49 px, origin (148, 418) |
 | Board lines | Box and border 13 px black; cell 3 px black; micro-cell 2 px, default `gray90` (§10) |
-| Numbers | reMarkable Sans Regular 104 px; starting numbers black, your numbers `gray35` |
+| Numbers | reMarkable Sans Regular 104 px; starting numbers black, your numbers `gray18` (`#2E2E2E`; owner approval 2026-11-04 and 2026-11-05) |
 | Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell |
 | "?" | reMarkable Sans Regular 104 px, `gray40` |
 | x of a refused tap (§6.1) | Two straight lines with round ends, line width 3 px, `gray15` (the same as the pencil marks). Each line goes from -10 px to +10 px on the two axes around the center: 20×20 px between the line centers, visible extent of approximately 23×23 px. The center is the anchor point of the pencil mark of that digit: 24, 74 or 122 px from the cell origin on each axis, at the keypad position of the digit (1 at the top left, 9 at the bottom right). The x stays in its micro-cell and does not touch the cell lines. Time: the same value as the "?" (1000 ms) (owner approval 2026-11-04). |
-| Default colors | Starting `#C8C8C8`, clash `#F0A3A3`, highlight `#B5DF9E` |
+| Palette | Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue `#408CFF`, Red `#FF8C8C`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0`, Orange `#FF9A1F` (owner approval 2026-11-04 and 2026-11-05). The board, the panel dots, the manual and the images all use this palette. |
+| Default colors | Starting Gray `#AEAEAE`, clash Red `#FF8C8C`, highlight Cyan `#6FCFE6`, completed groups Green `#48D630` |
+| Background of a filled cell | First rule that applies: clash, highlight, completed, starting number, white (§4.2) |
 | UI text | reMarkable Sans Medium 25 px (menus, meter labels, "Completed in …"). The version value and the text of an update state are reMarkable Sans Regular 25 px (§9.1, §9.2). |
 | Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |
 | Panels | 2 px black border, rows of 112 px, 2 px dividers, inner margin of 33 px |
+| Settings panel | 400 px wide (x 1108–1507 for a left-handed player in portrait). Three switch rows, the version row and, in a stable or preview build, the update row (§9.1, §9.2) |
+| Cell colors panel | 800 px wide (two columns of 400 px), three rows of 360 px, y 112–1192. x 708–1507 (left-handed, portrait), x 1248–2047 (left-handed, landscape), x 112–911 (right-handed). Vertical line of 2 px at 400 px from the left of the panel. Section title 33 px, grid 32 px from the left of the column; grid cells 112×90 px (owner approval 2026-11-04 and 2026-11-05) |
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
 | Difficulty meter | "Easy" to "Hard" across 440 px; 7 stops; the current stop is a knob with a radius of 13 px |
 | Switch (Settings panel) | Track 72×36 px, 3 px border; knob of 28 px; 33 px from the right edge of the panel |
@@ -1316,8 +1430,9 @@ These items are closed:
 
 - **Recognition pause** (closed 2026-10-25). The owner examined 0.5 s on the device: numbers with two
   strokes stay together, and single digits show quickly.
-- **E-ink check** (closed 2026-10-25). The owner examined the faint micro-cell lines, the pale colors
-  and the gray icons on the device. All are clear.
+- **E-ink check** (closed 2026-10-25). The owner examined the faint micro-cell lines, the first
+  palette and the gray icons on the device. All are clear. Later, the owner found the first palette too
+  faint on the tablet and approved the palette in §15 (owner approval 2026-11-04 and 2026-11-05).
 - **Puzzle generator** (closed 2026-10-25). Refer to §14.5.
 
 ## 17. Image reference
@@ -1330,14 +1445,16 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`screen.png`](images/screen.png) | [§3](#3-the-game-screen) |
 | [`box.png`](images/box.png) | [§3.1](#31-layout) |
 | [`cell.png`](images/cell.png) | [§3.1](#31-layout) |
-| [`screen-in-progress.png`](images/screen-in-progress.png) | [§3.2](#32-game-screen-states), [§6](#6-helpers-pencil-mark-hiding-highlights-clashes) |
+| [`screen-in-progress.png`](images/screen-in-progress.png) | [§3.2](#32-game-screen-states), [§6](#6-helpers-pencil-mark-hiding-highlights-clashes-completed-groups) |
 | [`screen-highlight.png`](images/screen-highlight.png) | [§6.2](#62-highlights) |
 | [`screen-unrecognized.png`](images/screen-unrecognized.png) | [§5](#5-pen-and-touch-input) |
 | [`screen-invalid-mark.png`](images/screen-invalid-mark.png) | [§3.2](#32-game-screen-states), [§5](#5-pen-and-touch-input), [§6.1](#61-automatic-pencil-mark-hiding) |
+| [`screen-completed-group.png`](images/screen-completed-group.png) | [§2](#2-screens), [§6.4](#64-completed-groups) |
 | [`screen-completed.png`](images/screen-completed.png) | [§8.3](#83-complete) |
 | [`screen-completed-menu.png`](images/screen-completed-menu.png) | [§8.3](#83-complete), [§9](#9-the-menu) |
 | [`screen-toolbar.png`](images/screen-toolbar.png) | [§9](#9-the-menu) |
 | [`color-menu.png`](images/color-menu.png) | [§10](#10-cell-colors-panel) |
+| [`color-menu-landscape.png`](images/color-menu-landscape.png) | [§10](#10-cell-colors-panel) |
 | [`color-menu-right-handed.png`](images/color-menu-right-handed.png) | [§3.1](#31-layout), [§10](#10-cell-colors-panel) |
 | [`new-game-menu.png`](images/new-game-menu.png) | [§11](#11-new-game-panel-and-difficulty) |
 | [`analytics.png`](images/analytics.png) | [§13.1](#131-summary) |
@@ -1347,7 +1464,7 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`manual-candidates.png`](images/manual-candidates.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
 | [`manual-pen.png`](images/manual-pen.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
 | [`manual-pen-rules.png`](images/manual-pen-rules.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
-| [`manual-helpers.png`](images/manual-helpers.png) | [§6](#6-helpers-pencil-mark-hiding-highlights-clashes), [§12](#12-manual-help) |
+| [`manual-helpers.png`](images/manual-helpers.png) | [§6](#6-helpers-pencil-mark-hiding-highlights-clashes-completed-groups), [§12](#12-manual-help) |
 | [`manual-mistakes.png`](images/manual-mistakes.png) | [§6.3](#63-clashes), [§12](#12-manual-help) |
 | [`manual-menu.png`](images/manual-menu.png) | [§9](#9-the-menu), [§12](#12-manual-help) |
 | [`manual-new-game.png`](images/manual-new-game.png) | [§11](#11-new-game-panel-and-difficulty), [§12](#12-manual-help) |

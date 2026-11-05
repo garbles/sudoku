@@ -282,13 +282,18 @@ impl Rect {
     }
 }
 
-/// The Cell colors panel (toolbar.sh): four sections of 360 px from y 112: the three color sections
-/// (`Section`), then the Micro-cell lines section (`LineGray`). It ends at y 1552, thus it also fits
-/// in landscape (1620 px).
+/// The Cell colors panel (toolbar.sh, NAV-17): two columns of 400 px and three rows of 360 px from
+/// y 112. The sections go from the top of the left column to the bottom of that column, then from
+/// the top of the right column: the four color sections (`Section`), then the Micro-cell lines
+/// section (`LineGray`). The space below that section is empty. The panel ends at y 1192, thus it
+/// also fits in landscape (1620 px).
 pub const COLORS_TOP: i32 = 112;
 pub const COLOR_SECTION_H: i32 = 360;
-/// The quantity of sections of the Cell colors panel.
-pub const COLOR_SECTIONS: i32 = Section::ALL.len() as i32 + 1;
+pub const COLOR_COLUMN_W: i32 = 400;
+/// The quantity of section rows in each column.
+const COLOR_ROWS: i32 = 3;
+/// The last row of the panel (its bottom line).
+pub const COLORS_BOTTOM: i32 = COLORS_TOP + COLOR_ROWS * COLOR_SECTION_H;
 /// The index of the Micro-cell lines section, after the color sections.
 pub const LINES_SECTION: usize = Section::ALL.len();
 /// The title of a section is at this y below the top of the section, and its grid starts here.
@@ -301,20 +306,26 @@ fn panel_x(w: i32) -> (i32, i32) {
 }
 
 pub fn colors_pl() -> i32 {
-    panel_x(400).0 // 1108 in portrait
+    panel_x(2 * COLOR_COLUMN_W).0 // 708 in portrait, 1248 in landscape, 112 for a right-handed player
 }
 
 pub fn colors_pr() -> i32 {
-    panel_x(400).1 // 1507 in portrait
+    panel_x(2 * COLOR_COLUMN_W).1 // 1507 in portrait, 2047 in landscape, 911 for a right-handed player
 }
 
 pub fn colors_panel() -> Rect {
-    Rect::new(colors_pl(), COLORS_TOP, colors_pr() + 1, COLORS_TOP + COLOR_SECTIONS * COLOR_SECTION_H + 1)
+    Rect::new(colors_pl(), COLORS_TOP, colors_pr() + 1, COLORS_BOTTOM + 1)
+}
+
+/// The left x of the column of the section `index` of the Cell colors panel (`Section::panel_index`
+/// or `LINES_SECTION`). The order of the columns is the same for the two hands.
+pub fn color_section_left(index: usize) -> i32 {
+    colors_pl() + (index as i32 / COLOR_ROWS) * COLOR_COLUMN_W
 }
 
 /// The top of the section `index` of the Cell colors panel (`Section::panel_index` or `LINES_SECTION`).
 pub fn color_section_top(index: usize) -> i32 {
-    COLORS_TOP + index as i32 * COLOR_SECTION_H
+    COLORS_TOP + (index as i32 % COLOR_ROWS) * COLOR_SECTION_H
 }
 
 /// The width and the height of a grid cell of the Cell colors panel.
@@ -325,7 +336,7 @@ pub const COLOR_CELL_H: i32 = 90;
 /// tap area, and the black area when its item is selected.
 pub fn color_grid_cell(index: usize, i: usize) -> Rect {
     let i = i as i32;
-    let x = colors_pl() + 32 + (i % 3) * COLOR_CELL;
+    let x = color_section_left(index) + 32 + (i % 3) * COLOR_CELL;
     let y = color_section_top(index) + COLOR_GRID_Y + (i / 3) * COLOR_CELL_H;
     Rect::new(x, y, x + COLOR_CELL, y + COLOR_CELL_H)
 }
@@ -346,31 +357,40 @@ pub fn line_gray_at(x: f32, y: f32) -> Option<LineGray> {
 }
 
 /// The Settings panel (REQUIREMENTS.md §9.1): one row of 112 px for each switch (`Switch::row`), one row with the
-/// version and, in a stable or a preview build, one row for updates (§9.2), from the top of the gear (y 224), with
-/// the width and the border of the Cell colors panel.
+/// version and, in a stable or a preview build, one row for updates (§9.2), from the top of the gear (y 224). It has
+/// its own width: the width of the Cell colors panel does not apply to it (NAV-14).
 const SETTINGS_TOP: i32 = 2 * TB_SLOT;
+const SETTINGS_W: i32 = 400;
 /// The row of the version, below the switches.
 pub const VERSION_ROW: usize = Switch::ALL.len();
 /// The row for updates (only when `Update::has_row`).
 pub const UPDATE_ROW: usize = VERSION_ROW + 1;
 
+pub fn settings_pl() -> i32 {
+    panel_x(SETTINGS_W).0 // 1108 in portrait
+}
+
+pub fn settings_pr() -> i32 {
+    panel_x(SETTINGS_W).1 // 1507 in portrait
+}
+
 pub fn settings_panel(update_row: bool) -> Rect {
     let rows = UPDATE_ROW as i32 + i32::from(update_row);
     // 2 px border at the top and at the bottom, 2 px line between the rows.
-    Rect::new(colors_pl(), SETTINGS_TOP, colors_pr() + 1, SETTINGS_TOP + rows * (TB_SLOT + 2) + 2)
+    Rect::new(settings_pl(), SETTINGS_TOP, settings_pr() + 1, SETTINGS_TOP + rows * (TB_SLOT + 2) + 2)
 }
 
 /// A row of the Settings panel: a switch (`Switch::row`), `VERSION_ROW` or `UPDATE_ROW`.
 pub fn settings_row(i: usize) -> Rect {
     let y = SETTINGS_TOP + 2 + i as i32 * (TB_SLOT + 2);
-    Rect::new(colors_pl(), y, colors_pr() + 1, y + TB_SLOT)
+    Rect::new(settings_pl(), y, settings_pr() + 1, y + TB_SLOT)
 }
 
 /// The button "Update to v<version>" (§9.2): 33 px from the sides of the panel, from 22 px to 90 px
 /// below the top of the row. x1 and y1 are the last pixels of the border.
 pub fn update_button() -> Rect {
     let r = settings_row(UPDATE_ROW);
-    Rect::new(colors_pl() + 33, r.y0 + 22, colors_pr() - 33, r.y0 + 90)
+    Rect::new(settings_pl() + 33, r.y0 + 22, settings_pr() - 33, r.y0 + 90)
 }
 
 /// The tap area of the update button.
@@ -711,8 +731,62 @@ mod tests {
         assert_eq!(game_button(60.0, 160.0, true), Some(Button::Colors));
         assert_eq!(game_button(60.0, 2104.0, true), Some(Button::NewGame));
         assert_eq!(game_button(200.0, 160.0, true), None);
-        assert_eq!((colors_pl(), colors_pr(), ng_pl(), ng_pr()), (112, 511, 112, 617));
+        assert_eq!((colors_pl(), colors_pr(), ng_pl(), ng_pr()), (112, 911, 112, 617));
+        assert_eq!((settings_pl(), settings_pr()), (112, 511));
         set_right_handed(false);
-        assert_eq!((colors_pl(), colors_pr(), ng_pl(), ng_pr()), (1108, 1507, 1002, 1507));
+        assert_eq!((colors_pl(), colors_pr(), ng_pl(), ng_pr()), (708, 1507, 1002, 1507));
+        assert_eq!((settings_pl(), settings_pr()), (1108, 1507));
+    }
+
+    #[test]
+    fn the_colors_panel_agrees_with_nav_17_in_all_layouts() {
+        for (rotation, right, x0, x1) in [(0, false, 708, 1507), (2, false, 1248, 2047), (0, true, 112, 911), (2, true, 112, 911)] {
+            set_rotation(rotation);
+            set_right_handed(right);
+            let p = colors_panel();
+            assert_eq!((p.x0, p.x1 - 1, p.y0, p.y1 - 1), (x0, x1, 112, 1192), "{rotation} {right}");
+            // The order of the columns does not change with the hand.
+            assert_eq!(color_section_left(Section::Starting.panel_index()), x0);
+            assert_eq!(color_section_left(Section::Completed.panel_index()), x0 + 400);
+            assert_eq!(color_section_left(LINES_SECTION), x0 + 400);
+            assert_eq!(color_section_top(Section::Highlight.panel_index()), 832);
+            assert_eq!(color_section_top(Section::Completed.panel_index()), 112);
+            assert_eq!(color_section_top(LINES_SECTION), 472);
+            // The corners of the panel are on no button, and the meter is below the panel.
+            for (x, y) in [(p.x0, p.y0), (p.x1 - 1, p.y0), (p.x0, p.y1 - 1), (p.x1 - 1, p.y1 - 1)] {
+                assert_eq!(game_button(x as f32, y as f32, true), None, "{rotation} {right} {x} {y}");
+            }
+            assert!(p.y1 + 13 < meter_y(), "{rotation} {right}");
+            // The grids of the two columns stay in their columns.
+            for s in Section::ALL {
+                for c in Color::ALL {
+                    let r = color_cell(s, c);
+                    let left = color_section_left(s.panel_index());
+                    assert!(r.x0 >= left && r.x1 <= left + COLOR_COLUMN_W, "{s:?} {c:?}");
+                    assert_eq!(color_at(r.x0 as f32, r.y0 as f32), Some((s, c)));
+                }
+            }
+            // The empty space below the Micro-cell lines section is not an item.
+            let empty = (p.x1 - 200, COLORS_TOP + 2 * COLOR_SECTION_H + 100);
+            assert_eq!(color_at(empty.0 as f32, empty.1 as f32), None);
+            assert_eq!(line_gray_at(empty.0 as f32, empty.1 as f32), None);
+        }
+        set_right_handed(false);
+        set_rotation(0);
+    }
+
+    #[test]
+    fn the_settings_panel_stays_400_px_wide_with_its_rows() {
+        // NAV-14, UPD-1
+        assert_eq!(VERSION_ROW, 3);
+        assert_eq!(UPDATE_ROW, 4);
+        let (dev, stable) = (settings_panel(false), settings_panel(true));
+        assert_eq!((dev.x0, dev.x1 - 1, dev.y0, dev.y1 - 1), (1108, 1507, 224, 681));
+        assert_eq!(stable.y1 - 1, 795);
+        assert_eq!(settings_row(2).y0, 454);
+        assert_eq!(settings_at(1200.0, 500.0), Some(Switch::ColorCompletedGroups));
+        assert_eq!(settings_at(1200.0, 600.0), None, "the version row is not a switch");
+        let b = update_button();
+        assert_eq!((b.x0, b.x1, b.y0, b.y1), (1141, 1474, 704, 772));
     }
 }

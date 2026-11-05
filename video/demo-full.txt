@@ -32,10 +32,10 @@ tap menu
 wait 0.8
 tap colors                    # opens the Cell colors panel
 wait 1.0
-tap color clashing orange     # the clashing cells change to orange
-wait 1.5
-tap colors                    # closes the panel
-wait 0.5
+tap color clashing orange     # the panel covers the clashing cells: they change to orange below it
+wait 1.0
+tap colors                    # closes the panel: the board shows the orange cells
+wait 3.0
 tap menu                      # closes the menu
 wait 1.0
 

@@ -26,7 +26,11 @@ paper, and it does the work that paper cannot do.
   and box. If you erase the number, the marks show again.
 - When the same digit is two times in a row, column or box, the two cells change color.
 - Tap a number to highlight all cells with that digit. A cell that clashes keeps the clash color.
-- You can turn the pencil mark hiding and the highlights off. You can also select the cell colors and the gray of the micro-cell lines (or no lines).
+- When a row, column or box is full and none of its cells clashes, its nine cells change to the
+  completed color (green by default). The app does not compare the numbers with the solution, thus
+  this color does not tell you that the numbers are correct. A clash with a cell outside the row,
+  column or box also stops the color. A completed game does not show this color.
+- You can turn the pencil mark hiding, the highlights and the completed color off. You can also select the cell colors and the gray of the micro-cell lines (or no lines).
 - Undo and redo for all changes on the board.
 
 **Puzzles**
@@ -149,7 +153,7 @@ The app keeps its data in `/home/root/.local/share/rm-sudoku/` on the tablet:
 | File             | Contents                                                                                    |
 | ---------------- | ------------------------------------------------------------------------------------------- |
 | `game.json`      | The current game: the puzzle, its seed, its mode and the version of the generator, your numbers and pencil marks, the undo and redo history, the clock and the completion state |
-| `settings.json`  | The cell colors, the micro-cell line gray, the last difficulty and the two switches of the Settings panel |
+| `settings.json`  | The cell colors, the micro-cell line gray, the last difficulty and the three switches of the Settings panel |
 | `results.sqlite` | Your completed games: the date and time, the difficulty, the quantity of starting numbers, the time, the puzzle seed and the generator version |
 
 To use a different folder, set the environment variable `SUDOKU_DATA_DIR`.

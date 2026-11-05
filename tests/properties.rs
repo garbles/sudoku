@@ -1,15 +1,16 @@
 //! Property-based tests: random sequences of player input. After each input, the debug build checks all
 //! state rules of INVARIANTS.md (`invariants::check_app`, in `App::handle`). This test also checks the
 //! rules about two states one after the other (CLK-2, CLK-3, CMP-5, INP-1, INP-9, UND-2, UND-3, ANA-2,
-//! NAV-3, NAV-9, NAV-16, MRK-10 to MRK-16). The two-hand sequences at the end examine the x of a refused
-//! tap at each event.
+//! NAV-3, NAV-9, NAV-16, MRK-10 to MRK-16). The two-hand sequences examine the x of a refused tap at each
+//! event. The group sequences at the end examine COL-8 to COL-12 against a separate model (`inv_groups`).
 
 mod common;
+mod inv_groups;
 
 use common::*;
 use proptest::prelude::*;
 use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, OVERLAY_MS};
-use sudoku::game::{cells, mark_bit, Cell, Game};
+use sudoku::game::{cells, mark_bit, Cell, Game, Group};
 use sudoku::invariants::check_app;
 use sudoku::layout::{self, Button};
 use sudoku::reference;
@@ -62,10 +63,10 @@ fn act() -> impl Strategy<Value = Act> {
         1 => Just(Act::Suspend),
         1 => (0..5u8, any::<bool>()).prop_map(|(m, s)| Act::NewGame(m, s)),
         // u8 ranges, so that a seed in properties.proptest-regressions gives the same acts.
-        2 => (0..3u8, 0..9u8).prop_map(|(s, i)| Act::PickColor(Section::ALL[s as usize], Color::ALL[i as usize])),
+        2 => (0..Section::ALL.len() as u8, 0..9u8).prop_map(|(s, i)| Act::PickColor(Section::ALL[s as usize], Color::ALL[i as usize])),
         4 => (0..22u8).prop_map(Act::ListControl),
         1 => (0..12u8, proptest::option::of(any::<bool>())).prop_map(|(i, c)| Act::DeleteFlow(i, c)),
-        2 => (0..2u8).prop_map(|i| Act::Switch(Switch::ALL[i as usize])),
+        2 => (0..Switch::ALL.len() as u8).prop_map(|i| Act::Switch(Switch::ALL[i as usize])),
         1 => proptest::option::of(any::<bool>()).prop_map(Act::DeleteAllFlow),
     ]
 }
@@ -174,7 +175,7 @@ fn run(d: &mut Driver, a: &Act) {
             let x = d.app.ng_stops[mode as usize];
             d.finger_tap(x, layout::ng_slider_y() as f32);
             if start {
-                d.finger_tap(1100.0, (layout::tb_bottom_y() + 56) as f32);
+                d.finger_tap(layout::ng_panel().x0 as f32 + 100.0, (layout::tb_bottom_y() + 56) as f32);
             }
         }
         Act::PickColor(section, color) => {
@@ -386,6 +387,7 @@ proptest! {
             check_app(&d.app).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
             x_state_rule(&d.app).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
             x_act_rule(a, x_before, ignored_toolbar_tap, &d).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
+            group_state_rule(&d.app).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
 
             // NAV-16: shortly after "< Back", a tap on the toolbar or on the close button changes
             // nothing.
@@ -540,6 +542,11 @@ proptest! {
             run(&mut d, a);
             d.app.quit = false;
             let now = render_without_ink(&mut d.app, &fonts);
+            // BRD-7, COL-10: the pixels of each cell. A panel can cover a part of the board.
+            if d.app.screen == Screen::Game && d.app.ui.menu.panel().is_none() {
+                let error = inv_groups::board_color_error(&now, &d.app);
+                prop_assert!(error.is_none(), "{:?} after {:?}", error, a);
+            }
             if !d.app.redraw {
                 prop_assert!(now.data() == last.data(), "the screen changed without redraw after {:?}", a);
             }
@@ -815,9 +822,9 @@ enum Hand {
 fn control() -> impl Strategy<Value = Control> {
     prop_oneof![
         5 => (0..9u8).prop_map(Control::Button),
-        2 => (0..2u8).prop_map(Control::Switch),
+        2 => (0..Switch::ALL.len() as u8).prop_map(Control::Switch),
         1 => Just(Control::StartNewGame),
-        1 => (0..3u8, 0..9u8).prop_map(|(s, c)| Control::Color(s, c)),
+        1 => (0..Section::ALL.len() as u8, 0..9u8).prop_map(|(s, c)| Control::Color(s, c)),
         1 => (0..2160u16, 0..2160u16).prop_map(|(x, y)| Control::Point(x, y)),
     ]
 }
@@ -1458,4 +1465,213 @@ fn a_first_press_on_the_toolbar_in_the_guard_time_keeps_the_overlays() {
     assert!(h.d.app.toolbar_ignored_until.is_some_and(|t| h.d.now < t), "the press is in the guard time");
     assert_eq!(h.d.app.ui.question, question, "NAV-16: an ignored first press keeps the \"?\"");
     h.send(Input::TouchUp { id: 2, x, y }).unwrap();
+}
+
+// ---- COL-8 to COL-12: the group sequences. They start from a board that is almost full, thus groups get
+// and lose the color often. The rules come from `inv_groups`, not from the code of the app.
+
+/// COL-8, COL-9, COL-11, COL-12 for one state, against the separate model.
+fn group_state_rule(app: &App) -> Result<(), String> {
+    let (g, s) = (&app.game, &app.settings);
+    let want = inv_groups::cells_in_complete_groups(&g.value);
+    let set = g.completed_cells();
+    for cell in cells() {
+        let (r, c) = (cell.0 as usize, cell.1 as usize);
+        if set.contains(cell) != want[r][c] {
+            return Err(format!("COL-8: the cell {cell:?}: the app {}, the model {}", set.contains(cell), want[r][c]));
+        }
+        if want[r][c] && g.value[r][c] == 0 {
+            return Err(format!("COL-8: the empty cell {cell:?} is in a completed group"));
+        }
+        let shows = inv_groups::shows_completed(s, g, cell);
+        if s.shows_completed(g, cell) != shows {
+            return Err(format!("COL-11, COL-12: the cell {cell:?}: the model {shows}, the switch {}, the color {:?}, completed {}", s.completed_color_on, s.color_completed, g.completed));
+        }
+    }
+    type MakeGroup = fn(u8) -> Group;
+    let kinds: [(u8, MakeGroup); 3] = [(inv_groups::ROW, Group::Row), (inv_groups::COLUMN, Group::Column), (inv_groups::BOX, Group::Box)];
+    for (kind, make) in kinds {
+        for i in 0..9u8 {
+            let group = inv_groups::group_cells(kind, i);
+            let complete = inv_groups::group_is_complete(&g.value, &group);
+            if make(i).cells() != group {
+                return Err(format!("COL-8: the cells of {:?}", make(i)));
+            }
+            if g.is_completed_group(make(i)) != complete {
+                return Err(format!("COL-8: {:?}: the model {complete}", make(i)));
+            }
+            if complete {
+                // COL-9: this follows from the other rules. A failure here is a failure of the model or of a rule.
+                let digits = group.iter().fold(0u16, |m, &(r, c)| m | mark_bit(g.value[r as usize][c as usize]));
+                if digits != (1..=9u8).fold(0, |m, d| m | mark_bit(d)) {
+                    return Err(format!("COL-9: {:?} does not have the digits 1 to 9", make(i)));
+                }
+            }
+        }
+    }
+    // COL-9: a function of `value` only. All other values of the game change, and the set does not.
+    let mut other = g.clone();
+    other.solution = [[1; 9]; 9];
+    other.given = [[false; 9]; 9];
+    other.marks = [[0; 9]; 9];
+    other.undo.clear();
+    other.redo.clear();
+    other.completed = !g.completed;
+    other.elapsed_ms = g.elapsed_ms + 1;
+    if other.completed_cells() != set {
+        return Err("COL-9: the set of completed groups depends on a value that is not `value`".to_string());
+    }
+    Ok(())
+}
+
+/// A game of the seed with all empty cells correct, except each fifth cell.
+fn almost_full_game(seed: u64) -> Game {
+    let mut g = sudoku::app::new_game(seed, 2);
+    let empty: Vec<Cell> = cells().filter(|&c| !g.is_filled(c)).collect();
+    for (i, &(r, c)) in empty.iter().enumerate() {
+        if i % 5 != 0 {
+            g.add_number((r, c), g.solution[r as usize][c as usize]);
+        }
+    }
+    g
+}
+
+/// The acts of the group sequences: most of them change the board.
+fn group_act() -> impl Strategy<Value = Act> {
+    let cell = (0..9u8, 0..9u8);
+    prop_oneof![
+        5 => cell.clone().prop_map(|(r, c)| Act::WriteSolution(r, c)),
+        4 => (cell.clone(), 1..=9u8).prop_map(|((r, c), d)| Act::Write(r, c, d)),
+        5 => cell.clone().prop_map(|(r, c)| Act::Erase(r, c)),
+        // The indexes of Undo and Redo in `BUTTONS`.
+        4 => Just(Act::Button(2)),
+        3 => Just(Act::Button(3)),
+        1 => cell.prop_map(|(r, c)| Act::TapMicro(r, c, 5)),
+        1 => (0..Section::ALL.len() as u8, 0..9u8).prop_map(|(s, i)| Act::PickColor(Section::ALL[s as usize], Color::ALL[i as usize])),
+        1 => Just(Act::Switch(Switch::ColorCompletedGroups)),
+        1 => (0..2u8).prop_map(|m| Act::NewGame(m, true)),
+    ]
+}
+
+/// The items that the group sequences count, to prove that they reach the state of each rule.
+#[derive(Default)]
+struct GroupsReached {
+    /// A cell got into a completed group.
+    gained: usize,
+    /// A cell went out of a completed group.
+    lost: usize,
+    /// One changed cell changed a group of a cell that is not its peer (COL-10).
+    far: usize,
+    /// A completed group has an entry with `value ≠ solution` (COL-9).
+    incorrect: usize,
+    /// A completed group with no completed color, on a game in progress (COL-11).
+    hidden: usize,
+    /// A complete game (COL-12).
+    completed: usize,
+    /// A new game (COL-10).
+    new_game: usize,
+}
+
+/// One sequence. The layout comes from the seed. A second app has the opposite position of the switch:
+/// its game and its results must stay the same (COL-10). After each act, the state agrees with the model,
+/// and each cell has the background of the model (BRD-7).
+fn group_sequence(seed: u64, acts: &[Act]) -> Result<GroupsReached, String> {
+    let _layout = InLayout::set(seed & 2 != 0, seed & 4 != 0);
+    let game = almost_full_game(seed);
+    let fonts = fonts();
+    let mut d = Driver::opened(app_with_game(game.clone(), START_TIME, seed));
+    let mut twin = Driver::opened(app_with_game(game, START_TIME, seed));
+    twin.app.settings.completed_color_on = false;
+    let mut reached = GroupsReached::default();
+    for a in acts {
+        let before = d.app.game.clone();
+        let results_before = d.app.results.clone();
+        let cells_before = inv_groups::cells_in_complete_groups(&before.value);
+        run(&mut d, a);
+        run(&mut twin, a);
+        let fail = |e: String| format!("{e} after {a:?}");
+        check_app(&d.app).map_err(fail)?;
+        group_state_rule(&d.app).map_err(fail)?;
+        let g = &d.app.game;
+        if *g != twin.app.game {
+            return Err(fail("COL-10: the color changed the game, the stacks or the clock".to_string()));
+        }
+        if d.app.results != twin.app.results {
+            return Err(fail("COL-10: the color changed the results".to_string()));
+        }
+        let new_game = g.seed != before.seed;
+        if !new_game {
+            // UND-1, UND-2: only a change of the numbers or of the marks changes the stacks.
+            if g.value == before.value && g.marks == before.marks && (g.undo.len(), g.redo.len(), g.completed) != (before.undo.len(), before.redo.len(), before.completed) {
+                return Err(fail("UND-2, COL-10: the stacks or `completed` changed with no change of the board".to_string()));
+            }
+            // CMP-5, ANA-2: one result only at completion.
+            let want = results_before.len() + usize::from(g.completed && !before.completed);
+            if d.app.results.len() != want {
+                return Err(fail(format!("COL-10, ANA-2: {} results, not {want}", d.app.results.len())));
+            }
+        }
+        if d.app.screen == Screen::Game && d.app.ui.menu.panel().is_none() {
+            let mut pm = tiny_skia::Pixmap::new(layout::screen_w(), layout::screen_h()).unwrap();
+            sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &d.app);
+            if let Some(e) = inv_groups::board_color_error(&pm, &d.app) {
+                return Err(fail(e));
+            }
+        }
+
+        // The items that the sequences reach.
+        let now = inv_groups::cells_in_complete_groups(&g.value);
+        reached.new_game += usize::from(new_game);
+        reached.completed += usize::from(g.completed);
+        if !new_game {
+            let flipped: Vec<Cell> = cells().filter(|&(r, c)| now[r as usize][c as usize] != cells_before[r as usize][c as usize]).collect();
+            reached.gained += flipped.iter().filter(|&&(r, c)| now[r as usize][c as usize]).count();
+            reached.lost += flipped.iter().filter(|&&(r, c)| !now[r as usize][c as usize]).count();
+            let changed: Vec<Cell> = cells().filter(|&(r, c)| g.value[r as usize][c as usize] != before.value[r as usize][c as usize]).collect();
+            if let [one] = changed[..] {
+                reached.far += flipped.iter().filter(|&&f| f != one && !inv_groups::are_peers(f, one)).count();
+            }
+        }
+        reached.incorrect += cells().filter(|&(r, c)| now[r as usize][c as usize] && g.value[r as usize][c as usize] != g.solution[r as usize][c as usize]).count();
+        reached.hidden += usize::from(!g.completed && cells().any(|c| now[c.0 as usize][c.1 as usize] && !d.app.settings.shows_completed(g, c)));
+        d.app.quit = false;
+        twin.app.quit = false;
+    }
+    Ok(reached)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 24, max_shrink_iters: 200, ..ProptestConfig::default() })]
+
+    /// COL-8 to COL-12, BRD-7, UND-2 after random numbers, erasures, undo and redo, in all layouts.
+    #[test]
+    fn the_completed_groups_follow_each_change(seed in any::<u64>(), acts in proptest::collection::vec(group_act(), 1..40)) {
+        group_sequence(seed, &acts).map_err(TestCaseError::fail)?;
+    }
+}
+
+#[test]
+fn the_group_sequences_reach_each_rule() {
+    // The group sequences must reach each state that their checks examine: else they prove nothing.
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+    let mut runner = TestRunner::deterministic();
+    let mut all = GroupsReached::default();
+    for case in 0..24 {
+        let acts = proptest::collection::vec(group_act(), 20..40).new_tree(&mut runner).unwrap().current();
+        let r = group_sequence(case, &acts).unwrap_or_else(|e| panic!("{e}"));
+        all.gained += r.gained;
+        all.lost += r.lost;
+        all.far += r.far;
+        all.incorrect += r.incorrect;
+        all.hidden += r.hidden;
+        all.completed += r.completed;
+        all.new_game += r.new_game;
+    }
+    println!("gained {}, lost {}, far {}, incorrect {}, hidden {}, completed {}, new game {}", all.gained, all.lost, all.far, all.incorrect, all.hidden, all.completed, all.new_game);
+    assert!(all.gained > 0, "COL-10: no cell got the color");
+    assert!(all.lost > 0, "COL-10: no cell lost the color");
+    assert!(all.far > 0, "COL-10: no far cell changed");
+    assert!(all.hidden > 0, "COL-11: no completed group with no color");
+    assert!(all.new_game > 0, "COL-10: no new game");
 }

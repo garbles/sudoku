@@ -3,10 +3,12 @@
 # toolbar and the pop-up menus of the device (refer to ui-lib.sh):
 #   screen-toolbar.png        menu open on a new game: cell colors, undo and redo (not available), help, analytics, +
 #   new-game-menu.png         the + panel is open: the difficulty slider and "Start new game"
-#   color-menu.png            the Cell colors panel is open (starting, clashing, highlighted, micro-cell lines), on a game
+#   color-menu.png            the Cell colors panel is open (two columns: starting, clashing, highlighted; completed,
+#                             micro-cell lines), on a game
 #   color-menu-lines-90.png, color-menu-lines-40.png  color-menu.png with the lightest and the darkest micro-cell lines
 #   screen-completed-menu.png menu open on a complete (locked) puzzle: undo and redo not available
 #   color-menu-right-handed.png  color-menu.png for a right-handed player (toolbar on the left)
+#   color-menu-landscape.png  color-menu.png in landscape (2160x1620)
 #   settings-menu.png         the Settings panel of a development build
 #   screen-toolbar-update.png, settings-update.png, settings-up-to-date.png, settings-check-updates.png,
 #   settings-restart.png                                                      updates (stable build v0.1.0)
@@ -17,9 +19,8 @@ set -e
 OUT=$1
 M=$(mktemp)
 
-# The cell background colors in the color panel. They are pale, so that the numbers are easy to read.
-COLORS="Gray:#C8C8C8 White:white Yellow:#FFE680 Blue:#AFC4F5 Red:#F0A3A3 Green:#B5DF9E Cyan:#A6E0EE Magenta:#DCB3E6 Orange:#F7C594"
-STARTING_BG='#C8C8C8'; CLASH_BG='#F0A3A3'; HIGHLIGHT_BG='#B5DF9E'
+# The cell background colors in the color panel (ui-lib.sh).
+COLORS="Gray:$COLOR_GRAY White:white Yellow:$COLOR_YELLOW Blue:$COLOR_BLUE Red:$COLOR_RED Green:$COLOR_GREEN Cyan:$COLOR_CYAN Magenta:$COLOR_MAGENTA Orange:$COLOR_ORANGE"
 
 # active_slot K : a black square behind toolbar slot K (top slots; "bottom" for the + slot)
 active_slot() {
@@ -89,7 +90,7 @@ switch() {
 }
 
 # panel TOP : an empty pop-up frame from TOP to BOTTOM (default: the screen edge). It touches the toolbar.
-PL=1108; PR=1507; TX=$((PL+33)); TR=$((PR-32))
+PL=$SET_PL; PR=$SET_PR; TX=$((PL+33)); TR=$((PR-32))
 panel() {
   top=$1; bot=${2:-2160}
   echo "stroke none fill white rectangle $PL,$top $PR,$bot" >> $M
@@ -103,17 +104,19 @@ label() { echo "stroke none fill ${4:-black} font '$UI_FONT' font-size $UI_SIZE 
 # The micro-cell line grays of the last section of the color panel (settings::LineGray). None is a white dot.
 LINE_GRAYS="None:white 90:gray90 80:gray80 70:gray70 60:gray60 55:gray55 50:gray50 45:gray45 40:gray40"
 
-# color_section TOP TITLE ITEMS SELECTED TAKEN... : one 360 px section of the color panel, with the same design as
-# the pen-color menu of the device: a title and a 3x3 grid of cells (112 px wide, 90 px high). ITEMS are
+# color_section COL ROW TITLE ITEMS SELECTED TAKEN... : the section in column COL (0, 1) and row ROW (0-2) of the color
+# panel, 400 x 360 px, with the same design as the pen-color menu of the device: a title and a 3x3 grid of cells
+# (112 px wide, 90 px high). A section below the first of a column has a line of 2 px at its top, across its column. ITEMS are
 # NAME:COLOR pairs. A black box shows the selected item. The colors of the other sections (TAKEN) are not
 # available: gray ring, a line through the dot, gray name. White is always available, so all sections can use it.
 color_section() {
-  top=$1; title=$2; items=$3; sel=$4; shift 4; taken=" $* "
-  label $TX $((top+46)) start black "$title"
+  left=$((PL+$1*CM_COL)); top=$((CM_TOP+$2*CM_ROW)); title=$3; items=$4; sel=$5; shift 5; taken=" $* "
+  [ $top -gt $CM_TOP ] && echo "stroke none fill black rectangle $left,$top $((left+CM_COL-1)),$((top+1))" >> $M
+  label $((left+33)) $((top+46)) start black "$title"
   i=0
   for c in $items; do
     name=${c%%:*}; col=${c#*:}
-    gx=$((PL+32+(i%3)*112)); gy=$((top+64+(i/3)*90)); fg=black; ring=black
+    gx=$((left+32+(i%3)*112)); gy=$((top+64+(i/3)*90)); fg=black; ring=black
     cx=$((gx+56)); cy=$((gy+30))
     if [ "$col" = "$sel" ]; then
       echo "stroke none fill black rectangle $gx,$gy $((gx+111)),$((gy+89))" >> $M; fg=white; ring=white
@@ -148,16 +151,22 @@ labeled_slider $TX $TR $R2 $LEVEL >> $M; echo >> $M
 label $TX $((R3+9)) start black "Start new game"
 toolbar gray70 plus
 compose screen.png new-game-menu.png
-PL=1108; TX=$((PL+33)); TR=$((PR-32))
+PL=$SET_PL; TX=$((PL+33)); TR=$((PR-32))
 
-# --- the Cell colors panel: four sections of 360 px, on the game in progress (the menu removes the highlight)
+# --- the Cell colors panel: two columns of 400 px and three rows of 360 px, on the game in progress (the menu
+# removes the highlight). A vertical line of 2 px is between the columns. The space below the Micro-cell lines
+# section is plain white, with no line.
 # color_menu BASE OUTFILE LINE : the panel with the micro-cell line gray LINE selected, on BASE
 color_menu() {
-  panel 112 $((112+4*360))
-  color_section 112 "Starting numbers" "$COLORS" $STARTING_BG "$CLASH_BG" "$HIGHLIGHT_BG"; divider 472
-  color_section 472 "Clashing numbers" "$COLORS" "$CLASH_BG" $STARTING_BG "$HIGHLIGHT_BG"; divider 832
-  color_section 832 "Highlighted numbers" "$COLORS" "$HIGHLIGHT_BG" $STARTING_BG "$CLASH_BG"; divider 1192
-  color_section 1192 "Micro-cell lines" "$LINE_GRAYS" "$3"
+  PL=$CM_PL
+  panel $CM_TOP $CM_BOTTOM
+  echo "stroke none fill black rectangle $((PL+CM_COL)),$CM_TOP $((PL+CM_COL+1)),$CM_BOTTOM" >> $M
+  color_section 0 0 "Starting numbers" "$COLORS" "$STARTING_BG" "$CLASH_BG" "$HIGHLIGHT_BG" "$COMPLETED_BG"
+  color_section 0 1 "Clashing numbers" "$COLORS" "$CLASH_BG" "$STARTING_BG" "$HIGHLIGHT_BG" "$COMPLETED_BG"
+  color_section 0 2 "Highlighted numbers" "$COLORS" "$HIGHLIGHT_BG" "$STARTING_BG" "$CLASH_BG" "$COMPLETED_BG"
+  color_section 1 0 "Completed groups" "$COLORS" "$COMPLETED_BG" "$STARTING_BG" "$CLASH_BG" "$HIGHLIGHT_BG"
+  color_section 1 1 "Micro-cell lines" "$LINE_GRAYS" "$3"
+  PL=$SET_PL
   toolbar black colors
   compose "$1" "$2"
 }
@@ -171,16 +180,17 @@ for g in 90 40; do
   color_menu .lines-$g.png color-menu-lines-$g.png gray$g; rm -f "$OUT/.lines-$g.png"
 done
 
-# settings_panel VERSION BOTTOM : the Settings panel: two rows (highlight numbers, hide pencil marks
-# automatically), both on, then the version in reMarkable Sans Regular, black, at the right. A stable build
-# has a fourth row for updates (BOTTOM 681, REQUIREMENTS.md §9.2).
+# settings_panel VERSION BOTTOM : the Settings panel: three rows with a switch (highlight numbers, hide pencil marks
+# automatically, color completed groups), all on, then the version in reMarkable Sans Regular, black, at the right.
+# A stable build has a fifth row for updates (BOTTOM SET_BOTTOM_STABLE, REQUIREMENTS.md §9.2).
 settings_panel() {
-  panel 224 $2; divider 338; divider 452
+  panel $SET_TOP $2; divider 338; divider 452; divider 566
   label $TX $((226+65)) start black "Highlight numbers"; switch $((PR-33)) $((226+56)) on
   label $TX $((340+49)) start black "Hide pencil marks"; label $TX $((340+81)) start black "automatically"; switch $((PR-33)) $((340+56)) on
-  label $TX $((454+65)) start black "Version"
-  regular_text end $((PR-33)) $((454+65)) "$1"
-  [ $2 -gt 567 ] && divider 566
+  label $TX $((454+49)) start black "Color completed"; label $TX $((454+81)) start black "groups"; switch $((PR-33)) $((454+56)) on
+  label $TX $((SET_VERSION_Y+65)) start black "Version"
+  regular_text end $((PR-33)) $((SET_VERSION_Y+65)) "$1"
+  [ $2 -gt $SET_BOTTOM_DEV ] && divider $((SET_UPDATE_Y-2))
   return 0
 }
 gray_text() { echo "stroke none fill gray40 font '$DIGIT_FONT' font-size $UI_SIZE text-anchor $1 text $2,$3 '$4'" >> $M; }
@@ -196,7 +206,7 @@ caution() {
     printf "stroke none fill white circle %.1f,%.1f %.1f,%.1f\n", x, y+5.5, x+1.6, y+5.5 }' >> $M
 }
 
-# update_button TEXT [check|restart] : the button in the fourth row (top 568): a box with a 2 px border, 33 px from
+# update_button TEXT [check|restart] : the button in the fifth row (top SET_UPDATE_Y): a box with a 2 px border, 33 px from
 # the sides of the panel and from 22 px to 90 px below the top of the row, the icon 40 px from the left of the
 # box, and the text 72 px from the left of the box. The icon of "Update to v<version>" is a down arrow into a
 # tray. The icon of "Check for updates" (check) is a circular arrow: an arc (radius 12 px) clockwise from
@@ -205,7 +215,7 @@ caution() {
 # (restart) is a power symbol: an arc (radius 12 px) clockwise from 300 to 600 degrees, with the gap at
 # the top, and a line from 15 px to 3 px above the center.
 update_button() {
-  bx0=$((PL+33)); bx1=$((PR-33)); by0=$((568+22)); by1=$((568+90)); ix=$((bx0+40)); cy=$((568+56))
+  bx0=$((PL+33)); bx1=$((PR-33)); by0=$((SET_UPDATE_Y+22)); by1=$((SET_UPDATE_Y+90)); ix=$((bx0+40)); cy=$((SET_UPDATE_Y+56))
   echo "stroke none fill black rectangle $bx0,$by0 $bx1,$((by0+1)) rectangle $bx0,$((by1-1)) $bx1,$by1" >> $M
   echo "rectangle $bx0,$by0 $((bx0+1)),$by1 rectangle $((bx1-1)),$by0 $bx1,$by1" >> $M
   if [ "$2" = restart ]; then
@@ -229,7 +239,7 @@ update_button() {
 }
 
 # --- the Settings panel of a development build ("dev"): no update row
-settings_panel dev 567
+settings_panel dev $SET_BOTTOM_DEV
 toolbar black settings
 compose screen-in-progress.png settings-menu.png
 
@@ -239,19 +249,19 @@ compose screen-in-progress.png settings-menu.png
 # panel closed and opened again.
 toolbar black ""; caution
 compose screen-in-progress.png screen-toolbar-update.png
-settings_panel v0.1.0 681; update_button "Update to v0.2.0"
+settings_panel v0.1.0 $SET_BOTTOM_STABLE; update_button "Update to v0.2.0"
 toolbar black settings; caution
 compose screen-in-progress.png settings-update.png
-settings_panel v0.1.0 681; gray_text start $TX $((568+65)) "Sudoku is up to date"
+settings_panel v0.1.0 $SET_BOTTOM_STABLE; gray_text start $TX $((SET_UPDATE_Y+65)) "Sudoku is up to date"
 toolbar black settings
 compose screen-in-progress.png settings-up-to-date.png
-settings_panel v0.1.0 681; update_button "Check for updates" check
+settings_panel v0.1.0 $SET_BOTTOM_STABLE; update_button "Check for updates" check
 toolbar black settings
 compose screen-in-progress.png settings-check-updates.png
 # The update v0.2.0 is installed and replaced the ink patch. The user tapped "Later" in the dialog
 # "Restart the interface?", and the row has the button "Restart interface" (analytics.py draws the
 # dialog on this image: update-restart.png).
-settings_panel v0.1.0 681; update_button "Restart interface" restart
+settings_panel v0.1.0 $SET_BOTTOM_STABLE; update_button "Restart interface" restart
 toolbar black settings; caution
 compose screen-in-progress.png settings-restart.png
 
@@ -260,11 +270,23 @@ toolbar gray70 ""
 compose screen-completed.png screen-completed-menu.png
 # --- color-menu.png for a right-handed player (REQUIREMENTS.md §3.1). The toolbar moves to the left edge and
 # the close button to the top right. The menu icon is a mirror image. The other icons and the panel contents
-# do not change: the panel moves 996 px to the left (x 112-511). All moves are full pixels.
+# do not change: the panel moves to x 112-911, with the same order of columns. All moves are full pixels.
+CM_CROP=${CM_W}x$((CM_BOTTOM-CM_TOP+1))+$CM_PL+$CM_TOP   # the full panel, with its bottom line
 magick "$OUT/screen-in-progress.png" \
   \( "$OUT/color-menu.png" -crop 112x2160+$TB_X+0 +repage \) -geometry +0+0 -composite \
   \( "$OUT/color-menu.png" -crop 112x112+$TB_X+0 +repage -flop \) -geometry +0+0 -composite \
   \( "$OUT/color-menu.png" -crop 112x112+0+0 +repage \) -geometry +$TB_X+0 -composite \
-  \( "$OUT/color-menu.png" -crop $((PR-PL+1))x$((4*360))+$PL+112 +repage \) -geometry +112+112 -composite \
+  \( "$OUT/color-menu.png" -crop $CM_CROP +repage \) -geometry +$CM_PL_RIGHT+$CM_TOP -composite \
   -units PixelsPerInch -density 229 "$OUT/color-menu-right-handed.png"
+# --- color-menu.png in landscape (REQUIREMENTS.md §3.3). The items do not change. They move by full pixels: the
+# board and the meter to the center of the 2160x1620 screen, the toolbar to the right edge with its bottom slots
+# at the bottom edge, and the panel to x 1248-2047, where it covers the right part of the board.
+TB_TOP_H=$((5*112)); TB_LOW_Y=$((TB_BOTTOM_Y-224))
+magick -size ${LS_W}x${LS_H} xc:white \
+  \( "$OUT/screen-in-progress.png" -crop 1360x1440+130+400 +repage \) -geometry +$((130+LS_DX))+$((400+LS_DY)) -composite \
+  \( "$OUT/color-menu.png" -crop 112x112+0+0 +repage \) -geometry +0+0 -composite \
+  \( "$OUT/color-menu.png" -crop 112x$TB_TOP_H+$TB_X+0 +repage \) -geometry +$LS_TB_X+0 -composite \
+  \( "$OUT/color-menu.png" -crop 112x$((2160-TB_LOW_Y))+$TB_X+$TB_LOW_Y +repage \) -geometry +$LS_TB_X+$((TB_LOW_Y+LS_BOTTOM_DY)) -composite \
+  \( "$OUT/color-menu.png" -crop $CM_CROP +repage \) -geometry +$CM_PL_LANDSCAPE+$CM_TOP -composite \
+  -units PixelsPerInch -density 229 "$OUT/color-menu-landscape.png"
 rm -f $M

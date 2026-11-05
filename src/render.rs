@@ -10,7 +10,7 @@ use tiny_skia::{FillRule, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, P
 
 use crate::app::{average_seconds, App, Menu, Panel, Screen, MANUAL_PAGES};
 use crate::font::{Anchor, Fonts, Weight};
-use crate::game::{cells, format_clock, Game};
+use crate::game::{cells, format_clock, CellSet, Game};
 use crate::generator::MODES;
 use crate::layout::{self, *};
 use crate::settings::{Color, LineGray, Section, Settings, Switch};
@@ -891,6 +891,8 @@ fn mark_anchor(xf: f32, yf: f32, digit: u8) -> (f32, f32) {
     (xf + MARK_POS[i % 3], yf + MARK_POS[i / 3])
 }
 
+/// The color of the digits of the player (BRD-8, §15): gray18, #2E2E2E.
+pub const ENTRY_DIGIT: Rgb = gray(18);
 /// The color of the pencil marks and of the x of a refused tap (§15).
 const MARK_COLOR: Rgb = gray(15);
 /// The x of a refused tap (§15, MRK-13): each line goes this distance on the two axes from the center.
@@ -915,7 +917,7 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
             }
         }
     }
-    // Numbers: starting numbers black, your numbers gray35 (BRD-8). Pencil marks only on empty cells
+    // Numbers: starting numbers black, your numbers `ENTRY_DIGIT` (BRD-8). Pencil marks only on empty cells
     // (MRK-2), gray15, at their keypad positions (MRK-1).
     match look {
         CellLook::Value(v, _, col) => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, &v.to_string(), col),
@@ -1021,18 +1023,19 @@ fn put_cached(c: &mut Canvas, key: TileKey, x: usize, y: usize, w: usize, h: usi
 /// then all lines, then all text. The band around the cells has only lines on white.
 fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, overlays: BoardOverlays) {
     let (bx, by) = (board_x(), board_y());
+    let colors = BoardColors::of(g, settings);
     let Some(area) = board_area(c.pm) else {
         // Not on the screen: draw without the cache (this does not occur with the layouts).
         for cell in cells() {
             let (x, y) = cell_origin(cell);
-            draw_cell(c, cell_look(g, settings, overlays, cell), x as f32, y as f32);
+            draw_cell(c, cell_look(g, settings, &colors, overlays, cell), x as f32, y as f32);
         }
         board_lines(c, |_, _| true, None);
         return;
     };
     let fonts = c.fonts as *const Fonts as usize;
     let n = CELL as usize + 1;
-    let looks: Vec<_> = cells().map(|cell| (cell, cell_look(g, settings, overlays, cell))).collect();
+    let looks: Vec<_> = cells().map(|cell| (cell, cell_look(g, settings, &colors, overlays, cell))).collect();
     let key = |a: &Area, look| (fonts, bx, by, a.x0, a.y0, look);
     // The slots of the board: the cells (in the order of `cells`), then the band.
     let slots: Vec<(Area, TileKey)> = board_slots()
@@ -1179,21 +1182,39 @@ const MAX_TILES: usize = 256;
 /// With more new tiles than this, `draw_board` draws the full board (it is faster than the tiles).
 const COLD_TILES: usize = 16;
 
+/// The clashes and the completed color of a board. `draw_board` calculates them one time for all
+/// its cells.
+struct BoardColors {
+    clashing: CellSet,
+    /// The cells of the completed groups and their color, if the completed color shows (COL-11, COL-12).
+    completed: Option<(CellSet, Rgb)>,
+}
+
+impl BoardColors {
+    fn of(g: &Game, settings: &Settings) -> BoardColors {
+        let sets = g.board_sets();
+        BoardColors { clashing: sets.clashing, completed: settings.completed_fill(g).map(|color| (sets.completed, color.rgb())) }
+    }
+}
+
 /// The look of a cell for the state of the game.
-fn cell_look(g: &Game, settings: &Settings, overlays: BoardOverlays, cell: crate::game::Cell) -> CellLook {
+fn cell_look(g: &Game, settings: &Settings, colors: &BoardColors, overlays: BoardOverlays, cell: crate::game::Cell) -> CellLook {
     let v = g.value_at(cell);
     if v != 0 {
         // BRD-7: the first rule that applies.
-        let bg = if g.is_clashing(cell) {
+        let completed = colors.completed.filter(|(set, _)| set.contains(cell)).map(|(_, rgb)| rgb);
+        let bg = if colors.clashing.contains(cell) {
             settings.color_clash.rgb()
         } else if overlays.highlight == Some(v) {
             settings.color_highlight.rgb()
+        } else if let Some(rgb) = completed {
+            rgb
         } else if g.is_given(cell) {
             settings.color_starting.rgb()
         } else {
             Color::White.rgb()
         };
-        CellLook::Value(v, bg, if g.is_given(cell) { BLACK } else { gray(35) })
+        CellLook::Value(v, bg, if g.is_given(cell) { BLACK } else { ENTRY_DIGIT })
     } else if overlays.question == Some(cell) {
         CellLook::Question
     } else {
@@ -1287,7 +1308,7 @@ fn panel_frame(c: &mut Canvas, pl: i32, pr: i32, top: i32, bot: i32) {
 /// The Settings panel (REQUIREMENTS.md §9.1): one row with a name and a switch for each `Switch`, the version, and the
 /// update row of a stable or a preview build (§9.2).
 fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
-    let (pl, pr) = (colors_pl(), colors_pr());
+    let (pl, pr) = (layout::settings_pl(), layout::settings_pr());
     let p = layout::settings_panel(update.has_row());
     panel_frame(c, pl, pr, p.y0, p.y1 - 1);
     for s in Switch::ALL {
@@ -1334,31 +1355,36 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
     }
 }
 
-/// A switch with its right end at x: a track of 72 x 36 px and a knob of 28 px.
+/// A switch with its right end at x: a track of 72 x 36 px and a knob of 28 px. The curves are made at
+/// the origin and moved by a transform, because the f32 rounding of curves at absolute positions gives
+/// other antialiased pixels at a different x. Thus the switch has the same pixels for the two hands (NAV-15).
 fn switch(c: &mut Canvas, x1: f32, cy: f32, on: bool) {
-    let (x0, r) = (x1 - 72.0, 18.0);
+    let (w, r) = (72.0, 18.0);
     let mut pb = PathBuilder::new();
-    pb.move_to(x0 + r, cy - r);
-    pb.line_to(x1 - r, cy - r);
-    pb.cubic_to(x1 - r + 9.94, cy - r, x1, cy - 9.94, x1, cy);
-    pb.cubic_to(x1, cy + 9.94, x1 - r + 9.94, cy + r, x1 - r, cy + r);
-    pb.line_to(x0 + r, cy + r);
-    pb.cubic_to(x0 + r - 9.94, cy + r, x0, cy + 9.94, x0, cy);
-    pb.cubic_to(x0, cy - 9.94, x0 + r - 9.94, cy - r, x0 + r, cy - r);
+    pb.move_to(r, -r);
+    pb.line_to(w - r, -r);
+    pb.cubic_to(w - r + 9.94, -r, w, -9.94, w, 0.0);
+    pb.cubic_to(w, 9.94, w - r + 9.94, r, w - r, r);
+    pb.line_to(r, r);
+    pb.cubic_to(r - 9.94, r, 0.0, 9.94, 0.0, 0.0);
+    pb.cubic_to(0.0, -9.94, r - 9.94, -r, r, -r);
     pb.close();
     let track = pb.clone();
-    c.path_fill(pb, Transform::identity(), if on { BLACK } else { WHITE });
-    c.path_stroke(track, Transform::identity(), 3.0, BLACK);
-    if on {
-        c.circle(x1 - r, cy, 14.0, Some(WHITE), None);
-    } else {
-        c.circle(x0 + r, cy, 14.0, Some(BLACK), None);
-    }
+    let x0 = x1 - w;
+    let at = Transform::from_translate(x0, cy);
+    c.path_fill(pb, at, if on { BLACK } else { WHITE });
+    c.path_stroke(track, at, 3.0, BLACK);
+    let mut knob = PathBuilder::new();
+    knob.push_circle(0.0, 0.0, 14.0);
+    let (knob_x, knob_color) = if on { (x1 - r, WHITE) } else { (x0 + r, BLACK) };
+    c.path_fill(knob, Transform::from_translate(knob_x, cy), knob_color);
 }
 
 fn draw_colors_panel(c: &mut Canvas, settings: &Settings) {
     let (pl, pr) = (colors_pl(), colors_pr());
-    panel_frame(c, pl, pr, COLORS_TOP, COLORS_TOP + COLOR_SECTIONS * COLOR_SECTION_H);
+    panel_frame(c, pl, pr, COLORS_TOP, COLORS_BOTTOM);
+    // The line between the two columns (NAV-17).
+    c.rect((pl + COLOR_COLUMN_W) as f32, COLORS_TOP as f32, (pl + COLOR_COLUMN_W + 1) as f32, COLORS_BOTTOM as f32, BLACK);
     for section in Section::ALL {
         let selected = settings.color(section);
         let items = Color::ALL.map(|color| {
@@ -1390,16 +1416,15 @@ enum Swatch {
     Taken,
 }
 
-/// One section of the Cell colors panel (toolbar.sh `color_section`): the divider above it (except
-/// the first section), the title, and a 3x3 grid of swatches with their names. A black box shows the
+/// One section of the Cell colors panel (toolbar.sh `color_section`): the divider above it across its
+/// column (except the first section of a column), the title, and a 3x3 grid of swatches with their names. A black box shows the
 /// selected item. A taken item has a gray ring, a gray name and a line through the dot.
 fn color_section(c: &mut Canvas, index: usize, title: &str, items: &[(Rgb, String, Swatch); 9]) {
-    let (pl, pr) = (colors_pl(), colors_pr());
-    let top = layout::color_section_top(index);
-    if index > 0 {
-        c.rect(pl as f32, top as f32, pr as f32, (top + 1) as f32, BLACK);
+    let (left, top) = (layout::color_section_left(index), layout::color_section_top(index));
+    if top > COLORS_TOP {
+        c.rect(left as f32, top as f32, (left + COLOR_COLUMN_W - 1) as f32, (top + 1) as f32, BLACK);
     }
-    c.text(Weight::Medium, 25.0, (pl + 33) as f32, (top + COLOR_TITLE_Y) as f32, Anchor::Start, title, BLACK);
+    c.text(Weight::Medium, 25.0, (left + 33) as f32, (top + COLOR_TITLE_Y) as f32, Anchor::Start, title, BLACK);
     for (i, (rgb, name, state)) in items.iter().enumerate() {
         let cell = layout::color_grid_cell(index, i);
         // The panel is white under the item, and the item draws only in its cell.

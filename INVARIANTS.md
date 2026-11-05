@@ -80,11 +80,12 @@ ListUI
   confirm         ∈ {None} ∪ Result             (the delete dialog)
 
 Settings
-  color_starting, color_clash, color_highlight ∈ Palette
+  color_starting, color_clash, color_highlight, color_completed ∈ Palette
   micro_line      ∈ {None, gray90, gray80, gray70, gray60, gray55, gray50, gray45, gray40}   (Cell colors panel; default gray90; COL-7)
   last_mode       ∈ 0..6
   highlight_on    : bool                       (Settings panel; default true)
   auto_hide_on    : bool                       (Settings panel; default true)
+  completed_color_on : bool                    (Settings panel, "Color completed groups"; default true)
 
 Update
   current         : text                       (the version of the app: v<version>, pre-<sha>, dev or dev/<name>)
@@ -109,6 +110,11 @@ Terms:
 - **filled(r, c)**: `value[r][c] ≠ 0`.
 - **entry(r, c)**: the cell is filled and is not a starting number ("your number").
 - **clashing(r, c)**: the cell is filled and a peer has the same value.
+- **group**: the nine cells of a row, of a column or of a 3×3 box.
+- **completed group**: a group that agrees with COL-8. It is not the same as a complete game
+  (`completed`).
+- **shows_completed(r, c)**: (r, c) is in a completed group, `completed_color_on`,
+  `color_completed ≠ White` and `¬completed`.
 - **can_undo / can_redo**: the stack is not empty and the game is not complete.
 - **refused tap**: a pen tap on the micro-cell of digit d of an empty cell, when `auto_hide_on` and a
   peer has the number d (MRK-7).
@@ -132,10 +138,10 @@ Terms:
 | BRD-2 | `given ⇒ filled`. The value of a starting number does not change. | R§4.1 |
 | BRD-3 | The value of an entry is 1–9. Only the eraser, undo or redo can remove it. Writing does not replace it. | R§4.1, R§5.1 |
 | BRD-4 | A value changes from 0 to a digit only by a number from 1 to 9 that the app reads, by redo, by undo of an erasure, or by the generator. | R§5.1, R§7 |
-| BRD-5 | An entry can be incorrect. `value ≠ solution` is a correct state and has no color, if there is no clash. | R§6.3 |
+| BRD-5 | An entry can be incorrect. `value ≠ solution` is a correct state. The app gives no cell a color because of `value ≠ solution`: an incorrect entry gets a color only by the rules that also apply to a correct entry (BRD-7). | R§6.3, owner decision 2026-11-05 |
 | BRD-6 | Filled cells do not show the micro-cell grid or pencil marks. Empty cells show the micro-cell grid in the gray of `micro_line` (COL-7), or no grid if it is None. The only exception is an empty cell with a "?" (QST-1): it does not show the grid while the "?" shows. | R§4.1, R§5.1, R§10 |
-| BRD-7 | The background of a filled cell is the **first** of these: the clash color if clashing; the highlight color if `value = highlight`; the starting color if given; white. Empty cells are white. | R§4.2 |
-| BRD-8 | Starting digits are black. Entry digits are dark gray (`gray35`). | R§4.1, R§15 |
+| BRD-7 | The background of a filled cell is the **first** of these: the clash color if clashing; the highlight color if `value = highlight`; the completed color if `shows_completed`; the starting color if given; white. Empty cells are white. Thus a cell with a "?" (QST-1) has no completed color. | R§4.2, owner decision 2026-11-05 |
+| BRD-8 | Starting digits are black. Entry digits are `gray18` (`#2E2E2E`). | R§4.1, R§15, owner decision 2026-11-05 |
 
 ## 3. Pencil marks
 
@@ -158,7 +164,7 @@ Terms:
 | CLS-1 | The set of clashing cells is always `{(r, c) : clashing(r, c)}`. The app calculates it from `value` after each change: a new number, an erasure, undo, redo and a new game. The app does not keep it separately from the board. | R§6.3 |
 | CLS-2 | Clashes go in two directions. If (r, c) clashes with a peer, that peer also clashes. Both cells get the clash color. | R§6.3 |
 | CLS-3 | Two starting numbers never clash (PUZ-3). Thus each clash includes one or more entries. | R§6.3, R§14.5 |
-| CLS-4 | The app never compares the board with `solution` for the player. An incorrect entry with no clash looks the same as a correct entry. | R§6.3 |
+| CLS-4 | The app never compares the board with `solution` for the player. An incorrect entry with no clash looks the same as a correct entry. This is also true in a completed group: the completed color does not tell that a number is correct or incorrect (COL-9). | R§6.3, owner decision 2026-11-05 |
 
 ## 5. Overlays: highlight, "?" and x
 
@@ -210,7 +216,7 @@ Terms:
 | ID | Rule | Source |
 |---|---|---|
 | UND-1 | Each change to the board is one of these: add or remove a mark; add a number; erase a number. Each change adds one item to `undo` and empties `redo`. | R§7 |
-| UND-2 | No other action adds to `undo`. Highlights, the "?", the x, color changes, switch changes, panels and screens never add to it. | R§7 |
+| UND-2 | No other action adds to `undo`. Highlights, the "?", the x, color changes, switch changes, a group that gets or loses the completed color, panels and screens never add to it. | R§7, owner decision 2026-11-05 |
 | UND-3 | Undo does the exact opposite of the top change and moves the change to `redo`. Redo does the change again and moves it back to `undo`. An undo and then a redo give the same board as before. A redo and then an undo also give the same board. | R§7 |
 | UND-4 | Undo of a number shows the hidden marks of that cell again, and the marks of the peers that the number hid (MRK-8). For a number of an earlier version with a `removed` list, undo puts back those marks. | R§6.1 |
 | UND-5 | After each undo or redo, CLS-1 is true. The app calculates the clashes again. | R§6.3 |
@@ -257,10 +263,11 @@ Terms:
 | NAV-10 | The closed menu never covers the board. The open toolbar (portrait x ≥ 1508, landscape x ≥ 2048) never covers the board (portrait x ≤ 1471, landscape x ≤ 1741). An open panel can cover a part of the board. For a right-handed player, the toolbar is at the left edge (x 0–112) and the board does not change (NAV-15). | R§3.1, R§3.3 |
 | NAV-15 | When the device is right-handed, the game screen shows the toolbar, the menu button, the close button and the panels as a mirror image of the left-handed screen: the toolbar is at the left edge (x 0–112), the close button is at the top right, and the panels touch the toolbar at x 112. The icons other than the menu button and the contents of the panels are the same. The hit areas move with the buttons. | R§3.1 (owner request 2026-10-26) |
 | NAV-13 | A turn of the tablet does not change the game, the settings or the screen. It removes the pending ink and the touches in progress, and it changes only the page of the games list: the list shows the page with the first game of the page before the turn (R§3.3). | R§3.3 (confirmed 2026-10-25) |
-| NAV-14 | The Settings panel opens from the gear (top slot 2). A tap on a row changes only its switch (`highlight_on` or `auto_hide_on`), immediately; the panel stays open. A tap on the version row (row 3) changes nothing, and the panel stays open. A change of a switch does not change the game or the undo and redo stacks, and it does not change the changes that are already in the stacks. | R§9.1 (version row: owner decision 2026-10-26) |
+| NAV-14 | The Settings panel opens from the gear (top slot 2). It is 400 px wide (x 1108–1507 for a left-handed player in portrait). Rows 1 to 3 have the switches `highlight_on`, `auto_hide_on` and `completed_color_on`, in this order. A tap on one of these rows changes only its switch, immediately; the panel stays open. A tap on the version row (row 4) changes nothing, and the panel stays open. A change of a switch does not change the game or the undo and redo stacks, and it does not change the changes that are already in the stacks. The switches also operate when `completed` (CMP-6). | R§9.1 (version row: owner decision 2026-10-26; third switch and width: owner decision 2026-11-05) |
 | NAV-11 | When `panel ≠ None`, a tap outside the panel only sets `panel = None`. It does not change the game, also when the tap is on the board. When `menu = Open` and `panel = None`, the board operates as usual. | R§9 |
 | NAV-12 | When `panel ≠ None`, a tap on a toolbar button that is not the paint bucket, the gear or the + only closes the panel. A tap on the button of a different panel opens that panel. This includes the menu button and the close button. | R§9 (confirmed 2026-10-25) |
 | NAV-16 | For 0.5 s after "< Back" from Manual or Statistics shows Game, a press on a toolbar button (also the menu button) or on the close button changes nothing: `menu`, `panel`, `screen` and the game do not change, and the app does not close. A first press that the app ignores in this time does not remove the x or the "?" (the exception to MRK-15 and QST-4). A second finger on one of these items, while another finger stays on the screen, operates no item, but it removes the x and the "?" (INP-15). A press on the board operates as usual. This is true for the left-handed and the right-handed layout. | R§9, R§12, R§13.1 (owner decisions 2026-11-02, 2026-11-04 and 2026-11-05) |
+| NAV-17 | The Cell colors panel is 800 px wide and covers y 112 to 1192, with the two ends included (1081 rows: three rows of 360 px and the last border row). Its x range, also with the two ends included, is 708–1507 for a left-handed player in portrait, 1248–2047 for a left-handed player in landscape, and 112–911 for a right-handed player in the two orientations. It has two columns of 400 px, in the same order for the two hands. The left column has, from the top, Starting numbers, Clashing numbers and Highlighted numbers. The right column has, from the top, Completed groups, Micro-cell lines and empty space. In all four layouts, the panel does not cover a toolbar button, the close button, the meter or "Completed in". A tap on the empty space or on a title changes nothing, and the panel stays open. | R§3.1, R§10, owner decision 2026-11-05 |
 
 ## 11. Difficulty
 
@@ -278,13 +285,18 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| COL-1 | `color_starting`, `color_clash` and `color_highlight` each always have one color from the Palette. The defaults are Gray, Red and Green. | R§10 |
+| COL-1 | `color_starting`, `color_clash`, `color_highlight` and `color_completed` each always have one color from the Palette. The defaults are Gray, Red, Cyan and Green. | R§10, owner decision 2026-11-05 |
 | COL-2 | In the Colors panel, each section shows one selected color (black box). That color is equal to the related setting. | R§10 |
-| COL-3 | A tap on a color changes only the setting of that section. The board shows the new color immediately (BRD-7). | R§10 |
+| COL-3 | A tap on a color changes only the setting of that section. The board shows the new color immediately on each cell that has that color (BRD-7). | R§10, owner decision 2026-11-05 |
 | COL-4 | Color changes do not change the game state or the undo stack (UND-2). | R§7, R§10 |
-| COL-5 | `color_starting`, `color_clash` and `color_highlight` are all different, except White. All three can be White. A color that another section uses shows as not available, and you cannot select it. White is always available. | R§10 |
+| COL-5 | `color_starting`, `color_clash`, `color_highlight` and `color_completed` are all different, except White. All four can be White. A color that another of these four sections uses shows as not available, and you cannot select it. White is always available. This rule does not apply to the Micro-cell lines section (COL-7). | R§10, owner decision 2026-11-05 |
 | COL-6 | Black is never in the palette. | R§10 |
 | COL-7 | `micro_line` always has one of the nine values of the Micro-cell lines section: None, gray90, gray80, gray70, gray60, gray55, gray50, gray45 or gray40. The default is gray90, also for a settings file of an earlier version. The section shows the selected value (black box). A tap on a value changes only `micro_line`, and the board shows the new lines immediately. | R§10 (owner decision 2026-11-02) |
+| COL-8 | A group is a completed group exactly when all its nine cells are filled and no cell of the group is clashing. A clash with a cell outside the group also stops the group. An empty cell is never in a completed group. | R§4.2, R§6.3, owner decision 2026-11-05 |
+| COL-9 | The set of completed groups is a function of `value` only. The app does not use `solution` for it, does not keep it as a state and does not save it. Each completed group has the digits 1–9 one time. A completed group can have an entry with `value ≠ solution`. A group with only starting numbers that is full at the start of a game is a completed group from the first frame. | R§4.2, R§6.3, owner decision 2026-11-05 |
+| COL-10 | After each change (a new number, an erasure, undo, redo and a new game), a cell has the completed color exactly when `shows_completed` and no earlier item of BRD-7 applies. This is also true for cells that are not peers of the changed cell: an erasure can remove a clash, and then a different group of the other clashing cell becomes a completed group. A group that gets or loses the color does not change the undo and redo stacks, the clock, `results` or `completed`. | R§4.2, R§6.3, owner decision 2026-11-05 |
+| COL-11 | `completed_color_on` and the selection of White in the Completed groups section only select whether the completed color shows. With `¬completed_color_on` or `color_completed = White`, no cell has the completed color, and a starting number keeps its starting color (BRD-7). The two conditions give the same board. They do not change the set of completed groups. With `¬completed_color_on`, the Completed groups section stays operative, and `color_completed` stays not available for the other sections (COL-5). | R§9.1, R§10, owner decision 2026-11-05 |
+| COL-12 | `completed ⇒` no cell has the completed color. At completion, the board shows the starting color for starting numbers and white for entries. This is also true when a saved completed game opens. | R§8.3, owner decision 2026-11-05 |
 
 ## 13. Manual
 
@@ -318,17 +330,18 @@ Terms:
 |---|---|---|
 | PER-1 | At each point where the app can close or be suspended, the saved game is equal to the game in memory: `seed`, `mode`, the `generator` version, starting numbers, `value`, `marks`, the two stacks, `elapsed` and `completed`. | R§14.3 |
 | PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Open`, `panel = None`, `highlight = None`, `question = None`, `refused = None` and `pending_ink = None`. The app does not keep the menu state. This is true for a new game and for a saved game. | R§9, R§14.3 (owner decision 2026-11-02) |
-| PER-3 | The settings (`color_*`, `micro_line`, `last_mode`, `highlight_on` and `auto_hide_on`) stay the same when the app closes and opens again. | R§14.2 |
+| PER-3 | The settings (`color_*`, `micro_line`, `last_mode`, `highlight_on`, `auto_hide_on` and `completed_color_on`) stay the same when the app closes and opens again. | R§14.2, owner decision 2026-11-05 |
 | PER-4 | `results` stays the same when the app closes and opens again. Only ANA-2 changes it. | R§14.1 |
-| PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. When the app opens, it does not use saved data that breaks a rule (PUZ-5, ANA-1). A saved history that play cannot make, but that agrees with UND-3, is correct: each undo and redo item still changes the board. | — (confirmed 2026-10-25) |
+| PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. When the app opens, it does not use saved data that breaks a rule (PUZ-5, ANA-1). It uses the default settings in place of a settings file that breaks COL-5 (also PER-8). A saved history that play cannot make, but that agrees with UND-3, is correct: each undo and redo item still changes the board. | — (confirmed 2026-10-25; settings: review finding) |
 | PER-6 | If the app closes during the recognition pause, the app removes the ink. The app never reads it later. | R§14.3 |
 | PER-7 | The app saves the game after each change to the board, the settings after each change, and the clock at least each 5 seconds. It also saves when it closes or gets SIGTERM, SIGINT or SIGHUP. A power loss can lose a maximum of 5 seconds of the clock. | R§14.3 (confirmed 2026-10-25) |
+| PER-8 | When a settings file has no `color_completed`: (1) If its three colors break COL-5, the app uses the default settings (PER-5). (2) Else, if `color_highlight = Green`, it becomes Cyan, or the first free color if another section uses Cyan. A highlight of another color, also White, does not change. (3) Then `color_completed` becomes Green, or the first free color if another section uses Green. (4) `completed_color_on = true`. The first free color is the first color in the order of the Palette (§0, also the order of the panel) that is not White and that no other section uses. A settings file that has `color_completed` does not get these changes, also with `color_highlight = Green`. A settings file that has `color_completed` and no value for the switch gets `completed_color_on = true`, and its colors do not change. Each start gives the same result from the same file. The app changes the file only at the next change of the settings. | R§14.2; part (1): PER-5 and a review finding, not an owner decision; no value for the switch: default of §0; other parts: owner decision 2026-11-05 |
 
 ## 16. Updates
 
 | ID | Rule | Source |
 |---|---|---|
-| UPD-1 | `state = Off` exactly when `current` is not a stable version (`v<major>.<minor>.<patch>`) and not a preview version (`pre-` and 7 to 40 hexadecimal digits), for example `dev` or `dev/update-icons`. When `state = Off`, the app never sends a request, and the Settings panel has only three rows. In all other states, the Settings panel has four rows. | R§9.2 |
+| UPD-1 | `state = Off` exactly when `current` is not a stable version (`v<major>.<minor>.<patch>`) and not a preview version (`pre-` and 7 to 40 hexadecimal digits), for example `dev` or `dev/update-icons`. When `state = Off`, the app never sends a request, and the Settings panel has only four rows. In all other states, the Settings panel has five rows. | R§9.1, R§9.2, owner decision 2026-11-05 |
 | UPD-2 | `Available(v)`, `Installing(v)` and `Failed(v, at)` only when `v` is a stable version that is an update for `current`: newer than `current` for a stable build, any stable version for a preview build. | R§9.2 (owner decision 2026-11-01) |
 | UPD-3 | The gear has the caution icon exactly when `state ∈ {Available, Installing, Failed, Installed}`. | R§9.2 |
 | UPD-4 | The app uses a `version.json` only when its ed25519 signature is correct for the public key of the app. It installs an archive only when its SHA-256 checksum is equal to the checksum in that `version.json`. When `version.json` has `patch_sha256`, it changes no file unless the checksum of the downloaded ink patch is equal to `patch_sha256`. | R§9.2 |
