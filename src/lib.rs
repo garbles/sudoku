@@ -30,7 +30,8 @@ pub mod script;
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 /// The version of the app (REQUIREMENTS.md §9.1). release.yml sets SUDOKU_VERSION at build time
-/// (pre-<sha> or v<version>). Other builds show "dev".
+/// (pre-<sha> or v<version>). A dev install can set dev/<name> (make install-dev DEV_NAME=<name>).
+/// Other builds show "dev".
 pub const VERSION: &str = match option_env!("SUDOKU_VERSION") {
     Some(v) => v,
     None => "dev",

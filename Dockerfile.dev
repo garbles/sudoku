@@ -3,7 +3,7 @@
 # The fastest build of the app for the reMarkable Paper Pro (aarch64 Linux, musl), for development
 # only (make install-dev). Do not use it for a release: the Dockerfile makes the release build.
 #
-#   docker build --platform linux/arm64 -f Dockerfile.dev --output type=local,dest=dist .
+#   docker build --platform linux/arm64 -f Dockerfile.dev --build-arg SUDOKU_VERSION=dev/update-icons --output type=local,dest=dist .
 #
 # Differences from the Dockerfile:
 #
@@ -13,6 +13,8 @@
 # - The linker is mold.
 # - The build argument CARGO_FEATURES gives Cargo features, for example `corpus` (the corpus build:
 #   make install-corpus, the skill `remarkable-corpus`).
+# - The build argument SUDOKU_VERSION gives the version in the Settings panel: `dev`, or `dev/<name>`
+#   with the name of the change, for example `dev/update-icons` (make install-dev DEV_NAME=update-icons).
 #
 # The result is dist/sudoku/, as from the Dockerfile.
 FROM --platform=linux/arm64 rust:1.97-alpine AS build

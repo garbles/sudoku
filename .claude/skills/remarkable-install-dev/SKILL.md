@@ -36,12 +36,18 @@ skill). Do not put the SSH options in a shell variable: zsh does not split it. I
      the user that AppLoad is not in the menu until xovi starts. Offer to run
      `/home/root/xovi/start` after the install.
 
-3. **Build.** Run the fast Linux Docker build (`Dockerfile.dev`). It writes `dist/sudoku/` and
-   does not run the tests (`cargo test` on the computer runs them; `Dockerfile.test` runs them on
-   aarch64 Linux):
+3. **Build.** Select a name for the change that this build shows, for example `update-icons`
+   (1 to 14 lowercase letters, digits or hyphens: a longer name can touch the name "Version" in the
+   Settings panel). The Settings panel then shows the version `dev/update-icons`, and the user can
+   see which build is on the tablet. Use the plain version `dev` only if the working tree has no
+   change to name. `make install-dev DEV_NAME=update-icons` does this build and the install in one
+   step.
+
+   Run the fast Linux Docker build (`Dockerfile.dev`). It writes `dist/sudoku/` and does not run
+   the tests (`cargo test` on the computer runs them; `Dockerfile.test` runs them on aarch64 Linux):
 
    ```bash
-   docker build --platform linux/arm64 -f Dockerfile.dev --output type=local,dest=dist .
+   docker build --platform linux/arm64 -f Dockerfile.dev --build-arg SUDOKU_VERSION=dev/update-icons --output type=local,dest=dist .
    ```
 
    `Dockerfile.dev` uses the Cargo profile `tablet-dev` (no LTO, incremental) and BuildKit cache
@@ -68,7 +74,7 @@ skill). Do not put the SSH options in a shell variable: zsh does not split it. I
    with `sha256sum /home/root/xovi/exthome/appload/sudoku/sudoku` on the tablet. They must be
    equal.
 
-6. **Report.** Give the address (Wi-Fi or USB), the commit (`git rev-parse --short HEAD`, and
+6. **Report.** Give the address (Wi-Fi or USB), the version name, the commit (`git rev-parse --short HEAD`, and
    "with local changes" if `git status --porcelain` is not empty) and the checksum. Tell the user:
    if Sudoku is open, close it and open it again from AppLoad. The open app continues with the old
    program.

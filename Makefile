@@ -26,6 +26,10 @@ PATCH_STAMP := sudoku-penregion.json
 SNAPSHOT_DIR ?= target/snapshots
 # Cargo features of the development build (Dockerfile.dev), for example FEATURES=corpus.
 FEATURES ?=
+# The name of the change in a development build, for example DEV_NAME=update-icons. The Settings
+# panel then shows the version dev/update-icons. Empty: the version dev.
+DEV_NAME ?=
+DEV_VERSION = dev$(if $(strip $(DEV_NAME)),/$(strip $(DEV_NAME)))
 CORPUS_DIR := /home/root/.local/share/rm-sudoku-corpus
 CORPUS_LOG := corpus-ink.jsonl
 CORPUS_OUT ?= target/corpus
@@ -110,12 +114,17 @@ test-linux: fonts-check ## Run all tests on aarch64 Linux, release and debug in 
 tablet-build: ## Build dist/sudoku/ with no tests (Dockerfile)
 	$(DOCKER) build --platform linux/arm64 --output type=local,dest=dist .
 
-tablet-build-dev: ## Build dist/sudoku/ fast, for development only: no LTO, incremental, cache (Dockerfile.dev)
-	$(DOCKER) build --platform linux/arm64 -f Dockerfile.dev --build-arg CARGO_FEATURES="$(FEATURES)" --output type=local,dest=dist .
+# The limit of 14 characters keeps the version clear of the name "Version" in the Settings panel.
+tablet-build-dev: ## Build dist/sudoku/ fast, for development only: no LTO, incremental, cache (Dockerfile.dev). DEV_NAME=update-icons sets the version dev/update-icons
+	@[[ "$(DEV_NAME)" =~ ^([a-z0-9][a-z0-9-]{0,13})?$$ ]] \
+		|| { echo "DEV_NAME must have 1 to 14 lowercase letters, digits or hyphens, and start with a letter or a digit: $(DEV_NAME)" >&2; exit 1; }
+	@[ -n "$(strip $(DEV_NAME))" ] \
+		|| echo "No DEV_NAME: the version is dev. Give a name that tells the change, for example DEV_NAME=update-icons." >&2
+	$(DOCKER) build --platform linux/arm64 -f Dockerfile.dev --build-arg CARGO_FEATURES="$(FEATURES)" --build-arg SUDOKU_VERSION="$(DEV_VERSION)" --output type=local,dest=dist .
 
 dist: test-linux tablet-build ## Run all tests on aarch64 Linux, then build dist/sudoku/ (Docker)
 
-install-dev: tablet-build-dev ## Build fast (Dockerfile.dev, no tests: run make test first) and install dist/sudoku/ on the tablet (REMARKABLE_HOST in .env, or USB)
+install-dev: tablet-build-dev ## Build fast (Dockerfile.dev, no tests: run make test first) and install dist/sudoku/ on the tablet (REMARKABLE_HOST in .env, or USB). Give DEV_NAME=<name of the change>
 	@echo "Install on $(HOST)"
 	COPYFILE_DISABLE=1 tar -C dist -czf - sudoku | $(SSH) 'set -e; d=$(APPLOAD); t=$$d/.sudoku-install; \
 		rm -rf "$$t"; mkdir -p "$$t"; tar -xzf - -C "$$t"; chmod 755 "$$t/sudoku/sudoku"; \
@@ -129,14 +138,14 @@ install-dev: tablet-build-dev ## Build fast (Dockerfile.dev, no tests: run make 
 		have=$$($(SSH) 'sha256sum $(PATCH_DIR)/$(PATCH_NAME) 2>/dev/null' | cut -d' ' -f1); \
 		if [ "$$want" = "$$have" ]; then echo "The ink patch is installed."; else \
 		$(SSH) 'set -e; d=$(PATCH_DIR); mkdir -p "$$d"; cat > "$$d/$(PATCH_NAME).new"; mv "$$d/$(PATCH_NAME).new" "$$d/$(PATCH_NAME)"; \
-			printf "{\"version\": \"dev\", \"sha256\": \"%s\"}\n" '"$$want"' > "$$d/$(PATCH_STAMP)"' \
+			printf "{\"version\": \"$(DEV_VERSION)\", \"sha256\": \"%s\"}\n" '"$$want"' > "$$d/$(PATCH_STAMP)"' \
 			< dist/sudoku/$(PATCH_NAME); \
 		echo "The ink patch changed. xovi applies it when it starts: run make xovi-restart."; fi
 
 ## The corpus build: examples of handwriting for the recognizer (the skill remarkable-corpus).
 
-install-corpus: ## Build and install the corpus build (a blank board, a log of each ink). make install-dev installs the usual build again
-	$(MAKE) install-dev FEATURES=corpus
+install-corpus: ## Build and install the corpus build (a blank board, a log of each ink). make install-dev DEV_NAME=<name> installs the usual build again
+	$(MAKE) install-dev FEATURES=corpus DEV_NAME=corpus
 
 corpus-start: ## Start a new corpus session: delete the saved game and the corpus log on the tablet, move old sets to target/corpus/old/ (close Sudoku first)
 	$(SSH) 'rm -f /home/root/.local/share/rm-sudoku/game.json $(CORPUS_DIR)/game.json $(CORPUS_DIR)/$(CORPUS_LOG)'

@@ -35,8 +35,11 @@ the code from the documents.
    passes:
 
    ```bash
-   docker build --platform linux/arm64 -f Dockerfile.dev --output type=local,dest=dist .
+   docker build --platform linux/arm64 -f Dockerfile.dev --build-arg SUDOKU_VERSION=dev/update-icons --output type=local,dest=dist .
    ```
+
+   Replace `update-icons` with a name that tells the change (1 to 14 lowercase letters, digits or
+   hyphens).
 
    If `docker` is not on `PATH`: `DOCKER_HOST=unix://$HOME/.orbstack/run/docker.sock
    /Applications/OrbStack.app/Contents/MacOS/xbin/docker`. The tests can still fail: do not change

@@ -16,7 +16,7 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
 
 1. Read "Lessons" below. Many problems on the screen have a cause that is given there.
 2. Find the tablet (`remarkable-host` skill), and make sure that the dev build is the current one
-   (`remarkable-install-dev` skill).
+   (`remarkable-install-dev` skill, with a version name that tells the problem or the change).
 3. Make the problem visible in a log:
    - The input and the settings of the app: [techniques/app-settings.md](techniques/app-settings.md).
    - What gets to the panel: [techniques/xochitl-update-log.md](techniques/xochitl-update-log.md).

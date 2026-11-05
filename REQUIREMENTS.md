@@ -658,7 +658,8 @@ A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a fourth ro
 - The version row has the name **Version** (reMarkable Sans Medium, 25 px, black) at the left. The
   version is at the right, 33 px from the right edge of the panel (reMarkable Sans Regular, 25 px,
   black; owner decision 2026-10-31). A release build shows the version of its GitHub release (`pre-<sha>` or `v<version>`,
-  with the version of Cargo.toml). All other builds show `dev`. A tap on the version row has no effect, and the panel stays open
+  with the version of Cargo.toml). A development install with a name for the change shows
+  `dev/<name>`, for example `dev/update-icons` (owner decision 2026-11-05). All other builds show `dev`. A tap on the version row has no effect, and the panel stays open
   (owner decision 2026-10-26).
 - A change of a switch does not change the board and is not a part of undo. The highlight switch has
   an effect only on the next actions. The hiding switch changes immediately which pencil marks show.
@@ -679,7 +680,7 @@ Image: [`settings-menu.png`](images/settings-menu.png).
 
 A stable build (version `v<major>.<minor>.<patch>`) looks for a newer stable release on GitHub and
 installs it when the user taps a button (owner decision 2026-10-27). A preview build (`pre-` and 7 to
-40 hexadecimal digits) also looks for updates and has the update row. Only a `dev` build (and each
+40 hexadecimal digits) also looks for updates and has the update row. Only a `dev` or `dev/<name>` build (and each
 other version name) does not look for updates and does not have the update row (owner decision
 2026-11-01).
 

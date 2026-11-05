@@ -96,7 +96,7 @@ the notes. Record each file that you change or add.
 
 **F2. Change the code and install.** Change only what the request needs (step 4 of the full
 track). Do not change the documents, the tests or `images/` yet. Install the dev build with the
-`remarkable-install-dev` skill (step 5 of the full track). Tell the user what changed and how to
+`remarkable-install-dev` skill and a version name that tells the change (step 5 of the full track). Tell the user what changed and how to
 see it. Tell the user to close Sudoku and open it again from AppLoad.
 
 **F3. Get the approval on the tablet.** Ask the user (AskUserQuestion) if the result is correct.
@@ -136,7 +136,7 @@ revert", do step 9 of the full track (revert), close the issue with a reason, an
    cause in the change. Then save the bench baselines again (refer to "Performance" in AGENTS.md).
    If `src/present.rs` or the platform code changes, run `make test-linux`.
 7. If the binary changed after the approval, install the final dev build with the
-   `remarkable-install-dev` skill and ask the user to examine it one time. The documents and the
+   `remarkable-install-dev` skill and the same version name, and ask the user to examine it one time. The documents and the
    tests do not change the binary. A manual page change does.
 
 **F5. Close and report.** Run `cargo test` one more time. Close the issue (`bd close`). Give the
@@ -183,10 +183,12 @@ step 8.
    development profile (`Dockerfile.dev`, Cargo profile `tablet-dev`):
 
    ```bash
-   docker build --platform linux/arm64 -f Dockerfile.dev --output type=local,dest=dist .
+   docker build --platform linux/arm64 -f Dockerfile.dev --build-arg SUDOKU_VERSION=dev/update-icons --output type=local,dest=dist .
    ```
 
-   `make install-dev` does the build and the install in one step. Do not use `Dockerfile`,
+   Replace `update-icons` with a version name that tells the change (the `remarkable-install-dev`
+   skill gives the rule). Use the same name for all builds of the change.
+   `make install-dev DEV_NAME=update-icons` does the build and the install in one step. Do not use `Dockerfile`,
    `Dockerfile.test` or `make dist` for this phase: they are slow, and `Dockerfile.test` and
    `make dist` run the tests.
 
@@ -322,7 +324,7 @@ step 8.
    (`appload/sudoku/sudoku-penregion.qmd`) if the change touches them. `install.sh` must give the
    same instructions as the new README.md and `site/`. It does not change `tests/`, `images/`,
    `reference.rs` or the documents. The wave is done when `cargo build --release --bins` passes with no warnings
-   and the dev build (step 5) passes. The tests can still fail now.
+   and the dev build (step 5, with the version name of the change) passes. The tests can still fail now.
 
    **Wave 3: the tests and the media (N agents in parallel).** Select N from the
    change: one agent for each independent area, and each file has only one owner. Usually:
@@ -360,7 +362,7 @@ step 8.
    Tell the user which wave runs now and which agents are in it. Do not do the work of an agent
    yourself. If an agent fails or stops, tell the user and ask what to do.
 
-11. **Examine the result on the tablet.** Install the final dev build (step 5). Ask the user
+11. **Examine the result on the tablet.** Install the final dev build (step 5, with the version name of the change). Ask the user
     (AskUserQuestion) if the result is the same as the approved prototype. If it is not, send the
     difference to the implementation agent (SendMessage) and do this step again.
 

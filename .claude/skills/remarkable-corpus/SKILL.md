@@ -57,7 +57,7 @@ images or ask for a review before all sets are collected.
    selected digit.
 
 3. **Install the corpus build.** Run `make install-corpus` (timeout 600000 ms). It uses
-   `Dockerfile.dev` with `CARGO_FEATURES=corpus`. If `docker` is not on `PATH`, the Makefile uses
+   `Dockerfile.dev` with `CARGO_FEATURES=corpus` and the version name `dev/corpus`. If `docker` is not on `PATH`, the Makefile uses
    OrbStack. If the build fails, show the error and stop.
 
 4. **Start a clean session.** Tell the user to close Sudoku on the tablet (the open app keeps the
@@ -145,7 +145,8 @@ Do steps 5 to 7 for each selected digit, in order. In these steps, DIGIT is the 
       and the Linux baseline (`make bench-linux-save`), as AGENTS.md "Performance" tells.
 
 12. **End.**
-    - Tell the user to close Sudoku, and run `make install-dev` (the usual dev build). Until then,
+    - Tell the user to close Sudoku, and run `make install-dev DEV_NAME=<name>` (the usual dev build). Select a name that tells the
+      change in the working tree (the `remarkable-install-dev` skill gives the rule). Until then,
       the tablet has the corpus build.
     - Report: for each digit, the quantity of examples that you added and the excluded numbers;
       the test result; and `count`.

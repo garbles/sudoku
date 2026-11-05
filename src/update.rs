@@ -583,7 +583,7 @@ mod tests {
     fn versions() {
         assert_eq!(parse_version("v0.1.0"), Some(Version(0, 1, 0)));
         assert_eq!(parse_version("v12.0.3"), Some(Version(12, 0, 3)));
-        for s in ["dev", "pre-4118468", "0.1.0", "v0.1", "v0.1.0.1", "v0..1", "v0.1.x", "v+1.0.0", "v0.1.0-rc1", ""] {
+        for s in ["dev", "dev/update-icons", "pre-4118468", "0.1.0", "v0.1", "v0.1.0.1", "v0..1", "v0.1.x", "v+1.0.0", "v0.1.0-rc1", ""] {
             assert_eq!(parse_version(s), None, "{s}");
         }
         assert!(Version(0, 10, 0) > Version(0, 9, 9));
@@ -631,10 +631,10 @@ mod tests {
     fn only_dev_builds_do_not_look_for_updates() {
         // UPD-1, UPD-8
         assert!(is_preview("pre-4118468") && is_preview("pre-4118468aabbccddeeff00112233445566778899"));
-        for v in ["pre-", "pre-411846", "pre-4118468X", "pre-ABCDEF0", "dev", "v0.1.0"] {
+        for v in ["pre-", "pre-411846", "pre-4118468X", "pre-ABCDEF0", "dev", "dev/update-icons", "v0.1.0"] {
             assert!(!is_preview(v), "{v}");
         }
-        for v in ["dev", "pre-", "pre-xyz", ""] {
+        for v in ["dev", "dev/update-icons", "pre-", "pre-xyz", ""] {
             let mut u = Update::new(v);
             assert_eq!(u.state, UpdateState::Off);
             assert_eq!(u.request, None);
@@ -667,6 +667,7 @@ mod tests {
         }
         assert!(!is_update("pre-1234567", "pre-4118468"));
         assert!(!is_update("v0.2.0", "dev"));
+        assert!(!is_update("v0.2.0", "dev/update-icons"));
     }
 
     #[test]

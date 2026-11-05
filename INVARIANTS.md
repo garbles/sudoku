@@ -87,7 +87,7 @@ Settings
   auto_hide_on    : bool                       (Settings panel; default true)
 
 Update
-  current         : text                       (the version of the app: v<version>, pre-<sha> or dev)
+  current         : text                       (the version of the app: v<version>, pre-<sha>, dev or dev/<name>)
   state           ∈ {Off, Unknown, CheckFailed, UpToDate, Available(v), Installing(v), Failed(v, at), Installed { patch }}
   checking        : bool                       (a request for version.json is in progress)
   up_to_date_shown : bool                      (the row shows "Sudoku is up to date"; UPD-9)
@@ -328,7 +328,7 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| UPD-1 | `state = Off` exactly when `current` is not a stable version (`v<major>.<minor>.<patch>`) and not a preview version (`pre-` and 7 to 40 hexadecimal digits), for example `dev`. When `state = Off`, the app never sends a request, and the Settings panel has only three rows. In all other states, the Settings panel has four rows. | R§9.2 |
+| UPD-1 | `state = Off` exactly when `current` is not a stable version (`v<major>.<minor>.<patch>`) and not a preview version (`pre-` and 7 to 40 hexadecimal digits), for example `dev` or `dev/update-icons`. When `state = Off`, the app never sends a request, and the Settings panel has only three rows. In all other states, the Settings panel has four rows. | R§9.2 |
 | UPD-2 | `Available(v)`, `Installing(v)` and `Failed(v, at)` only when `v` is a stable version that is an update for `current`: newer than `current` for a stable build, any stable version for a preview build. | R§9.2 (owner decision 2026-11-01) |
 | UPD-3 | The gear has the caution icon exactly when `state ∈ {Available, Installing, Failed, Installed}`. | R§9.2 |
 | UPD-4 | The app uses a `version.json` only when its ed25519 signature is correct for the public key of the app. It installs an archive only when its SHA-256 checksum is equal to the checksum in that `version.json`. When `version.json` has `patch_sha256`, it changes no file unless the checksum of the downloaded ink patch is equal to `patch_sha256`. | R§9.2 |
