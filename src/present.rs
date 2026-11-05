@@ -1201,9 +1201,10 @@ mod tests {
         assert!(!app.is_writing());
     }
 
-    /// A tap shows its ink with the UI waveform, without the pen region (INP-2, MRK-5). After a tap
-    /// that changes nothing (a mark that a peer hides), the screen is the same as before. When the
-    /// pen leaves the micro-cell, the touch is writing and the pen region starts.
+    /// A tap shows its ink with the UI waveform, without the pen region (INP-2, MRK-5). A tap that
+    /// changes nothing (a mark that a peer hides) shows the x (MRK-10). After the time of the x, the
+    /// screen is the same as before (MRK-13, MRK-14). When the pen leaves the micro-cell, the touch is
+    /// writing and the pen region starts.
     #[test]
     fn a_tap_does_not_start_the_pen_region_and_a_tap_that_changes_nothing_leaves_no_ink() {
         use crate::app::{Input, Tool};
@@ -1246,12 +1247,23 @@ mod tests {
         assert!(fb != before, "the ink of the tap does not show");
         now += 10;
         step(&mut app, &mut p, &mut fb, now, Some(Input::PenUp { x: x + 3.0, y }));
+        assert_eq!(app.ui.refused, Some((cell, d, now)));
+        let lift = now;
         for _ in 0..20 {
             now += 30;
             step(&mut app, &mut p, &mut fb, now, None);
         }
+        assert!(fb != before, "the x does not show");
+        now = lift + crate::app::OVERLAY_MS;
+        assert_eq!(app.next_deadline(), Some(now));
+        step(&mut app, &mut p, &mut fb, now, None);
+        for _ in 0..20 {
+            now += 30;
+            step(&mut app, &mut p, &mut fb, now, None);
+        }
+        assert_eq!(app.ui.refused, None);
         assert_eq!(app.game.marks_at(cell), 0);
-        assert!(fb == before, "the ink of a tap that changes nothing stays on the screen");
+        assert!(fb == before, "the x or the ink of a tap that changes nothing stays on the screen");
 
         // The pen leaves the micro-cell: the touch is writing, and the pen region starts.
         now += 300;

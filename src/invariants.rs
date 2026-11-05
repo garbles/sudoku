@@ -4,7 +4,7 @@
 //! Rules about a sequence of states (for example CLK-2 or UND-3) are in the tests.
 
 use crate::app::{App, Menu, Panel, Screen, MANUAL_PAGES};
-use crate::game::{cells, Change, Game};
+use crate::game::{cells, mark_bit, Change, Game};
 use crate::generator::{count_solutions, is_valid_solution, MODES, V1_MODES, VERSION};
 use crate::update::{has_updates, is_update, PatchChange, UpToDateRow, UpdateState};
 
@@ -124,6 +124,22 @@ pub fn check_app(app: &App) -> Result<(), String> {
         ensure!(!g.is_filled(cell), "QST-1", "the ? is on a filled cell");
         ensure!(!g.completed, "QST-3", "the ? on a complete game");
     }
+    // The time and the removal of the x (MRK-14, MRK-15) are rules about a sequence of states, thus
+    // they are in the tests. MRK-17 and MRK-18: `refused` is not in the saved game, and this check
+    // uses only the numbers of the board, not the solution.
+    if let Some((cell, d, _)) = ui.refused {
+        ensure!((1..=9).contains(&d), "MRK-12", "x with digit {d}");
+        ensure!(app.screen == Screen::Game, "MRK-12", "x on screen {:?}", app.screen);
+        ensure!(ui.menu.panel().is_none(), "MRK-12", "x with panel {:?}", ui.menu.panel());
+        ensure!(!g.completed, "MRK-12", "x on a complete game");
+        ensure!(!app.update.dialog_shown(), "MRK-12", "x under the update dialog");
+        ensure!(!g.is_filled(cell), "MRK-12", "x on the filled cell {cell:?}");
+        ensure!(app.settings.auto_hide_on, "MRK-12", "x while automatic hiding is off");
+        ensure!(g.peer_digits(cell) & mark_bit(d) != 0, "MRK-12", "x of {d} at {cell:?}, and no peer has the number {d}");
+        ensure!(ui.highlight.is_none(), "MRK-12", "x with a highlight");
+        ensure!(ui.pending_ink.is_none(), "MRK-12", "x with waiting ink");
+        ensure!(ui.question.is_none_or(|(q, _)| q != cell), "MRK-12", "x and ? on the cell {cell:?}");
+    }
     if let Some(ink) = &ui.pending_ink {
         ensure!(!g.is_filled(ink.cell), "INP-5", "pending ink on a filled cell");
         ensure!(!g.completed, "INP-5", "pending ink on a complete game");
@@ -133,7 +149,7 @@ pub fn check_app(app: &App) -> Result<(), String> {
         ensure!(!g.completed && app.screen == Screen::Game, "INP-16", "writing timer on a complete game or a different screen");
     }
     if g.completed {
-        ensure!(ui.highlight.is_none() && ui.question.is_none() && ui.pending_ink.is_none(), "CMP-3", "overlay on a complete game");
+        ensure!(ui.highlight.is_none() && ui.question.is_none() && ui.refused.is_none() && ui.pending_ink.is_none(), "CMP-3", "overlay on a complete game");
     }
     // NAV-4: the type `Menu` keeps a panel only in `Menu::Open`.
     if app.screen != Screen::Game {

@@ -22,6 +22,12 @@ fn empty_cells(d: &Driver) -> Vec<Cell> {
     cells().filter(|&c| !d.app.game.is_filled(c)).collect()
 }
 
+/// The digits that no peer of the cell has. A pen tap on another digit does not add a mark, and it
+/// shows the x (MRK-7, MRK-10). Thus the fixtures that need a mark use these digits.
+fn free_digits(d: &Driver, cell: Cell) -> Vec<u8> {
+    (1..=9).filter(|&v| d.app.game.peer_digits(cell) & mark_bit(v) == 0).collect()
+}
+
 fn solution_at(g: &Game, (r, c): Cell) -> u8 {
     g.solution[r as usize][c as usize]
 }
@@ -73,6 +79,7 @@ fn only_the_eraser_or_undo_removes_an_entry() {
     let (cell, other) = (e[0], e[1]);
     let v = solution_at(&d.app.game, cell);
     d.tap_micro(cell, 2); // A hidden mark under the entry.
+    assert_eq!(d.app.game.marks_at(cell), mark_bit(2), "the fixture has the mark");
     d.write(cell, v);
     assert_eq!(d.app.game.value_at(cell), v);
     let entry_ok = |d: &Driver, why: &str| {
@@ -117,8 +124,11 @@ fn only_the_eraser_or_undo_removes_an_entry() {
         entry_ok(&d, &format!("pen on the entry with the panel of {panel:?}"));
     }
     // Undo and redo of a different change do not remove the entry.
-    d.tap_micro(other, 3);
+    let mark = free_digits(&d, other)[0];
+    d.tap_micro(other, mark);
+    assert_eq!(d.app.game.marks_at(other), mark_bit(mark), "the fixture has the mark in the different cell");
     d.button(Button::Undo);
+    assert_eq!(d.app.game.marks_at(other), 0, "the undo removes the mark, not the entry");
     d.button(Button::Redo);
     entry_ok(&d, "undo and redo of a mark in a different cell");
 
@@ -224,8 +234,10 @@ fn starting_numbers_never_get_marks() {
         no_marks(&d, &format!("pen taps with the panel of {panel:?}"));
     }
     let cell = empty_cells(&d)[0];
-    d.tap_micro(cell, 4);
-    d.tap_micro(given, 4);
+    let mark = free_digits(&d, cell)[0];
+    d.tap_micro(cell, mark);
+    assert_eq!(d.app.game.marks_at(cell), mark_bit(mark), "the fixture has the mark");
+    d.tap_micro(given, mark);
     d.button(Button::Undo);
     d.button(Button::Redo);
     d.button(Button::Undo);
@@ -261,11 +273,14 @@ fn the_eraser_and_other_input_do_not_change_marks() {
     let mut d = Driver::new(104);
     let e = empty_cells(&d);
     let (a, b, other) = (e[0], e[1], e[2]);
-    d.tap_micro(a, 1);
-    d.tap_micro(a, 8);
-    d.tap_micro(b, 2);
-    d.tap_micro(b, 5);
-    let w = (1..=9).find(|&w| w != 2 && w != 5 && w != 1 && w != 8).unwrap();
+    // Each digit that no peer has: the empty cell and the entry have marks (MRK-7).
+    for cell in [a, b] {
+        for v in free_digits(&d, cell) {
+            d.tap_micro(cell, v);
+        }
+        assert_ne!(d.app.game.marks_at(cell), 0, "the fixture has the marks of {cell:?}");
+    }
+    let w = (1..=9).find(|&w| d.app.game.marks_at(a) & mark_bit(w) == 0 && d.app.game.marks_at(b) & mark_bit(w) == 0).unwrap();
     d.write(b, w);
     assert_eq!(d.app.game.value_at(b), w);
     let marks = d.app.game.marks;
@@ -324,10 +339,14 @@ fn a_tap_on_an_entry_changes_only_the_highlight() {
     let e = empty_cells(&d);
     let (cell, other) = (e[0], e[1]);
     let v = solution_at(&d.app.game, cell);
-    d.tap_micro(cell, 3);
+    let mark = free_digits(&d, cell)[0];
+    d.tap_micro(cell, mark);
+    assert_eq!(d.app.game.marks_at(cell), mark_bit(mark), "the fixture has the mark");
     d.write(cell, v);
     d.button(Button::Menu);
-    d.tap_micro(other, 6);
+    let mark = free_digits(&d, other)[0];
+    d.tap_micro(other, mark);
+    assert_eq!(d.app.game.marks_at(other), mark_bit(mark), "the fixture has the mark");
     d.button(Button::Undo);
     assert_eq!(d.app.game.redo.len(), 1);
     let before = state(&d);
@@ -342,7 +361,7 @@ fn a_tap_on_an_entry_changes_only_the_highlight() {
     }
     // The redo history is still there.
     d.button(Button::Redo);
-    assert_eq!(d.app.game.marks_at(other), mark_bit(6));
+    assert_eq!(d.app.game.marks_at(other), mark_bit(mark));
 }
 
 // ---- INP-10 (the state; the drawing is in another test file)
@@ -664,8 +683,10 @@ fn the_eraser_on_waiting_ink_removes_the_ink() {
     let mut d = Driver::new(61);
     let empty = empty_cells(&d);
     let (cell, other) = (empty[0], empty[1]);
-    d.tap_micro(cell, 4);
-    d.tap_micro(other, 2);
+    let (mark, other_mark) = (free_digits(&d, cell)[0], free_digits(&d, other)[0]);
+    d.tap_micro(cell, mark);
+    d.tap_micro(other, other_mark);
+    assert_eq!((d.app.game.marks_at(cell), d.app.game.marks_at(other)), (mark_bit(mark), mark_bit(other_mark)), "the fixture has the marks");
     let v = solution_at(&d.app.game, cell);
     d.write_strokes(&digit_ink(cell, v));
     assert!(d.app.ui.pending_ink.is_some());

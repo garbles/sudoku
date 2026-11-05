@@ -1,17 +1,19 @@
 //! Property-based tests: random sequences of player input. After each input, the debug build checks all
 //! state rules of INVARIANTS.md (`invariants::check_app`, in `App::handle`). This test also checks the
 //! rules about two states one after the other (CLK-2, CLK-3, CMP-5, INP-1, INP-9, UND-2, UND-3, ANA-2,
-//! NAV-3, NAV-9, NAV-16).
+//! NAV-3, NAV-9, NAV-16, MRK-10 to MRK-16). The two-hand sequences at the end examine the x of a refused
+//! tap at each event.
 
 mod common;
 
 use common::*;
 use proptest::prelude::*;
-use sudoku::app::{Input, Menu, Panel, Screen};
-use sudoku::game::Game;
+use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, OVERLAY_MS};
+use sudoku::game::{cells, mark_bit, Cell, Game};
 use sudoku::invariants::check_app;
 use sudoku::layout::{self, Button};
-use sudoku::settings::{Color, Section, Switch};
+use sudoku::reference;
+use sudoku::settings::{Color, Section, Settings, Switch};
 
 #[derive(Clone, Debug)]
 enum Act {
@@ -260,6 +262,90 @@ fn run(d: &mut Driver, a: &Act) {
     }
 }
 
+// ---- The x of a refused tap: the rules of the state and of the acts.
+
+/// The numbers in the peers of a cell (the same row, column or box), from the board only (MRK-18).
+fn peer_numbers(g: &Game, (r, c): Cell) -> u16 {
+    cells()
+        .filter(|&(pr, pc)| (pr, pc) != (r, c) && (pr == r || pc == c || (pr / 3 == r / 3 && pc / 3 == c / 3)))
+        .map(|p| g.value_at(p))
+        .filter(|&v| v != 0)
+        .fold(0, |m, v| m | mark_bit(v))
+}
+
+/// MRK-12, MRK-14, CMP-3, written from INVARIANTS.md and separate from `invariants::check_app`.
+fn x_state_rule(app: &App) -> Result<(), String> {
+    let Some((cell, digit, shown_at)) = app.ui.refused else {
+        return Ok(());
+    };
+    let g = &app.game;
+    let fail = |why: &str| Err(format!("MRK-12: the x {:?} with {why}", (cell, digit, shown_at)));
+    if app.screen != Screen::Game {
+        return fail("a different screen");
+    }
+    if app.ui.menu.panel().is_some() {
+        return fail("an open panel");
+    }
+    if g.completed {
+        return fail("a complete game");
+    }
+    if app.update.dialog_shown() {
+        return fail("the update dialog");
+    }
+    if g.value_at(cell) != 0 {
+        return fail("a filled cell");
+    }
+    if !app.settings.auto_hide_on {
+        return fail("the switch off");
+    }
+    if !(1..=9).contains(&digit) || peer_numbers(g, cell) & mark_bit(digit) == 0 {
+        return fail("no peer that has the digit");
+    }
+    if app.ui.highlight.is_some() {
+        return fail("a highlight");
+    }
+    if app.ui.pending_ink.is_some() {
+        return fail("waiting ink");
+    }
+    if app.ui.question.is_some_and(|(q, _)| q == cell) {
+        return fail("a \"?\" on its cell");
+    }
+    // MRK-14: the main loop wakes at the end of the time of the x.
+    if app.next_deadline().is_none_or(|t| t > shown_at + OVERLAY_MS) {
+        return Err(format!("MRK-14: the x shown at {shown_at} and the next timer at {:?}", app.next_deadline()));
+    }
+    Ok(())
+}
+
+/// The rules about an act of the sequences. MRK-10: only a pen tap on the board makes an x. MRK-15: a
+/// finger or the eraser removes the x, except a press that the app ignores after "< Back" (NAV-16).
+/// MRK-14: the time alone removes the x at the end of its time, and not before.
+fn x_act_rule(a: &Act, before: Option<(Cell, u8, u64)>, ignored_toolbar_tap: bool, d: &Driver) -> Result<(), String> {
+    let x = d.app.ui.refused;
+    let new_x = x.is_some() && x != before;
+    let no_pen_tap = matches!(a, Act::FingerBoard(..) | Act::Erase(..) | Act::Button(_) | Act::Swipe(_) | Act::Wait(_) | Act::Point(_, _, false));
+    if no_pen_tap && new_x {
+        return Err(format!("MRK-10: the new x {x:?}"));
+    }
+    match a {
+        Act::Wait(_) => match before {
+            Some((.., t)) if d.now < t + OVERLAY_MS && x != before => Err(format!("MRK-14: the x {before:?} went at {}", d.now)),
+            Some((.., t)) if d.now >= t + OVERLAY_MS && x.is_some() => Err(format!("MRK-14: the x {x:?} stays at {}", d.now)),
+            _ => Ok(()),
+        },
+        Act::FingerBoard(..) | Act::Erase(..) | Act::Button(_) | Act::Swipe(_) | Act::Point(_, _, false) => {
+            if ignored_toolbar_tap && x != before {
+                Err(format!("NAV-16: an ignored press changed the x from {before:?} to {x:?}"))
+            } else if !ignored_toolbar_tap && x.is_some() {
+                Err(format!("MRK-15: the x {x:?} stays after a press"))
+            } else {
+                Ok(())
+            }
+        }
+        _ => Ok(()),
+    }
+}
+
 /// True if the action can not change the board when no ink waits.
 fn is_not_a_board_action(a: &Act, d: &Driver) -> bool {
     match a {
@@ -294,9 +380,12 @@ proptest! {
             let not_board = is_not_a_board_action(a, &d) && !ink_before;
             let ignored_toolbar_tap = is_ignored_toolbar_tap(a, &d);
             let menu_before = d.app.ui.menu;
+            let x_before = d.app.ui.refused;
 
             run(&mut d, a);
             check_app(&d.app).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
+            x_state_rule(&d.app).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
+            x_act_rule(a, x_before, ignored_toolbar_tap, &d).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
 
             // NAV-16: shortly after "< Back", a tap on the toolbar or on the close button changes
             // nothing.
@@ -404,6 +493,7 @@ fn coverage_of_states() {
             mark("completed", a.game.completed);
             mark("highlight", a.ui.highlight.is_some());
             mark("question", a.ui.question.is_some());
+            mark("refused", a.ui.refused.is_some());
             mark("menu", a.ui.menu.is_open());
             mark("colors", a.ui.menu.panel() == Some(Panel::Colors));
             mark("newgame", a.ui.menu.panel() == Some(Panel::NewGame));
@@ -457,4 +547,915 @@ proptest! {
             d.app.redraw = false;
         }
     }
+}
+
+// ---- MRK-10 to MRK-16, CMP-3, NAV-11: the two-hand sequences. A finger stays on a control while the
+// pen does a refused tap. The checks run after each event, not only after each act.
+
+/// The layout of a sequence. When the value goes out of scope, it sets the default layout again.
+struct InLayout;
+
+impl InLayout {
+    fn set(landscape: bool, right_handed: bool) -> InLayout {
+        layout::set_orientation(if landscape { layout::Orientation::Landscape } else { layout::Orientation::Portrait });
+        layout::set_right_handed(right_handed);
+        InLayout
+    }
+}
+
+impl Drop for InLayout {
+    fn drop(&mut self) {
+        layout::set_orientation(layout::Orientation::Portrait);
+        layout::set_right_handed(false);
+    }
+}
+
+/// The items that the sequences count, to prove that they reach the state of each rule.
+#[derive(Default)]
+struct Reached {
+    /// A refused tap showed the x.
+    shown: usize,
+    /// The x showed while a finger stayed on the screen.
+    shown_with_finger: usize,
+    /// A press removed the x.
+    press: usize,
+    /// The release of a control that did an action removed the x.
+    release: usize,
+    /// A press that the app ignored kept the x (NAV-16).
+    guard: usize,
+    /// A second finger on the toolbar in the guard time removed the x and operated nothing (NAV-16,
+    /// INP-15, MRK-15).
+    guard_second_finger: usize,
+    /// The time removed the x.
+    time: usize,
+    /// A turn kept the x.
+    turn: usize,
+}
+
+/// A driver that examines the rules of the x at each event.
+struct Hands {
+    d: Driver,
+    /// The tool of the pen touch that is on the screen.
+    tool: Option<Tool>,
+    /// A turn stopped the pen touch that is on the screen.
+    pen_stopped: bool,
+    /// The touch that the app follows (INP-15): its id and the time of its last event.
+    followed: Option<(i32, u64)>,
+    reached: Reached,
+}
+
+impl Hands {
+    fn new(d: Driver) -> Hands {
+        Hands { d, tool: None, pen_stopped: false, followed: None, reached: Reached::default() }
+    }
+
+    /// A finger stays on the screen.
+    fn finger(&self) -> bool {
+        self.followed.is_some()
+    }
+
+    /// Sends one event and examines MRK-10, MRK-11, MRK-12, MRK-15, QST-4, INP-15 and NAV-16.
+    fn send(&mut self, input: Input) -> Result<(), String> {
+        let followed = self.followed;
+        let d = &mut self.d;
+        let before = d.app.ui.refused;
+        let question_before = d.app.ui.question;
+        let board_before = board(&d.app.game);
+        let press = match input {
+            Input::PenDown { x, y, .. } | Input::TouchDown { x, y, .. } => Some((x, y)),
+            _ => None,
+        };
+        // The press occurs 10 ms after the last event (`Driver::send`).
+        let in_guard = d.app.toolbar_ignored_until.is_some_and(|t| d.now + 10 < t);
+        let ignored = press.is_some_and(|(x, y)| in_guard && d.app.screen == Screen::Game && layout::game_button(x, y, d.app.ui.menu.is_open()).is_some());
+        // INP-15: a press with a different id, while the followed touch had an event less than 0.15 s
+        // before, is a second finger. Else the app forgets the followed touch: this is a first press.
+        let second_finger = match (input, followed) {
+            (Input::TouchDown { id, .. }, Some((first, last))) => id != first && d.now + 10 - last < 150,
+            _ => false,
+        };
+        let control_before = (d.app.screen, d.app.ui.menu, d.app.game.undo.len(), d.app.game.redo.len(), d.app.quit);
+
+        d.send(input);
+
+        check_app(&d.app)?;
+        x_state_rule(&d.app)?;
+        let x = d.app.ui.refused;
+        if press.is_some() {
+            if second_finger {
+                // INP-15, MRK-15, QST-4, HLT-2, and NAV-16 in the guard time (owner decision 2026-11-05):
+                // a second finger operates no item, but it removes the x, the "?" and the highlight.
+                if x.is_some() || d.app.ui.question.is_some() || d.app.ui.highlight.is_some() {
+                    return Err(format!("INP-15, MRK-15, QST-4: the x {x:?} or the \"?\" {:?} stays after the second finger {input:?}", d.app.ui.question));
+                }
+                let control = (d.app.screen, d.app.ui.menu, d.app.game.undo.len(), d.app.game.redo.len(), d.app.quit);
+                if control != control_before {
+                    return Err(format!("INP-15, NAV-16: the second finger {input:?} operated an item"));
+                }
+                self.reached.guard_second_finger += usize::from(ignored && before.is_some());
+                self.reached.press += usize::from(before.is_some());
+            } else if ignored {
+                if x != before || d.app.ui.question != question_before {
+                    return Err(format!("NAV-16: an ignored press changed the x from {before:?} to {x:?}, or the \"?\" from {question_before:?} to {:?}", d.app.ui.question));
+                }
+                self.reached.guard += usize::from(x.is_some());
+            } else {
+                if x.is_some() {
+                    return Err(format!("MRK-15: the x {x:?} stays after the press {input:?}"));
+                }
+                self.reached.press += usize::from(before.is_some());
+            }
+        }
+        if x.is_some() && x != before {
+            let tool = self.tool;
+            if !matches!(input, Input::PenUp { .. }) || tool != Some(Tool::Pen) || self.pen_stopped {
+                return Err(format!("MRK-10, MRK-16: the event {input:?} of the tool {tool:?} made the x {x:?}"));
+            }
+            if x.is_some_and(|(.., t)| t != d.now) {
+                return Err(format!("MRK-10: the x {x:?} at the lift at {}", d.now));
+            }
+            if board(&d.app.game) != board_before {
+                return Err(format!("MRK-11: the refused tap changed the board, x {x:?}"));
+            }
+            self.reached.shown += 1;
+            self.reached.shown_with_finger += usize::from(followed.is_some());
+        }
+        if matches!(input, Input::TouchUp { .. }) {
+            let control = (d.app.screen, d.app.ui.menu, d.app.game.undo.len(), d.app.game.redo.len(), d.app.quit);
+            if control != control_before {
+                if x.is_some() {
+                    return Err(format!("MRK-15: the x {x:?} stays after the release of a control"));
+                }
+                self.reached.release += usize::from(before.is_some());
+            }
+        }
+        match input {
+            Input::PenDown { tool, .. } => {
+                self.tool = Some(tool);
+                self.pen_stopped = false;
+            }
+            Input::PenUp { .. } => {
+                self.tool = None;
+                self.pen_stopped = false;
+            }
+            Input::TouchDown { id, .. } if !second_finger => self.followed = Some((id, d.now)),
+            Input::TouchMove { id, .. } if followed.is_some_and(|(first, _)| first == id) => self.followed = Some((id, d.now)),
+            Input::TouchUp { id, .. } if followed.is_some_and(|(first, _)| first == id) => self.followed = None,
+            _ => {}
+        }
+        Ok(())
+    }
+
+    /// The time goes with no input (MRK-14).
+    fn wait(&mut self, ms: u64) -> Result<(), String> {
+        let before = self.d.app.ui.refused;
+        self.d.wait(ms);
+        check_app(&self.d.app)?;
+        x_state_rule(&self.d.app)?;
+        let x = self.d.app.ui.refused;
+        if let Some((.., t)) = before {
+            if self.d.now < t + OVERLAY_MS && x != before {
+                return Err(format!("MRK-14: the x {before:?} went at {}", self.d.now));
+            }
+            if self.d.now >= t + OVERLAY_MS {
+                if x.is_some() {
+                    return Err(format!("MRK-14: the x {x:?} stays at {}", self.d.now));
+                }
+                self.reached.time += 1;
+            }
+        } else if x.is_some() {
+            return Err(format!("MRK-10: the time made the x {x:?}"));
+        }
+        Ok(())
+    }
+
+    /// The tablet turns (MRK-16, NAV-13). The pen touch and the finger touch stop.
+    fn turn(&mut self) -> Result<(), String> {
+        let before = self.d.app.ui.refused;
+        let landscape = layout::screen_w() < layout::screen_h();
+        layout::set_orientation(if landscape { layout::Orientation::Landscape } else { layout::Orientation::Portrait });
+        self.d.app.rotate(App::placeholder_ng_stops());
+        self.pen_stopped = self.tool.is_some();
+        self.followed = None;
+        check_app(&self.d.app)?;
+        x_state_rule(&self.d.app)?;
+        if self.d.app.ui.refused != before {
+            return Err(format!("MRK-16: the turn changed the x from {before:?} to {:?}", self.d.app.ui.refused));
+        }
+        self.reached.turn += usize::from(before.is_some());
+        Ok(())
+    }
+
+    /// The point of a refused tap on the board (the k-th of all that the board has now), if one exists.
+    fn refused_point(&self, k: u8) -> Option<(f32, f32)> {
+        let g = &self.d.app.game;
+        let spots: Vec<(Cell, u8)> =
+            cells().filter(|&c| !g.is_filled(c)).flat_map(|c| (1..=9u8).map(move |v| (c, v))).filter(|&(c, v)| peer_numbers(g, c) & mark_bit(v) != 0).collect();
+        (!spots.is_empty()).then(|| {
+            let (c, v) = spots[k as usize % spots.len()];
+            micro_center(c, v)
+        })
+    }
+
+    /// A pen tap on the k-th refused point.
+    fn refused_tap(&mut self, k: u8) -> Result<(), String> {
+        if let Some((x, y)) = self.refused_point(k) {
+            self.send(Input::PenDown { x, y, tool: Tool::Pen })?;
+            self.send(Input::PenUp { x, y })?;
+        }
+        Ok(())
+    }
+}
+
+/// The control under the finger of a two-hand act.
+#[derive(Clone, Copy, Debug)]
+enum Control {
+    /// A button of the toolbar or the close button.
+    Button(u8),
+    /// A switch of the Settings panel. The act opens the panel first.
+    Switch(u8),
+    /// The Start new game button. The act opens the panel first.
+    StartNewGame,
+    /// A point in the Cell colors panel. The act opens the panel first.
+    Color(u8, u8),
+    /// A point on the screen.
+    Point(u16, u16),
+}
+
+#[derive(Clone, Debug)]
+enum Hand {
+    /// An act of the first sequences.
+    Base(Act),
+    /// One refused tap (MRK-10).
+    Refused(u8),
+    /// A finger on a control and a refused tap, in one of the six orders of the four events. With
+    /// `again`, the pen does a second tap before the finger lifts (the first tap can close a panel).
+    TwoHands { control: Control, order: u8, spot: u8, again: bool, turn: bool },
+    /// The ink of a digit that stays waiting (MRK-12, INP-12).
+    Ink(u8, u8, u8),
+    /// A scribble that stays waiting, which gives a "?" at the next press.
+    ScribbleWaits(u8, u8),
+    /// A refused tap, then a second finger (INP-15, MRK-15), with the first finger on the board.
+    SecondFinger(u8),
+    /// A refused tap, then the eraser presses the board (MRK-15).
+    EraserPress(u8),
+    /// The manual and "< Back", a refused tap, then a press on the toolbar in the guard time (NAV-16).
+    /// With the last value, this press is a second finger (INP-15).
+    Guard(u8, u8, bool),
+    /// The time goes.
+    Wait(u16),
+    /// The tablet turns (MRK-16).
+    Turn,
+    /// The update dialog shows (MRK-15).
+    Dialog,
+    /// The update dialog closes.
+    Later,
+}
+
+fn control() -> impl Strategy<Value = Control> {
+    prop_oneof![
+        5 => (0..9u8).prop_map(Control::Button),
+        2 => (0..2u8).prop_map(Control::Switch),
+        1 => Just(Control::StartNewGame),
+        1 => (0..3u8, 0..9u8).prop_map(|(s, c)| Control::Color(s, c)),
+        1 => (0..2160u16, 0..2160u16).prop_map(|(x, y)| Control::Point(x, y)),
+    ]
+}
+
+fn hand() -> impl Strategy<Value = Hand> {
+    let spot = any::<u8>();
+    prop_oneof![
+        5 => act().prop_filter("an act that is not slow", |a| !matches!(a, Act::Solve | Act::DeleteFlow(..) | Act::DeleteAllFlow(_))).prop_map(Hand::Base),
+        5 => spot.clone().prop_map(Hand::Refused),
+        9 => (control(), 0..6u8, spot.clone(), any::<bool>(), proptest::bool::weighted(0.1))
+            .prop_map(|(control, order, spot, again, turn)| Hand::TwoHands { control, order, spot, again, turn }),
+        1 => (0..9u8, 0..9u8, 1..=9u8).prop_map(|(r, c, v)| Hand::Ink(r, c, v)),
+        1 => (0..9u8, 0..9u8).prop_map(|(r, c)| Hand::ScribbleWaits(r, c)),
+        2 => spot.clone().prop_map(Hand::SecondFinger),
+        1 => spot.clone().prop_map(Hand::EraserPress),
+        3 => (spot, 0..9u8, any::<bool>()).prop_map(|(s, b, second)| Hand::Guard(s, b, second)),
+        3 => (0..1500u16).prop_map(Hand::Wait),
+        1 => Just(Hand::Turn),
+        1 => Just(Hand::Dialog),
+        1 => Just(Hand::Later),
+    ]
+}
+
+/// The buttons of the toolbar and the close button.
+const CONTROLS: [Button; 9] =
+    [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::NewGame, Button::Close];
+
+/// Opens the menu and, if it is not open, a panel. The player waits for the toolbar (NAV-16).
+fn open_panel(h: &mut Hands, button: Button, panel: Panel) {
+    wait_for_toolbar(&mut h.d);
+    if h.d.app.screen != Screen::Game {
+        return;
+    }
+    if !h.d.app.ui.menu.is_open() {
+        h.d.button(Button::Menu);
+    }
+    if h.d.app.ui.menu.panel() != Some(panel) {
+        h.d.button(button);
+    }
+}
+
+/// The point of the control. It opens the menu or the panel of the control, if necessary.
+fn control_point(h: &mut Hands, c: Control) -> (f32, f32) {
+    match c {
+        Control::Button(i) => {
+            let b = CONTROLS[i as usize];
+            wait_for_toolbar(&mut h.d);
+            if b != Button::Menu && !h.d.app.ui.menu.is_open() && h.d.app.screen == Screen::Game {
+                h.d.button(Button::Menu);
+            }
+            button_center(b)
+        }
+        Control::Switch(i) => {
+            open_panel(h, Button::Settings, Panel::Settings);
+            switch_point(Switch::ALL[i as usize])
+        }
+        Control::StartNewGame => {
+            open_panel(h, Button::NewGame, Panel::NewGame);
+            (layout::ng_panel().x0 as f32 + 400.0, (layout::tb_bottom_y() + 56) as f32)
+        }
+        Control::Color(s, i) => {
+            open_panel(h, Button::Colors, Panel::Colors);
+            color_point(Section::ALL[s as usize], Color::ALL[i as usize])
+        }
+        Control::Point(x, y) => (x as f32, y as f32),
+    }
+}
+
+fn run_hand(h: &mut Hands, a: &Hand) -> Result<(), String> {
+    match *a {
+        Hand::Base(ref act) => {
+            if !h.d.app.update.dialog_shown() {
+                run(&mut h.d, act);
+                check_app(&h.d.app)?;
+                x_state_rule(&h.d.app)?;
+            }
+        }
+        Hand::Refused(k) => h.refused_tap(k)?,
+        Hand::TwoHands { control, order, spot, again, turn } => {
+            let (x, y) = control_point(h, control);
+            let finger_down = Input::TouchDown { id: 1, x, y };
+            let finger_up = Input::TouchUp { id: 1, x, y };
+            // The six orders. F: the finger, P: the pen. The first is the main case: F P P F.
+            let steps: [u8; 4] = match order {
+                0 => [0, 2, 3, 1],
+                1 => [0, 2, 1, 3],
+                2 => [0, 1, 2, 3],
+                3 => [2, 0, 3, 1],
+                4 => [2, 0, 1, 3],
+                _ => [2, 3, 0, 1],
+            };
+            let mut pen = None;
+            for (k, step) in steps.into_iter().enumerate() {
+                match step {
+                    0 => h.send(finger_down)?,
+                    1 => {
+                        if again && h.finger() {
+                            h.refused_tap(spot)?;
+                        }
+                        h.send(finger_up)?
+                    }
+                    2 => {
+                        pen = h.refused_point(spot);
+                        if let Some((x, y)) = pen {
+                            h.send(Input::PenDown { x, y, tool: Tool::Pen })?;
+                        }
+                    }
+                    _ => {
+                        if let Some((x, y)) = pen {
+                            h.send(Input::PenUp { x, y })?;
+                        }
+                    }
+                }
+                if turn && k == 1 {
+                    h.turn()?;
+                }
+            }
+        }
+        Hand::Ink(r, c, v) => {
+            let ink = digit_ink((r, c), v);
+            for s in &ink {
+                h.send(Input::PenDown { x: s[0].0, y: s[0].1, tool: Tool::Pen })?;
+                for p in &s[1..] {
+                    h.send(Input::PenMove { x: p.0, y: p.1 })?;
+                }
+                let last = s[s.len() - 1];
+                h.send(Input::PenUp { x: last.0, y: last.1 })?;
+            }
+        }
+        Hand::ScribbleWaits(r, c) => {
+            for s in &scribble_ink((r, c)) {
+                h.send(Input::PenDown { x: s[0].0, y: s[0].1, tool: Tool::Pen })?;
+                for p in &s[1..] {
+                    h.send(Input::PenMove { x: p.0, y: p.1 })?;
+                }
+                let last = s[s.len() - 1];
+                h.send(Input::PenUp { x: last.0, y: last.1 })?;
+            }
+        }
+        Hand::SecondFinger(k) => {
+            let (x, y) = micro_center((4, 4), 5);
+            h.send(Input::TouchDown { id: 1, x, y })?;
+            h.refused_tap(k)?;
+            h.send(Input::TouchDown { id: 2, x, y })?;
+            h.send(Input::TouchUp { id: 2, x, y })?;
+            h.send(Input::TouchUp { id: 1, x, y })?;
+        }
+        Hand::EraserPress(k) => {
+            h.refused_tap(k)?;
+            let (x, y) = micro_center((4, 4), 5);
+            h.send(Input::PenDown { x, y, tool: Tool::Eraser })?;
+            h.send(Input::PenUp { x, y })?;
+        }
+        Hand::Guard(k, b, second) => {
+            wait_for_toolbar(&mut h.d);
+            if h.d.app.screen == Screen::Game && h.d.app.ui.menu.panel().is_none() && !h.d.app.update.dialog_shown() {
+                if !h.d.app.ui.menu.is_open() {
+                    h.d.button(Button::Menu);
+                }
+                h.d.button(Button::Help);
+                if h.d.app.screen == Screen::Manual {
+                    let (x, y) = pixel_center(layout::back_button());
+                    h.d.finger_tap(x, y);
+                    let (bx, by) = micro_center((4, 4), 5);
+                    if second {
+                        h.send(Input::TouchDown { id: 1, x: bx, y: by })?;
+                    }
+                    h.refused_tap(k)?;
+                    let (x, y) = button_center(CONTROLS[b as usize]);
+                    let id = if second { 2 } else { 1 };
+                    h.send(Input::TouchDown { id, x, y })?;
+                    h.send(Input::TouchUp { id, x, y })?;
+                    if second {
+                        h.send(Input::TouchUp { id: 1, x: bx, y: by })?;
+                    }
+                }
+            }
+        }
+        Hand::Wait(ms) => h.wait(ms as u64)?,
+        Hand::Turn => h.turn()?,
+        Hand::Dialog => {
+            if !h.d.app.update.dialog_shown() {
+                let mut u = reference::update_state(true);
+                u.tap();
+                u.request = None;
+                h.d.app.update = u;
+                let now = h.d.now;
+                h.d.app.update_installed(Ok(true), now);
+                check_app(&h.d.app)?;
+                x_state_rule(&h.d.app)?;
+                if h.d.app.ui.refused.is_some() {
+                    return Err("MRK-15: the x stays when the update dialog shows".to_string());
+                }
+            }
+        }
+        Hand::Later => h.d.app.update.close_dialog(),
+    }
+    h.d.app.quit = false;
+    Ok(())
+}
+
+/// The driver of a two-hand sequence: half of the sequences start with the open menu. The two bits of
+/// the seed above that select the layout.
+fn hands_for(seed: u64) -> (Hands, InLayout) {
+    let layout = InLayout::set(seed & 2 != 0, seed & 4 != 0);
+    let d = if seed & 1 == 0 { Driver::opened(new_app(seed)) } else { Driver::new(seed) };
+    (Hands::new(d), layout)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 64, max_shrink_iters: 2000, ..ProptestConfig::default() })]
+
+    /// MRK-10 to MRK-16 at each event of the two-hand sequences, in all layouts.
+    #[test]
+    fn the_rules_of_the_x_hold_for_two_hands(seed in any::<u64>(), acts in proptest::collection::vec(hand(), 1..40)) {
+        let (mut h, _layout) = hands_for(seed);
+        for a in &acts {
+            run_hand(&mut h, a).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
+        }
+    }
+}
+
+#[test]
+fn the_random_sequences_reach_the_x() {
+    // MRK-10: the first random sequences show the x, thus their checks of MRK-12 examine it.
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+    let mut runner = TestRunner::deterministic();
+    let mut seen = 0;
+    for case in 0..24 {
+        let acts = proptest::collection::vec(act(), 1..90).new_tree(&mut runner).unwrap().current();
+        let mut d = Driver::new(case);
+        for a in &acts {
+            run(&mut d, a);
+            d.app.quit = false;
+            seen += usize::from(d.app.ui.refused.is_some());
+        }
+    }
+    assert!(seen > 0, "no random sequence showed the x");
+}
+
+#[test]
+fn the_two_hand_sequences_reach_each_rule_of_the_x() {
+    // The two-hand sequences must reach each state that their checks examine: else they prove nothing.
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+    let mut runner = TestRunner::deterministic();
+    let mut all = Reached::default();
+    for case in 0..64 {
+        let acts = proptest::collection::vec(hand(), 1..40).new_tree(&mut runner).unwrap().current();
+        let (mut h, _layout) = hands_for(case);
+        for a in &acts {
+            run_hand(&mut h, a).unwrap_or_else(|e| panic!("{e} after {a:?}"));
+        }
+        all.shown += h.reached.shown;
+        all.shown_with_finger += h.reached.shown_with_finger;
+        all.press += h.reached.press;
+        all.release += h.reached.release;
+        all.guard += h.reached.guard;
+        all.guard_second_finger += h.reached.guard_second_finger;
+        all.time += h.reached.time;
+        all.turn += h.reached.turn;
+    }
+    println!("shown {}, with a finger {}, press {}, release {}, guard {}, second finger in the guard time {}, time {}, turn {}", all.shown, all.shown_with_finger, all.press, all.release, all.guard, all.guard_second_finger, all.time, all.turn);
+    assert!(all.shown > 0, "no x");
+    assert!(all.shown_with_finger > 0, "no x while a finger stays on the screen");
+    assert!(all.press > 0, "no press removed the x");
+    assert!(all.release > 0, "no release of a control removed the x");
+    assert!(all.guard > 0, "no ignored press kept the x");
+    assert!(all.guard_second_finger > 0, "no second finger in the guard time removed the x");
+    assert!(all.time > 0, "the time did not remove the x");
+    assert!(all.turn > 0, "no turn kept the x");
+}
+
+/// A cell and a digit of a refused tap, and the cell of the only peer with the number. `d` has the menu
+/// closed. The pen writes the number `v` in the cell `a`, with `a` a peer of the cell `b`. No other peer
+/// of `b` has `v`. Thus the refused tap on `b` depends only on the number in `a`.
+fn only_peer_with_number(d: &mut Driver) -> (Cell, Cell, u8) {
+    let g = &d.app.game;
+    let (a, b, v) = cells()
+        .filter(|&b| !g.is_filled(b))
+        .flat_map(|b| (1..=9u8).map(move |v| (b, v)))
+        .filter(|&(b, v)| peer_numbers(g, b) & mark_bit(v) == 0)
+        .find_map(|(b, v)| {
+            cells()
+                .find(|&a| a != b && !g.is_filled(a) && (a.0 == b.0 || a.1 == b.1 || (a.0 / 3 == b.0 / 3 && a.1 / 3 == b.1 / 3)))
+                .map(|a| (a, b, v))
+        })
+        .expect("two empty peers and a free digit");
+    d.write(a, v);
+    assert_eq!(d.app.game.value_at(a), v, "the app did not read {v}");
+    (a, b, v)
+}
+
+/// A finger on `button`, a refused tap on micro-cell `digit` of `cell`. The x shows, and the finger
+/// stays on the button.
+fn hold_and_refuse(h: &mut Hands, button: Button, cell: Cell, digit: u8) -> (f32, f32) {
+    let (x, y) = button_center(button);
+    h.send(Input::TouchDown { id: 1, x, y }).unwrap();
+    let (px, py) = micro_center(cell, digit);
+    h.send(Input::PenDown { x: px, y: py, tool: Tool::Pen }).unwrap();
+    h.send(Input::PenUp { x: px, y: py }).unwrap();
+    assert_eq!(h.d.app.ui.refused, Some((cell, digit, h.d.now)), "MRK-10: the x shows while the finger stays on {button:?}");
+    (x, y)
+}
+
+#[test]
+fn the_release_of_undo_that_removes_the_peer_number_leaves_no_x() {
+    // MRK-15, MRK-12: an undo that removes the number of the only peer must not leave the x.
+    for (landscape, right_handed) in [(false, false), (false, true), (true, false), (true, true)] {
+        let _layout = InLayout::set(landscape, right_handed);
+        let mut h = Hands::new(Driver::new(400));
+        let (a, b, v) = only_peer_with_number(&mut h.d);
+        h.d.button(Button::Menu);
+        let (x, y) = hold_and_refuse(&mut h, Button::Undo, b, v);
+        h.send(Input::TouchUp { id: 1, x, y }).unwrap();
+        assert_eq!(h.d.app.game.value_at(a), 0, "the release does the undo");
+        assert_eq!(h.d.app.ui.refused, None, "MRK-15: the x stays with no number in a peer");
+    }
+}
+
+#[test]
+fn the_release_of_redo_that_fills_the_cell_of_the_x_leaves_no_x() {
+    // MRK-15, MRK-12: a redo that fills the cell of the x must not leave the x on a filled cell.
+    let mut h = Hands::new(Driver::new(401));
+    let (a, _, v) = only_peer_with_number(&mut h.d);
+    h.d.button(Button::Menu);
+    h.d.button(Button::Undo);
+    assert_eq!(h.d.app.game.value_at(a), 0);
+    let digit = (1..=9u8).find(|&x| peer_numbers(&h.d.app.game, a) & mark_bit(x) != 0).expect("a peer with a number");
+    let (x, y) = hold_and_refuse(&mut h, Button::Redo, a, digit);
+    assert_eq!(h.d.app.game.redo.len(), 1, "MRK-11: the refused tap keeps the redo history");
+    h.send(Input::TouchUp { id: 1, x, y }).unwrap();
+    assert_eq!(h.d.app.game.value_at(a), v, "the release does the redo");
+    assert_eq!(h.d.app.ui.refused, None, "MRK-15: the x stays on a filled cell");
+}
+
+#[test]
+fn the_release_of_redo_that_completes_the_game_leaves_no_x() {
+    // MRK-15, MRK-12, CMP-3: the last number comes back with redo. The game is complete, thus no
+    // overlay stays. A player cannot make the state with a redo of the last number, because a complete
+    // game has no undo (UND-8), but the rule must hold.
+    let mut h = Hands::new(Driver::new(402));
+    let g = &mut h.d.app.game;
+    let empty: Vec<Cell> = cells().filter(|&c| !g.is_filled(c)).collect();
+    let (&last, rest) = empty.split_last().unwrap();
+    for &(r, c) in rest {
+        g.add_number((r, c), g.solution[r as usize][c as usize]);
+    }
+    g.add_number(last, g.solution[last.0 as usize][last.1 as usize]);
+    assert!(g.completed);
+    g.completed = false;
+    g.undo();
+    assert!(!g.completed && g.value_at(last) == 0 && g.can_redo());
+    h.d.button(Button::Menu);
+    let digit = (1..=9u8).find(|&x| peer_numbers(&h.d.app.game, last) & mark_bit(x) != 0).unwrap();
+    let (x, y) = hold_and_refuse(&mut h, Button::Redo, last, digit);
+    h.send(Input::TouchUp { id: 1, x, y }).unwrap();
+    assert!(h.d.app.game.completed, "the release does the redo");
+    assert_eq!(h.d.app.ui.refused, None, "CMP-3, MRK-15: the x stays on a complete game");
+}
+
+#[test]
+fn the_release_of_a_button_that_opens_a_panel_or_a_screen_leaves_no_x() {
+    // MRK-15, MRK-12, NAV-11: an open panel and a different screen never show an x. The Menu button
+    // also does an action: it closes the menu.
+    for (landscape, right_handed) in [(false, false), (false, true), (true, false), (true, true)] {
+        for button in [Button::Menu, Button::Colors, Button::Settings, Button::NewGame, Button::Help, Button::Statistics, Button::Close] {
+            let _layout = InLayout::set(landscape, right_handed);
+            let mut h = Hands::new(Driver::new(403));
+            h.d.button(Button::Menu);
+            let g = &h.d.app.game;
+            let (cell, digit) = cells()
+                .filter(|&c| !g.is_filled(c))
+                .flat_map(|c| (1..=9u8).map(move |v| (c, v)))
+                .find(|&(c, v)| peer_numbers(g, c) & mark_bit(v) != 0)
+                .unwrap();
+            let (x, y) = hold_and_refuse(&mut h, button, cell, digit);
+            h.send(Input::TouchUp { id: 1, x, y }).unwrap();
+            let opened = match button {
+                Button::Menu => !h.d.app.ui.menu.is_open(),
+                Button::Colors | Button::Settings | Button::NewGame => h.d.app.ui.menu.panel().is_some(),
+                Button::Help => h.d.app.screen == Screen::Manual,
+                Button::Statistics => h.d.app.screen == Screen::Statistics,
+                _ => h.d.app.quit,
+            };
+            assert!(opened, "the release of {button:?} does its action");
+            assert_eq!(h.d.app.ui.refused, None, "MRK-15, MRK-12: {button:?}");
+        }
+    }
+}
+
+#[test]
+fn the_release_of_a_control_keeps_a_question_mark_in_a_different_cell() {
+    // MRK-15, QST-4, §3.2, MRK-14: the "?" shows in A and the x in B, while the finger stays on a
+    // control. The release removes only the x. The "?" stays until its own time.
+    let mut h = Hands::new(Driver::new(405));
+    h.d.button(Button::Menu);
+    let g = &h.d.app.game;
+    let (b, digit) = cells()
+        .filter(|&c| !g.is_filled(c))
+        .flat_map(|c| (1..=9u8).map(move |v| (c, v)))
+        .find(|&(c, v)| peer_numbers(g, c) & mark_bit(v) != 0)
+        .unwrap();
+    let a = cells().find(|&c| !g.is_filled(c) && c != b).unwrap();
+    let (x, y) = button_center(Button::Undo);
+    h.send(Input::TouchDown { id: 1, x, y }).unwrap();
+    h.d.write_strokes(&scribble_ink(a));
+    let (px, py) = micro_center(b, digit);
+    h.send(Input::PenDown { x: px, y: py, tool: Tool::Pen }).unwrap();
+    let pressed = h.d.now;
+    h.send(Input::PenUp { x: px, y: py }).unwrap();
+    assert_eq!(h.d.app.ui.question, Some((a, pressed)), "§3.2: the pen press reads the ink: the \"?\" in A");
+    assert_eq!(h.d.app.ui.refused, Some((b, digit, h.d.now)), "§3.2: the x in B");
+    h.send(Input::TouchUp { id: 1, x, y }).unwrap();
+    assert_eq!(h.d.app.ui.refused, None, "MRK-15: the release removes the x");
+    assert_eq!(h.d.app.ui.question, Some((a, pressed)), "§3.2: the release does not remove the \"?\" in a different cell");
+    h.d.now = pressed + OVERLAY_MS;
+    h.d.app.tick(h.d.now);
+    assert_eq!(h.d.app.ui.question, None, "QST-1");
+}
+
+#[test]
+fn a_finger_that_stays_does_not_change_the_time_of_the_x() {
+    // MRK-14, MRK-15: the x goes at the end of its time while the finger stays. A new refused tap
+    // removes the x at its press and starts the time again. A release after the x has no effect on it.
+    let mut h = Hands::new(Driver::new(406));
+    h.d.button(Button::Menu);
+    let g = &h.d.app.game;
+    let (cell, digit) = cells()
+        .filter(|&c| !g.is_filled(c))
+        .flat_map(|c| (1..=9u8).map(move |v| (c, v)))
+        .find(|&(c, v)| peer_numbers(g, c) & mark_bit(v) != 0)
+        .unwrap();
+    let (x, y) = hold_and_refuse(&mut h, Button::Colors, cell, digit);
+    let first = h.d.now;
+    h.wait(OVERLAY_MS - 20).unwrap();
+    assert_eq!(h.d.app.ui.refused, Some((cell, digit, first)), "MRK-14: the x went too early");
+    let (px, py) = micro_center(cell, digit);
+    h.send(Input::PenDown { x: px, y: py, tool: Tool::Pen }).unwrap();
+    assert_eq!(h.d.app.ui.refused, None, "MRK-15: a new press removes the x");
+    h.send(Input::PenUp { x: px, y: py }).unwrap();
+    let second = h.d.now;
+    assert_eq!(h.d.app.ui.refused, Some((cell, digit, second)), "MRK-15: the lift shows the x again, with a new time");
+    h.d.now = second + OVERLAY_MS;
+    h.d.app.tick(h.d.now);
+    assert_eq!(h.d.app.ui.refused, None, "MRK-14");
+    h.send(Input::TouchUp { id: 1, x, y }).unwrap();
+    assert_eq!(h.d.app.ui.refused, None);
+}
+
+#[test]
+fn a_switch_under_a_finger_does_not_turn_off_under_the_x() {
+    // MRK-12, MRK-7, NAV-11: the finger stays on "Hide pencil marks automatically" in the Settings panel.
+    // The first pen tap only closes the panel, and the second is a refused tap. The finger lifts: the
+    // x never shows with the switch off.
+    let mut h = Hands::new(Driver::new(407));
+    h.d.button(Button::Menu);
+    h.d.button(Button::Settings);
+    let g = &h.d.app.game;
+    let (cell, digit) = cells()
+        .filter(|&c| !g.is_filled(c))
+        .flat_map(|c| (1..=9u8).map(move |v| (c, v)))
+        .find(|&(c, v)| peer_numbers(g, c) & mark_bit(v) != 0)
+        .unwrap();
+    let (x, y) = switch_point(Switch::HideMarksAutomatically);
+    h.send(Input::TouchDown { id: 1, x, y }).unwrap();
+    let (px, py) = micro_center(cell, digit);
+    h.send(Input::PenDown { x: px, y: py, tool: Tool::Pen }).unwrap();
+    h.send(Input::PenUp { x: px, y: py }).unwrap();
+    assert_eq!(h.d.app.ui.menu.panel(), None, "NAV-11: the pen tap closes the panel");
+    assert_eq!(h.d.app.ui.refused, None, "MRK-10: the tap only closes the panel");
+    h.send(Input::PenDown { x: px, y: py, tool: Tool::Pen }).unwrap();
+    h.send(Input::PenUp { x: px, y: py }).unwrap();
+    assert_eq!(h.d.app.ui.refused, Some((cell, digit, h.d.now)), "MRK-10");
+    h.send(Input::TouchUp { id: 1, x, y }).unwrap();
+    x_state_rule(&h.d.app).unwrap();
+    assert!(h.d.app.settings.auto_hide_on || h.d.app.ui.refused.is_none());
+}
+
+#[test]
+fn the_update_dialog_removes_the_x_and_no_tap_makes_an_x_under_it() {
+    // MRK-15, MRK-12, UPD-10: the dialog removes the x. A refused tap under the dialog makes no x.
+    let mut h = Hands::new(Driver::new(408));
+    let g = &h.d.app.game;
+    let (cell, digit) = cells()
+        .filter(|&c| !g.is_filled(c))
+        .flat_map(|c| (1..=9u8).map(move |v| (c, v)))
+        .find(|&(c, v)| peer_numbers(g, c) & mark_bit(v) != 0)
+        .unwrap();
+    h.d.tap_micro(cell, digit);
+    assert!(h.d.app.ui.refused.is_some());
+    run_hand(&mut h, &Hand::Dialog).unwrap();
+    assert!(h.d.app.update.dialog_shown());
+    assert_eq!(h.d.app.ui.refused, None, "MRK-15");
+    let (px, py) = micro_center(cell, digit);
+    h.send(Input::PenDown { x: px, y: py, tool: Tool::Pen }).unwrap();
+    h.send(Input::PenUp { x: px, y: py }).unwrap();
+    assert_eq!(h.d.app.ui.refused, None, "MRK-12: an x under the dialog");
+}
+
+/// The first refused tap of the board, as a cell and a digit.
+fn first_refused_spot(g: &Game) -> (Cell, u8) {
+    cells()
+        .filter(|&c| !g.is_filled(c))
+        .flat_map(|c| (1..=9u8).map(move |v| (c, v)))
+        .find(|&(c, v)| peer_numbers(g, c) & mark_bit(v) != 0)
+        .expect("a refused tap")
+}
+
+/// "< Back" from the manual. The guard time of NAV-16 starts, and the menu is open (NAV-3).
+fn back_from_manual(h: &mut Hands) {
+    wait_for_toolbar(&mut h.d);
+    h.d.button(Button::Help);
+    assert_eq!(h.d.app.screen, Screen::Manual);
+    let (x, y) = pixel_center(layout::back_button());
+    h.d.finger_tap(x, y);
+    assert_eq!((h.d.app.screen, h.d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-3");
+    assert!(h.d.app.toolbar_ignored_until.is_some(), "NAV-16: the guard time starts");
+}
+
+/// The items that a press on a toolbar button can change.
+type Items = (Screen, Menu, Board, Settings, bool);
+
+fn items(d: &Driver) -> Items {
+    (d.app.screen, d.app.ui.menu, board(&d.app.game), d.app.settings.clone(), d.app.quit)
+}
+
+/// A driver with a board where Undo and Redo can operate, thus each toolbar button can do an action.
+fn hands_with_history(seed: u64) -> Hands {
+    let mut d = Driver::new(seed);
+    let cell = free_cell(&d.app, &[]);
+    let free: Vec<u8> = (1..=9u8).filter(|&v| peer_numbers(&d.app.game, cell) & mark_bit(v) == 0).collect();
+    d.tap_micro(cell, free[0]);
+    d.button(Button::Menu);
+    d.write(cells().find(|&c| c != cell && !d.app.game.is_filled(c)).unwrap(), 5);
+    d.button(Button::Undo);
+    assert!(d.app.game.can_undo() && d.app.game.can_redo(), "the fixture has the two histories");
+    Hands::new(d)
+}
+
+#[test]
+fn a_second_finger_on_the_toolbar_in_the_guard_time_removes_the_overlays_and_operates_nothing() {
+    // NAV-16, INP-15, MRK-15, QST-4 (owner decision 2026-11-05): in the guard time after "< Back", a
+    // second finger on a toolbar button or on the close button operates nothing, but it removes the x
+    // and the "?". All buttons, in all layouts.
+    for (landscape, right_handed) in [(false, false), (false, true), (true, false), (true, true)] {
+        let _layout = InLayout::set(landscape, right_handed);
+        let what = format!("landscape {landscape}, right-handed {right_handed}");
+        let mut h = hands_with_history(409);
+        let on_board = micro_center((4, 4), 5);
+        for button in CONTROLS {
+            let (x, y) = button_center(button);
+
+            // The x.
+            back_from_manual(&mut h);
+            let (cell, digit) = first_refused_spot(&h.d.app.game);
+            let before = items(&h.d);
+            h.send(Input::TouchDown { id: 1, x: on_board.0, y: on_board.1 }).unwrap();
+            let (px, py) = micro_center(cell, digit);
+            h.send(Input::PenDown { x: px, y: py, tool: Tool::Pen }).unwrap();
+            h.send(Input::PenUp { x: px, y: py }).unwrap();
+            assert_eq!(h.d.app.ui.refused, Some((cell, digit, h.d.now)), "MRK-10: {what}, {button:?}");
+            h.send(Input::TouchDown { id: 2, x, y }).unwrap();
+            assert!(h.d.app.toolbar_ignored_until.is_some_and(|t| h.d.now < t), "{what}: the press is in the guard time");
+            assert_eq!(h.d.app.ui.refused, None, "MRK-15, INP-15: {what}: the second finger on {button:?}");
+            assert_eq!(items(&h.d), before, "NAV-16, INP-15: {what}: the second finger on {button:?} operated it");
+            h.send(Input::TouchUp { id: 2, x, y }).unwrap();
+            assert_eq!(items(&h.d), before, "NAV-16, INP-15: {what}: the lift of the second finger on {button:?}");
+            h.send(Input::TouchUp { id: 1, x: on_board.0, y: on_board.1 }).unwrap();
+            assert_eq!(items(&h.d), before, "NAV-16, INP-15: {what}: the lift of the first finger, {button:?}");
+
+            // The "?". A finger on the board does not read the ink (INP-1), thus a short pause reads it
+            // in the guard time. Then the first finger moves: it stays an active touch (INP-15).
+            back_from_manual(&mut h);
+            let empty = cells().find(|&c| !h.d.app.game.is_filled(c)).unwrap();
+            let before = items(&h.d);
+            let pause = std::mem::replace(&mut h.d.app.pause_ms, 10);
+            h.send(Input::TouchDown { id: 1, x: on_board.0, y: on_board.1 }).unwrap();
+            h.d.write_strokes(&scribble_ink(empty));
+            h.d.wait(20);
+            h.d.app.pause_ms = pause;
+            assert_eq!(h.d.app.ui.question.map(|q| q.0), Some(empty), "QST-1: {what}, {button:?}");
+            h.send(Input::TouchMove { id: 1, x: on_board.0, y: on_board.1 }).unwrap();
+            h.send(Input::TouchDown { id: 2, x, y }).unwrap();
+            assert!(h.d.app.toolbar_ignored_until.is_some_and(|t| h.d.now < t), "{what}: the press is in the guard time");
+            assert_eq!(h.d.app.ui.question, None, "QST-4, INP-15: {what}: the second finger on {button:?}");
+            assert_eq!(items(&h.d), before, "NAV-16, INP-15: {what}: the second finger on {button:?} operated it");
+            h.send(Input::TouchUp { id: 2, x, y }).unwrap();
+            h.send(Input::TouchUp { id: 1, x: on_board.0, y: on_board.1 }).unwrap();
+            assert_eq!(items(&h.d), before, "NAV-16, INP-15: {what}: the lifts, {button:?}");
+        }
+    }
+}
+
+#[test]
+fn a_first_press_on_the_toolbar_in_the_guard_time_keeps_the_overlays() {
+    // NAV-16, INP-15, MRK-15, QST-4: the other side of the owner decision of 2026-11-05. With no other
+    // finger on the screen, or when the other touch has had no event for 0.15 s (a lost release), the
+    // press is a first press. The app ignores it, thus the x and the "?" stay.
+    let mut h = hands_with_history(410);
+    let on_board = micro_center((4, 4), 5);
+    let (x, y) = button_center(Button::Colors);
+    for stale_finger in [false, true] {
+        back_from_manual(&mut h);
+        let (cell, digit) = first_refused_spot(&h.d.app.game);
+        let before = items(&h.d);
+        if stale_finger {
+            h.send(Input::TouchDown { id: 1, x: on_board.0, y: on_board.1 }).unwrap();
+        }
+        let (px, py) = micro_center(cell, digit);
+        h.send(Input::PenDown { x: px, y: py, tool: Tool::Pen }).unwrap();
+        h.send(Input::PenUp { x: px, y: py }).unwrap();
+        let x_shown = Some((cell, digit, h.d.now));
+        assert_eq!(h.d.app.ui.refused, x_shown, "MRK-10");
+        if stale_finger {
+            h.wait(150).unwrap();
+        }
+        h.send(Input::TouchDown { id: 2, x, y }).unwrap();
+        assert!(h.d.app.toolbar_ignored_until.is_some_and(|t| h.d.now < t), "the press is in the guard time");
+        assert_eq!(h.d.app.ui.refused, x_shown, "NAV-16: an ignored first press, lost release {stale_finger}");
+        assert_eq!(items(&h.d), before, "NAV-16: an ignored first press, lost release {stale_finger}");
+        h.send(Input::TouchUp { id: 2, x, y }).unwrap();
+        assert_eq!(items(&h.d), before, "NAV-16: the lift, lost release {stale_finger}");
+        h.d.wait(OVERLAY_MS);
+    }
+
+    // The "?" with no other finger. The usual pause is as long as the guard time, thus the test sets a
+    // short pause.
+    h.d.app.pause_ms = 50;
+    back_from_manual(&mut h);
+    let empty = cells().find(|&c| !h.d.app.game.is_filled(c)).unwrap();
+    h.d.write_strokes(&scribble_ink(empty));
+    h.d.wait(60);
+    let question = h.d.app.ui.question;
+    assert_eq!(question.map(|q| q.0), Some(empty), "the pause reads the ink");
+    h.send(Input::TouchDown { id: 2, x, y }).unwrap();
+    assert!(h.d.app.toolbar_ignored_until.is_some_and(|t| h.d.now < t), "the press is in the guard time");
+    assert_eq!(h.d.app.ui.question, question, "NAV-16: an ignored first press keeps the \"?\"");
+    h.send(Input::TouchUp { id: 2, x, y }).unwrap();
 }

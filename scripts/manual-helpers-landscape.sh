@@ -9,12 +9,14 @@ UI=$1
 text 72 170 84 black start "Helpers"
 
 text 72 290 50 black start "Automatic pencil mark hiding"
-text 72 355 38 gray25 start "When you write a number, the app hides"
-text 72 405 38 gray25 start "that digit in the pencil marks in the"
-text 72 455 38 gray25 start "same row, column and box."
-text 72 505 38 gray25 start "Erase the number to show them again."
+text 72 355 38 gray25 start "When you write a number, the app hides that"
+text 72 405 38 gray25 start "digit in the pencil marks in the same row,"
+text 72 455 38 gray25 start "column and box. Erase the number to show"
+text 72 505 38 gray25 start "them again. If you tap the micro-cell of a"
+text 72 555 38 gray25 start "hidden digit, the tap has no effect and a"
+text 72 605 38 gray25 start "small x shows there for a moment."
 FIVE='M 95,30 L 50,30 L 45,68 C 70,58 100,68 98,92 C 96,118 62,124 42,108'
-Y=560
+Y=660
 cell 150 $Y "3 5" ""; ink 150 $Y "$FIVE"; cell 325 $Y "1 5 7" ""; cell 500 $Y "5 9" ""
 text 412 $((Y+CW+45)) 34 gray25 middle "Write a 5 in a row"
 varrow 412 $((Y+CW+65)) $((Y+CW+145))

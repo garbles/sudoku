@@ -445,3 +445,70 @@ AppLoad, opened a game with a puzzle, turned the tablet to landscape and back, a
 wrote a number. The board shows at the center and the puzzle is complete in landscape, and the input
 operates in both orientations. The checksum of `dist/sudoku/sudoku` agrees with the file on the
 tablet. Bead remarkable-sudoku-j46 is closed.
+
+### Owner request: an x in the micro-cell for a refused pencil mark, 2026-11-04
+
+The owner asked: "whenever some attempts to make an invalid pencil mark (a peer already has that
+number, it should flash an `x` icon, similar to have unrecognized writing shows a `?` for a moment
+before it disappears". Beads issue: remarkable-sudoku-5db. The change is now in REQUIREMENTS.md
+(§3.2, §3.3, §4.1, §5.1, §5.2, §6.1, §7, §9, §9.1, §9.2, §12, §14.3, §14.4, §15, §17). The new image
+is `images/screen-invalid-mark.png`.
+
+Examination on the tablet, 2026-11-04:
+
+| Prototype | What the owner examined | Result |
+|---|---|---|
+| First | An x at the center of the full cell, with the marks of the cell hidden | Rejected. The owner said: "the x should only be in the micro-cell". |
+| Second | An x only in the micro-cell of the digit. The other marks and the grid stay visible. | Approved. |
+
+The device results are only these two prototype results. The items below are decisions and rules.
+They are not results of a device test.
+
+Owner decisions on the edge cases, 2026-11-04:
+
+1. Tap on a hidden mark that exists. The cell has the mark d, a peer has the number d, and the player
+   taps d. The tap has no effect, and the x shows.
+2. Setting off. When "Hide pencil marks automatically" is off, the tap adds or removes the mark, and
+   no x shows.
+3. The "?" and the x together. They can show at the same time in different cells, each with its own
+   time. Example: a scribble waits in cell A, and the player does a refused tap in cell B. The app
+   reads the ink first, thus the "?" shows in A, and the x shows in B.
+4. The x and writing. While the player writes, screen redraws wait (R§14.4). Thus the pixels of the x
+   can stay on the screen, under the ink of the player, until the writing stops: approximately one
+   second after the last stroke. The owner answered "Acceptable". The state of the x goes at the
+   press. The pixels go when the redraw occurs. The "?" has the same path.
+5. Manual. Add one sentence about the x to page 5 (helpers), in portrait and in landscape. The text
+   is: "If you tap the micro-cell of a hidden digit, the tap has no effect and a small x shows there
+   for a moment."
+
+Exact values, 2026-11-04:
+
+- Two straight lines with round ends. Each line goes from -10 px to +10 px on the two axes around the
+  center. Thus the size is 20×20 px between the line centers, and the visible extent is approximately
+  23×23 px.
+- Line width 3 px. Color `gray15`, the same as the pencil marks.
+- The center is the anchor point of the pencil mark of the digit: 24, 74 or 122 px from the cell
+  origin on each axis, at the keypad position of the digit.
+- Time: the same value as the "?" (1000 ms).
+
+Rules that follow from the approved behavior. The owner did not decide them one at a time:
+
+- An x implies all of these: the game screen shows, no panel is open, the game is not complete, its
+  cell is empty, "Hide pencil marks automatically" is on, a peer has its digit, no highlight shows and
+  no ink waits. It is never on the same cell as a "?".
+- The release of a control that does an action removes the x, as it removes the highlight. It removes
+  only the x, not a "?" in a different cell. The rules of the "?" do not change.
+- Completion, a change of screen, a new game and the update dialog remove the x.
+- At a turn of the tablet, the x stays on the same cell and digit for the rest of its time. A tap in
+  progress at the turn makes no x.
+- A first press that the app ignores in the guard time after "< Back" (NAV-16) does not remove the x.
+- With the micro-cell lines set to None, the x shows with no grid.
+
+Owner decision, 2026-11-05: in the guard time after "< Back", a second finger on a toolbar button
+does not operate the button, but it removes the x and the "?", as at all other times. The guard-time
+exception applies only to a first press.
+
+Rejected value, 2026-11-04:
+
+- An x at the center of the full cell: 56×56 px, line 8 px, `gray40`, the marks of the cell hidden, at
+  the position of the "?". Reason: the x must be only in the micro-cell.

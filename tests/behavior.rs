@@ -5,10 +5,10 @@
 mod common;
 
 use common::*;
-use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, BACK_GUARD_MS};
+use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, BACK_GUARD_MS, OVERLAY_MS};
 use sudoku::game::{cells, mark_bit, peers, Cell};
 use sudoku::layout::{self, Button};
-use sudoku::settings::{Color, Section, Settings};
+use sudoku::settings::{Color, Section, Settings, Switch};
 use sudoku::store::ResultsDb;
 
 /// The game without the clock.
@@ -40,7 +40,7 @@ fn first_start() {
     assert_eq!(a.game.mode, 2);
     assert_eq!(a.settings, Settings::default());
     assert_eq!(a.ui.menu, Menu::Open(None), "NAV-1, PER-2: the menu is open and no panel is open");
-    assert!(a.ui.highlight.is_none() && a.ui.question.is_none() && a.ui.pending_ink.is_none());
+    assert!(a.ui.highlight.is_none() && a.ui.question.is_none() && a.ui.refused.is_none() && a.ui.pending_ink.is_none());
     assert!(a.game.undo.is_empty() && a.game.redo.is_empty() && a.game.elapsed_ms == 0);
 }
 
@@ -586,7 +586,7 @@ fn saved_game_opens_again_exactly() {
     assert_eq!(app.settings.color_highlight, Color::Cyan);
     assert_eq!(app.screen, Screen::Game);
     assert_eq!(app.ui.menu, Menu::Open(None), "PER-2: the menu is open and the app does not keep the menu state");
-    assert!(app.ui.highlight.is_none() && app.ui.question.is_none() && app.ui.pending_ink.is_none());
+    assert!(app.ui.highlight.is_none() && app.ui.question.is_none() && app.ui.refused.is_none() && app.ui.pending_ink.is_none());
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -1029,4 +1029,1145 @@ fn the_puzzle_made_while_the_panel_is_open_is_the_puzzle_of_the_seed() {
         assert!(!seeds.contains(&g.seed), "game {k}: a new seed");
         seeds.push(g.seed);
     }
+}
+
+// ---- The x of a refused tap (MRK-7, MRK-10 to MRK-18, R§5.1, R§6.1).
+
+/// The cell and the digit of the x.
+fn x_of(d: &Driver) -> Option<(Cell, u8)> {
+    d.app.ui.refused.map(|(cell, digit, _)| (cell, digit))
+}
+
+/// MRK-12, from the documents and not from the code of `invariants::check_app`. These tests also run
+/// in the release build, which does not do the checks after each input.
+fn assert_x_rule(d: &Driver, case: &str) {
+    sudoku::invariants::check_app(&d.app).unwrap_or_else(|e| panic!("{e} ({case})"));
+    let Some((cell, digit, _)) = d.app.ui.refused else { return };
+    let (a, g) = (&d.app, &d.app.game);
+    assert_eq!(a.screen, Screen::Game, "MRK-12 ({case})");
+    assert_eq!(a.ui.menu.panel(), None, "MRK-12: an open panel never shows an x ({case})");
+    assert!(!g.completed && !a.update.dialog_shown(), "MRK-12 ({case})");
+    assert!(!g.is_filled(cell), "MRK-12: the cell of the x is empty ({case})");
+    assert!(a.settings.auto_hide_on, "MRK-12 ({case})");
+    assert!(peer_has(g, cell, digit), "MRK-12: a peer has the digit ({case})");
+    assert!(a.ui.highlight.is_none() && a.ui.pending_ink.is_none(), "MRK-12 ({case})");
+    assert_ne!(a.ui.question.map(|q| q.0), Some(cell), "MRK-12: the \"?\" is on a different cell ({case})");
+    assert_eq!(g.visible_marks(cell, true) & mark_bit(digit), 0, "MRK-12: a mark never shows under an x ({case})");
+}
+
+/// Sends the clock to the time `t`, with no input.
+fn tick_to(d: &mut Driver, t: u64) {
+    assert!(t >= d.now);
+    d.now = t;
+    d.app.tick(t);
+}
+
+/// Does each step of `f` in all layouts: portrait and landscape, left-handed and right-handed.
+fn for_each_layout(mut f: impl FnMut(&str)) {
+    for orientation in [layout::Orientation::Portrait, layout::Orientation::Landscape] {
+        for right_handed in [false, true] {
+            layout::set_orientation(orientation);
+            layout::set_right_handed(right_handed);
+            f(&format!("landscape: {}, right-handed: {right_handed}", orientation == layout::Orientation::Landscape));
+        }
+    }
+    layout::set_orientation(layout::Orientation::Portrait);
+    layout::set_right_handed(false);
+}
+
+/// Puts two marks in one cell and undoes one. Thus Undo and Redo have an action. The menu is open
+/// at the end.
+fn fill_stacks(d: &mut Driver) -> Cell {
+    let g = &d.app.game;
+    let (cell, a, b) = cells()
+        .filter(|&c| !g.is_filled(c))
+        .find_map(|c| {
+            let free: Vec<u8> = (1..=9u8).filter(|&v| !peer_has(g, c, v)).collect();
+            (free.len() >= 2).then(|| (c, free[0], free[1]))
+        })
+        .expect("a cell with two free digits");
+    d.tap_micro(cell, a);
+    d.tap_micro(cell, b);
+    if !d.app.ui.menu.is_open() {
+        d.button(Button::Menu);
+    }
+    d.button(Button::Undo);
+    assert_eq!((d.app.game.undo.len(), d.app.game.redo.len()), (1, 1));
+    cell
+}
+
+/// A finger presses a control and stays on it.
+fn hold(d: &mut Driver, b: Button) -> (f32, f32) {
+    let (x, y) = button_center(b);
+    d.send(Input::TouchDown { id: 1, x, y });
+    (x, y)
+}
+
+/// A refused tap on the first refused pair that is not in the cell `not`. The test examines the x.
+fn refused_tap_not_in(d: &mut Driver, not: Option<Cell>) -> (Cell, u8) {
+    let (cell, digit) = refused_pairs(&d.app.game).into_iter().find(|p| Some(p.0) != not).expect("a refused pair");
+    d.tap_micro(cell, digit);
+    assert_eq!(d.app.ui.refused, Some((cell, digit, d.now)), "MRK-10");
+    (cell, digit)
+}
+
+fn refused_tap(d: &mut Driver) -> (Cell, u8) {
+    refused_tap_not_in(d, None)
+}
+
+/// Fills all empty cells except `last` with the solution.
+fn fill_except(d: &mut Driver, last: Cell) {
+    for c in cells().collect::<Vec<_>>() {
+        if c != last && !d.app.game.is_filled(c) {
+            let v = d.app.game.solution[c.0 as usize][c.1 as usize];
+            d.app.game.add_number(c, v);
+        }
+    }
+    assert!(!d.app.game.completed);
+}
+
+/// A game where one Redo fills the last empty cell and completes the game. The test sets this state
+/// directly, because the number made the game complete when the player wrote it, and a complete game
+/// has no undo.
+fn redo_completes(d: &mut Driver) -> Cell {
+    let last = empty_cell(&d.app.game);
+    fill_except(d, last);
+    let v = d.app.game.solution[last.0 as usize][last.1 as usize];
+    d.app.game.add_number(last, v);
+    assert!(d.app.game.completed);
+    d.app.game.completed = false;
+    d.app.game.undo();
+    assert_eq!(d.app.game.value_at(last), 0);
+    assert!(!d.app.game.completed && !d.app.game.redo.is_empty());
+    last
+}
+
+#[test]
+fn a_refused_tap_shows_the_x_at_the_lift_and_changes_nothing() {
+    // MRK-7, MRK-10, MRK-11, INP-3, UND-2: the x shows at the lift and not at the press. The numbers,
+    // the marks, the two stacks and the saved data do not change. Also the redo history stays.
+    let mut d = Driver::new(101);
+    fill_stacks(&mut d);
+    let (cell, digit) = refused_pair(&d.app.game);
+    let before = board(&d.app.game);
+    let (x, y) = micro_center(cell, digit);
+    d.app.game_dirty = false;
+    d.app.settings_dirty = false;
+
+    d.send(Input::PenDown { x, y, tool: Tool::Pen });
+    assert_eq!(d.app.ui.refused, None, "MRK-10: no x at the press");
+    d.wait(200);
+    d.send(Input::PenMove { x: x + 3.0, y: y + 3.0 });
+    assert_eq!(d.app.ui.refused, None, "MRK-10: no x before the lift");
+    d.send(Input::PenUp { x: x + 3.0, y: y + 3.0 });
+    assert_eq!(d.app.ui.refused, Some((cell, digit, d.now)), "MRK-10: the x shows at the lift, with its cell and digit");
+    assert_x_rule(&d, "lift");
+    assert_eq!(board(&d.app.game), before, "MRK-11: the game does not change");
+    assert!(!d.app.game_dirty && !d.app.settings_dirty, "MRK-11: no save");
+
+    d.wait(OVERLAY_MS);
+    assert_eq!(d.app.ui.refused, None);
+    assert_eq!(board(&d.app.game), before, "MRK-11: the end of the x does not change the game");
+    assert!(!d.app.game_dirty && !d.app.settings_dirty, "MRK-11: no save");
+
+    // The redo history is still there: Redo operates.
+    let redo = d.app.game.redo[0].clone();
+    d.button(Button::Redo);
+    assert!(d.app.game.redo.is_empty());
+    assert_eq!(d.app.game.undo.last(), Some(&redo), "MRK-11: a refused tap does not empty the redo history");
+}
+
+#[test]
+fn a_refused_tap_does_not_change_the_clock() {
+    // MRK-11, CLK-1: the clock of a game with a refused tap and the clock of the same game with no input
+    // show the same time. The x also does not stop the clock.
+    let mut with_tap = Driver::new(102);
+    let mut no_tap = Driver::new(102);
+    tick_to(&mut with_tap, 2000);
+    tick_to(&mut no_tap, 2000);
+    refused_tap(&mut with_tap);
+    tick_to(&mut no_tap, with_tap.now);
+    assert_eq!(with_tap.app.game.elapsed_ms, no_tap.app.game.elapsed_ms, "MRK-11: at the lift");
+    assert!(with_tap.app.game.elapsed_ms > 0);
+    let end = with_tap.now + OVERLAY_MS + 500;
+    tick_to(&mut with_tap, end);
+    tick_to(&mut no_tap, end);
+    assert_eq!(with_tap.app.game.elapsed_ms, no_tap.app.game.elapsed_ms, "MRK-11: after the x");
+    assert_eq!(with_tap.app.ui.refused, None);
+    assert!(!with_tap.app.game.completed);
+}
+
+#[test]
+fn each_micro_cell_of_each_empty_cell_gives_the_x_or_the_mark_in_all_layouts() {
+    // MRK-7, MRK-10, INP-3: in all layouts, in the corners and at the borders of the board, each tap
+    // gives the x of that cell and digit if a peer has the digit, and otherwise a mark.
+    for_each_layout(|case| {
+        let mut d = Driver::new(103);
+        for cell in cells().collect::<Vec<_>>() {
+            if d.app.game.is_filled(cell) {
+                continue;
+            }
+            for digit in 1..=9u8 {
+                let case = format!("{case}, cell: {cell:?}, digit: {digit}");
+                let before = board(&d.app.game);
+                d.tap_micro(cell, digit);
+                if peer_has(&d.app.game, cell, digit) {
+                    assert_eq!(d.app.ui.refused, Some((cell, digit, d.now)), "MRK-10 ({case})");
+                    assert_eq!(board(&d.app.game), before, "MRK-7 ({case})");
+                    assert_x_rule(&d, &case);
+                } else {
+                    assert_eq!(d.app.ui.refused, None, "MRK-10: no peer has the digit ({case})");
+                    assert_eq!(d.app.game.marks_at(cell) & mark_bit(digit), mark_bit(digit), "INP-3 ({case})");
+                    d.tap_micro(cell, digit);
+                    assert_eq!(d.app.game.marks_at(cell) & mark_bit(digit), 0, "INP-3 ({case})");
+                    assert_eq!(d.app.ui.refused, None, "MRK-10 ({case})");
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn refuses_mark_follows_the_rule() {
+    // MRK-7, MRK-18: the rule for an empty cell, a filled cell, the switch and a complete game.
+    let d = Driver::new(104);
+    let g = &d.app.game;
+    let (cell, digit) = refused_pair(g);
+    assert!(g.refuses_mark(cell, digit, true));
+    assert!(!g.refuses_mark(cell, digit, false), "MRK-7: the switch is off");
+    let free = (1..=9u8).find(|&v| !peer_has(g, cell, v)).unwrap();
+    assert!(!g.refuses_mark(cell, free, true), "MRK-7: no peer has the digit");
+    assert!(!g.refuses_mark(cell, 0, true) && !g.refuses_mark(cell, 10, true));
+    let given = given_cell(g);
+    assert!((1..=9u8).all(|v| !g.refuses_mark(given, v, true)), "MRK-7: only an empty cell");
+    let mut full = g.clone();
+    full.completed = true;
+    assert!(!full.refuses_mark(cell, digit, true), "MRK-10: a complete game");
+}
+
+#[test]
+fn a_tap_on_a_hidden_mark_shows_the_x_and_the_mark_stays() {
+    // MRK-7 (owner decision): the cell has the mark d, a peer has the number d and the player taps d.
+    // The tap has no effect and the x shows. When the number goes, the mark shows again.
+    let mut d = Driver::new(105);
+    let (cell, peer, v) = cell_and_peer(&d.app);
+    d.tap_micro(peer, v);
+    assert_eq!(d.app.game.marks_at(peer), mark_bit(v));
+    d.write(cell, v);
+    assert_eq!(d.app.game.value_at(cell), v);
+    assert_eq!(d.app.game.visible_marks(peer, true) & mark_bit(v), 0, "MRK-4: the mark is hidden");
+    let before = board(&d.app.game);
+    d.tap_micro(peer, v);
+    assert_eq!(d.app.ui.refused, Some((peer, v, d.now)), "MRK-7");
+    assert_eq!(board(&d.app.game), before, "MRK-7: the tap has no effect");
+    assert_eq!(d.app.game.marks_at(peer), mark_bit(v), "MRK-7: the hidden mark stays");
+    d.wait(OVERLAY_MS);
+    d.erase(cell);
+    assert_ne!(d.app.game.visible_marks(peer, true) & mark_bit(v), 0, "MRK-8: the mark shows again");
+}
+
+#[test]
+fn with_the_setting_off_a_tap_changes_the_mark_and_no_x_shows() {
+    // MRK-7, MRK-10, R§9.1: with the switch off, the tap adds and removes the mark, also a hidden mark.
+    // No x shows. When the switch is on again, the tap is a refused tap again.
+    let mut d = Driver::new(106);
+    let (cell, digit) = refused_pair(&d.app.game);
+    d.button(Button::Menu);
+    d.button(Button::Settings);
+    let (sx, sy) = switch_point(Switch::HideMarksAutomatically);
+    d.finger_tap(sx, sy);
+    assert!(!d.app.settings.auto_hide_on);
+    d.button(Button::Settings);
+    assert_eq!(d.app.ui.menu.panel(), None);
+
+    d.tap_micro(cell, digit);
+    assert_eq!(d.app.ui.refused, None, "MRK-7: no x when the switch is off");
+    assert_eq!(d.app.game.marks_at(cell), mark_bit(digit), "MRK-7: the tap adds the mark");
+    assert_eq!(d.app.game.undo.len(), 1);
+    d.tap_micro(cell, digit);
+    assert_eq!(d.app.ui.refused, None, "MRK-7: no x when the switch is off");
+    assert_eq!(d.app.game.marks_at(cell), 0, "MRK-7: the tap removes the mark");
+    assert_eq!(d.app.game.undo.len(), 2);
+
+    d.tap_micro(cell, digit);
+    d.button(Button::Settings);
+    d.finger_tap(sx, sy);
+    assert!(d.app.settings.auto_hide_on);
+    d.button(Button::Settings);
+    let before = board(&d.app.game);
+    d.tap_micro(cell, digit);
+    assert_eq!(d.app.ui.refused, Some((cell, digit, d.now)), "MRK-7: the switch is on again");
+    assert_eq!(board(&d.app.game), before, "MRK-7");
+    assert_eq!(d.app.game.marks_at(cell), mark_bit(digit), "MRK-7: the hidden mark stays");
+}
+
+#[test]
+fn a_finger_and_the_eraser_never_show_the_x() {
+    // MRK-10, INP-1, INP-8: a finger and the eraser on a micro-cell of a refused tap make no x.
+    let mut d = Driver::new(107);
+    let (cell, digit) = refused_pair(&d.app.game);
+    let (x, y) = micro_center(cell, digit);
+    let before = board(&d.app.game);
+    d.send(Input::TouchDown { id: 1, x, y });
+    assert_eq!(d.app.ui.refused, None, "MRK-10: finger press");
+    d.send(Input::TouchUp { id: 1, x, y });
+    assert_eq!(d.app.ui.refused, None, "MRK-10: finger lift");
+    d.send(Input::PenDown { x, y, tool: Tool::Eraser });
+    assert_eq!(d.app.ui.refused, None, "MRK-10: eraser press");
+    d.send(Input::PenUp { x, y });
+    assert_eq!(d.app.ui.refused, None, "MRK-10: eraser lift");
+    assert_eq!(board(&d.app.game), before, "INP-1");
+}
+
+#[test]
+fn writing_never_shows_the_x() {
+    // MRK-10, INP-2: a touch that leaves the micro-cell is writing, also if it starts or ends in the
+    // micro-cell of a refused tap. A touch that stays in the micro-cell is a tap.
+    let mut d = Driver::new(108);
+    let (cell, digit) = refused_pair(&d.app.game);
+    let (x, y) = micro_center(cell, digit);
+    let (ox, oy) = micro_center(cell, if digit == 5 { 1 } else { 5 });
+
+    // Out of the micro-cell and back.
+    d.send(Input::PenDown { x, y, tool: Tool::Pen });
+    d.send(Input::PenMove { x: ox, y: oy });
+    d.send(Input::PenMove { x, y });
+    d.send(Input::PenUp { x, y });
+    assert_eq!(d.app.ui.refused, None, "MRK-10: this touch is writing");
+    assert!(d.app.ui.pending_ink.is_some(), "INP-2: the ink waits");
+    d.wait(d.app.pause_ms + 10);
+    assert_eq!(d.app.ui.refused, None, "MRK-10: after the app reads the ink");
+
+    // A movement in the micro-cell: a tap. The app can read the ink as a number, thus the test finds
+    // the pair again.
+    d.wait(OVERLAY_MS);
+    let (cell, digit) = refused_pair(&d.app.game);
+    let (x, y) = micro_center(cell, digit);
+    d.send(Input::PenDown { x, y, tool: Tool::Pen });
+    d.send(Input::PenMove { x: x + 5.0, y: y - 5.0 });
+    d.send(Input::PenUp { x: x + 5.0, y: y - 5.0 });
+    assert_eq!(d.app.ui.refused, Some((cell, digit, d.now)), "INP-2: this touch is a tap");
+}
+
+#[test]
+fn a_short_touch_in_the_cell_of_waiting_ink_shows_no_x() {
+    // MRK-10, INP-11: this touch is writing, also on the micro-cell of a refused tap.
+    let mut d = Driver::new(109);
+    let (cell, digit) = refused_pair(&d.app.game);
+    let ink = scribble_ink(cell);
+    d.write_strokes(&ink);
+    d.tap_micro(cell, digit);
+    assert_eq!(d.app.ui.refused, None, "MRK-10");
+    assert_eq!(d.app.ui.pending_ink.as_ref().map(|i| i.strokes.len()), Some(ink.len() + 1), "INP-11: the touch is a part of the ink");
+    d.wait(d.app.pause_ms + 10);
+    assert_eq!(d.app.ui.refused, None, "MRK-10: after the app reads the ink");
+}
+
+#[test]
+fn a_tap_on_a_filled_cell_shows_no_x() {
+    // MRK-10, INP-4: a starting number and a number of the player, on each micro-cell, with the
+    // highlight on and off.
+    let mut d = Driver::new(110);
+    let given = given_cell(&d.app.game);
+    let (cell, _, v) = cell_and_peer(&d.app);
+    d.write(cell, v);
+    assert_eq!(d.app.game.value_at(cell), v);
+    let before = board(&d.app.game);
+    for highlight_on in [true, false] {
+        d.app.settings.highlight_on = highlight_on;
+        for c in [given, cell] {
+            for digit in 1..=9u8 {
+                d.tap_micro(c, digit);
+                assert_eq!(d.app.ui.refused, None, "MRK-10: {c:?}, {digit}, highlight: {highlight_on}");
+            }
+        }
+    }
+    assert_eq!(board(&d.app.game), before, "INP-4");
+}
+
+#[test]
+fn a_tap_on_a_complete_game_shows_no_x() {
+    // MRK-10, INP-9, CMP-3: a complete game has no x, with the pen and with the eraser.
+    let mut d = Driver::new(111);
+    solve(&mut d);
+    assert!(d.app.game.completed);
+    let before = board(&d.app.game);
+    for cell in [(0, 0), (4, 4), (8, 8)] {
+        for digit in 1..=9u8 {
+            d.tap_micro(cell, digit);
+            assert_eq!(d.app.ui.refused, None, "MRK-10");
+        }
+        d.erase(cell);
+        assert_eq!(d.app.ui.refused, None, "MRK-10");
+    }
+    assert_eq!(board(&d.app.game), before, "INP-9");
+    assert_eq!(d.app.ui.highlight, None, "INP-9");
+}
+
+#[test]
+fn a_tap_with_an_open_panel_only_closes_the_panel() {
+    // MRK-10, MRK-12, NAV-11: with a panel open, the tap outside the panel only closes it. Then, with
+    // the menu open and no panel, the same tap shows the x. A tap in the panel also shows no x. All
+    // layouts and all panels.
+    for_each_layout(|case| {
+        for (b, panel) in [(Button::Colors, Panel::Colors), (Button::Settings, Panel::Settings), (Button::NewGame, Panel::NewGame)] {
+            let case = format!("{case}, panel: {panel:?}");
+            let mut d = Driver::new(112);
+            d.button(Button::Menu);
+            d.button(b);
+            assert_eq!(d.app.ui.menu.panel(), Some(panel));
+            let area = match panel {
+                Panel::Colors => layout::colors_panel(),
+                Panel::Settings => layout::settings_panel(d.app.update.has_row()),
+                Panel::NewGame => layout::ng_panel(),
+            };
+            let before = board(&d.app.game);
+            let pairs = refused_pairs(&d.app.game);
+            let in_panel = |p: &(Cell, u8)| {
+                let (x, y) = micro_center(p.0, p.1);
+                area.contains(x, y)
+            };
+            let &(cell, digit) = pairs.iter().find(|p| !in_panel(p)).expect("a refused pair outside the panel");
+            d.tap_micro(cell, digit);
+            assert_eq!(d.app.ui.refused, None, "MRK-10 ({case})");
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-11: the tap closes the panel ({case})");
+            assert_eq!(board(&d.app.game), before, "NAV-11 ({case})");
+            d.tap_micro(cell, digit);
+            assert_eq!(d.app.ui.refused, Some((cell, digit, d.now)), "MRK-10: the menu is open and no panel is open ({case})");
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "MRK-10 ({case})");
+            assert_x_rule(&d, &case);
+
+            // A tap on a micro-cell under the panel. It can operate an item of the panel, thus this
+            // part has a new driver, and it does not use the row "Start new game". The tap makes no x.
+            let inside = pairs.iter().find(|p| {
+                let (x, y) = micro_center(p.0, p.1);
+                in_panel(p) && !layout::ng_start_row().contains(x, y)
+            });
+            if let Some(&(cell, digit)) = inside {
+                let mut d = Driver::new(112);
+                d.button(Button::Menu);
+                d.button(b);
+                d.tap_micro(cell, digit);
+                assert_eq!(d.app.ui.refused, None, "MRK-10: a tap in the panel ({case})");
+                assert_eq!(board(&d.app.game), before, "NAV-11 ({case})");
+            }
+        }
+    });
+}
+
+#[test]
+fn with_the_menu_open_a_refused_tap_shows_the_x() {
+    // MRK-10: the app opens with the menu open (PER-2), and no panel is open.
+    let mut d = Driver::opened(new_app(113));
+    assert_eq!(d.app.ui.menu, Menu::Open(None));
+    let (cell, digit) = refused_tap(&mut d);
+    assert_eq!(x_of(&d), Some((cell, digit)));
+    assert_eq!(d.app.ui.menu, Menu::Open(None), "MRK-10: the menu stays open");
+}
+
+#[test]
+fn a_refused_tap_removes_the_highlight() {
+    // MRK-12, MRK-15, HLT-2: an x never shows with a highlight.
+    let mut d = Driver::new(114);
+    let given = given_cell(&d.app.game);
+    d.tap_cell(given);
+    assert!(d.app.ui.highlight.is_some());
+    refused_tap(&mut d);
+    assert_eq!(d.app.ui.highlight, None, "MRK-12");
+    assert_x_rule(&d, "highlight");
+}
+
+#[test]
+fn the_x_goes_at_the_end_of_its_time_with_no_other_input() {
+    // MRK-14, QST-1: the x stays until OVERLAY_MS. The main loop wakes at this time (`next_deadline`),
+    // and the x goes with a redraw and with no other input.
+    assert_eq!(OVERLAY_MS, 1000, "MRK-14");
+    let mut d = Driver::new(115);
+    assert_eq!(d.app.next_deadline(), None);
+    let (cell, digit) = refused_pair(&d.app.game);
+    let (x, y) = micro_center(cell, digit);
+    d.send(Input::PenDown { x, y, tool: Tool::Pen });
+    assert_eq!(d.app.next_deadline(), None, "MRK-10: no time before the lift");
+    d.app.redraw = false;
+    d.send(Input::PenUp { x, y });
+    let shown = d.now;
+    assert_eq!(d.app.ui.refused, Some((cell, digit, shown)));
+    assert!(d.app.redraw, "the x needs a redraw");
+    assert_eq!(d.app.next_deadline(), Some(shown + OVERLAY_MS), "MRK-14: the main loop wakes at the end of the time");
+
+    d.app.redraw = false;
+    tick_to(&mut d, shown + OVERLAY_MS - 1);
+    assert_eq!(d.app.ui.refused, Some((cell, digit, shown)), "MRK-14: the x stays before the end");
+    assert!(!d.app.redraw);
+    assert_eq!(d.app.next_deadline(), Some(shown + OVERLAY_MS));
+    tick_to(&mut d, shown + OVERLAY_MS);
+    assert_eq!(d.app.ui.refused, None, "MRK-14: the x goes at the end");
+    assert!(d.app.redraw, "MRK-14: the end of the x needs a redraw");
+    assert_eq!(d.app.next_deadline(), None, "MRK-14: no timer after the x");
+
+    // The "?" uses the same time (QST-1).
+    let other = empty_cell(&d.app.game);
+    d.write_strokes(&scribble_ink(other));
+    d.wait(d.app.pause_ms);
+    let (_, at) = d.app.ui.question.expect("the ?");
+    tick_to(&mut d, at + OVERLAY_MS - 1);
+    assert!(d.app.ui.question.is_some(), "QST-1");
+    tick_to(&mut d, at + OVERLAY_MS);
+    assert_eq!(d.app.ui.question, None, "QST-1, MRK-14: one value");
+}
+
+#[test]
+fn each_press_removes_the_x_before_its_action() {
+    // MRK-15, INP-1, HLT-6: the x goes at the press, in all layouts. The state goes at the press also
+    // when the press starts writing (the pixels wait for the redraw, R§5.1).
+    for_each_layout(|case| {
+        let mut base = Driver::new(116);
+        let (cell, digit) = refused_tap(&mut base);
+        let g = base.app.game.clone();
+        let given = given_cell(&g);
+        let free = (1..=9u8).find(|&v| !peer_has(&g, cell, v)).unwrap();
+        let other_cell = cells().find(|&c| !g.is_filled(c) && c != cell).unwrap();
+        let on_cell = micro_center(cell, digit);
+        let presses: [(&str, Input); 10] = [
+            ("pen, same micro-cell", Input::PenDown { x: on_cell.0, y: on_cell.1, tool: Tool::Pen }),
+            ("pen, a free micro-cell of the cell", { let (x, y) = micro_center(cell, free); Input::PenDown { x, y, tool: Tool::Pen } }),
+            ("pen, a different empty cell", { let (x, y) = micro_center(other_cell, 5); Input::PenDown { x, y, tool: Tool::Pen } }),
+            ("pen, a filled cell", { let (x, y) = micro_center(given, 5); Input::PenDown { x, y, tool: Tool::Pen } }),
+            ("pen, a toolbar button", { let (x, y) = button_center(Button::Menu); Input::PenDown { x, y, tool: Tool::Pen } }),
+            ("eraser, same cell", Input::PenDown { x: on_cell.0, y: on_cell.1, tool: Tool::Eraser }),
+            ("eraser, a filled cell", { let (x, y) = micro_center(given, 5); Input::PenDown { x, y, tool: Tool::Eraser } }),
+            ("finger, same cell", Input::TouchDown { id: 1, x: on_cell.0, y: on_cell.1 }),
+            ("finger, a toolbar button", { let (x, y) = button_center(Button::Menu); Input::TouchDown { id: 1, x, y } }),
+            ("finger, a filled cell", { let (x, y) = micro_center(given, 5); Input::TouchDown { id: 1, x, y } }),
+        ];
+        for (name, press) in presses {
+            let case = format!("{case}, {name}");
+            let mut d = Driver::new(116);
+            d.tap_micro(cell, digit);
+            assert_eq!(x_of(&d), Some((cell, digit)), "{case}");
+            let before = board(&d.app.game);
+            d.send(press);
+            assert_eq!(d.app.ui.refused, None, "MRK-15 ({case})");
+            assert_eq!(board(&d.app.game), before, "MRK-15, INP-1: the press changes nothing else ({case})");
+            assert_x_rule(&d, &case);
+        }
+    });
+}
+
+#[test]
+fn a_tap_on_a_number_removes_the_x_with_the_highlight_off() {
+    // MRK-15, HLT-6, INP-4: a tap on a number changes nothing else, but it still removes the x.
+    let mut d = Driver::new(117);
+    d.app.settings.highlight_on = false;
+    let given = given_cell(&d.app.game);
+    refused_tap(&mut d);
+    d.tap_cell(given);
+    assert_eq!(d.app.ui.refused, None, "HLT-6");
+    assert_eq!(d.app.ui.highlight, None, "HLT-6");
+}
+
+#[test]
+fn a_second_finger_removes_the_x() {
+    // MRK-15, INP-15: a second finger removes the x and operates no item. Also a touch that lost its
+    // release does not stop the removal.
+    let mut d = Driver::new(118);
+    let palm = empty_cell(&d.app.game);
+    let (px, py) = micro_center(palm, 5);
+
+    // On the board.
+    d.send(Input::TouchDown { id: 5, x: px, y: py });
+    refused_tap(&mut d);
+    let (x, y) = micro_center(given_cell(&d.app.game), 5);
+    d.send(Input::TouchDown { id: 6, x, y });
+    assert_eq!(d.app.ui.refused, None, "MRK-15: a second finger on the board");
+    d.send(Input::TouchUp { id: 6, x, y });
+
+    // On a toolbar button, outside the guard time of NAV-16.
+    d.send(Input::TouchMove { id: 5, x: px, y: py });
+    refused_tap(&mut d);
+    d.send(Input::TouchMove { id: 5, x: px, y: py });
+    let menu = d.app.ui.menu;
+    let (x, y) = button_center(Button::Menu);
+    d.send(Input::TouchDown { id: 6, x, y });
+    assert_eq!(d.app.ui.refused, None, "MRK-15: a second finger on the toolbar");
+    d.send(Input::TouchUp { id: 6, x, y });
+    assert_eq!(d.app.ui.menu, menu, "INP-15: the second finger operates no item");
+
+    // The first touch has no event for more than 0.15 s: a new touch is a usual press. It also
+    // removes the x.
+    refused_tap(&mut d);
+    d.wait(200);
+    assert!(d.app.ui.refused.is_some());
+    let (x, y) = micro_center(given_cell(&d.app.game), 5);
+    d.send(Input::TouchDown { id: 6, x, y });
+    assert_eq!(d.app.ui.refused, None, "MRK-15, INP-15: a new touch after a lost release");
+}
+
+#[test]
+fn a_new_refused_tap_starts_the_time_again() {
+    // MRK-14, MRK-15, R§6.1: the press removes the x, the lift shows it again, and the time starts
+    // again. At most one x shows, also when the new tap is in a different cell.
+    let mut d = Driver::new(119);
+    let pairs = refused_pairs(&d.app.game);
+    let (cell, digit) = pairs[0];
+    let &(other_cell, other_digit) = pairs.iter().find(|p| p.0 != cell).unwrap();
+    d.tap_micro(cell, digit);
+    let first = d.now;
+    d.wait(OVERLAY_MS - 100);
+    let (x, y) = micro_center(cell, digit);
+    d.send(Input::PenDown { x, y, tool: Tool::Pen });
+    assert_eq!(d.app.ui.refused, None, "MRK-15: the press removes the x");
+    d.send(Input::PenUp { x, y });
+    let second = d.now;
+    assert_eq!(d.app.ui.refused, Some((cell, digit, second)), "MRK-14: the time starts again");
+    assert_eq!(d.app.next_deadline(), Some(second + OVERLAY_MS));
+    tick_to(&mut d, first + OVERLAY_MS);
+    assert_eq!(x_of(&d), Some((cell, digit)), "MRK-14: the first time does not remove the new x");
+    d.tap_micro(other_cell, other_digit);
+    let third = d.now;
+    assert_eq!(d.app.ui.refused, Some((other_cell, other_digit, third)), "MRK-14: at most one x");
+    tick_to(&mut d, second + OVERLAY_MS);
+    assert!(d.app.ui.refused.is_some(), "MRK-14: the x has its own time");
+    tick_to(&mut d, third + OVERLAY_MS);
+    assert_eq!(d.app.ui.refused, None);
+}
+
+#[test]
+fn a_press_that_the_guard_time_ignores_does_not_remove_the_x() {
+    // NAV-16, MRK-15, QST-4: in the guard time after "< Back", a first press on a toolbar button or on
+    // the close button does not remove the x or the "?". A press on the board operates as usual. After
+    // the guard time, the same press removes them. Left-handed and right-handed.
+    for right_handed in [false, true] {
+        layout::set_right_handed(right_handed);
+        let case = format!("right-handed: {right_handed}");
+        let mut d = Driver::new(120);
+        back_from(&mut d, Button::Help, false);
+        let back_at = d.now;
+
+        // The press of the refused tap reads the ink, thus the "?" and the x show together.
+        let (cell, digit) = refused_pair(&d.app.game);
+        let other = cells().find(|&c| !d.app.game.is_filled(c) && c != cell).unwrap();
+        d.write_strokes(&scribble_ink(other));
+        d.tap_micro(cell, digit);
+        let x = d.app.ui.refused;
+        let question = d.app.ui.question;
+        assert_eq!(x, Some((cell, digit, d.now)), "{case}");
+        assert_eq!(question.map(|q| q.0), Some(other), "{case}");
+
+        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+            let (px, py) = button_center(b);
+            d.send(Input::TouchDown { id: 1, x: px, y: py });
+            assert_eq!((d.app.ui.refused, d.app.ui.question), (x, question), "NAV-16: finger press ({case}, {b:?})");
+            d.send(Input::TouchUp { id: 1, x: px, y: py });
+            assert_eq!((d.app.ui.refused, d.app.ui.question), (x, question), "NAV-16: finger lift ({case}, {b:?})");
+        }
+        let (px, py) = button_center(Button::Close);
+        d.pen_tap(px, py);
+        assert_eq!((d.app.ui.refused, d.app.ui.question), (x, question), "NAV-16: pen tap ({case})");
+        assert!(!d.app.quit, "NAV-16 ({case})");
+        assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-16 ({case})");
+        assert!(d.now < back_at + BACK_GUARD_MS, "the presses are in the guard time ({case})");
+
+        // After the guard time, the x and the "?" are still there, and a press removes them.
+        tick_to(&mut d, back_at + BACK_GUARD_MS);
+        assert_eq!((d.app.ui.refused, d.app.ui.question), (x, question), "{case}");
+        hold(&mut d, Button::Menu);
+        assert_eq!((d.app.ui.refused, d.app.ui.question), (None, None), "MRK-15: after the guard time ({case})");
+
+        // A press on the board in the guard time operates as usual.
+        let mut d = Driver::new(120);
+        back_from(&mut d, Button::Help, false);
+        let back_at = d.now;
+        let (cell, digit) = refused_tap(&mut d);
+        let (px, py) = micro_center(cell, digit);
+        d.send(Input::PenDown { x: px, y: py, tool: Tool::Pen });
+        assert_eq!(d.app.ui.refused, None, "MRK-15, NAV-16: the board operates as usual ({case})");
+        assert!(d.now < back_at + BACK_GUARD_MS, "{case}");
+    }
+    layout::set_right_handed(false);
+}
+
+#[test]
+fn the_release_of_a_control_removes_the_x() {
+    // MRK-15, MRK-12: a finger stays on a control while the pen does a refused tap. The release does the
+    // action of the control and removes the x. All controls of the toolbar, in all layouts.
+    for_each_layout(|case| {
+        for b in [Button::Menu, Button::Colors, Button::Settings, Button::NewGame, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::Close] {
+            let case = format!("{case}, control: {b:?}");
+            let mut d = Driver::new(121);
+            fill_stacks(&mut d);
+            let before = board(&d.app.game);
+            let (x, y) = hold(&mut d, b);
+            refused_tap(&mut d);
+            assert_x_rule(&d, &case);
+            d.send(Input::TouchUp { id: 1, x, y });
+            assert_eq!(d.app.ui.refused, None, "MRK-15 ({case})");
+            assert_x_rule(&d, &case);
+            let done = match b {
+                Button::Menu => d.app.ui.menu == Menu::Closed,
+                Button::Colors => d.app.ui.menu.panel() == Some(Panel::Colors),
+                Button::Settings => d.app.ui.menu.panel() == Some(Panel::Settings),
+                Button::NewGame => d.app.ui.menu.panel() == Some(Panel::NewGame),
+                Button::Undo | Button::Redo => board(&d.app.game) != before,
+                Button::Help => d.app.screen == Screen::Manual,
+                Button::Statistics => d.app.screen == Screen::Statistics,
+                Button::Close => d.app.quit,
+            };
+            assert!(done, "the release does the action of the control ({case})");
+        }
+    });
+}
+
+#[test]
+fn the_release_of_a_control_keeps_a_question_mark_in_a_different_cell() {
+    // MRK-15, QST-4, R§9: the release removes only the x. The "?" stays, with its own time. A change of
+    // screen removes the two (NAV-5).
+    for b in [Button::Colors, Button::Settings, Button::NewGame, Button::Undo, Button::Redo] {
+        let mut d = Driver::new(122);
+        fill_stacks(&mut d);
+        let (x, y) = hold(&mut d, b);
+        let (cell, digit) = refused_pair(&d.app.game);
+        let other = cells().find(|&c| !d.app.game.is_filled(c) && c != cell).unwrap();
+        d.write_strokes(&scribble_ink(other));
+        d.tap_micro(cell, digit);
+        let question = d.app.ui.question;
+        assert_eq!(question.map(|q| q.0), Some(other), "{b:?}");
+        assert_eq!(x_of(&d), Some((cell, digit)), "{b:?}");
+        d.send(Input::TouchUp { id: 1, x, y });
+        assert_eq!(d.app.ui.refused, None, "MRK-15 ({b:?})");
+        assert_eq!(d.app.ui.question, question, "MRK-15: the \"?\" in a different cell stays ({b:?})");
+        tick_to(&mut d, question.unwrap().1 + OVERLAY_MS);
+        assert_eq!(d.app.ui.question, None, "QST-1 ({b:?})");
+    }
+    for b in [Button::Help, Button::Statistics] {
+        let mut d = Driver::new(122);
+        fill_stacks(&mut d);
+        let (x, y) = hold(&mut d, b);
+        let (cell, digit) = refused_pair(&d.app.game);
+        let other = cells().find(|&c| !d.app.game.is_filled(c) && c != cell).unwrap();
+        d.write_strokes(&scribble_ink(other));
+        d.tap_micro(cell, digit);
+        assert!(d.app.ui.question.is_some() && d.app.ui.refused.is_some(), "{b:?}");
+        d.send(Input::TouchUp { id: 1, x, y });
+        assert_eq!((d.app.ui.refused, d.app.ui.question), (None, None), "MRK-15, NAV-5 ({b:?})");
+    }
+}
+
+#[test]
+fn a_release_outside_the_control_keeps_the_x() {
+    // MRK-15: only the release of a control that does an action removes the x. A finger that lifts
+    // outside the control does no action.
+    let mut d = Driver::new(123);
+    fill_stacks(&mut d);
+    let (cell, digit) = refused_pair(&d.app.game);
+    hold(&mut d, Button::Colors);
+    d.tap_micro(cell, digit);
+    let x = d.app.ui.refused;
+    assert!(x.is_some());
+    let (ox, oy) = micro_center(given_cell(&d.app.game), 5);
+    d.send(Input::TouchUp { id: 1, x: ox, y: oy });
+    assert_eq!(d.app.ui.menu.panel(), None, "the control does no action");
+    assert_eq!(d.app.ui.refused, x, "MRK-15");
+}
+
+#[test]
+fn an_undo_that_removes_the_number_of_the_peer_leaves_no_x() {
+    // MRK-15, MRK-12: the release of Undo removes the x, thus no x stays with no number in a peer, and
+    // no mark shows under the x. The next tap on this micro-cell adds the mark.
+    let mut d = Driver::new(124);
+    let (cell, peer, v) = cell_and_peer(&d.app);
+    d.tap_micro(peer, v);
+    d.write(cell, v);
+    assert_eq!(d.app.game.value_at(cell), v);
+    d.button(Button::Menu);
+    let (x, y) = hold(&mut d, Button::Undo);
+    d.tap_micro(peer, v);
+    assert_eq!(x_of(&d), Some((peer, v)), "MRK-7: a hidden mark");
+    d.send(Input::TouchUp { id: 1, x, y });
+    assert_eq!(d.app.game.value_at(cell), 0, "the undo removed the number");
+    assert_ne!(d.app.game.visible_marks(peer, true) & mark_bit(v), 0, "the mark shows again");
+    assert_eq!(d.app.ui.refused, None, "MRK-12: a mark never shows under an x");
+    assert_x_rule(&d, "undo");
+    d.tap_micro(peer, v);
+    assert_eq!(d.app.ui.refused, None, "MRK-10: no peer has the digit now");
+    assert_eq!(d.app.game.marks_at(peer) & mark_bit(v), 0, "the tap removes the mark");
+}
+
+#[test]
+fn a_redo_that_fills_the_cell_of_the_x_leaves_no_x() {
+    // MRK-15, MRK-12: the cell of the x stays empty.
+    let mut d = Driver::new(125);
+    let (cell, digit) = refused_pair(&d.app.game);
+    let v = d.app.game.solution[cell.0 as usize][cell.1 as usize];
+    d.write(cell, v);
+    d.button(Button::Menu);
+    d.button(Button::Undo);
+    assert_eq!(d.app.game.value_at(cell), 0);
+    let (x, y) = hold(&mut d, Button::Redo);
+    d.tap_micro(cell, digit);
+    assert_eq!(x_of(&d), Some((cell, digit)));
+    d.send(Input::TouchUp { id: 1, x, y });
+    assert_eq!(d.app.game.value_at(cell), v);
+    assert_eq!(d.app.ui.refused, None, "MRK-12");
+    assert_x_rule(&d, "redo");
+}
+
+#[test]
+fn a_redo_that_completes_the_game_leaves_no_x() {
+    // MRK-15, CMP-3, MRK-12: the x goes, and a tap in progress at the completion makes no x (INP-9).
+    let mut d = Driver::new(126);
+    d.button(Button::Menu);
+    let last = redo_completes(&mut d);
+    let v = d.app.game.solution[last.0 as usize][last.1 as usize];
+    let digit = (1..=9u8).find(|&x| x != v).unwrap();
+    assert!(peer_has(&d.app.game, last, digit));
+    let (x, y) = hold(&mut d, Button::Redo);
+    d.tap_micro(last, digit);
+    assert_eq!(d.app.ui.refused, Some((last, digit, d.now)));
+    d.send(Input::TouchUp { id: 1, x, y });
+    assert!(d.app.game.completed, "the redo completes the game");
+    assert_eq!(d.app.ui.refused, None, "CMP-3");
+    assert_eq!(d.app.next_deadline(), None, "no timer on a complete game");
+    assert_x_rule(&d, "completion");
+
+    // The pen is on the board when the redo completes the game.
+    let mut d = Driver::new(127);
+    d.button(Button::Menu);
+    let last = redo_completes(&mut d);
+    let v = d.app.game.solution[last.0 as usize][last.1 as usize];
+    let digit = (1..=9u8).find(|&x| x != v).unwrap();
+    let (x, y) = hold(&mut d, Button::Redo);
+    let (px, py) = micro_center(last, digit);
+    d.send(Input::PenDown { x: px, y: py, tool: Tool::Pen });
+    d.send(Input::TouchUp { id: 1, x, y });
+    assert!(d.app.game.completed);
+    d.send(Input::PenUp { x: px, y: py });
+    assert_eq!(d.app.ui.refused, None, "MRK-10, INP-9: a tap in progress at the completion");
+    assert_eq!(d.app.ui.highlight, None, "INP-9");
+}
+
+#[test]
+fn the_x_comes_from_the_board_at_the_lift() {
+    // MRK-10, MRK-12: the x shows at the lift, thus the numbers at the lift decide. An undo during the
+    // press removes the number of the peer: the tap adds the mark. A redo during the press puts the number
+    // in a peer: the x shows.
+    let mut d = Driver::new(128);
+    let (cell, peer, v) = cell_and_peer(&d.app);
+    d.write(cell, v);
+    assert_eq!(d.app.game.value_at(cell), v);
+    d.button(Button::Menu);
+    let (px, py) = micro_center(peer, v);
+
+    let (x, y) = hold(&mut d, Button::Undo);
+    d.send(Input::PenDown { x: px, y: py, tool: Tool::Pen });
+    d.send(Input::TouchUp { id: 1, x, y });
+    assert_eq!(d.app.game.value_at(cell), 0);
+    d.send(Input::PenUp { x: px, y: py });
+    assert_eq!(d.app.ui.refused, None, "MRK-7: no peer has the digit at the lift");
+    assert_eq!(d.app.game.marks_at(peer), mark_bit(v), "the tap adds the mark");
+    d.tap_micro(peer, v);
+    assert_eq!(d.app.game.marks_at(peer), 0);
+
+    // The two marks are new changes, thus they emptied the redo history. Write the number again.
+    d.write(cell, v);
+    assert_eq!(d.app.game.value_at(cell), v);
+    d.button(Button::Undo);
+    assert_eq!(d.app.game.value_at(cell), 0);
+    let (x, y) = hold(&mut d, Button::Redo);
+    d.send(Input::PenDown { x: px, y: py, tool: Tool::Pen });
+    d.send(Input::TouchUp { id: 1, x, y });
+    assert_eq!(d.app.game.value_at(cell), v);
+    assert_eq!(d.app.ui.refused, None, "MRK-10: no x before the lift");
+    d.send(Input::PenUp { x: px, y: py });
+    assert_eq!(d.app.ui.refused, Some((peer, v, d.now)), "MRK-7: a peer has the digit at the lift");
+    assert_x_rule(&d, "redo during the press");
+}
+
+#[test]
+fn the_question_mark_and_the_x_show_together_each_with_its_own_time() {
+    // MRK-14, MRK-12, QST-1, R§3.2 (owner decision): the press of the tap reads the ink of a different
+    // cell. The "?" starts at the press, and the x starts at the lift. In all layouts.
+    for_each_layout(|case| {
+        let mut d = Driver::new(129);
+        let (b, digit) = refused_pair(&d.app.game);
+        let a = cells().find(|&c| !d.app.game.is_filled(c) && c != b).unwrap();
+        d.write_strokes(&scribble_ink(a));
+        let (x, y) = micro_center(b, digit);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        let question_at = d.now;
+        assert_eq!(d.app.ui.question, Some((a, question_at)), "INP-12 ({case})");
+        assert_eq!(d.app.ui.refused, None, "MRK-10: no x at the press ({case})");
+        d.wait(300);
+        d.send(Input::PenUp { x, y });
+        let x_at = d.now;
+        assert_eq!(d.app.ui.refused, Some((b, digit, x_at)), "MRK-14 ({case})");
+        assert_eq!(d.app.ui.question, Some((a, question_at)), "MRK-14 ({case})");
+        assert_x_rule(&d, case);
+
+        assert_eq!(d.app.next_deadline(), Some(question_at + OVERLAY_MS), "MRK-14: the first of the two times ({case})");
+        tick_to(&mut d, question_at + OVERLAY_MS - 1);
+        assert!(d.app.ui.question.is_some() && d.app.ui.refused.is_some(), "{case}");
+        tick_to(&mut d, question_at + OVERLAY_MS);
+        assert_eq!(d.app.ui.question, None, "QST-1 ({case})");
+        assert_eq!(d.app.ui.refused, Some((b, digit, x_at)), "MRK-14: the x has its own time ({case})");
+        assert_eq!(d.app.next_deadline(), Some(x_at + OVERLAY_MS), "MRK-14 ({case})");
+        tick_to(&mut d, x_at + OVERLAY_MS);
+        assert_eq!(d.app.ui.refused, None, "MRK-14 ({case})");
+    });
+}
+
+#[test]
+fn a_press_removes_the_question_mark_and_the_x_together() {
+    // MRK-15, QST-4, R§3.2: pen, finger and second finger.
+    let setup = || {
+        let mut d = Driver::new(130);
+        let (b, digit) = refused_pair(&d.app.game);
+        let a = cells().find(|&c| !d.app.game.is_filled(c) && c != b).unwrap();
+        d.write_strokes(&scribble_ink(a));
+        d.tap_micro(b, digit);
+        assert!(d.app.ui.question.is_some() && d.app.ui.refused.is_some());
+        d
+    };
+    let (x, y) = (5.0, 1000.0);
+    let mut d = setup();
+    d.send(Input::PenDown { x, y, tool: Tool::Pen });
+    assert_eq!((d.app.ui.question, d.app.ui.refused), (None, None), "pen");
+    let mut d = setup();
+    d.send(Input::TouchDown { id: 1, x, y });
+    assert_eq!((d.app.ui.question, d.app.ui.refused), (None, None), "finger");
+
+    // The refused tap on the cell of the "?": the press removes the "?", and the x shows alone.
+    let mut d = setup();
+    let (a, _) = d.app.ui.question.unwrap();
+    d.wait(OVERLAY_MS);
+    d.write_strokes(&scribble_ink(a));
+    d.wait(d.app.pause_ms);
+    assert_eq!(d.app.ui.question.map(|q| q.0), Some(a));
+    let digit = (1..=9u8).find(|&v| peer_has(&d.app.game, a, v)).unwrap();
+    d.tap_micro(a, digit);
+    assert_eq!(d.app.ui.question, None, "QST-4");
+    assert_eq!(d.app.ui.refused, Some((a, digit, d.now)), "MRK-12: never on the same cell");
+    assert_x_rule(&d, "same cell");
+}
+
+#[test]
+fn a_number_that_the_tap_reads_causes_the_x() {
+    // MRK-10, MRK-11, INP-12, owner decision: the press reads the ink in a peer as a number. The peer then
+    // has the digit, thus the tap is a refused tap: the number and the x show together.
+    let mut d = Driver::new(131);
+    let (a, b, v) = cell_and_peer(&d.app);
+    assert!(!peer_has(&d.app.game, b, v), "no peer has the digit before the app reads the ink");
+    d.write_strokes(&digit_ink(a, v));
+    d.tap_micro(b, v);
+    assert_eq!(d.app.game.value_at(a), v, "INP-12: the press reads the ink");
+    assert_eq!(d.app.ui.refused, Some((b, v, d.now)), "MRK-10");
+    assert_eq!(d.app.game.marks_at(b), 0, "MRK-11: no mark");
+    assert_x_rule(&d, "number and x");
+}
+
+#[test]
+fn ink_that_completes_the_game_gives_no_x() {
+    // MRK-10, INP-12, CMP-3, owner decision: the press of a tap reads the ink, and the game is
+    // complete. The tap makes no x and no highlight.
+    let mut d = Driver::new(132);
+    let last = empty_cell(&d.app.game);
+    fill_except(&mut d, last);
+    let v = d.app.game.solution[last.0 as usize][last.1 as usize];
+    d.write_strokes(&digit_ink(last, v));
+    let other = given_cell(&d.app.game);
+    let digit = if v == 1 { 2 } else { 1 };
+    d.tap_micro(other, digit);
+    assert!(d.app.game.completed, "INP-12: the press reads the ink");
+    assert_eq!(d.app.ui.refused, None, "CMP-3");
+    assert_eq!(d.app.ui.highlight, None, "CMP-3");
+    assert_eq!(d.app.next_deadline(), None, "CMP-3");
+}
+
+#[test]
+fn a_turn_keeps_the_x_for_the_rest_of_its_time() {
+    // MRK-16, NAV-13: the x stays on its cell and digit with the same time, in each direction of the
+    // turn.
+    for (from, to) in [(layout::Orientation::Portrait, layout::Orientation::Landscape), (layout::Orientation::Landscape, layout::Orientation::Portrait)] {
+        layout::set_orientation(from);
+        let mut d = Driver::new(133);
+        refused_tap(&mut d);
+        let x = d.app.ui.refused;
+        let shown = x.unwrap().2;
+        d.wait(400);
+        layout::set_orientation(to);
+        let stops = d.app.ng_stops;
+        d.app.rotate(stops);
+        assert_eq!(d.app.ui.refused, x, "MRK-16");
+        assert_eq!(d.app.next_deadline(), Some(shown + OVERLAY_MS), "MRK-16: the rest of the time");
+        assert_x_rule(&d, "turn");
+        tick_to(&mut d, shown + OVERLAY_MS - 1);
+        assert_eq!(d.app.ui.refused, x, "MRK-16");
+        tick_to(&mut d, shown + OVERLAY_MS);
+        assert_eq!(d.app.ui.refused, None, "MRK-14");
+    }
+    layout::set_orientation(layout::Orientation::Portrait);
+}
+
+#[test]
+fn a_tap_in_progress_at_a_turn_shows_no_x() {
+    // MRK-16, NAV-13: the turn stops the pen touch. The lift has no effect, at the old or the new position.
+    for (old_position, name) in [(true, "old position"), (false, "new position")] {
+        let mut d = Driver::new(134);
+        let (cell, digit) = refused_pair(&d.app.game);
+        let before = board(&d.app.game);
+        let (x, y) = micro_center(cell, digit);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        layout::set_orientation(layout::Orientation::Landscape);
+        let stops = d.app.ng_stops;
+        d.app.rotate(stops);
+        let (ux, uy) = if old_position { (x, y) } else { micro_center(cell, digit) };
+        d.send(Input::PenUp { x: ux, y: uy });
+        assert_eq!(d.app.ui.refused, None, "MRK-16 ({name})");
+        assert_eq!(board(&d.app.game), before, "MRK-16 ({name})");
+        assert_eq!(d.app.next_deadline(), None, "MRK-16 ({name})");
+        layout::set_orientation(layout::Orientation::Portrait);
+    }
+}
+
+#[test]
+fn the_x_is_not_saved_and_the_app_opens_with_no_x() {
+    // MRK-17, PER-2: the saved data with the x are the same as with no x. An app that opens from data
+    // saved during the x has no x.
+    let mut d = Driver::new(135);
+    let no_x = (serde_json::to_string(&board(&d.app.game)).unwrap(), serde_json::to_string(&d.app.settings).unwrap());
+    refused_tap(&mut d);
+    assert!(d.app.ui.refused.is_some());
+    let with_x = (serde_json::to_string(&board(&d.app.game)).unwrap(), serde_json::to_string(&d.app.settings).unwrap());
+    assert_eq!(with_x, no_x, "MRK-17");
+    assert!(!with_x.0.contains("refused"), "MRK-17");
+
+    let dir = std::env::temp_dir().join(format!("sudoku-test-x-{}", std::process::id()));
+    let (gp, sp) = (dir.join("game.json"), dir.join("settings.json"));
+    sudoku::store::save_json(&gp, &d.app.game).unwrap();
+    sudoku::store::save_json(&sp, &d.app.settings).unwrap();
+    let app = App::new(sudoku::store::load_json(&gp), sudoku::store::load_json(&sp), ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 99 }), App::placeholder_ng_stops());
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(app.ui.refused, None, "MRK-17, PER-2");
+    assert_eq!(app.next_deadline(), None, "MRK-17");
+    assert_eq!(app.game, d.app.game, "PER-2");
+}
+
+#[test]
+fn a_new_game_a_change_of_screen_and_the_update_dialog_remove_the_x() {
+    // MRK-15, NAV-5, NAV-9, UPD-10, CMP-3.
+    // A new game. The x cannot show while the New game panel is open, thus the test calls the action.
+    let mut d = Driver::new(136);
+    refused_tap(&mut d);
+    d.app.start_new_game();
+    assert_eq!(d.app.ui.refused, None, "MRK-15: a new game");
+    assert_eq!(d.app.next_deadline(), None, "MRK-15");
+
+    // A change of screen: the x does not show again after "< Back".
+    let mut d = Driver::new(137);
+    d.button(Button::Menu);
+    for page in [Button::Help, Button::Statistics] {
+        let (x, y) = hold(&mut d, page);
+        refused_tap(&mut d);
+        d.send(Input::TouchUp { id: 1, x, y });
+        assert_ne!(d.app.screen, Screen::Game);
+        assert_eq!(d.app.ui.refused, None, "NAV-5");
+        let (x, y) = back_center();
+        d.finger_tap(x, y);
+        assert_eq!(d.app.screen, Screen::Game);
+        assert_eq!(d.app.ui.refused, None, "NAV-5");
+        d.wait(BACK_GUARD_MS);
+    }
+
+    // The update dialog, also with a "?" in a different cell.
+    let mut d = Driver::new(138);
+    d.app.update = sudoku::reference::update_state(true);
+    d.app.update.tap();
+    d.app.update.request = None;
+    let (cell, digit) = refused_pair(&d.app.game);
+    let other = cells().find(|&c| !d.app.game.is_filled(c) && c != cell).unwrap();
+    d.write_strokes(&scribble_ink(other));
+    d.tap_micro(cell, digit);
+    assert!(d.app.ui.refused.is_some() && d.app.ui.question.is_some());
+    let now = d.now;
+    d.app.update_installed(Ok(true), now);
+    assert!(d.app.update.dialog_shown());
+    assert_eq!((d.app.ui.refused, d.app.ui.question), (None, None), "UPD-10");
+    assert_x_rule(&d, "dialog");
+}
+
+#[test]
+fn the_update_dialog_stops_a_tap_and_shows_no_x() {
+    // MRK-10, MRK-12, UPD-10: a pen on the screen has no more effect when the dialog shows. With the
+    // dialog, a tap on the board does nothing.
+    let mut d = Driver::new(139);
+    d.app.update = sudoku::reference::update_state(true);
+    d.app.update.tap();
+    d.app.update.request = None;
+    let before = board(&d.app.game);
+    let (cell, digit) = refused_pairs(&d.app.game)
+        .into_iter()
+        .find(|p| {
+            let (x, y) = micro_center(p.0, p.1);
+            !layout::dialog_cancel().contains(x, y) && !layout::dialog_delete().contains(x, y)
+        })
+        .unwrap();
+    let (x, y) = micro_center(cell, digit);
+    d.send(Input::PenDown { x, y, tool: Tool::Pen });
+    let now = d.now;
+    d.app.update_installed(Ok(true), now);
+    assert!(d.app.update.dialog_shown());
+    d.send(Input::PenUp { x, y });
+    assert_eq!(d.app.ui.refused, None, "UPD-10: the tap in progress");
+    d.tap_micro(cell, digit);
+    assert_eq!(d.app.ui.refused, None, "MRK-12: a tap under the dialog");
+    assert_eq!(board(&d.app.game), before, "UPD-10");
+}
+
+#[test]
+fn a_tap_on_another_screen_shows_no_x() {
+    // MRK-10, MRK-12: the x shows only on the game screen.
+    for page in [Button::Help, Button::Statistics] {
+        let mut d = Driver::new(140);
+        let (cell, digit) = refused_pair(&d.app.game);
+        d.button(Button::Menu);
+        d.button(page);
+        d.tap_micro(cell, digit);
+        assert_eq!(d.app.ui.refused, None, "MRK-10 ({page:?})");
+    }
+}
+
+#[test]
+fn an_incorrect_number_in_a_peer_causes_the_x() {
+    // MRK-18: the x comes only from the numbers in the peers, not from the solution. An incorrect number of
+    // the player causes an x. The correct digit of the cell gives a mark, because no peer has it.
+    let mut d = Driver::new(141);
+    let g = &d.app.game;
+    let sol = |c: Cell| g.solution[c.0 as usize][c.1 as usize];
+    let (a, b, w) = cells()
+        .filter(|&a| !g.is_filled(a))
+        .find_map(|a| {
+            peers(a).filter(|&b| !g.is_filled(b)).find_map(|b| {
+                (1..=9u8).find(|&w| w != sol(a) && w != sol(b) && !peer_has(g, a, w) && !peer_has(g, b, w)).map(|w| (a, b, w))
+            })
+        })
+        .expect("an empty cell, an empty peer and an incorrect digit");
+    let correct = sol(b);
+    assert_ne!(sol(a), w);
+    d.write(a, w);
+    assert_eq!(d.app.game.value_at(a), w);
+
+    d.tap_micro(b, w);
+    assert_eq!(d.app.ui.refused, Some((b, w, d.now)), "MRK-18: an incorrect number in a peer");
+    assert_eq!(d.app.game.marks_at(b), 0, "MRK-7");
+    d.wait(OVERLAY_MS);
+
+    d.tap_micro(b, correct);
+    assert_eq!(d.app.ui.refused, None, "MRK-18: the solution does not cause an x");
+    assert_eq!(d.app.game.marks_at(b), mark_bit(correct));
+
+    // With no number in the peer, the same tap adds the mark.
+    d.erase(a);
+    d.tap_micro(b, w);
+    assert_eq!(d.app.ui.refused, None, "MRK-18");
+    assert_ne!(d.app.game.marks_at(b) & mark_bit(w), 0);
 }

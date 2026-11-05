@@ -369,3 +369,300 @@ fn the_cached_rows_of_the_games_list_are_the_same_as_a_new_drawing() {
     });
     assert!(cached.data() == fresh.data(), "the cached rows are the same as a new drawing");
 }
+
+/// The layouts of the game screen (R§3.1, R§3.3): each orientation with each hand.
+const LAYOUTS: [(sudoku::layout::Orientation, bool); 4] = [
+    (sudoku::layout::Orientation::Portrait, false),
+    (sudoku::layout::Orientation::Portrait, true),
+    (sudoku::layout::Orientation::Landscape, false),
+    (sudoku::layout::Orientation::Landscape, true),
+];
+
+fn set_layout((orientation, right_handed): (sudoku::layout::Orientation, bool)) {
+    sudoku::layout::set_orientation(orientation);
+    sudoku::layout::set_right_handed(right_handed);
+}
+
+/// A game where a peer of `cell` has the number `digit`, and `cell` has all nine marks. Thus the mark
+/// of `digit` is hidden (MRK-4), and the marks of the other digits show.
+fn refused_game((r, c): sudoku::game::Cell, digit: u8) -> sudoku::game::Game {
+    let mut givens = [[0u8; 9]; 9];
+    givens[r as usize][(c as usize + 1) % 9] = digit;
+    let mut g = sudoku::game::Game::new(1, 2, [[1; 9]; 9], givens);
+    for d in 1..=9 {
+        g.toggle_mark_with((r, c), d, false);
+    }
+    g
+}
+
+/// A full drawing of the app in the current layout.
+fn draw_app(fonts: &sudoku::font::Fonts, app: &sudoku::app::App) -> tiny_skia::Pixmap {
+    let mut pm = tiny_skia::Pixmap::new(sudoku::layout::screen_w(), sudoku::layout::screen_h()).unwrap();
+    sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, fonts), app);
+    pm
+}
+
+/// The pixels that are not the same in the two pictures.
+fn changed_pixels(a: &tiny_skia::Pixmap, b: &tiny_skia::Pixmap) -> Vec<(i32, i32)> {
+    let w = a.width() as usize;
+    a.pixels()
+        .iter()
+        .zip(b.pixels())
+        .enumerate()
+        .filter(|(_, (p, q))| p != q)
+        .map(|(i, _)| ((i % w) as i32, (i / w) as i32))
+        .collect()
+}
+
+/// The center of the x of `digit` from the cell origin (MRK-13): the keypad position of the digit.
+fn x_center(digit: u8) -> (i32, i32) {
+    const ANCHOR: [i32; 3] = [24, 74, 122];
+    let i = digit as usize - 1;
+    (ANCHOR[i % 3], ANCHOR[i / 3])
+}
+
+/// True if each pixel of `pixels` has a pixel of `others` within 1 px.
+fn all_near(pixels: &[(i32, i32)], others: &[(i32, i32)]) -> bool {
+    pixels.iter().all(|&(x, y)| others.iter().any(|&(u, v)| (u - x).abs() <= 1 && (v - y).abs() <= 1))
+}
+
+#[test]
+fn the_x_of_the_app_is_at_the_position_of_the_x_in_the_image() {
+    // §15, MRK-13: the general comparison accepts all differences near an edge of the image, and
+    // the lines of the x are thin. Thus most pixels of the x are near an edge. Thus this test compares
+    // the x alone: the change from screen-in-progress.png to screen-invalid-mark.png must be at the
+    // same pixels in the app and in the images (within 1 px). The edges can have a different gray.
+    reference::use_utc();
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let image = |name: &str| decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
+    let (image_x, image_no_x) = (image("screen-invalid-mark.png"), image("screen-in-progress.png"));
+    let setup = reference::states().into_iter().find(|s| s.0 == "screen-invalid-mark.png").expect("reference state").1;
+    let app_x = reference::render(&fonts, setup);
+    let app_no_x = reference::render(&fonts, |a| a.game = reference::sample_game());
+    let in_image = changed_pixels(&image_x, &image_no_x);
+    let in_app = changed_pixels(&app_x, &app_no_x);
+    assert!(!in_image.is_empty(), "the image shows no x");
+    assert!(!in_app.is_empty(), "the app shows no x");
+    assert!(all_near(&in_image, &in_app), "the image changes pixels that the app does not change");
+    assert!(all_near(&in_app, &in_image), "the app changes pixels that the image does not change");
+    // The middle of each line: the same dark gray in the app and in the image.
+    let (ox, oy) = sudoku::layout::cell_origin((1, 6));
+    let (ax, ay) = x_center(6);
+    let (cx, cy) = (ox + ax, oy + ay);
+    for t in -8..=8 {
+        for (x, y) in [(cx + t, cy + t), (cx + t, cy - t)] {
+            let (p, q) = (rgb_at(&app_x, x, y), rgb_at(&image_x, x, y));
+            assert!(p.iter().zip(q).all(|(&a, b)| (a as i32 - b as i32).abs() <= 64), "({x}, {y}): app {p:?}, image {q:?}");
+        }
+    }
+}
+
+#[test]
+fn the_x_changes_only_its_micro_cell_in_each_layout() {
+    // MRK-13, MRK-4, R§3.1, R§3.3, §15: for each of the 9 digits, in portrait and landscape, with
+    // each hand, in the cells at the corners and in a middle cell. The x has straight lines of
+    // gray15 from -10 to +10 px around the anchor of the digit. It stays between the lines of its
+    // micro-cell. The other marks and the grid stay. No mark shows under the x.
+    let fonts = fonts();
+    let mut app = reference::app(&fonts);
+    let dark = sudoku::render::gray(15);
+    for layout in LAYOUTS {
+        set_layout(layout);
+        for cell in [(0, 0), (0, 8), (1, 6), (8, 0), (8, 8)] {
+            let (ox, oy) = sudoku::layout::cell_origin(cell);
+            for d in 1..=9u8 {
+                let at = format!("{layout:?}, cell {cell:?}, digit {d}");
+                app.game = refused_game(cell, d);
+                app.ui.refused = None;
+                let before = draw_app(&fonts, &app);
+                app.ui.refused = Some((cell, d, 0));
+                let with = draw_app(&fonts, &app);
+
+                let (ax, ay) = x_center(d);
+                let (cx, cy) = (ox + ax, oy + ay);
+                let i = d as i32 - 1;
+                let (x0, x1) = (ox + sudoku::layout::micro_offset(i % 3), ox + sudoku::layout::micro_offset(i % 3 + 1));
+                let (y0, y1) = (oy + sudoku::layout::micro_offset(i / 3), oy + sudoku::layout::micro_offset(i / 3 + 1));
+                let changed = changed_pixels(&with, &before);
+                assert!(!changed.is_empty(), "{at}: no x");
+                for &(x, y) in &changed {
+                    // The extent: half of 20 px, then half of the 3 px line, then 1 px of edge.
+                    assert!((x - cx).abs() <= 13 && (y - cy).abs() <= 13, "{at}: pixel ({x}, {y}) is out of the x");
+                    // The lines are 2 px wide on the grid and 3 px wide on the cell edge.
+                    assert!(x > x0 + 1 && x < x1 - 1 && y > y0 + 1 && y < y1 - 1, "{at}: pixel ({x}, {y}) touches a line");
+                    assert_eq!(rgb_at(&before, x, y), [255, 255, 255], "{at}: a mark or a line is under the x at ({x}, {y})");
+                }
+                // The two lines, and their ends.
+                for t in -10..=9 {
+                    for (x, y) in [(cx + t, cy + t), (cx + t, cy - t - 1)] {
+                        assert_eq!(rgb_at(&with, x, y), dark, "{at}: no line of the x at ({x}, {y})");
+                    }
+                }
+                // The middle of each side of the x is empty.
+                for (x, y) in [(cx, cy - 8), (cx, cy + 8), (cx - 8, cy), (cx + 8, cy)] {
+                    assert_eq!(rgb_at(&with, x, y), [255, 255, 255], "{at}: the x is not an x at ({x}, {y})");
+                }
+                // The marks of the other digits show (else the test does not examine them).
+                let other = if d == 1 { 2 } else { 1 };
+                let (mx, my) = x_center(other);
+                let mark_shows = (-12..12).any(|t| rgb_at(&with, ox + mx + t, oy + my) != [255, 255, 255]);
+                assert!(mark_shows, "{at}: the mark {other} does not show");
+            }
+        }
+    }
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
+    sudoku::layout::set_right_handed(false);
+}
+
+#[test]
+fn the_x_shows_with_no_grid_when_the_micro_cell_lines_are_none() {
+    // MRK-13, COL-7: with the micro-cell lines set to None, the cell has only the x.
+    let fonts = fonts();
+    let mut app = reference::app(&fonts);
+    app.settings.micro_line = sudoku::settings::LineGray::None;
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let cell = (4, 4);
+        let (ox, oy) = sudoku::layout::cell_origin(cell);
+        let (ax, ay) = x_center(9);
+        let mut givens = [[0u8; 9]; 9];
+        givens[4][0] = 9;
+        app.game = sudoku::game::Game::new(1, 2, [[1; 9]; 9], givens);
+        app.ui.refused = Some((cell, 9, 0));
+        let pm = draw_app(&fonts, &app);
+        let mut x_pixels = 0;
+        for y in oy + 3..oy + sudoku::layout::CELL - 2 {
+            for x in ox + 3..ox + sudoku::layout::CELL - 2 {
+                if rgb_at(&pm, x, y) != [255, 255, 255] {
+                    assert!((x - ox - ax).abs() <= 13 && (y - oy - ay).abs() <= 13, "{layout:?}: pixel ({x}, {y}) is not of the x");
+                    x_pixels += 1;
+                }
+            }
+        }
+        assert!(x_pixels > 40, "{layout:?}: the x has only {x_pixels} pixels");
+    }
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
+    sudoku::layout::set_right_handed(false);
+}
+
+#[test]
+fn the_x_and_the_question_mark_show_together_in_different_cells() {
+    // MRK-14, QST-1: each one changes only its cell. The "?" hides the marks of its cell, and the x
+    // does not hide the marks of its cell.
+    let fonts = fonts();
+    let (question, x) = ((4, 1), (1, 6));
+    let mut app = reference::app(&fonts);
+    app.game = reference::sample_game();
+    for layout in LAYOUTS {
+        set_layout(layout);
+        app.ui.question = None;
+        app.ui.refused = Some((x, 6, 0));
+        let only_x = draw_app(&fonts, &app);
+        app.ui.refused = None;
+        app.ui.question = Some((question, 0));
+        let only_question = draw_app(&fonts, &app);
+        app.ui.refused = Some((x, 6, 0));
+        let both = draw_app(&fonts, &app);
+        let inside = |(x, y): (i32, i32), cell| {
+            let (ox, oy) = sudoku::layout::cell_origin(cell);
+            let s = sudoku::layout::CELL;
+            x >= ox && x < ox + s && y >= oy && y < oy + s
+        };
+        let to_question = changed_pixels(&both, &only_x);
+        let to_x = changed_pixels(&both, &only_question);
+        assert!(!to_question.is_empty() && to_question.iter().all(|&p| inside(p, question)), "{layout:?}: the \"?\" changes other cells");
+        assert!(!to_x.is_empty() && to_x.iter().all(|&p| inside(p, x)), "{layout:?}: the x changes other cells");
+    }
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
+    sudoku::layout::set_right_handed(false);
+}
+
+#[test]
+fn a_retained_frame_shows_and_removes_the_x() {
+    // MRK-13: after the x, the pixels of the cell are the same as before the x. render.rs keeps the
+    // pixels of each cell: the key of a cell must contain the x. Thus the x goes to each digit and to
+    // other cells on one frame. Each frame must be the same as a full drawing.
+    use sudoku::render::{Canvas, FrameRecord};
+    let fonts = fonts();
+    let mut app = reference::app(&fonts);
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let mut pm = tiny_skia::Pixmap::new(sudoku::layout::screen_w(), sudoku::layout::screen_h()).unwrap();
+        let mut record = FrameRecord::default();
+        for cell in [(0, 0), (1, 6), (8, 8)] {
+            for d in 1..=9u8 {
+                app.game = refused_game(cell, d);
+                let mut no_x = None;
+                for refused in [None, Some((cell, d, 0)), None, Some((cell, d, 0)), Some((cell, d, 500))] {
+                    app.ui.refused = refused;
+                    sudoku::render::draw(&mut Canvas::retained(&mut pm, &mut record, &fonts), &app);
+                    let full = draw_app(&fonts, &app);
+                    assert!(pm.data() == full.data(), "{layout:?}, cell {cell:?}, digit {d}: {refused:?}: not the same as a full drawing");
+                    if refused.is_none() {
+                        let first = no_x.get_or_insert_with(|| pm.clone());
+                        assert!(pm.data() == first.data(), "{layout:?}, cell {cell:?}, digit {d}: the x left pixels");
+                    }
+                }
+            }
+        }
+    }
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
+    sudoku::layout::set_right_handed(false);
+}
+
+#[test]
+fn the_framebuffer_shows_the_x_and_then_the_old_pixels() {
+    // MRK-13, MRK-14: the output of the main loop (present.rs) writes the x to the framebuffer with
+    // an update. After the time of the x, the framebuffer has the same pixels as before the x.
+    let fonts = fonts();
+    let n = (sudoku::layout::PHYSICAL_W * sudoku::layout::PHYSICAL_H * 3) as usize;
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let mut app = reference::app(&fonts);
+        app.game = reference::sample_game();
+        let mut presenter = sudoku::present::Presenter::new();
+        let mut fb = vec![0u8; n];
+        presenter.draw_all(&app, &fonts, &mut fb);
+        let before = screenshot(&fb);
+
+        app.ui.refused = Some(((1, 6), 6, 0));
+        app.redraw = true;
+        let mut updates = 0;
+        for step in 0..100 {
+            presenter.present(&mut app, &fonts, &mut fb, 100 + step * 30, |_| updates += 1);
+        }
+        assert!(updates > 0, "{layout:?}: no update shows the x");
+        let shown = screenshot(&fb);
+        assert!(shown.data() == draw_app(&fonts, &app).data(), "{layout:?}: the framebuffer does not show the x");
+        assert!(shown.data() != before.data(), "{layout:?}: the framebuffer did not change");
+
+        app.ui.refused = None;
+        app.redraw = true;
+        updates = 0;
+        for step in 0..100 {
+            presenter.present(&mut app, &fonts, &mut fb, 10_000 + step * 30, |_| updates += 1);
+        }
+        assert!(updates > 0, "{layout:?}: no update removes the x");
+        assert!(screenshot(&fb).data() == before.data(), "{layout:?}: the x left pixels in the framebuffer");
+    }
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
+    sudoku::layout::set_right_handed(false);
+}
+
+#[test]
+fn portrait_manual_pages_are_the_portrait_images() {
+    // §12, §15: the snapshot tool compares only the first and the last page. This test compares all
+    // pages, also page 5, which tells about the x (images/manual-helpers.png).
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let names = ["how-to-play", "candidates", "pen", "pen-rules", "helpers", "mistakes", "menu", "new-game", "finished"];
+    for (i, name) in names.iter().enumerate() {
+        let mut app = reference::app(&fonts);
+        app.screen = sudoku::app::Screen::Manual;
+        app.manual_page = i as u8 + 1;
+        let pm = draw_app(&fonts, &app);
+        let want = decode_png(&std::fs::read(root.join(format!("images/manual-{name}.png"))).unwrap());
+        assert_eq!(reference::compare(&pm, &want).1, 0.0, "page {}", i + 1);
+    }
+}

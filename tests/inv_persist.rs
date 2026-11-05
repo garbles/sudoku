@@ -592,3 +592,43 @@ fn result_rows_that_break_ana_1_are_not_used() {
     check_app(&app).unwrap();
     std::fs::remove_dir_all(&dir).ok();
 }
+
+// ---- MRK-17, PER-2: the x is not saved.
+
+#[test]
+fn the_saved_files_have_no_x_and_the_app_opens_with_no_x() {
+    // MRK-17, PER-2, MRK-11: the game file and the settings file are the same with the x as without
+    // it. The app opens from these files with no x, and the refused tap stays out of the history.
+    let dir = data_dir("no-x");
+    let mut d = Driver::new(64);
+    let g = &d.app.game;
+    let (cell, digit) = cells()
+        .filter(|&c| !g.is_filled(c))
+        .flat_map(|c| (1..=9u8).map(move |v| (c, v)))
+        .find(|&(c, v)| g.peer_digits(c) & mark_bit(v) != 0)
+        .expect("a refused tap");
+    let (gp, sp) = (dir.join("game.json"), dir.join("settings.json"));
+    let read = |gp: &PathBuf, sp: &PathBuf, app: &sudoku::app::App| {
+        save_json(gp, &app.game).unwrap();
+        save_json(sp, &app.settings).unwrap();
+        let mut game: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(gp).unwrap()).unwrap();
+        let settings: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(sp).unwrap()).unwrap();
+        // MRK-11: the x does not change the clock, but the time of the input does: not a part of the x.
+        game["elapsed_ms"] = 0.into();
+        (game, settings)
+    };
+    let without = read(&gp, &sp, &d.app);
+    d.tap_micro(cell, digit);
+    assert_eq!(d.app.ui.refused, Some((cell, digit, d.now)), "MRK-10");
+    let with = read(&gp, &sp, &d.app);
+    assert_eq!(with, without, "MRK-17: the x changed the saved files");
+    for text in [&with.0, &with.1] {
+        let text = text.to_string();
+        assert!(!text.contains("refused"), "MRK-17: a saved file has the x: {text}");
+    }
+    let game = load_json::<Game>(&gp).unwrap();
+    let app = open_app(Some(game), None, ResultsDb::in_memory(), 64);
+    assert_eq!(app.game.seed, d.app.game.seed, "the app used the saved game");
+    assert_eq!(app.ui.refused, None, "MRK-17: the app opens with no x");
+    std::fs::remove_dir_all(&dir).ok();
+}

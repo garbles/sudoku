@@ -254,3 +254,20 @@ pub fn free_cell(app: &App, digits: &[u8]) -> Cell {
         .find(|&c| !g.is_filled(c) && digits.iter().all(|&d| g.peer_digits(c) & sudoku::game::mark_bit(d) == 0))
         .expect("an empty cell with these free digits")
 }
+
+/// True if a peer of `cell` has the number `digit`. It uses only the numbers of the board (MRK-18),
+/// and it does not use the code of the app that makes this decision (`Game::refuses_mark`).
+pub fn peer_has(g: &Game, cell: Cell, digit: u8) -> bool {
+    sudoku::game::peers(cell).any(|p| g.value_at(p) == digit)
+}
+
+/// All pairs of an empty cell and a digit where a pen tap is a refused tap (MRK-7), if
+/// "Hide pencil marks automatically" is on.
+pub fn refused_pairs(g: &Game) -> Vec<(Cell, u8)> {
+    cells().filter(|&c| !g.is_filled(c)).flat_map(|c| (1..=9u8).filter(move |&d| peer_has(g, c, d)).map(move |d| (c, d))).collect()
+}
+
+/// The first pair of `refused_pairs`.
+pub fn refused_pair(g: &Game) -> (Cell, u8) {
+    refused_pairs(g)[0]
+}

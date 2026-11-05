@@ -5,14 +5,14 @@
 mod common;
 
 use common::*;
-use sudoku::app::{App, Panel, Screen};
+use sudoku::app::{App, Input, Panel, Screen, Tool, OVERLAY_MS};
 use sudoku::font::{Anchor, Fonts, Weight};
-use sudoku::game::{cells, mark_bit, Cell};
+use sudoku::game::{cells, mark_bit, Cell, Game};
 use sudoku::generator::MODES;
 use sudoku::layout::{self, Button, Rect, CELL};
 use sudoku::reference;
 use sudoku::render::{gray, rgb_at, Canvas, Units, BLACK};
-use sudoku::settings::{Color, Section};
+use sudoku::settings::{Color, LineGray, Section};
 use sudoku::store::ResultRow;
 use tiny_skia::Pixmap;
 
@@ -47,7 +47,7 @@ fn darkest(pm: &Pixmap, r: Rect) -> u8 {
 }
 
 /// The board and the history of a game (not the clock).
-fn board(g: &sudoku::game::Game) -> sudoku::game::Game {
+fn board(g: &Game) -> Game {
     let mut b = g.clone();
     b.elapsed_ms = 0;
     b
@@ -195,13 +195,19 @@ fn the_marks_of_a_filled_cell_are_hidden() {
     }
     assert!(draw_app(&app, &fonts).data() == without.data(), "the marks of entries show");
 
-    // The pen puts marks in a cell, then writes a number in it.
+    // MRK-6: the pen puts marks in a cell, then writes a number in it. The fixture taps only digits
+    // that no peer has: a refused tap adds no mark and shows an x (MRK-7, MRK-10), and the reference
+    // picture must contain no x.
     let mut d = Driver::new(72);
-    let cell = empty_cell(&d.app.game);
-    for digit in [1, 5, 9] {
+    let free = |g: &sudoku::game::Game, c: Cell| (1..=9u8).filter(|&v| g.peer_digits(c) & mark_bit(v) == 0).collect::<Vec<_>>();
+    let cell = cells().find(|&c| !d.app.game.is_filled(c) && free(&d.app.game, c).len() >= 2).expect("an empty cell with two free digits");
+    let digits = free(&d.app.game, cell);
+    for &digit in &digits {
         d.tap_micro(cell, digit);
+        assert_eq!(d.app.ui.refused, None, "MRK-10: the digit {digit} is free, thus the tap is not refused");
     }
     let marks = d.app.game.marks_at(cell);
+    assert_eq!(marks, digits.iter().fold(0, |m, &v| m | mark_bit(v)), "the cell has all the marks of the fixture");
     let with_marks = draw_app(&d.app, &fonts);
     let value = (1..=9u8).find(|v| marks & mark_bit(*v) == 0).unwrap();
     d.write(cell, value);
@@ -587,6 +593,7 @@ fn without_ink(d: &Driver) -> App {
     a.ui.menu = d.app.ui.menu;
     a.ui.highlight = d.app.ui.highlight;
     a.ui.question = d.app.ui.question;
+    a.ui.refused = d.app.ui.refused;
     a.ui.slider = d.app.ui.slider;
     a
 }
@@ -635,6 +642,12 @@ fn no_ink_stays_on_the_board() {
     d.write(third, 2);
     assert_eq!(d.app.game.value_at(third), 2);
     assert_no_ink(&d, &fonts, "a number with the open menu");
+
+    // INP-10, MRK-10: the x of a refused tap is not ink. The tap leaves no ink next to the x.
+    let (cell, digit) = refused_spot(&d.app.game, |_, _| true);
+    d.tap_micro(cell, digit);
+    assert_eq!(d.app.ui.refused.map(|x| (x.0, x.1)), Some((cell, digit)));
+    assert_no_ink(&d, &fonts, "the x");
 }
 
 // ---- PER-2, NAV-6: the first frame.
@@ -663,3 +676,467 @@ fn the_first_frame_shows_the_open_toolbar_and_the_close_button() {
         assert_eq!(darkest(&without_menu, gear), 255, "the toolbar shows with the menu closed (right-handed: {right_handed})");
     }
 }
+
+// ---- MRK-13, MRK-14, MRK-16, BRD-6: the pixels of the x of a refused tap.
+
+/// The offset of the anchor points of the pencil marks from the cell origin, on each axis (§15).
+const X_ANCHOR: [i32; 3] = [24, 74, 122];
+/// The half length of each line of the x on the two axes, and its line width (§15).
+const X_HALF: f32 = 10.0;
+const X_WIDTH: f32 = 3.0;
+/// The half of the diagonal of a pixel. A pixel center nearer than this to the edge of a line can be
+/// only a part of the line.
+const PIXEL_HALF_DIAGONAL: f32 = 0.7072;
+
+/// The four layouts of the game screen (the orientation and the hand of the player).
+const LAYOUTS: [(layout::Orientation, bool); 4] = [
+    (layout::Orientation::Portrait, false),
+    (layout::Orientation::Portrait, true),
+    (layout::Orientation::Landscape, false),
+    (layout::Orientation::Landscape, true),
+];
+
+/// Sets a layout of this thread. When the value goes out of scope, it sets the default layout again.
+struct InLayout;
+
+impl InLayout {
+    fn set(o: layout::Orientation, right_handed: bool) -> InLayout {
+        layout::set_orientation(o);
+        layout::set_right_handed(right_handed);
+        InLayout
+    }
+}
+
+impl Drop for InLayout {
+    fn drop(&mut self) {
+        layout::set_orientation(layout::Orientation::Portrait);
+        layout::set_right_handed(false);
+    }
+}
+
+/// The top left of the board in a layout (§15): the hand of the player does not move the board.
+fn board_origin(o: layout::Orientation) -> (i32, i32) {
+    match o {
+        layout::Orientation::Portrait => (148, 418),
+        layout::Orientation::Landscape => (418, 148),
+    }
+}
+
+/// The numbers in the peers of a cell, from the board only (the same row, column or box).
+fn peer_numbers(g: &Game, (r, c): Cell) -> u16 {
+    cells()
+        .filter(|&(pr, pc)| (pr, pc) != (r, c) && (pr == r || pc == c || (pr / 3 == r / 3 && pc / 3 == c / 3)))
+        .map(|p| g.value_at(p))
+        .filter(|&v| v != 0)
+        .fold(0, |m, v| m | mark_bit(v))
+}
+
+/// The first empty cell and digit that make a refused tap (MRK-7), of those that `filter` accepts. The
+/// row and the column of the cell are different, thus a swap of row and column shows in the pixels.
+fn refused_spot(g: &Game, filter: impl Fn(Cell, u8) -> bool) -> (Cell, u8) {
+    cells()
+        .filter(|&c| c.0 != c.1 && !g.is_filled(c))
+        .flat_map(|c| (1..=9u8).map(move |d| (c, d)))
+        .find(|&(c, d)| peer_numbers(g, c) & mark_bit(d) != 0 && filter(c, d))
+        .expect("a cell and a digit for a refused tap")
+}
+
+/// The center of the x of `digit`, from the values of §15: the keypad position (1 at the top left, 9
+/// at the bottom right) from the origin of the cell (column on x, row on y).
+fn x_center(origin: (i32, i32), (r, c): Cell, digit: u8) -> (f32, f32) {
+    let i = digit as usize - 1;
+    let (cell_x, cell_y) = (origin.0 + c as i32 * CELL, origin.1 + r as i32 * CELL);
+    ((cell_x + X_ANCHOR[i % 3]) as f32, (cell_y + X_ANCHOR[i / 3]) as f32)
+}
+
+/// The distance from the point to the line from (x0, y0) to (x1, y1), the ends included.
+fn to_segment(px: f32, py: f32, (x0, y0): (f32, f32), (x1, y1): (f32, f32)) -> f32 {
+    let (dx, dy) = (x1 - x0, y1 - y0);
+    let t = (((px - x0) * dx + (py - y0) * dy) / (dx * dx + dy * dy)).clamp(0.0, 1.0);
+    (px - x0 - t * dx).hypot(py - y0 - t * dy)
+}
+
+/// The distance from the center of the pixel (x, y) to the nearest line of the x. The coordinates of a
+/// drawing are at pixel centers, as in the design images (ImageMagick).
+fn to_x(x: i32, y: i32, (cx, cy): (f32, f32)) -> f32 {
+    let (px, py) = (x as f32, y as f32);
+    let h = X_HALF;
+    to_segment(px, py, (cx - h, cy - h), (cx + h, cy + h)).min(to_segment(px, py, (cx - h, cy + h), (cx + h, cy - h)))
+}
+
+/// All pixels that are different in the two screens. The rows that are the same go fast.
+fn differences(a: &Pixmap, b: &Pixmap) -> Vec<(i32, i32)> {
+    assert_eq!((a.width(), a.height()), (b.width(), b.height()));
+    let row = a.width() as usize * 4;
+    let mut out = Vec::new();
+    for (y, (ra, rb)) in a.data().chunks_exact(row).zip(b.data().chunks_exact(row)).enumerate() {
+        if ra != rb {
+            for (x, (pa, pb)) in ra.chunks_exact(4).zip(rb.chunks_exact(4)).enumerate() {
+                if pa[..3] != pb[..3] {
+                    out.push((x as i32, y as i32));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// MRK-13, §15: `with` is the screen `before` with one x at `center` and no other change. The pixels
+/// come from the values of the documents: a full pixel of gray15 on the lines, no change away from the
+/// lines, and a value between the two at the edge. A round end covers the full pixel at the end of
+/// the line, a butt end covers only a part of it.
+fn assert_only_x(fonts: &Fonts, before: &Pixmap, with: &Pixmap, center: (f32, f32), what: &str) {
+    let (cx, cy) = (center.0 as i32, center.1 as i32);
+    let radius = X_WIDTH / 2.0;
+    let changed = differences(before, with);
+    assert!(!changed.is_empty(), "{what}: the x does not show");
+    for &(x, y) in &changed {
+        assert!(
+            to_x(x, y, center) < radius + PIXEL_HALF_DIAGONAL,
+            "{what}: the pixel ({x}, {y}) changed, away from the x at ({cx}, {cy})"
+        );
+    }
+    for y in cy - 14..cy + 14 {
+        for x in cx - 14..cx + 14 {
+            let (p, b) = (rgb_at(with, x, y), rgb_at(before, x, y));
+            let d = to_x(x, y, center);
+            if d <= radius - PIXEL_HALF_DIAGONAL {
+                assert_eq!(p, gray(15), "{what}: the pixel ({x}, {y}) is on a line of the x");
+            } else {
+                assert!(p[0] >= gray(15)[0] && p[0] <= b[0] && p[0] == p[1] && p[1] == p[2], "{what}: the pixel ({x}, {y}) is {p:?} at the edge of the x, on {b:?}");
+            }
+        }
+    }
+    // The extent: 20 px between the line centers, and 1.5 px more at each end, thus 23 x 23 px (§15),
+    // with its center at the center of the x.
+    let (x0, x1) = (changed.iter().map(|p| p.0).min().unwrap(), changed.iter().map(|p| p.0).max().unwrap());
+    let (y0, y1) = (changed.iter().map(|p| p.1).min().unwrap(), changed.iter().map(|p| p.1).max().unwrap());
+    assert_eq!((x0 + x1, y0 + y1), (2 * cx, 2 * cy), "{what}: the center of the x");
+    assert_eq!((x1 - x0 + 1, y1 - y0 + 1), (23, 23), "{what}: the extent of the x");
+    // The same x from the drawing of two lines with round ends.
+    let mut want = before.clone();
+    let mut c = Canvas::new(&mut want, fonts);
+    let h = X_HALF;
+    let (fx, fy) = center;
+    c.line(fx - h, fy - h, fx + h, fy + h, X_WIDTH, gray(15));
+    c.line(fx - h, fy + h, fx + h, fy - h, X_WIDTH, gray(15));
+    assert_eq!(differences(&want, with), vec![], "{what}: not two lines with round ends");
+}
+
+/// A cell with all its free digits as visible marks, for the digit `digit` of a refused tap. If
+/// `hidden`, the cell also has the hidden mark `digit` (MRK-7: owner decision 2026-11-04).
+fn cell_with_marks(d: &mut Driver, digit: u8, hidden: bool) -> Cell {
+    let (cell, _) = refused_spot(&d.app.game, |_, v| v == digit);
+    for v in 1..=9u8 {
+        if peer_numbers(&d.app.game, cell) & mark_bit(v) == 0 && d.app.game.marks_at(cell) & mark_bit(v) == 0 {
+            d.tap_micro(cell, v);
+        }
+    }
+    if hidden && d.app.game.marks_at(cell) & mark_bit(digit) == 0 {
+        d.app.settings.auto_hide_on = false;
+        d.tap_micro(cell, digit);
+        d.app.settings.auto_hide_on = true;
+    }
+    d.wait(OVERLAY_MS);
+    assert_eq!(d.app.ui.refused, None, "the fixture has no x");
+    assert_ne!(d.app.game.visible_marks(cell, true), 0, "the fixture has other visible marks");
+    cell
+}
+
+/// The grid lines of a cell (BRD-6), at points away from the marks and from the x. The cell shows the
+/// color `grid`, or no line if it is None.
+fn assert_grid(pm: &Pixmap, cell: Cell, grid: Option<[u8; 3]>, what: &str) {
+    let (x, y) = layout::cell_origin(cell);
+    let bg = rgb_at(pm, x + 8, y + 8);
+    for k in 1..=2 {
+        let o = layout::micro_offset(k);
+        for p in [8, 49 - 6, 49 + 6, 98 - 6, 98 + 6, 147 - 8] {
+            for (px, py) in [(x + o, y + p), (x + p, y + o)] {
+                assert_eq!(rgb_at(pm, px, py), grid.unwrap_or(bg), "{what}: the grid at ({px}, {py})");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_x_changes_only_its_micro_cell_in_all_layouts() {
+    // MRK-13, BRD-6, §15, MRK-1, MRK-7, MRK-10, MRK-14: all 9 digits in all layouts, with the
+    // micro-cell lines of the default gray and set to None. The tap makes the x at the lift. All other
+    // pixels of the screen stay the same: the other marks and the grid. The x does not show a hidden
+    // mark. After the time of the x, the screen is the same as before.
+    let fonts = fonts();
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let mut d = Driver::new(300);
+        for line in [LineGray::default(), LineGray::None] {
+            d.app.settings.micro_line = line;
+            let grid = sudoku::render::line_rgb(line);
+            for digit in 1..=9u8 {
+                let what = format!("{o:?}, right-handed {right_handed}, {line:?}, digit {digit}");
+                let cell = cell_with_marks(&mut d, digit, digit % 2 == 0);
+                assert_eq!(layout::cell_origin(cell), (board_origin(o).0 + cell.1 as i32 * CELL, board_origin(o).1 + cell.0 as i32 * CELL), "{what}");
+                let center = x_center(board_origin(o), cell, digit);
+                let before = draw_app(&d.app, &fonts);
+                assert_grid(&before, cell, grid, &what);
+                let game = d.app.game.clone();
+
+                let (x, y) = micro_center(cell, digit);
+                d.send(Input::PenDown { x, y, tool: Tool::Pen });
+                assert_eq!(d.app.ui.refused, None, "MRK-10: {what}: an x at the pen down");
+                d.app.redraw = false;
+                d.send(Input::PenUp { x, y });
+                let lift = d.now;
+                assert_eq!(d.app.ui.refused, Some((cell, digit, lift)), "MRK-10: {what}");
+                assert!(d.app.redraw, "MRK-10: {what}: the x asks for no redraw");
+                assert_eq!(board(&d.app.game), board(&game), "MRK-11: {what}");
+
+                let with = draw_app(&d.app, &fonts);
+                assert_only_x(&fonts, &before, &with, center, &what);
+                assert_grid(&with, cell, grid, &what);
+
+                // MRK-14: the x stays for its full time, then the screen is the same as before.
+                assert_eq!(d.app.next_deadline(), Some(lift + OVERLAY_MS), "MRK-14: {what}");
+                d.now = lift + OVERLAY_MS - 1;
+                d.app.tick(d.now);
+                assert!(d.app.ui.refused.is_some(), "MRK-14: {what}: the x went too early");
+                assert_eq!(differences(&draw_app(&d.app, &fonts), &with), vec![], "MRK-14: {what}");
+                d.app.redraw = false;
+                d.now = lift + OVERLAY_MS;
+                d.app.tick(d.now);
+                assert_eq!(d.app.ui.refused, None, "MRK-14: {what}: the x stays after its time");
+                assert!(d.app.redraw, "MRK-14: {what}: the end of the x asks for no redraw");
+                assert_eq!(differences(&draw_app(&d.app, &fonts), &before), vec![], "MRK-13: {what}: the pixels after the x");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_x_is_at_the_keypad_position_of_its_digit() {
+    // MRK-13, §15, MRK-1: the position of the x with literal values, for a cell with a different row
+    // and column. The column of the cell and of the digit go on the x axis, the row on the y axis. A
+    // swap of row and column, or a mirror image for a right-handed player, gives other pixels. The
+    // drawing uses only the cell and the digit of the state, thus each digit can show in the cell.
+    const OFFSETS: [(i32, i32); 9] = [(24, 24), (74, 24), (122, 24), (24, 74), (74, 74), (122, 74), (24, 122), (74, 122), (122, 122)];
+    let fonts = fonts();
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let mut app = reference::app(&fonts);
+        app.game = reference::sample_game();
+        let (r, c) = cells().find(|&c| c.0 != c.1 && !app.game.is_filled(c)).unwrap();
+        let plain = draw_app(&app, &fonts);
+        let (bx, by) = board_origin(o);
+        for (digit, &(ox, oy)) in (1..=9u8).zip(&OFFSETS) {
+            app.ui.refused = Some(((r, c), digit, 0));
+            let want = ((bx + c as i32 * 147 + ox) as f32, (by + r as i32 * 147 + oy) as f32);
+            assert_only_x(&fonts, &plain, &draw_app(&app, &fonts), want, &format!("{o:?}, right-handed {right_handed}, cell ({r}, {c}), digit {digit}"));
+        }
+    }
+}
+
+#[test]
+fn the_x_stays_in_its_micro_cell_in_each_cell_of_the_board() {
+    // MRK-13, §15, BRD-6: the limits. In each empty cell (also next to the thick lines and to the edge
+    // of the board), the x in each corner micro-cell and at the center changes only its own pixels, and
+    // it does not touch the micro-cell lines or the cell lines.
+    let fonts = fonts();
+    for (o, right_handed) in [LAYOUTS[0], LAYOUTS[3]] {
+        let _layout = InLayout::set(o, right_handed);
+        let mut app = reference::app(&fonts);
+        app.game = reference::sample_game();
+        let plain = draw_app(&app, &fonts);
+        let empty: Vec<Cell> = cells().filter(|&c| !app.game.is_filled(c)).collect();
+        assert!(empty.iter().any(|c| c.0 == 0) && empty.iter().any(|c| c.0 == 8) && empty.iter().any(|c| c.1 == 0) && empty.iter().any(|c| c.1 == 8), "the fixture has cells at the edges of the board");
+        for &cell in &empty {
+            let (x, y) = layout::cell_origin(cell);
+            for digit in [1, 3, 5, 7, 9] {
+                app.ui.refused = Some((cell, digit, 0));
+                let with = draw_app(&app, &fonts);
+                let what = format!("{o:?}, cell {cell:?}, digit {digit}");
+                assert_only_x(&fonts, &plain, &with, x_center(board_origin(o), cell, digit), &what);
+                let i = digit as i32 - 1;
+                let (mx, my) = (i % 3, i / 3);
+                let inside = Rect::new(x + layout::micro_offset(mx) + 2, y + layout::micro_offset(my) + 2, x + layout::micro_offset(mx + 1) - 1, y + layout::micro_offset(my + 1) - 1);
+                for (px, py) in differences(&plain, &with) {
+                    assert!(px >= inside.x0 && px < inside.x1 && py >= inside.y0 && py < inside.y1, "{what}: the pixel ({px}, {py}) is not in the micro-cell");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_x_and_the_question_mark_show_in_different_cells_with_their_own_times() {
+    // MRK-14, MRK-13, QST-1, §3.2, INP-12: a scribble waits in cell A, and the player does a refused tap
+    // in cell B. The press reads the ink, thus the "?" shows in A. The lift shows the x in B. The "?"
+    // hides the marks of A, and the x does not hide the marks of B. Each has its own time.
+    let fonts = fonts();
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let what = format!("{o:?}, right-handed {right_handed}");
+        let mut d = Driver::new(302);
+        let digit = 3;
+        let b = cell_with_marks(&mut d, digit, false);
+        let a = cells().find(|&c| !d.app.game.is_filled(c) && c != b).unwrap();
+        let free = (1..=9u8).find(|&v| peer_numbers(&d.app.game, a) & mark_bit(v) == 0 && d.app.game.marks_at(a) & mark_bit(v) == 0);
+        if let Some(v) = free {
+            d.tap_micro(a, v);
+        }
+        assert_ne!(d.app.game.visible_marks(a, true), 0, "{what}: the cell of the \"?\" has marks");
+        let before = draw_app(&d.app, &fonts);
+
+        d.write_strokes(&scribble_ink(a));
+        assert!(d.app.ui.pending_ink.is_some(), "{what}");
+        let (x, y) = micro_center(b, digit);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        let pressed = d.now;
+        assert_eq!(d.app.ui.question, Some((a, pressed)), "INP-12: {what}: the press reads the ink");
+        assert_eq!(d.app.ui.refused, None, "MRK-10: {what}");
+        d.send(Input::PenUp { x, y });
+        let lift = d.now;
+        assert_eq!(d.app.ui.refused, Some((b, digit, lift)), "MRK-10: {what}");
+        assert_eq!(d.app.ui.question, Some((a, pressed)), "MRK-14: {what}: the \"?\" stays");
+
+        // The screen with the "?" only, and with the "?" and the x.
+        let with = draw_app(&d.app, &fonts);
+        d.app.ui.refused = None;
+        let only_question = draw_app(&d.app, &fonts);
+        d.app.ui.refused = Some((b, digit, lift));
+        assert_only_x(&fonts, &only_question, &with, x_center(board_origin(o), b, digit), &what);
+        let (ax, ay) = layout::cell_origin(a);
+        for (px, py) in differences(&before, &only_question) {
+            assert!(px >= ax && px < ax + CELL && py >= ay && py < ay + CELL, "QST-1: {what}: the \"?\" changed the pixel ({px}, {py})");
+        }
+        let (gx, gy) = (ax + layout::micro_offset(1), ay + 8);
+        assert_eq!(rgb_at(&before, gx, gy), sudoku::render::line_rgb(LineGray::default()).unwrap(), "{what}: the grid before the \"?\"");
+        assert_eq!(rgb_at(&only_question, gx, gy), rgb_at(&only_question, ax + 8, ay + 8), "QST-1: {what}: the grid of the cell of the \"?\" shows");
+
+        // The "?" goes first, at its own time. The x stays for its own time.
+        assert_eq!(d.app.next_deadline(), Some(pressed + OVERLAY_MS), "MRK-14: {what}");
+        d.now = pressed + OVERLAY_MS;
+        d.app.tick(d.now);
+        assert_eq!(d.app.ui.question, None, "QST-1: {what}");
+        assert_eq!(d.app.ui.refused, Some((b, digit, lift)), "MRK-14: {what}: the x has its own time");
+        assert_only_x(&fonts, &before, &draw_app(&d.app, &fonts), x_center(board_origin(o), b, digit), &what);
+        assert_eq!(d.app.next_deadline(), Some(lift + OVERLAY_MS), "MRK-14: {what}");
+        d.now = lift + OVERLAY_MS;
+        d.app.tick(d.now);
+        assert_eq!(d.app.ui.refused, None, "MRK-14: {what}");
+        assert_eq!(differences(&draw_app(&d.app, &fonts), &before), vec![], "MRK-13: {what}: the pixels after the x");
+    }
+}
+
+#[test]
+fn the_x_stays_on_its_cell_and_digit_after_a_turn() {
+    // MRK-16, §3.3, MRK-13, MRK-14: a turn does not change the x. It shows at the position of the new
+    // layout for the rest of its time. A tap in progress at the turn makes no x (NAV-13).
+    let fonts = fonts();
+    let stops = sudoku::render::ng_stops(&fonts);
+    for ((from, from_right), (to, _)) in [(LAYOUTS[0], LAYOUTS[2]), (LAYOUTS[2], LAYOUTS[0]), (LAYOUTS[1], LAYOUTS[3]), (LAYOUTS[3], LAYOUTS[1])] {
+        let what = format!("{from:?} to {to:?}, right-handed {from_right}");
+        let _layout = InLayout::set(from, from_right);
+        let mut d = Driver::new(303);
+        let (cell, digit) = refused_spot(&d.app.game, |_, v| v == 2 || v == 4 || v == 8);
+        d.tap_micro(cell, digit);
+        let lift = d.now;
+        assert_eq!(d.app.ui.refused, Some((cell, digit, lift)), "{what}");
+        let game = board(&d.app.game);
+
+        d.now += 400;
+        d.app.tick(d.now);
+        layout::set_orientation(to);
+        d.app.rotate(stops);
+        d.app.tick(d.now);
+        assert_eq!(d.app.ui.refused, Some((cell, digit, lift)), "MRK-16: {what}");
+        assert_eq!(d.app.next_deadline(), Some(lift + OVERLAY_MS), "MRK-16: {what}: the rest of the time");
+        let with = draw_app(&d.app, &fonts);
+        d.app.ui.refused = None;
+        let plain = draw_app(&d.app, &fonts);
+        d.app.ui.refused = Some((cell, digit, lift));
+        assert_only_x(&fonts, &plain, &with, x_center(board_origin(to), cell, digit), &what);
+        d.now = lift + OVERLAY_MS;
+        d.app.tick(d.now);
+        assert_eq!(d.app.ui.refused, None, "MRK-14: {what}");
+        assert_eq!(differences(&draw_app(&d.app, &fonts), &plain), vec![], "MRK-13: {what}");
+
+        // The next turn stops a refused tap at the press: the lift makes no x.
+        let (x, y) = micro_center(cell, digit);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        layout::set_orientation(from);
+        d.app.rotate(stops);
+        let (x2, y2) = micro_center(cell, digit);
+        for (px, py) in [(x2, y2), (x, y)] {
+            d.send(Input::PenUp { x: px, y: py });
+            assert_eq!(d.app.ui.refused, None, "MRK-16: {what}: a tap in progress at the turn");
+        }
+        assert_eq!(board(&d.app.game), game, "MRK-16: {what}: the turn changes the game");
+    }
+}
+
+#[test]
+fn the_framebuffer_shows_the_x_and_then_the_old_pixels() {
+    // MRK-13, MRK-14, §15: the real output (`present.rs`) in all layouts. After the lift, only the pixels
+    // of the x change in the framebuffer, with an update that covers them. After the time of the x,
+    // the framebuffer is the same as before, with an update. The pen region is not active: a tap
+    // does not start it, thus the redraw does not wait.
+    use sudoku::present::{Presenter, Update};
+    let fonts = fonts();
+    let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let mut d = Driver::new(304);
+        let mut p = Presenter::new();
+        let mut fb = vec![0u8; w * h * 3];
+        let mut updates: Vec<Update> = Vec::new();
+        let settle = |d: &mut Driver, p: &mut Presenter, fb: &mut Vec<u8>, updates: &mut Vec<Update>| {
+            for _ in 0..12 {
+                d.now += 30;
+                d.app.tick(d.now);
+                p.present(&mut d.app, &fonts, fb, d.now, |u| updates.push(u));
+            }
+        };
+        for digit in [2, 4, 9] {
+            let what = format!("{o:?}, right-handed {right_handed}, digit {digit}");
+            let cell = cell_with_marks(&mut d, digit, false);
+            settle(&mut d, &mut p, &mut fb, &mut updates);
+            settle(&mut d, &mut p, &mut fb, &mut updates);
+            let before = fb.clone();
+            updates.clear();
+
+            let (x, y) = micro_center(cell, digit);
+            d.send(Input::PenDown { x, y, tool: Tool::Pen });
+            p.present(&mut d.app, &fonts, &mut fb, d.now, |u| updates.push(u));
+            assert!(d.app.writing_stroke().is_none(), "{what}: a tap started the pen region");
+            d.send(Input::PenUp { x, y });
+            let lift = d.now;
+            assert_eq!(d.app.ui.refused, Some((cell, digit, lift)), "{what}");
+            p.present(&mut d.app, &fonts, &mut fb, d.now, |u| updates.push(u));
+            settle(&mut d, &mut p, &mut fb, &mut updates);
+            assert!(d.app.ui.refused.is_some() && d.now < lift + OVERLAY_MS, "{what}: the x still shows");
+
+            let center = x_center(board_origin(o), cell, digit);
+            let changed: Vec<usize> = (0..w * h).filter(|&i| fb[i * 3..i * 3 + 3] != before[i * 3..i * 3 + 3]).collect();
+            assert!(!changed.is_empty(), "{what}: the x is not in the framebuffer");
+            for &i in &changed {
+                let (sx, sy) = layout::to_screen((i % w) as f32, (i / w) as f32);
+                let (sx, sy) = (sx as i32, sy as i32);
+                assert!(to_x(sx, sy, center) < X_WIDTH / 2.0 + PIXEL_HALF_DIAGONAL, "{what}: the screen pixel ({sx}, {sy}) changed in the framebuffer");
+                let covered = updates.iter().any(|&(ux, uy, uw, uh)| {
+                    let (px, py) = ((i % w) as i32, (i / w) as i32);
+                    px >= ux && px < ux + uw && py >= uy && py < uy + uh
+                });
+                assert!(covered, "{what}: no update covers the screen pixel ({sx}, {sy}): {updates:?}");
+            }
+
+            updates.clear();
+            d.now = lift + OVERLAY_MS;
+            d.app.tick(d.now);
+            assert_eq!(d.app.ui.refused, None, "{what}");
+            p.present(&mut d.app, &fonts, &mut fb, d.now, |u| updates.push(u));
+            settle(&mut d, &mut p, &mut fb, &mut updates);
+            assert!(fb == before, "MRK-13: {what}: the framebuffer after the x is not the same as before");
+            assert!(!updates.is_empty(), "{what}: the end of the x sends no update");
+        }
+    }
+}
+

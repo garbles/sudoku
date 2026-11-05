@@ -2,6 +2,7 @@
 #   board-state.py progress      a game in progress: starting numbers, player numbers, pencil marks, one clash
 #   board-state.py highlight     the same game after a tap on a 5: all 5s have the highlight color
 #   board-state.py unrecognized  the same game immediately after a scribble that the app cannot read: "?" in the cell
+#   board-state.py invalid-mark  the same game immediately after a pen tap on a pencil mark that a peer refuses: "x" in the micro-cell
 #   board-state.py completed     the complete, locked board. The time replaces the difficulty meter.
 import os, sys
 C = 147; X0, Y0 = (1620 - 9*C)//2, (2160 - 9*C)//2   # must agree with ui-lib.sh
@@ -21,6 +22,9 @@ MARKED = [(0,5),(0,6),(1,6),(2,3),(2,4),(3,2),(3,5),(4,2),(5,2),(6,3),(6,5),(8,1
 WRONG = {(5,1): 9}
 HIGHLIGHT = 5             # the digit that the player taps in "highlight"
 UNRECOGNIZED = (4,1)      # the cell with the scribble in "unrecognized"
+INVALID_MARK = (1,6,6)    # the row, the column and the digit of the tap in "invalid-mark". (1,0) and (2,7) have a 6.
+X_HALF = 10               # each line of the x goes from -10 px to +10 px on the two axes around the center
+X_WIDTH = 3               # the line width of the x
 TIME = "23:41"            # the time used in "completed"
 
 grid = [[int(c) if c != "." else 0 for c in row] for row in GIVENS]
@@ -46,8 +50,12 @@ def candidates(r, c):
     used |= {grid[i][j] for i in range(br, br+3) for j in range(bc, bc+3)}
     return [d for d in range(1, 10) if d not in used]
 
+# the anchor point of the pencil mark of digit d in the cell at x,y: 24, 74 or 122 px on each axis
+def mark_anchor(x, y, d):
+    return x + round(((d-1)%3 + 0.5)*C/3), y + round(((d-1)//3 + 0.5)*C/3)
+
 out = []
-filled = [(r, c) for r in range(9) for c in range(9) if grid[r][c]]
+filled =[(r, c) for r in range(9) for c in range(9) if grid[r][c]]
 covered = filled + ([UNRECOGNIZED] if MODE == "unrecognized" else [])
 # remove the micro-cells below numbers, then draw the board lines again, as render.sh does.
 # Backgrounds: first the clash color (red), then the highlight color (green), then the starting-number gray.
@@ -71,12 +79,20 @@ for r, c in MARKED:
     assert not grid[r][c]
     x, y = X0+c*C, Y0+r*C
     for d in candidates(r, c):
-        cx, cy = x + round(((d-1)%3 + 0.5)*C/3), y + round(((d-1)//3 + 0.5)*C/3)
+        cx, cy = mark_anchor(x, y, d)
         out.append(f"stroke none fill gray15 font '{FONT}' font-size 31 text-anchor middle text {cx},{cy+11} '{d}'")
 
 if MODE == "unrecognized":
     r, c = UNRECOGNIZED; x, y = X0+c*C, Y0+r*C
     out.append(f"stroke none fill gray40 font '{FONT}' font-size 104 text-anchor middle text {x+C//2},{y+111} '?'")
+if MODE == "invalid-mark":
+    # only the micro-cell changes: the other marks and the micro-cell lines of the cell stay
+    r, c, d = INVALID_MARK
+    assert not grid[r][c] and d not in candidates(r, c)
+    cx, cy = mark_anchor(X0+c*C, Y0+r*C, d)
+    h = X_HALF
+    out.append(f"fill none stroke gray15 stroke-width {X_WIDTH} stroke-linecap round "
+               f"line {cx-h},{cy-h} {cx+h},{cy+h} line {cx-h},{cy+h} {cx+h},{cy-h}")
 if MODE == "completed":
     # the time used replaces the difficulty meter below the board
     dy = Y0 + 9*C + 50

@@ -119,11 +119,26 @@ The game screen has three independent parts:
 
 - The **puzzle state** (§8).
 - The **menu state** (§9).
-- A **temporary overlay** on the board: a highlight or a "?".
+- A **temporary overlay** on the board: a highlight, a "?" or an x in a micro-cell
+  ([§6.1](#61-automatic-pencil-mark-hiding)).
 
 Overlays occur only when the puzzle is in progress. A completed puzzle does not show overlays.
 **All actions** remove a highlight. Actions include a pen tap or stroke, a finger touch and a tap on a
 menu button.
+
+The "?" and the x can show at the same time in different cells, each with its own time. Example: a
+scribble waits in cell A, and the player does a refused tap in cell B. The app reads the ink first,
+thus the "?" shows in A, and the x shows in B (owner decision 2026-11-04).
+
+These rules for the x are true at all times (they follow from the owner approval 2026-11-04):
+
+- At most one x shows.
+- An x implies all of these: the game screen shows, no panel is open, the game is not complete, its
+  cell is empty, "Hide pencil marks automatically" is on, a peer has its digit, no highlight shows
+  and no ink waits. The x is never on the same cell as a "?".
+- These remove the x: the end of its time, a press of the pen or of a finger (§5.1), the release of
+  a control that does an action (§9), completion, a change of screen, a new game and the update
+  dialog (§9.2). The release of a control removes only the x, not a "?" in a different cell.
 
 ```mermaid
 stateDiagram-v2
@@ -133,6 +148,8 @@ stateDiagram-v2
         state "No overlay" as Plain
         state "Number highlighted" as Highlighted
         state "? shown" as Question
+        state "x shown" as Refused
+        state "? and x shown (different cells)" as Both
         Plain --> Highlighted: pen tap on a number
         Highlighted --> Highlighted: pen tap on a different number
         Highlighted --> Plain: tap the same number again
@@ -140,6 +157,16 @@ stateDiagram-v2
         Plain --> Question: writing that is not 1 to 9
         Question --> Plain: after approximately one second
         Question --> Plain: a press of the pen or of a finger
+        Plain --> Refused: refused pen tap, at the pen lift
+        Refused --> Plain: after approximately one second
+        Refused --> Plain: a press of the pen or of a finger
+        Refused --> Plain: release of a control that does an action
+        Refused --> Plain: completion, change of screen, new game or update dialog
+        Question --> Both: refused pen tap whose press read the waiting ink, at the pen lift
+        Both --> Refused: after approximately one second (the time of the ?)
+        Both --> Question: release of a control that does an action (only the x goes)
+        Both --> Plain: a press of the pen or of a finger
+        Both --> Plain: change of screen, new game or update dialog
     }
 ```
 
@@ -148,6 +175,7 @@ stateDiagram-v2
 | No overlay | [`screen-in-progress.png`](images/screen-in-progress.png) |
 | Number highlighted | [`screen-highlight.png`](images/screen-highlight.png) |
 | "?" shown | [`screen-unrecognized.png`](images/screen-unrecognized.png) |
+| x shown | [`screen-invalid-mark.png`](images/screen-invalid-mark.png) |
 
 ### 3.3 Landscape
 
@@ -162,7 +190,10 @@ The landscape layout has the same items, at the same sizes, as the portrait layo
 | Statistics | The same scale as in portrait, across the full width. The games list is one table across the full width. Each page shows 6 games, because the height is too small for 12. When the tablet turns, the list shows the page with the first game of the page before the turn. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png`, made by `scripts/analytics.py`). |
 
 When the tablet turns, the game does not change. Ink that waits for the recognition pause and touches
-in progress are removed, because their positions are not correct after the turn.
+in progress are removed, because their positions are not correct after the turn. The "?" and the x
+stay on the same cell (and the x on the same digit) for the rest of their time. A pen tap in progress
+at the turn makes no x, because the pen gesture stops (this follows from the owner approval
+2026-11-04).
 
 ## 4. Cells
 
@@ -178,7 +209,8 @@ Each cell is always one of these four types:
 | **Empty, with pencil marks** | The grid of micro-cells with small digits in their keypad positions. | Tap to add or remove a pencil mark. Write to add a number. |
 
 If automatic hiding is on, a tap on a micro-cell whose digit is a number in a peer has no effect
-([§6.1](#61-automatic-pencil-mark-hiding)). Then the cell does not change.
+([§6.1](#61-automatic-pencil-mark-hiding)). Then the cell does not change, and a small x shows for
+approximately one second in that micro-cell (owner approval 2026-11-04).
 
 Digits use reMarkable Sans Regular: 104 px for numbers and 31 px for pencil marks. Starting numbers
 are black. Your numbers are dark gray (`gray35`).
@@ -197,6 +229,8 @@ stateDiagram-v2
     Empty --> Marked: tap a micro-cell (adds its digit, if the switch is off or no peer has it)
     Marked --> Marked: tap a micro-cell (adds or removes its digit, if the switch is off or no peer has it)
     Marked --> Empty: tap removes the last mark
+    Empty --> Empty: tap a micro-cell whose digit a peer has, if the switch is on (the x shows)
+    Marked --> Marked: tap a micro-cell whose digit a peer has, if the switch is on (the x shows)
     Marked --> Marked: a number in a peer cell hides a mark (if the switch is on)
     Marked --> Empty: a number in a peer cell hides the last mark (if the switch is on)
 
@@ -230,7 +264,7 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
 ### 5.1 Rules
 
 - **Finger touches on the board change no number and no pencil mark.** Only the reMarkable pen
-  operates the board. A finger touch removes a highlight (§6.2) and the "?".
+  operates the board. A finger touch removes a highlight (§6.2), the "?" and the x.
 - A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs
   and the screen buttons (for example "< Back"). The pen can also operate these items.
 - In the manual and the games list, a finger swipe turns the page. Refer to [§12](#12-manual-help) and
@@ -241,7 +275,8 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
   touch that starts in that cell is writing, also if it stays in one micro-cell. Thus a short stroke
   of a number (for example the bar of a 7) does not become a pencil mark (confirmed 2026-10-25).
 - The ink shows from the pen down, also for a tap. After a tap that has no effect (for example a
-  mark that a peer hides), a redraw removes the ink (owner decision 2026-11-02).
+  mark that a peer hides), a redraw removes the ink (owner decision 2026-11-02). If §6.1 refuses the
+  tap, the x shows at the pen lift, not at the pen down (owner approval 2026-11-04).
 - **Writing** is a pen stroke that is not a tap. The app collects the strokes in one cell until the
   pen is lifted for a **short pause (approximately 0.5 s, adjustable)**. Thus a number with more than
   one stroke (for example 4, 5 or 7) is correct.
@@ -258,7 +293,18 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
   **approximately one second**. Examples are a scribble, a letter, 0 or a number more than 9, such as
   12. After the "?", the cell is the same as before.
 - Each press of the pen or of a finger removes the "?" immediately. Thus a new number in that cell
-  never shows under the "?" (owner decision 2026-10-25).
+  never shows under the "?" (owner decision 2026-10-25). The same press also removes the x, before
+  the app does the action of that press. A second finger also removes them (owner approval
+  2026-11-04). Exception: a first press that the app ignores in the 0.5 s after **< Back**
+  ([§9](#9-the-menu), NAV-16) does not remove the "?" or the x (this follows from the owner approval
+  2026-11-04).
+- Only a pen tap that §6.1 refuses makes an x. A finger, the eraser and writing never make an x. A
+  short touch in the cell of ink that waits is writing, thus it makes no x (owner approval
+  2026-11-04).
+- A press removes the state of the x or of the "?" immediately, but their pixels go only when the
+  redraw occurs. While the player writes, a redraw waits ([§14.4](#144-launcher)). Thus the pixels of
+  the x or of the "?" can stay on the screen, under the ink of the player, until the writing stops:
+  approximately one second after the last stroke (owner decision 2026-11-04).
 - Writing on a **starting number** or on **your number** has no effect. The app removes the ink. To
   change your number, erase it first.
 - The **eraser** is the other end of the pen. When you rub it on your number, the app removes the
@@ -272,14 +318,15 @@ The player selects the three colors in the Cell colors panel ([§10](#10-cell-co
 
 Images: [`manual-candidates.png`](images/manual-candidates.png),
 [`manual-pen.png`](images/manual-pen.png), [`manual-pen-rules.png`](images/manual-pen-rules.png),
-[`screen-unrecognized.png`](images/screen-unrecognized.png).
+[`screen-unrecognized.png`](images/screen-unrecognized.png),
+[`screen-invalid-mark.png`](images/screen-invalid-mark.png).
 
 ### 5.2 Input decisions
 
 ```mermaid
 flowchart TD
     A[Touch on the board] --> B{Pen or finger?}
-    B -- finger --> X[No change to the board; remove the highlight and the ?]
+    B -- finger --> X[No change to the board; remove the highlight, the ? and the x]
     B -- pen --> C{Puzzle complete?}
     C -- yes --> X2[No change to the board]
     C -- no --> D{Eraser end?}
@@ -295,7 +342,9 @@ flowchart TD
     GS -- yes --> G0{Is that digit highlighted now?}
     G0 -- yes --> G3[Remove the highlight]
     G0 -- no --> G1[Highlight all cells with that digit]
-    G -- no --> G2[Add or remove the pencil mark of that micro-cell]
+    G -- no --> GR{Is Hide pencil marks automatically on, and does a peer have that digit?}
+    GR -- yes --> GX[No change to the game; at the pen lift, show the x in that micro-cell for approximately one second]
+    GR -- no --> G2[Add or remove the pencil mark of that micro-cell]
     F -- no, writing --> H{Does the cell have a number?}
     H -- yes --> X4[Remove the ink, no other effect]
     H -- no --> I[Collect the strokes until a short pause after the pen lifts, then read them]
@@ -305,7 +354,8 @@ flowchart TD
 ```
 
 Each action also removes a highlight before the app does the action. A tap on a different number
-then makes a new highlight.
+then makes a new highlight. Each press also removes the "?" and the x before the app does the action
+of that press, with the exception in [§5.1](#51-rules).
 
 ## 6. Helpers: pencil mark hiding, highlights, clashes
 
@@ -320,11 +370,37 @@ number goes (the eraser, undo or redo), the mark shows again (owner decision 202
   number in the undo history has no pencil marks.
 - A **tap on a micro-cell whose digit is a number in a peer** has no effect. The mark would be hidden,
   thus the app does not add it, and it does not remove a hidden mark (owner decision 2026-10-31).
+  This is a **refused tap**: it changes nothing in the game, and a small x shows in that micro-cell
+  (owner approval 2026-11-04; the rules are below).
 - The player can turn automatic hiding off in the Settings panel ([§9.1](#91-settings-panel)). Then
-  all pencil marks of the empty cells show, and a tap on each micro-cell adds or removes its mark.
-  When the player turns it on again, the marks of the digits of peers are hidden again.
+  all pencil marks of the empty cells show, and a tap on each micro-cell adds or removes its mark. No
+  x shows (owner decision 2026-11-04). When the player turns it on again, the marks of the digits of
+  peers are hidden again.
 - A game that was saved by an earlier version can have numbers in its undo history that removed
   marks. Undo and redo of these numbers still put back and remove those marks.
+
+**The x of a refused tap** (owner approval 2026-11-04, on the tablet). This is true in all layouts:
+portrait, landscape, left-handed and right-handed. Image:
+[`screen-invalid-mark.png`](images/screen-invalid-mark.png).
+
+- **When it shows.** The x shows at the pen lift of a refused tap on an empty cell. A tap on a hidden
+  mark that exists is also a refused tap: the cell has the mark d, a peer has the number d and the
+  player taps d. The tap has no effect, and the x shows (owner decision 2026-11-04).
+- **Time.** The x shows for the same time as the "?": approximately one second. The two use one
+  value. The main loop wakes at the end of this time, thus the x goes without other input.
+- **Position.** The x is only in its micro-cell. The other visible pencil marks and the micro-cell
+  grid of the cell stay visible and do not change. This is different from the "?", which hides the
+  marks of its cell. With the micro-cell lines set to None, the x shows with no grid. After the x, the
+  pixels of the cell are the same as before the x. [§15](#15-visual-specification) gives the sizes.
+- **Repeated taps.** A new refused tap removes the x at the press and shows it again at the lift. The
+  time starts again. At most one x shows.
+- **No effect on the game.** The x does not change the numbers, the marks, the undo or redo history,
+  the clock or the completion. It does not cause a save.
+- **Source of the x.** The x comes only from the numbers in the peers, not from the solution. A peer
+  with an incorrect number of the player also causes an x.
+- **No x.** A tap on a filled cell, on a completed game, or on the board while a panel is open makes
+  no x. [§5.1](#51-rules) gives the inputs that do not make an x.
+- **Removal.** [§3.2](#32-game-screen-states) gives the actions that remove the x.
 
 ### 6.2 Highlights
 
@@ -379,8 +455,10 @@ stateDiagram-v2
     ([§6.1](#61-automatic-pencil-mark-hiding)).)
   - Erase a number.
 - These actions are not changes to the board and are not a part of undo: highlights, the "?",
-  color changes, switch changes, and the panels and screens that you open.
-- A new change after an undo removes the redo history.
+  the x and the refused tap that makes it (§6.1), color changes, switch changes, and the panels and
+  screens that you open.
+- A new change after an undo removes the redo history. A refused tap is not a change, thus it does
+  not remove the redo history (owner approval 2026-11-04).
 - A new game removes the undo history and the redo history.
 - The buttons are **black** when an undo or redo is available. They are **gray** when it is not
   available. Gray buttons have no effect. On a completed puzzle, both buttons are gray and have no
@@ -495,12 +573,21 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
   **0.5 s**. A press on the board operates as usual. This is true for the left-handed and the
   right-handed layout. Reason: the e-paper screen is slow, and **< Back** is at the same position as
   the close button (left-handed) or the menu button (right-handed). Without this rule, the second tap
-  of a fast double tap on **< Back** closes the app or closes the menu.
+  of a fast double tap on **< Back** closes the app or closes the menu. A first press that the app
+  ignores in this time does not remove the "?" or the x (this follows from the owner approval
+  2026-11-04). A second finger on a toolbar button in this time does not operate the button, but it
+  removes them, as at all other times (owner decision 2026-11-05).
 - When the menu opens, the app removes the highlight.
 - The board continues to operate while the menu is open. For example, you can write a number or
-  tap a number to make a highlight.
+  tap a number to make a highlight. With the menu open and no panel, a refused tap shows the x
+  ([§6.1](#61-automatic-pencil-mark-hiding); owner approval 2026-11-04).
 - When a panel is open, a tap outside the panel only closes the panel. The tap has no other effect,
-  also when it is on the board.
+  also when it is on the board. Thus it makes no x.
+- A finger can stay on a control while the pen does a refused tap. When that finger lifts, the release
+  of a control that does an action removes the x, as it removes the highlight. Thus an open panel
+  never shows an x, an undo that removes the peer number never leaves an x, and a mark never shows
+  under an x. The release removes only the x, not a "?" in a different cell (this follows from the
+  owner approval 2026-11-04).
 - When the menu is open, the **close button** shows at the top left (at the top right for a
   right-handed player, [§3.1](#31-layout)). When no panel is open, a tap on it closes the app. The
   app then shows the launcher ([§14.4](#144-launcher)). When a panel is open, a tap on it only closes
@@ -510,8 +597,8 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
 - A finger operates the menu buttons, the panels, the dialogs and the screen buttons while the app
   is open. There are two exceptions. When a dialog shows, only its two buttons operate
   ([§9.2](#92-updates)). A second finger, while the first finger moves or presses (an event less
-  than 0.15 s before), operates no item, but it removes a highlight and the "?" (owner decision
-  2026-11-02).
+  than 0.15 s before), operates no item, but it removes a highlight, the "?" (owner decision
+  2026-11-02) and the x (owner approval 2026-11-04).
 - A touch for which the app does not get a release (for example a palm touch that the system
   cancels) does not stop the next touches. The app forgets that touch when a new press with the same
   touch id starts, or when a new touch starts and that touch has had no event for 0.15 s.
@@ -565,7 +652,7 @@ A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a fourth ro
 | Row | Default | When the switch is off |
 |---|---|---|
 | **Highlight numbers** | On | A tap on a number does not make a highlight ([§6.2](#62-highlights)). |
-| **Hide pencil marks automatically** | On | All pencil marks of the empty cells show, also the digits that are numbers in the peers ([§6.1](#61-automatic-pencil-mark-hiding)). |
+| **Hide pencil marks automatically** | On | All pencil marks of the empty cells show, also the digits that are numbers in the peers ([§6.1](#61-automatic-pencil-mark-hiding)). A tap on each micro-cell adds or removes its mark, and no x shows. |
 
 - A tap on a row changes its switch immediately. The panel stays open.
 - The version row has the name **Version** (reMarkable Sans Medium, 25 px, black) at the left. The
@@ -683,8 +770,8 @@ design and position as the delete dialogs of the statistics ([§13](#13-statisti
 - Title: "Restart the interface?". Text: "The update has a new ink patch. To use it," and "the
   reMarkable interface must start again.".
 - Buttons: **Later** (black on white, left) and **Restart** (white on black, right).
-- Before the dialog shows, the app reads the waiting ink. The highlight and the "?" go away. A pen
-  or a finger that is on the screen has no more effect.
+- Before the dialog shows, the app reads the waiting ink. The highlight, the "?" and the x go away
+  (the x: owner approval 2026-11-04). A pen or a finger that is on the screen has no more effect.
 - While the dialog shows, only its two buttons operate (with the pen or a finger). All other taps
   and strokes have no effect.
 - **Later** closes the dialog. The update row shows the button **Restart interface**.
@@ -834,7 +921,7 @@ stateDiagram-v2
 | 2 | [`manual-candidates.png`](images/manual-candidates.png) | Micro-cells and pencil marks: how to add and remove them. |
 | 3 | [`manual-pen.png`](images/manual-pen.png) | How to write and erase a number. |
 | 4 | [`manual-pen-rules.png`](images/manual-pen-rules.png) | Taps, finger touches, one number for each cell, writing with no effect, the "?". |
-| 5 | [`manual-helpers.png`](images/manual-helpers.png) | Automatic pencil mark hiding and highlights. You can turn each helper off in the Settings panel. |
+| 5 | [`manual-helpers.png`](images/manual-helpers.png) | Automatic pencil mark hiding and highlights. You can turn each helper off in the Settings panel. One sentence, in portrait and in landscape, tells about the x of a refused tap ([§6.1](#61-automatic-pencil-mark-hiding); owner decision 2026-11-04). The text is exactly: "If you tap the micro-cell of a hidden digit, the tap has no effect and a small x shows there for a moment." |
 | 6 | [`manual-mistakes.png`](images/manual-mistakes.png) | Clashes and how to correct them. |
 | 7 | [`manual-menu.png`](images/manual-menu.png) | All the menu buttons, how to select colors and the two settings. |
 | 8 | [`manual-new-game.png`](images/manual-new-game.png) | How to start a new game, and the meter of the current difficulty. |
@@ -995,8 +1082,9 @@ because the app saves the clock each 5 seconds (owner decision 2026-11-02). All 
 after each change.
 
 The app does **not** keep temporary UI states. The app always opens again at the game screen, with
-the menu open, the panels closed, no highlight and no "?". If the app closes during the recognition
-pause, the app removes the ink and does not read it.
+the menu open, the panels closed, no highlight, no "?" and no x. The app does not save the x (owner
+approval 2026-11-04). If the app closes during the recognition pause, the app removes the ink and does
+not read it.
 
 ### 14.4 Launcher
 
@@ -1045,7 +1133,8 @@ reads it each 15 ms:
   writing stops. Thus the player can write in many cells, one after the other, also with a slow
   movement to the next cell: only the ink changes on the screen, and an update with the UI waveform
   does not stop the ink in the next cell (owner decision 2026-11-02). Ink in the area does not wait
-  for an older update there.
+  for an older update there. The pixels of the x or of the "?" also wait for this redraw, thus they
+  can stay under the ink until the writing stops (§5.1; owner decision 2026-11-04).
 - xochitl reads the patch only when it starts. The app uses the area only if the patch was installed
   before xochitl started. Without the patch, the app sends the ink so that an update never touches
   changed pixels of an update in progress.
@@ -1196,6 +1285,7 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Numbers | reMarkable Sans Regular 104 px; starting numbers black, your numbers `gray35` |
 | Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell |
 | "?" | reMarkable Sans Regular 104 px, `gray40` |
+| x of a refused tap (§6.1) | Two straight lines with round ends, line width 3 px, `gray15` (the same as the pencil marks). Each line goes from -10 px to +10 px on the two axes around the center: 20×20 px between the line centers, visible extent of approximately 23×23 px. The center is the anchor point of the pencil mark of that digit: 24, 74 or 122 px from the cell origin on each axis, at the keypad position of the digit (1 at the top left, 9 at the bottom right). The x stays in its micro-cell and does not touch the cell lines. Time: the same value as the "?" (1000 ms) (owner approval 2026-11-04). |
 | Default colors | Starting `#C8C8C8`, clash `#F0A3A3`, highlight `#B5DF9E` |
 | UI text | reMarkable Sans Medium 25 px (menus, meter labels, "Completed in …"). The version value and the text of an update state are reMarkable Sans Regular 25 px (§9.1, §9.2). |
 | Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |
@@ -1240,6 +1330,7 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`screen-in-progress.png`](images/screen-in-progress.png) | [§3.2](#32-game-screen-states), [§6](#6-helpers-pencil-mark-hiding-highlights-clashes) |
 | [`screen-highlight.png`](images/screen-highlight.png) | [§6.2](#62-highlights) |
 | [`screen-unrecognized.png`](images/screen-unrecognized.png) | [§5](#5-pen-and-touch-input) |
+| [`screen-invalid-mark.png`](images/screen-invalid-mark.png) | [§3.2](#32-game-screen-states), [§5](#5-pen-and-touch-input), [§6.1](#61-automatic-pencil-mark-hiding) |
 | [`screen-completed.png`](images/screen-completed.png) | [§8.3](#83-complete) |
 | [`screen-completed-menu.png`](images/screen-completed-menu.png) | [§8.3](#83-complete), [§9](#9-the-menu) |
 | [`screen-toolbar.png`](images/screen-toolbar.png) | [§9](#9-the-menu) |

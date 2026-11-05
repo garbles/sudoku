@@ -14,8 +14,8 @@ use crate::update::{Manifest, Update};
 
 /// The recognition pause after the pen lifts (§5.1). `SUDOKU_RECOGNITION_PAUSE_MS` changes it.
 pub const DEFAULT_PAUSE_MS: u64 = 500;
-/// The time that the "?" shows (§5.1).
-const QUESTION_MS: u64 = 1000;
+/// The time that the "?" and the x of a refused tap show (§5.1, §6.1, QST-1, MRK-14).
+pub const OVERLAY_MS: u64 = 1000;
 /// The writing stops when the pen has written nothing on the board for this time after the last
 /// stroke (§5.1, ink patch). Until then, a redraw waits. This time is longer than the recognition
 /// pause, so that the redraw does not start while the pen moves to the next cell.
@@ -111,12 +111,15 @@ pub struct GameUi {
     pub menu: Menu,
     pub highlight: Option<u8>,
     pub question: Option<(Cell, u64)>,
+    /// The x of a refused tap: the cell, the digit of the micro-cell and the time when it showed
+    /// (MRK-10 to MRK-18). The app does not save it (MRK-17).
+    pub refused: Option<(Cell, u8, u64)>,
     pub pending_ink: Option<PendingInk>,
     pub slider: u8,
 }
 
 impl GameUi {
-    /// The game screen with the menu open, no panel, no highlight, no "?" and no ink. The game
+    /// The game screen with the menu open, no panel, no highlight, no "?", no x and no ink. The game
     /// screen shows in this state when the app opens (PER-2), after "< Back" (NAV-3) and after
     /// Start new game (NAV-9).
     fn shown(slider: u8) -> GameUi {
@@ -125,7 +128,7 @@ impl GameUi {
 
     /// The state of the game screen when a different screen shows: the menu is closed (NAV-5).
     fn closed(slider: u8) -> GameUi {
-        GameUi { menu: Menu::Closed, highlight: None, question: None, pending_ink: None, slider }
+        GameUi { menu: Menu::Closed, highlight: None, question: None, refused: None, pending_ink: None, slider }
     }
 }
 
@@ -367,8 +370,14 @@ impl App {
         }
 
         if let Some((_, shown_at)) = self.ui.question {
-            if now.saturating_sub(shown_at) >= QUESTION_MS {
+            if now.saturating_sub(shown_at) >= OVERLAY_MS {
                 self.ui.question = None;
+                self.redraw = true;
+            }
+        }
+        if let Some((_, _, shown_at)) = self.ui.refused {
+            if now.saturating_sub(shown_at) >= OVERLAY_MS {
+                self.ui.refused = None;
                 self.redraw = true;
             }
         }
@@ -403,7 +412,8 @@ impl App {
     }
 
     /// The tablet turned. The positions of ink and of touches are not correct now: the app removes the
-    /// ink that waits and stops the touches. The game does not change.
+    /// ink that waits and stops the touches, thus a tap in progress makes no x. The game does not
+    /// change. The "?" and the x stay on their cell for the rest of their time (MRK-16).
     /// `ng_stops` are the slider stops of the new layout (`render::ng_stops`).
     /// The games list keeps the first game of its page visible, because a page of the landscape layout
     /// has fewer games (`layout::list_rows`).
@@ -434,9 +444,11 @@ impl App {
 
     /// The time of the next timer, if a timer runs.
     pub fn next_deadline(&self) -> Option<u64> {
-        let q = self.ui.question.map(|(_, t)| t + QUESTION_MS);
+        let q = self.ui.question.map(|(_, t)| t + OVERLAY_MS);
+        // MRK-14: the main loop wakes at the end of the time of the x.
+        let x = self.ui.refused.map(|(_, _, t)| t + OVERLAY_MS);
         let ink = self.ui.pending_ink.as_ref().and_then(|i| i.last_lift_at).map(|t| t + self.pause_ms);
-        [q, ink, self.writing_until].into_iter().flatten().min()
+        [q, x, ink, self.writing_until].into_iter().flatten().min()
     }
 
     // ---- Input
@@ -476,9 +488,10 @@ impl App {
                     self.touch = Some(FollowedTouch { id, gesture, last_event_ms: now });
                 } else {
                     // A second finger has no other effect. But it is an action: it removes the
-                    // highlight and the "?" (HLT-2, QST-4).
+                    // highlight, the "?" and the x (HLT-2, QST-4, MRK-15).
                     self.ui.highlight = None;
                     self.ui.question = None;
+                    self.ui.refused = None;
                 }
             }
             Input::TouchMove { id, x, y } => {
@@ -515,16 +528,18 @@ impl App {
     /// A press of the pen (`tool` is Some) or of a finger (`tool` is None).
     fn press(&mut self, x: f32, y: f32, tool: Option<Tool>, now: u64) -> Gesture {
         // NAV-16: shortly after "< Back", a press on the toolbar or on the close button changes
-        // nothing, also not the highlight, the "?" or the waiting ink. It is often the second tap of a
+        // nothing, also not the highlight, the "?", the x or the waiting ink. It is often the second tap of a
         // fast double tap on "< Back", which is at the position of the close button (left-handed) or
         // of the menu button (right-handed).
         let toolbar_ignored = self.toolbar_ignored_until.is_some_and(|t| now < t);
         if toolbar_ignored && self.screen == Screen::Game && layout::game_button(x, y, self.ui.menu.is_open()).is_some() {
             return Gesture::Ignored;
         }
-        // Each action removes the highlight before the app does the action (HLT-2).
+        // Each action removes the highlight, the "?" and the x before the app does the action (HLT-2,
+        // QST-4, MRK-15).
         let prev_highlight = self.ui.highlight.take();
         self.ui.question = None;
+        self.ui.refused = None;
 
         // The dialog "Restart the interface?" accepts only its two buttons (UPD-10). It covers all
         // screens, thus a pen or a finger has no other effect.
@@ -702,7 +717,7 @@ impl App {
                     log(BoardInput::Stroke(cell, s));
                 }
                 self.live_stroke = None;
-                self.board_tap(cell, digit, prev_highlight);
+                self.board_tap(cell, digit, prev_highlight, now);
             }
             Gesture::Writing => {
                 let stroke = self.live_stroke.take().unwrap_or_default();
@@ -759,8 +774,10 @@ impl App {
         }
     }
 
-    /// A tap on the board (§5.2).
-    fn board_tap(&mut self, cell: Cell, digit: u8, prev_highlight: Option<u8>) {
+    /// A tap on the board at its pen lift (§5.2). The gesture of a tap exists only with no panel and
+    /// no dialog: a change to these states stops the gesture (`cancel_gestures`). Thus a refused tap
+    /// sets the x only in the states of MRK-10 and MRK-12.
+    fn board_tap(&mut self, cell: Cell, digit: u8, prev_highlight: Option<u8>, now: u64) {
         if self.game.completed {
             return;
         }
@@ -769,6 +786,9 @@ impl App {
             // HLT-3: the same digit removes the highlight. A different digit moves it. HLT-6: no
             // highlight if the switch is off.
             self.ui.highlight = if !self.settings.highlight_on || prev_highlight == Some(v) { None } else { Some(v) };
+        } else if self.game.refuses_mark(cell, digit, self.settings.auto_hide_on) {
+            // MRK-7, MRK-11: the game, the redo history, the clock and the saved data do not change.
+            self.ui.refused = Some((cell, digit, now));
         } else {
             let o = self.game.toggle_mark_with(cell, digit, self.settings.auto_hide_on);
             self.after_game_change(o);
@@ -823,6 +843,7 @@ impl App {
             // §8.3: the board locks and the app saves the result.
             self.ui.highlight = None;
             self.ui.question = None;
+            self.ui.refused = None;
             self.ui.pending_ink = None;
             self.live_stroke = None;
             self.writing_until = None;
@@ -950,10 +971,13 @@ impl App {
             return;
         }
         // The release does the action of the control. While a finger stays on the control, the pen can
-        // make a highlight or write ink. Thus the release also removes the highlight (HLT-2, HLT-4) and
-        // reads the waiting ink (INP-12) before the action, as a press does. Then an undo or a redo
-        // cannot put a number under the ink (INP-5), and a panel does not open over the ink (NAV-11).
+        // make a highlight, show an x or write ink. Thus the release also removes the highlight (HLT-2,
+        // HLT-4) and the x (MRK-15), and reads the waiting ink (INP-12) before the action, as a press
+        // does. Then an undo or a redo cannot put a number under the ink (INP-5), an undo cannot leave an
+        // x with no number in a peer, and a panel does not open over the ink or the x (NAV-11, MRK-12).
+        // The release does not remove a "?" in a different cell.
         self.ui.highlight = None;
+        self.ui.refused = None;
         if self.ui.pending_ink.is_some() {
             self.read_ink(now);
         }
@@ -1176,7 +1200,7 @@ impl App {
             g.seconds().hash(&mut h);
         }
         let ui = &self.ui;
-        (ui.menu, ui.highlight, ui.question.map(|q| q.0), ui.slider).hash(&mut h);
+        (ui.menu, ui.highlight, ui.question.map(|q| q.0), ui.refused.map(|(cell, digit, _)| (cell, digit)), ui.slider).hash(&mut h);
         let pending = ui.pending_ink.as_ref().map_or(0, |i| i.strokes.len());
         let live = usize::from(self.live_stroke.as_ref().is_some_and(|s| s.len() >= 2));
         (pending + live).hash(&mut h);
@@ -1206,6 +1230,7 @@ impl App {
             }
             self.ui.highlight = None;
             self.ui.question = None;
+            self.ui.refused = None;
             self.live_stroke = None;
             self.cancel_gestures();
         }

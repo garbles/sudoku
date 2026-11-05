@@ -137,6 +137,10 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             a.game = sample_game();
             a.ui.question = Some(((4, 1), 0))
         }),
+        ("screen-invalid-mark.png", |a| {
+            a.game = sample_game();
+            a.ui.refused = Some(((1, 6), 6, 0))
+        }),
         ("screen-completed.png", |a| a.game = completed_game()),
         ("screen-toolbar.png", |a| {
             a.game = empty_game();

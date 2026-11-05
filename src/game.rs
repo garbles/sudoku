@@ -191,10 +191,17 @@ impl Game {
         if self.completed || self.is_filled(cell) || !(1..=9).contains(&digit) {
             return Outcome::NoChange;
         }
-        if hide && self.peer_digits(cell) & mark_bit(digit) != 0 {
+        if self.refuses_mark(cell, digit, hide) {
             return Outcome::NoChange;
         }
         self.record(Change::ToggleMark { cell, digit })
+    }
+
+    /// True if a tap on the micro-cell `digit` of the cell is a refused tap (MRK-7): the game is not
+    /// complete, the cell is empty, `hide` is true and a peer has the number `digit`. The value comes
+    /// only from the numbers in the peers, not from the solution (MRK-18).
+    pub fn refuses_mark(&self, cell: Cell, digit: u8, hide: bool) -> bool {
+        hide && !self.completed && !self.is_filled(cell) && (1..=9).contains(&digit) && self.peer_digits(cell) & mark_bit(digit) != 0
     }
 
     /// Writing that the app reads as `digit` on an empty cell. The marks of the peers do not change

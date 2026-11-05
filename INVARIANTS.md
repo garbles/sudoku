@@ -20,7 +20,7 @@ comes from (for example *R§4.1*). Rules that are not confirmed yet are in
 2. [Cells](#2-cells)
 3. [Pencil marks](#3-pencil-marks)
 4. [Clashes](#4-clashes)
-5. [Overlays: highlight and "?"](#5-overlays-highlight-and-)
+5. [Overlays: highlight, "?" and x](#5-overlays-highlight--and-x)
 6. [Input](#6-input)
 7. [Undo and redo](#7-undo-and-redo)
 8. [Completion and the lock](#8-completion-and-the-lock)
@@ -70,6 +70,7 @@ GameUI
   panel           ∈ {None, Colors, Settings, NewGame}
   highlight       ∈ {None} ∪ 1..9
   question        ∈ {None} ∪ (cell, shown_at)   (the temporary "?")
+  refused         ∈ {None} ∪ (cell, digit, shown_at)   (the temporary x of a refused tap; default None; not saved)
   pending_ink     ∈ {None} ∪ (cell, strokes, last_lift_at)
   slider          ∈ 0..6                       (the selection in the New game panel)
 
@@ -109,6 +110,8 @@ Terms:
 - **entry(r, c)**: the cell is filled and is not a starting number ("your number").
 - **clashing(r, c)**: the cell is filled and a peer has the same value.
 - **can_undo / can_redo**: the stack is not empty and the game is not complete.
+- **refused tap**: a pen tap on the micro-cell of digit d of an empty cell, when `auto_hide_on` and a
+  peer has the number d (MRK-7).
 
 ## 1. Puzzle and solution
 
@@ -144,7 +147,7 @@ Terms:
 | MRK-4 | **Automatic hiding:** if `auto_hide_on`, an empty cell shows the marks `marks[r][c]` minus the digits of the numbers in its peers. A filled peer keeps its hidden marks with no change. | R§6.1 |
 | MRK-5 | Marks change only in these ways: a pen tap adds or removes one mark in an empty cell; undo and redo of these changes. A new number, the eraser and the switches never change marks. Exception: undo and redo of a number of an earlier version that has a `removed` list (R§6.1). | R§5.1, R§6.1, R§7 |
 | MRK-6 | When a number goes (the eraser, undo or redo), the hidden marks of that cell show again with no change. | R§4.1, R§6.1 |
-| MRK-7 | If `auto_hide_on`, a tap on micro-cell d of a cell has no effect when a peer has the number d. If `¬auto_hide_on`, the tap adds or removes the mark d. A mark does not have to be a possible digit. | R§6.1 (owner decision 2026-10-31) |
+| MRK-7 | If `auto_hide_on`, a pen tap on micro-cell d of an empty cell does not change the game when a peer has the number d. This is also true when the cell has the hidden mark d. This tap is a refused tap, and it shows the x (MRK-10). If `¬auto_hide_on`, the tap adds or removes the mark d, and no x shows. A mark does not have to be a possible digit. | R§6.1 (owner decisions 2026-10-31 and 2026-11-04) |
 | MRK-8 | When a number d goes (the eraser, undo or redo), the marks d of its peers show again, if no other peer of those cells has the number d. | R§6.1 (owner decision 2026-10-31) |
 | MRK-9 | If `¬auto_hide_on`, each empty cell shows all of `marks[r][c]`. A new number never has removed marks, and its undo and redo change only that cell. | R§6.1, R§9.1 |
 
@@ -157,7 +160,7 @@ Terms:
 | CLS-3 | Two starting numbers never clash (PUZ-3). Thus each clash includes one or more entries. | R§6.3, R§14.5 |
 | CLS-4 | The app never compares the board with `solution` for the player. An incorrect entry with no clash looks the same as a correct entry. | R§6.3 |
 
-## 5. Overlays: highlight and "?"
+## 5. Overlays: highlight, "?" and x
 
 | ID | Rule | Source |
 |---|---|---|
@@ -166,31 +169,40 @@ Terms:
 | HLT-3 | A tap on a number with a value equal to `highlight` sets `highlight = None`. If `highlight_on`, a tap on a number with a different value sets `highlight` to that value (HLT-6). | R§6.2 |
 | HLT-4 | `highlight ≠ None ⇒ screen = Game and panel = None`. When the menu opens or the screen changes, the app removes the highlight. While the menu is open and no panel is open, a pen tap on a number can make a new highlight. | R§9, R§6.2 |
 | HLT-5 | A highlight does not change `value`, `marks`, the undo and redo stacks, or `completed`. | R§7 |
-| HLT-6 | `¬highlight_on ⇒ highlight = None`. A tap on a number then changes nothing (it still removes a highlight and a "?" as each action does). | R§6.2, R§9.1 |
+| HLT-6 | `¬highlight_on ⇒ highlight = None`. A tap on a number then changes nothing (it still removes a highlight, a "?" and an x as each action does). | R§6.2, R§9.1 |
 | QST-1 | `question ≠ None ⇒` the cell of the "?" is empty. The "?" shows for approximately one second. Then `question = None`. While the "?" shows, the marks of the cell are hidden. After the "?", the cell is the same as before. | R§5.1 |
 | QST-2 | The "?" does not change `value`, `marks` or the undo and redo stacks. | R§5.1, R§7 |
 | QST-3 | `question ≠ None ⇒` the game is not complete. | R§3.2 |
 | QST-4 | Each press of the pen or a finger removes the "?" immediately. Thus a new number in that cell never shows under the "?" (QST-1). | R§5.1 (confirmed 2026-10-25) |
+| MRK-10 | Only a refused tap sets `refused`. At the pen lift, not at the pen down, it sets `refused = (cell, d, shown_at)`. A finger, the eraser and writing never set `refused`. These pen touches also do not set it: a tap on a filled cell, a tap when `completed`, a tap while `panel ≠ None` (NAV-11: the tap only closes the panel), and a short touch in the cell of waiting ink (INP-11: this is writing). When `menu = Open` and `panel = None`, a refused tap sets `refused` as usual. | R§5.1, R§6.1, owner decision 2026-11-04 |
+| MRK-11 | A refused tap and the x do not change `value`, `marks`, the undo and redo stacks, the clock or `completed`. A refused tap does not empty `redo`. They do not cause a save. | R§5.1, R§6.1, owner decision 2026-11-04 |
+| MRK-12 | `refused = (cell, d, shown_at) ⇒` all of these are true: `screen = Game`, `panel = None`, the game is not complete, the update dialog does not show, `cell` is empty, `auto_hide_on`, a peer of `cell` has the number d, `highlight = None` and `pending_ink = None`. If `question ≠ None`, its cell is not `cell`. Thus an open panel never shows an x, and a mark never shows under an x. | R§5.1, R§6.1, owner decision 2026-11-04 |
+| MRK-13 | The x shows only in its micro-cell, in all layouts. It has two straight lines with round ends, from -10 px to +10 px on the two axes around its center. The line width is 3 px and the color is gray15. Its center is the anchor point of the pencil mark of d: 24, 74 or 122 px from the cell origin on each axis, at the keypad position of d (MRK-1). The other visible marks and the micro-cell grid of the cell do not change (with `micro_line = None`, the x shows with no grid). If nothing else changes, the pixels of the cell after the x are the same as before the x. | R§5.1, R§6.1, owner decision 2026-11-04 |
+| MRK-14 | The x shows for the same time as the "?" (QST-1): the two use one value, 1000 ms. Then `refused = None`, with no other input: the main loop wakes at the end of this time. A "?" and an x can show at the same time in different cells, each with its own time. At most one x shows. | R§5.1, R§6.1, owner decision 2026-11-04 |
+| MRK-15 | Each press of the pen or a finger, also a second finger (INP-15), sets `refused = None` before the app does the action of that press. The only exception is a first press that the app ignores after "< Back" (NAV-16). Thus a new refused tap removes the x at the press and shows it again at the lift, and the time starts again. The release of a control that does an action also sets `refused = None`, as it removes the highlight. Thus an undo that removes the number of the peer never leaves an x. Completion, a change of screen, a new game and the update dialog also set `refused = None`. While the player writes, screen redraws wait (R§14.4): the pixels of the x can stay under the ink until the redraw, but `refused = None` from the press. | R§5.1, R§6.1, owner decisions 2026-11-04 and 2026-11-05 |
+| MRK-16 | A turn of the tablet does not change `refused`: the x stays on the same cell and digit for the rest of its time. A tap in progress at the turn sets no x, because the turn stops the pen touch (NAV-13). | R§5.1, R§6.1, owner decision 2026-11-04 |
+| MRK-17 | The app does not save `refused`. The app always opens with `refused = None` (PER-2). | R§5.1, R§6.1, owner decision 2026-11-04 |
+| MRK-18 | `refused` comes only from the numbers in the peers, not from `solution`. A peer with an incorrect number of the player also causes an x. | R§5.1, R§6.1, owner decision 2026-11-04 |
 
 ## 6. Input
 
 | ID | Rule | Source |
 |---|---|---|
-| INP-1 | Finger touches on the board do not change the game state. The only exceptions are the removal of a highlight (HLT-2) and of the "?" (QST-4). A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs and the screen buttons. In the manual and the games list, a horizontal finger swipe can change the page. | R§5.1, R§12, R§13.2 |
+| INP-1 | Finger touches on the board do not change the game state. The only exceptions are the removal of a highlight (HLT-2), of the "?" (QST-4) and of the x (MRK-15). A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs and the screen buttons. In the manual and the games list, a horizontal finger swipe can change the page. | R§5.1, R§12, R§13.2 |
 | INP-2 | A pen touch on the board is a **tap** only if all of its movement stays in one micro-cell. All other pen touches on the board are writing. Each pen touch on the board is one of these: a tap, writing, or the eraser. A tap does not start the pen area (R§14.4). | R§5.1, R§14.4 (owner decision 2026-11-02) |
-| INP-3 | A tap on an empty cell adds or removes one mark: the digit of the micro-cell that you tapped. If `auto_hide_on` and a peer has that digit, the tap has no effect (MRK-7). | R§4.1, R§5.1, R§6.1 |
-| INP-4 | While no panel is open, a tap on a filled cell does not change that cell. It changes only `highlight` (HLT-3, HLT-6) and the "?" (QST-4), and it makes the app read ink that waits in another cell (INP-12). | R§5.1, R§6.2 |
+| INP-3 | A tap on an empty cell adds or removes one mark: the digit of the micro-cell that you tapped. If `auto_hide_on` and a peer has that digit, the tap does not change the game, and the x shows (MRK-7, MRK-10). | R§4.1, R§5.1, R§6.1 |
+| INP-4 | While no panel is open, a tap on a filled cell does not change that cell. It changes only `highlight` (HLT-3, HLT-6), the "?" (QST-4) and the x (MRK-15: the tap never shows an x), and it makes the app read ink that waits in another cell (INP-12). | R§5.1, R§6.2 |
 | INP-5 | `pending_ink ≠ None ⇒` its cell is empty and the game is not complete. The app collects the ink until the pen is lifted for the recognition pause (approximately 0.5 s). Then the app reads all the ink as one item and sets `pending_ink = None`. | R§5.1 |
 | INP-6 | The app reads the ink as one of these two results: a number from 1 to 9 (the app adds it), or "not 1–9" (scribble, letter, 0, 10 or more). For "not 1–9", the app shows the "?". There is no other result. | R§5.1 |
 | INP-7 | The app removes writing on a filled cell (starting number or entry). The writing makes no change. | R§5.1 |
 | INP-8 | The eraser changes the board only on an entry. It makes the cell empty and shows its hidden marks again. On starting numbers and empty cells, it makes no change. The eraser on the cell of the waiting ink removes the ink. The app does not read that ink, thus the board and the undo history do not change. | R§5.1 (confirmed 2026-10-25) |
-| INP-9 | When `completed` is true, pen input does not change `value`, `marks`, `highlight` or the stacks. | R§8.3 |
-| INP-10 | Ink never stays on the board. After the app reads it, removes it or shows the "?", the board shows only typed numbers, marks and the grid. | R§5.1 |
+| INP-9 | When `completed` is true, pen input does not change `value`, `marks`, `highlight`, `refused` or the stacks. | R§8.3 |
+| INP-10 | Ink never stays on the board. After the app reads it, removes it or shows the "?", the board shows only typed numbers, marks, the grid, the "?" and the x (MRK-10). | R§5.1 |
 | INP-11 | While ink waits in a cell, each pen touch that starts in the same cell is writing. This is also true if the touch stays in one micro-cell. Thus a short stroke of a number (for example the bar of a 7) does not become a pencil mark. | R§5.1 (confirmed 2026-10-25) |
 | INP-12 | Writing belongs to the cell where the pen touch started. A pen touch that starts in a different cell, or a press on a different item, makes the app read the waiting ink immediately. | R§5.1 (confirmed 2026-10-25) |
 | INP-13 | The eraser removes all of your numbers that it touches in one stroke. Each removal is one change in the undo history. | R§5.1, UND-1 (confirmed 2026-10-25) |
 | INP-14 | A finger swipe is a horizontal movement of 120 px or more, with more horizontal than vertical movement. | R§5.1, R§12, R§13.2 (confirmed 2026-10-25) |
-| INP-15 | A finger press on an item that is not on the board (INP-1: menu buttons, panels, dialogs, screen buttons) operates it while the app is open. The only exception is a dialog that shows: then only its two buttons operate. If the app does not get the release of a touch, that touch does not stop other presses: the app forgets it when a new press with the same touch id starts, or when a new touch starts and that touch has had no event for 0.15 s. A second finger while the first finger moves or presses (an event less than 0.15 s before) operates no item, but it removes a highlight and the "?" (HLT-2, QST-4). | R§9, R§5.1 |
+| INP-15 | A finger press on an item that is not on the board (INP-1: menu buttons, panels, dialogs, screen buttons) operates it while the app is open. The only exception is a dialog that shows: then only its two buttons operate. If the app does not get the release of a touch, that touch does not stop other presses: the app forgets it when a new press with the same touch id starts, or when a new touch starts and that touch has had no event for 0.15 s. A second finger while the first finger moves or presses (an event less than 0.15 s before) operates no item, but it removes a highlight, the "?" and the x (HLT-2, QST-4, MRK-15). | R§9, R§5.1 |
 | INP-16 | The writing timer (a redraw waits, R§14.4) runs only on the game screen of a game that is not complete. Each stroke on the board starts it again (1 s). A press that does not write stops it. | R§5.1, R§14.4 (owner decision 2026-11-02) |
 
 ## 7. Undo and redo
@@ -198,7 +210,7 @@ Terms:
 | ID | Rule | Source |
 |---|---|---|
 | UND-1 | Each change to the board is one of these: add or remove a mark; add a number; erase a number. Each change adds one item to `undo` and empties `redo`. | R§7 |
-| UND-2 | No other action adds to `undo`. Highlights, the "?", color changes, switch changes, panels and screens never add to it. | R§7 |
+| UND-2 | No other action adds to `undo`. Highlights, the "?", the x, color changes, switch changes, panels and screens never add to it. | R§7 |
 | UND-3 | Undo does the exact opposite of the top change and moves the change to `redo`. Redo does the change again and moves it back to `undo`. An undo and then a redo give the same board as before. A redo and then an undo also give the same board. | R§7 |
 | UND-4 | Undo of a number shows the hidden marks of that cell again, and the marks of the peers that the number hid (MRK-8). For a number of an earlier version with a `removed` list, undo puts back those marks. | R§6.1 |
 | UND-5 | After each undo or redo, CLS-1 is true. The app calculates the clashes again. | R§6.3 |
@@ -213,7 +225,7 @@ Terms:
 |---|---|---|
 | CMP-1 | `completed ⇔` all cells are filled and no cell clashes. The app sets it to true immediately when this becomes true. Only a new game sets it to false. | R§8.1, R§8.3 |
 | CMP-2 | Each row, column and box of a complete board has the digits 1–9 one time. Thus a complete board is the same as `solution` (PUZ-2). | R§8.3, R§14.5 |
-| CMP-3 | `completed ⇒` the board, the marks and the stacks do not change (INP-9, UND-8), and `highlight = None`, `question = None`, `pending_ink = None`. | R§8.3 |
+| CMP-3 | `completed ⇒` the board, the marks and the stacks do not change (INP-9, UND-8), and `highlight = None`, `question = None`, `refused = None`, `pending_ink = None`. | R§8.3 |
 | CMP-4 | `completed ⇒` the text "Completed in" and `elapsed` replace the meter below the board. The format is `m:ss`, and `h:mm:ss` after one hour. `¬completed ⇒` the meter shows `mode`. The player cannot change the meter. | R§3.1, R§8.3 |
 | CMP-5 | Completion adds **one** row to `results`. The row has the `mode`, the quantity of starting numbers, the final `elapsed`, the `seed` and the `generator` version of this game. The app never adds a row for a game that is not complete. | R§8.3, R§14.1 |
 | CMP-6 | Only Start new game ends the `completed` state. Help, Statistics, colors, settings and the menu continue to operate. | R§8.3 |
@@ -248,7 +260,7 @@ Terms:
 | NAV-14 | The Settings panel opens from the gear (top slot 2). A tap on a row changes only its switch (`highlight_on` or `auto_hide_on`), immediately; the panel stays open. A tap on the version row (row 3) changes nothing, and the panel stays open. A change of a switch does not change the game or the undo and redo stacks, and it does not change the changes that are already in the stacks. | R§9.1 (version row: owner decision 2026-10-26) |
 | NAV-11 | When `panel ≠ None`, a tap outside the panel only sets `panel = None`. It does not change the game, also when the tap is on the board. When `menu = Open` and `panel = None`, the board operates as usual. | R§9 |
 | NAV-12 | When `panel ≠ None`, a tap on a toolbar button that is not the paint bucket, the gear or the + only closes the panel. A tap on the button of a different panel opens that panel. This includes the menu button and the close button. | R§9 (confirmed 2026-10-25) |
-| NAV-16 | For 0.5 s after "< Back" from Manual or Statistics shows Game, a press on a toolbar button (also the menu button) or on the close button changes nothing: `menu`, `panel`, `screen` and the game do not change, and the app does not close. A press on the board operates as usual. This is true for the left-handed and the right-handed layout. | R§9, R§12, R§13.1 (owner decision 2026-11-02) |
+| NAV-16 | For 0.5 s after "< Back" from Manual or Statistics shows Game, a press on a toolbar button (also the menu button) or on the close button changes nothing: `menu`, `panel`, `screen` and the game do not change, and the app does not close. A first press that the app ignores in this time does not remove the x or the "?" (the exception to MRK-15 and QST-4). A second finger on one of these items, while another finger stays on the screen, operates no item, but it removes the x and the "?" (INP-15). A press on the board operates as usual. This is true for the left-handed and the right-handed layout. | R§9, R§12, R§13.1 (owner decisions 2026-11-02, 2026-11-04 and 2026-11-05) |
 
 ## 11. Difficulty
 
@@ -305,7 +317,7 @@ Terms:
 | ID | Rule | Source |
 |---|---|---|
 | PER-1 | At each point where the app can close or be suspended, the saved game is equal to the game in memory: `seed`, `mode`, the `generator` version, starting numbers, `value`, `marks`, the two stacks, `elapsed` and `completed`. | R§14.3 |
-| PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Open`, `panel = None`, `highlight = None`, `question = None` and `pending_ink = None`. The app does not keep the menu state. This is true for a new game and for a saved game. | R§9, R§14.3 (owner decision 2026-11-02) |
+| PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Open`, `panel = None`, `highlight = None`, `question = None`, `refused = None` and `pending_ink = None`. The app does not keep the menu state. This is true for a new game and for a saved game. | R§9, R§14.3 (owner decision 2026-11-02) |
 | PER-3 | The settings (`color_*`, `micro_line`, `last_mode`, `highlight_on` and `auto_hide_on`) stay the same when the app closes and opens again. | R§14.2 |
 | PER-4 | `results` stays the same when the app closes and opens again. Only ANA-2 changes it. | R§14.1 |
 | PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. When the app opens, it does not use saved data that breaks a rule (PUZ-5, ANA-1). A saved history that play cannot make, but that agrees with UND-3, is correct: each undo and redo item still changes the board. | — (confirmed 2026-10-25) |

@@ -651,7 +651,12 @@ pub fn ng_stops(fonts: &Fonts) -> [f32; STOPS as usize] {
 
 fn draw_game(c: &mut Canvas, app: &App) {
     let g = &app.game;
-    draw_board(c, g, &app.settings, app.ui.highlight, app.ui.question.map(|q| q.0));
+    let overlays = BoardOverlays {
+        highlight: app.ui.highlight,
+        question: app.ui.question.map(|(cell, _)| cell),
+        refused: app.ui.refused.map(|(cell, digit, _)| (cell, digit)),
+    };
+    draw_board(c, g, &app.settings, overlays);
 
     // Ink that waits for the recognition pause, and the stroke that the pen draws now.
     let ink = app.ui.pending_ink.iter().flat_map(|i| i.strokes.iter()).chain(app.live_stroke.iter());
@@ -779,8 +784,18 @@ enum CellLook {
     Value(u8, Rgb, Rgb),
     /// The "?" of a number that the app did not know (INP-7).
     Question,
-    /// An empty cell with its pencil marks and the color of its micro-cell lines (None: no lines).
-    Empty(crate::game::Marks, Option<Rgb>),
+    /// An empty cell with its pencil marks, the color of its micro-cell lines (None: no lines) and the
+    /// digit of the micro-cell that shows the x of a refused tap (None: no x).
+    Empty(crate::game::Marks, Option<Rgb>, Option<u8>),
+}
+
+/// The temporary items on the board (§3.2): the digit of the highlight, the cell of the "?", and the
+/// cell and the digit of the x.
+#[derive(Clone, Copy)]
+struct BoardOverlays {
+    highlight: Option<u8>,
+    question: Option<crate::game::Cell>,
+    refused: Option<(crate::game::Cell, u8)>,
 }
 
 /// The cached areas of the board (refer to `draw_board`). An area is drawn at its true position: the
@@ -868,15 +883,30 @@ fn copy_px(src: &Pixmap, sx: usize, sy: usize, w: usize, h: usize, dst: &mut Pix
     }
 }
 
+/// The anchor point of the pencil mark of a digit, in a cell with its top left at (xf, yf): the
+/// keypad position of the digit (MRK-1).
+fn mark_anchor(xf: f32, yf: f32, digit: u8) -> (f32, f32) {
+    const MARK_POS: [f32; 3] = [24.0, 74.0, 122.0];
+    let i = (digit - 1) as usize;
+    (xf + MARK_POS[i % 3], yf + MARK_POS[i / 3])
+}
+
+/// The color of the pencil marks and of the x of a refused tap (§15).
+const MARK_COLOR: Rgb = gray(15);
+/// The x of a refused tap (§15, MRK-13): each line goes this distance on the two axes from the center.
+const REFUSED_X_HALF: f32 = 10.0;
+/// The line width of the x of a refused tap (§15, MRK-13).
+const REFUSED_X_WIDTH: f32 = 3.0;
+
 /// Draws one cell with its top left at (xf, yf): the background or the faint micro-cell grid, then
-/// the number, the "?" or the pencil marks.
+/// the number, the "?" or the pencil marks and the x of a refused tap.
 fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
     let cs = CELL as f32;
     match look {
         CellLook::Value(_, bg, _) => c.rect(xf, yf, xf + cs, yf + cs, bg),
         CellLook::Question => {}
-        CellLook::Empty(_, None) => {}
-        CellLook::Empty(_, Some(line)) => {
+        CellLook::Empty(_, None, _) => {}
+        CellLook::Empty(_, Some(line), _) => {
             // The micro-cell grid of an empty cell, in the gray of the setting (BRD-6).
             for k in 1..=2 {
                 let o = micro_offset(k) as f32;
@@ -887,17 +917,23 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
     }
     // Numbers: starting numbers black, your numbers gray35 (BRD-8). Pencil marks only on empty cells
     // (MRK-2), gray15, at their keypad positions (MRK-1).
-    const MARK_POS: [f32; 3] = [24.0, 74.0, 122.0];
     match look {
         CellLook::Value(v, _, col) => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, &v.to_string(), col),
         CellLook::Question => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, "?", gray(40)),
-        CellLook::Empty(marks, _) => {
+        CellLook::Empty(marks, _, refused) => {
             for d in 1..=9u8 {
                 if marks & crate::game::mark_bit(d) != 0 {
-                    let i = (d - 1) as usize;
-                    let (cx, cy) = (xf + MARK_POS[i % 3], yf + MARK_POS[i / 3]);
-                    c.text(Weight::Regular, 31.0, cx, cy + 11.0, Anchor::Middle, &d.to_string(), gray(15));
+                    let (cx, cy) = mark_anchor(xf, yf, d);
+                    c.text(Weight::Regular, 31.0, cx, cy + 11.0, Anchor::Middle, &d.to_string(), MARK_COLOR);
                 }
+            }
+            // MRK-13: only in its micro-cell. It does not touch the lines or the other marks, and a
+            // peer has its digit, thus no mark shows under it (MRK-12).
+            if let Some(d) = refused {
+                let (cx, cy) = mark_anchor(xf, yf, d);
+                let h = REFUSED_X_HALF;
+                c.line(cx - h, cy - h, cx + h, cy + h, REFUSED_X_WIDTH, MARK_COLOR);
+                c.line(cx - h, cy + h, cx + h, cy - h, REFUSED_X_WIDTH, MARK_COLOR);
             }
         }
     }
@@ -983,20 +1019,20 @@ fn put_cached(c: &mut Canvas, key: TileKey, x: usize, y: usize, w: usize, h: usi
 /// cell, then the lines at its four sides. The text of a cell does not touch the lines, and the lines
 /// cover the edge pixels of the tile fully, thus the pixels are the same as a drawing of all cells,
 /// then all lines, then all text. The band around the cells has only lines on white.
-fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, highlight: Option<u8>, question: Option<crate::game::Cell>) {
+fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, overlays: BoardOverlays) {
     let (bx, by) = (board_x(), board_y());
     let Some(area) = board_area(c.pm) else {
         // Not on the screen: draw without the cache (this does not occur with the layouts).
         for cell in cells() {
             let (x, y) = cell_origin(cell);
-            draw_cell(c, cell_look(g, settings, highlight, question, cell), x as f32, y as f32);
+            draw_cell(c, cell_look(g, settings, overlays, cell), x as f32, y as f32);
         }
         board_lines(c, |_, _| true, None);
         return;
     };
     let fonts = c.fonts as *const Fonts as usize;
     let n = CELL as usize + 1;
-    let looks: Vec<_> = cells().map(|cell| (cell, cell_look(g, settings, highlight, question, cell))).collect();
+    let looks: Vec<_> = cells().map(|cell| (cell, cell_look(g, settings, overlays, cell))).collect();
     let key = |a: &Area, look| (fonts, bx, by, a.x0, a.y0, look);
     // The slots of the board: the cells (in the order of `cells`), then the band.
     let slots: Vec<(Area, TileKey)> = board_slots()
@@ -1144,13 +1180,13 @@ const MAX_TILES: usize = 256;
 const COLD_TILES: usize = 16;
 
 /// The look of a cell for the state of the game.
-fn cell_look(g: &Game, settings: &Settings, highlight: Option<u8>, question: Option<crate::game::Cell>, cell: crate::game::Cell) -> CellLook {
+fn cell_look(g: &Game, settings: &Settings, overlays: BoardOverlays, cell: crate::game::Cell) -> CellLook {
     let v = g.value_at(cell);
     if v != 0 {
         // BRD-7: the first rule that applies.
         let bg = if g.is_clashing(cell) {
             settings.color_clash.rgb()
-        } else if highlight == Some(v) {
+        } else if overlays.highlight == Some(v) {
             settings.color_highlight.rgb()
         } else if g.is_given(cell) {
             settings.color_starting.rgb()
@@ -1158,10 +1194,11 @@ fn cell_look(g: &Game, settings: &Settings, highlight: Option<u8>, question: Opt
             Color::White.rgb()
         };
         CellLook::Value(v, bg, if g.is_given(cell) { BLACK } else { gray(35) })
-    } else if question == Some(cell) {
+    } else if overlays.question == Some(cell) {
         CellLook::Question
     } else {
-        CellLook::Empty(g.visible_marks(cell, settings.auto_hide_on), line_rgb(settings.micro_line))
+        let refused = overlays.refused.filter(|&(x_cell, _)| x_cell == cell).map(|(_, digit)| digit);
+        CellLook::Empty(g.visible_marks(cell, settings.auto_hide_on), line_rgb(settings.micro_line), refused)
     }
 }
 
@@ -1790,16 +1827,19 @@ mod tests {
     #[test]
     fn the_board_in_stripes_is_the_same_as_the_board_in_one_drawing() {
         // `draw_board_stripes`: each thread draws a stripe of the board. All cell looks (numbers in
-        // all colors, the "?", pencil marks at all positions, the micro-cell lines) at all rows.
+        // all colors, the "?", pencil marks at all positions, the micro-cell lines, the x at all
+        // positions) at all rows.
         let fonts = Fonts::repo().unwrap();
-        // Each digit in each cell, then all pencil marks (with micro-cell lines), then "?".
-        for pattern in 0..11 {
+        // Each digit in each cell, then all pencil marks (with micro-cell lines), then the x with no
+        // marks and no lines, then "?".
+        for pattern in 0..12 {
             let looks: Vec<_> = cells()
                 .map(|cell| {
                     let k = (cell.0 * 9 + cell.1) as usize;
                     let look = match pattern {
                         0..=8 => CellLook::Value(((k + pattern) % 9) as u8 + 1, if k.is_multiple_of(2) { WHITE } else { gray(90) }, BLACK),
-                        9 => CellLook::Empty(0x1FF, Some(gray(50))),
+                        9 => CellLook::Empty(0x1FF, Some(gray(50)), None),
+                        10 => CellLook::Empty(0, None, Some((k % 9) as u8 + 1)),
                         _ => CellLook::Question,
                     };
                     (cell, look)

@@ -418,7 +418,9 @@ fn each_cell_is_one_of_four_types() {
     d.button(Button::Redo);
     assert_cell_types(&d.app.game, "redo");
     d.button(Button::Menu);
-    d.tap_micro(empties[2], 9);
+    let mark = (1..=9).find(|&v| d.app.game.peer_digits(empties[2]) & sudoku::game::mark_bit(v) == 0).unwrap();
+    d.tap_micro(empties[2], mark);
+    assert_eq!(kind(&d.app.game, empties[2]), Some(Kind::EmptyWithMarks), "MRK-7: no peer has the digit");
     assert_cell_types(&d.app.game, "a mark after redo");
 
     let dir = std::env::temp_dir().join(format!("sudoku-inv-puzzle-{}", std::process::id()));

@@ -60,8 +60,8 @@ fn starting_numbers_do_not_change() {
 
 #[test]
 fn a_tap_on_a_digit_of_a_peer_has_no_effect() {
-    // MRK-7: the mark would be hidden, thus the tap does not change the marks. With the switch off,
-    // the tap adds the mark.
+    // MRK-7, MRK-10: the mark would be hidden, thus the tap does not change the marks, and the x
+    // shows. With the switch off, the tap adds the mark, and no x shows.
     let mut d = Driver::new(32);
     let given = cells().find(|&c| d.app.game.is_given(c)).unwrap();
     let v = d.app.game.value_at(given);
@@ -69,9 +69,12 @@ fn a_tap_on_a_digit_of_a_peer_has_no_effect() {
     d.tap_micro(cell, v);
     assert_eq!(d.app.game.marks_at(cell) & mark_bit(v), 0);
     assert!(d.app.game.undo.is_empty());
+    assert_eq!(d.app.ui.refused, Some((cell, v, d.now)), "MRK-10");
+    d.wait(sudoku::app::OVERLAY_MS);
     d.app.settings.auto_hide_on = false;
     d.tap_micro(cell, v);
     assert_ne!(d.app.game.visible_marks(cell, false) & mark_bit(v), 0);
+    assert_eq!(d.app.ui.refused, None, "MRK-7");
 }
 
 #[test]

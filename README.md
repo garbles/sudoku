@@ -13,7 +13,9 @@ paper, and it does the work that paper cannot do.
 
 - Write a digit from 1 to 9 in a cell. The app reads your handwriting after a short pause.
 - Tap a micro-cell to add or remove a pencil mark. A digit that the same row, column or box already
-  has does not show, and a tap on it has no effect.
+  has does not show. A tap on it does not change the game, and a small x shows in that micro-cell
+  for a moment. If you turn the pencil mark hiding off, the tap adds or removes the mark, and no x
+  shows.
 - Rub one of your numbers with the eraser end of the pen to remove it.
 - Your finger operates the menu and the panels. A finger touch on the board does not add or remove
   a number or a pencil mark.
