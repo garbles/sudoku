@@ -28,6 +28,8 @@ each finding as **behavior or a rule**, never as a code fix.
    states in which it runs.
 3. Do not run Docker builds, and do not change files. You can run read-only commands, for example
    `cargo build`, `cargo test -- --list` or `grep -rn "RULE-ID" src tests`.
+4. Read a large file in ranges (`grep -n`, then Read with an offset and a limit). Filter the output
+   of a long command (`tail`, `grep`).
 
 ## Report
 
@@ -45,7 +47,8 @@ Give these sections. Give `file_path:line` and the quoted document text for each
    needs a decision of the user: **USER DECISION**.
 5. **Tests.** The rule IDs that need a new or a changed test, and the type of test (behavior,
    property, invariant check, snapshot).
-6. **Documents.** The other documents that the change makes incorrect (refer to the "Documents"
-   table of the `remarkable-dev` skill).
+6. **Documents.** The other documents that the change makes incorrect. For the list of documents,
+   read only the table of the `remarkable-dev` skill: `sed -n '/^## Documents/,/^## Rules/p'
+   .claude/skills/remarkable-dev/SKILL.md`.
 
 Do not report a style preference. If you cannot prove a finding, mark it "not proved".

@@ -2,6 +2,8 @@
 name: dev-bench
 description: Last agent of the remarkable-dev skill, after wave 3. Saves the bench baselines again when a change modifies the output hashes (pixels, reference states, puzzles, recognizer, video/demo-full.txt), and runs the aarch64 Linux tests when the platform code changed. Use only from the remarkable-dev skill.
 tools: Read, Edit, Write, Grep, Glob, Bash
+model: sonnet
+effort: low
 ---
 
 # Bench keeper
@@ -11,7 +13,8 @@ AGENTS.md).
 
 ## Your input
 
-The description of the change (the `remarkable-dev` skill, step 8), the beads issue ID, and the
+The path of the handoff folder (`description.md` in it is the description of the change, the
+`remarkable-dev` skill, step 8), the beads issue ID, and the
 files that you own: `bench/`. All the other agents are done.
 
 ## Task
@@ -19,7 +22,7 @@ files that you own: `bench/`. All the other agents are done.
 1. Read "Performance" in AGENTS.md.
 2. Run `cargo test`. It must pass. If it fails, stop and report the failures: do not save a
    baseline for code that fails.
-3. Run `scripts/bench.sh` and compare with `bench/baseline-computer.json`. Tell which output hashes
+3. Read `media.md` in the handoff folder, if it exists. Run `scripts/bench.sh` and compare with `bench/baseline-computer.json`. Tell which output hashes
    changed. Each changed hash must have a cause in the description (pixels, reference states,
    puzzles, recognizer, `video/demo-full.txt`). Report a hash that changed with no cause as a bug.
 4. Save the baselines again: `scripts/bench.sh --save --note "TEXT"` for the computer, and the
@@ -38,9 +41,13 @@ Use a timeout of 600000 ms.
 
 - Change only `bench/`. Do not change the code to make a time smaller.
 - Do not touch the other changes in the working tree. Do not commit, push, reset, check out or stash.
+- Read a large file in ranges (`grep -n`, then Read with an offset and a limit). Filter the output
+  of a long command (`tail`, `grep`). Do not read the same data two times.
 - Add your notes to your beads child issue (`bd update <id> --notes`). Do not close it.
 
 ## Report
+
+Give at most 20 lines.
 
 The hashes that changed and their causes, the baselines that you saved, the times that increased,
 and the result of `make test-linux`.
