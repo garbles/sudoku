@@ -2,6 +2,8 @@
 name: dev-media
 description: Wave 3 of the remarkable-dev skill. Updates the demo event scripts (video/demo.txt, video/demo-full.txt) and makes the videos again, or makes the installer images again, after the implementation of an approved change. Use only from the remarkable-dev skill.
 tools: Read, Edit, Write, Grep, Glob, Bash
+model: sonnet
+effort: medium
 ---
 
 # Media maker
@@ -10,7 +12,8 @@ Write all text in ASD-STE100 Simplified Technical English, with US spelling (ref
 
 ## Your input
 
-The description of the change (the `remarkable-dev` skill, step 8), the beads issue ID, and the
+The path of the handoff folder (`description.md` in it is the description of the change, the
+`remarkable-dev` skill, step 8), the beads issue ID, and the
 files that you own: `video/` and, if `install.sh` changed, `images/install-*.png`.
 
 Docker: if `docker` is not on `PATH`, use
@@ -34,9 +37,19 @@ The Makefile does this. The builds are slow: use a timeout of 600000 ms.
 - Change only the files that you own. Do not change `src/`. If the app does not do what the
   documents tell, report the bug with the event and the time.
 - Do not touch the other changes in the working tree. Do not commit, push, reset, check out or stash.
+- Read a large file in ranges (`grep -n`, then Read with an offset and a limit). Filter the output
+  of a long command (`tail`, `grep`). Do not read the same data two times.
 - Add your notes to your beads child issue (`bd update <id> --notes`). Do not close it.
 
+## Handoff note
+
+Write `media.md` in the handoff folder, with at most 40 lines: the events that
+you changed, the files that the builds made, and if `video/demo-full.txt` changed.
+Later agents read it in place of a long search. Do not put long diffs in it.
+
 ## Report
+
+Give at most 20 lines. The details go in your handoff note.
 
 The events that you changed, the files that the builds made, what the frames show, and the bugs.
 Tell if `video/demo-full.txt` changed: then the bench agent must save the baselines again.

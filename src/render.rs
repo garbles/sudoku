@@ -1246,10 +1246,7 @@ fn slider(c: &mut Canvas, stops: &[f32; STOPS as usize], y: f32, level: u8) {
 /// The open menu (toolbar.sh).
 fn draw_toolbar(c: &mut Canvas, app: &App, panel: Option<Panel>) {
     // The close button (top left, or top right for a right-handed player).
-    let (cx, cy) = (close_cx(), CLOSE_CY);
-    c.circle(cx, cy, 17.5, None, Some((BLACK, 3.0)));
-    c.line(cx - 5.5, cy - 5.5, cx + 5.5, cy + 5.5, 3.0, BLACK);
-    c.line(cx + 5.5, cy - 5.5, cx - 5.5, cy + 5.5, 3.0, BLACK);
+    Icon::Close.draw(c, close_cx(), CLOSE_CY, BLACK);
 
     // A panel button is white on black while its panel is open (NAV-8).
     let colors_active = panel == Some(Panel::Colors);
@@ -1261,67 +1258,26 @@ fn draw_toolbar(c: &mut Canvas, app: &App, panel: Option<Panel>) {
     if settings_active {
         active_slot(c, 2 * TB_SLOT);
     }
-    gear(c, tb_cx(), tb_cy(2), if settings_active { WHITE } else { BLACK });
+    Icon::Gear.draw(c, tb_cx(), tb_cy(2), if settings_active { WHITE } else { BLACK });
     if app.update.caution() {
-        caution(c, tb_cx() + 16.0, tb_cy(2) - 16.0);
+        Icon::Caution.draw(c, tb_cx() + 16.0, tb_cy(2) - 16.0, WHITE);
     }
     if plus_active {
         active_slot(c, tb_bottom_y());
     }
 
-    // Cell colors: a paint bucket.
-    let line = if colors_active { WHITE } else { BLACK };
-    let tf = Transform::from_translate(tb_cx(), tb_cy(1));
-    let mut pb = PathBuilder::new();
-    pb.move_to(-18.0, 1.0);
-    pb.line_to(-3.0, -14.0);
-    pb.line_to(12.0, 1.0);
-    pb.line_to(-3.0, 16.0);
-    pb.close();
-    pb.move_to(-18.0, 1.0);
-    pb.line_to(12.0, 1.0);
-    pb.move_to(-10.0, -7.0);
-    pb.line_to(-15.0, -12.0);
-    pb.cubic_to(-17.0, -14.0, -15.0, -18.0, -12.0, -17.0);
-    pb.line_to(-5.0, -12.0);
-    c.path_stroke(pb, tf, 3.0, line);
-    let mut pb = PathBuilder::new();
-    pb.move_to(16.0, 3.0);
-    pb.cubic_to(16.0, 3.0, 21.0, 10.0, 21.0, 13.0);
-    pb.cubic_to(21.0, 16.0, 18.8, 18.0, 16.0, 18.0);
-    pb.cubic_to(13.2, 18.0, 11.0, 16.0, 11.0, 13.0);
-    pb.cubic_to(11.0, 10.0, 16.0, 3.0, 16.0, 3.0);
-    pb.close();
-    c.path_fill(pb, tf, line);
+    Icon::PaintBucket.draw(c, tb_cx(), tb_cy(1), if colors_active { WHITE } else { BLACK });
 
     // Undo and redo: black when available, gray when not (UND-7, UND-8).
-    for (k, available) in [(3, app.game.can_undo()), (4, app.game.can_redo())] {
-        let sx = if k == 4 { -1.0 } else { 1.0 };
-        let tf = Transform::from_row(sx, 0.0, 0.0, 1.0, tb_cx(), tb_cy(k));
-        let col = if available { BLACK } else { gray(70) };
-        let mut pb = PathBuilder::new();
-        pb.move_to(-18.0, -4.0);
-        pb.line_to(3.0, -4.0);
-        pb.cubic_to(13.0, -4.0, 19.0, 4.0, 19.0, 15.0);
-        pb.move_to(-10.0, -12.0);
-        pb.line_to(-18.0, -4.0);
-        pb.line_to(-10.0, 4.0);
-        c.path_stroke(pb, tf, 3.0, col);
+    for (icon, k, available) in [(Icon::Undo, 3, app.game.can_undo()), (Icon::Redo, 4, app.game.can_redo())] {
+        icon.draw(c, tb_cx(), tb_cy(k), if available { BLACK } else { gray(70) });
     }
 
     // + (new game), Analytics and Help at the bottom.
-    let cy = (tb_bottom_y() + 56) as f32;
-    let fg = if plus_active { WHITE } else { BLACK };
     let x = tb_cx();
-    c.line(x - 18.0, cy, x + 18.0, cy, 3.0, fg);
-    c.line(tb_cx(), cy - 18.0, tb_cx(), cy + 18.0, 3.0, fg);
-    let ay = (tb_bottom_y() - 56) as f32;
-    c.polyline(&[(x - 18.0, ay - 18.0), (x - 18.0, ay + 18.0), (x + 18.0, ay + 18.0)], 3.0, BLACK, true);
-    c.polyline(&[(x - 12.0, ay + 8.0), (x - 4.0, ay - 2.0), (x + 3.0, ay + 4.0), (x + 15.0, ay - 12.0)], 3.0, BLACK, true);
-    let hy = (tb_bottom_y() - 168) as f32;
-    c.circle(tb_cx(), hy, 19.0, None, Some((BLACK, 3.0)));
-    c.text(Weight::Medium, 26.0, tb_cx(), hy + 9.0, Anchor::Middle, "?", BLACK);
-
+    Icon::Plus.draw(c, x, (tb_bottom_y() + 56) as f32, if plus_active { WHITE } else { BLACK });
+    Icon::Statistics.draw(c, x, (tb_bottom_y() - 56) as f32, BLACK);
+    Icon::Help.draw(c, x, (tb_bottom_y() - 168) as f32, BLACK);
 }
 
 /// The open panel of the menu.
@@ -1347,24 +1303,6 @@ fn panel_frame(c: &mut Canvas, pl: i32, pr: i32, top: i32, bot: i32) {
     if bot < screen_h() as f32 {
         c.rect(pl, bot - 1.0, pr, bot, BLACK);
     }
-}
-
-/// Settings (slot 2): a gear with eight teeth (scripts/toolbar.sh `gear_icon`).
-fn gear(c: &mut Canvas, cx: f32, cy: f32, col: Rgb) {
-    c.circle(cx, cy, 11.0, None, Some((col, 3.0)));
-    c.circle(cx, cy, 4.5, None, Some((col, 3.0)));
-    for k in 0..8 {
-        let a = (k as f32 * 45.0).to_radians();
-        let (s, co) = a.sin_cos();
-        c.line_butt(cx + 11.0 * co, cy + 11.0 * s, cx + 17.0 * co, cy + 17.0 * s, 6.0, col);
-    }
-}
-
-/// The red caution icon at the top right of the gear (REQUIREMENTS.md §9.2), with its center at (x, y).
-fn caution(c: &mut Canvas, x: f32, y: f32) {
-    c.circle(x, y, 10.0, Some(CAUTION_RED), Some((WHITE, 3.0)));
-    c.line(x, y - 6.0, x, y + 1.5, 3.0, WHITE);
-    c.circle(x, y + 5.5, 1.6, Some(WHITE), None);
 }
 
 /// The Settings panel (REQUIREMENTS.md §9.1): one row with a name and a switch for each `Switch`, the version, and the
@@ -1407,43 +1345,12 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
         c.rect(x0, y0, x0 + 1.0, y1, BLACK);
         c.rect(x1 - 1.0, y0, x1, y1, BLACK);
         let (ix, cy) = (x0 + 40.0, (r.y0 + 56) as f32);
-        match button {
-            UpdateButton::Install(_) => {
-                // A down arrow into a tray.
-                c.line(ix, cy - 13.0, ix, cy + 5.0, 3.0, BLACK);
-                c.polyline(&[(ix - 8.0, cy - 3.0), (ix, cy + 5.0), (ix + 8.0, cy - 3.0)], 3.0, BLACK, true);
-                c.polyline(&[(ix - 13.0, cy + 3.0), (ix - 13.0, cy + 13.0), (ix + 13.0, cy + 13.0), (ix + 13.0, cy + 3.0)], 3.0, BLACK, true);
-            }
-            UpdateButton::Check => {
-                // A circular arrow: an arc (radius 12 px) clockwise from the right (0 degrees) through
-                // the bottom and the top to 255 degrees, then a gap, and an arrow head on the circle at
-                // 330 degrees. The head points clockwise along the circle: two 8 px strokes, 45 degrees
-                // to each side of the line back from its tip.
-                let arc: Vec<(f32, f32)> = (0..=17)
-                    .map(|k| {
-                        let a = (15.0 * k as f32).to_radians();
-                        (ix + 12.0 * a.cos(), cy + 12.0 * a.sin())
-                    })
-                    .collect();
-                c.polyline(&arc, 3.0, BLACK, true);
-                let t = 330f32.to_radians();
-                let (ex, ey) = (ix + 12.0 * t.cos(), cy + 12.0 * t.sin());
-                let wing = |deg: f32| (ex + 8.0 * deg.to_radians().cos(), ey + 8.0 * deg.to_radians().sin());
-                c.polyline(&[wing(195.0), (ex, ey), wing(285.0)], 3.0, BLACK, true);
-            }
-            UpdateButton::Restart => {
-                // A power symbol: an arc (radius 12 px) clockwise from 300 to 600 (240) degrees, with
-                // the gap at the top, and a line from 15 px to 3 px above the center.
-                let arc: Vec<(f32, f32)> = (0..=20)
-                    .map(|k| {
-                        let a = (300.0 + 15.0 * k as f32).to_radians();
-                        (ix + 12.0 * a.cos(), cy + 12.0 * a.sin())
-                    })
-                    .collect();
-                c.polyline(&arc, 3.0, BLACK, true);
-                c.polyline(&[(ix, cy - 15.0), (ix, cy - 3.0)], 3.0, BLACK, true);
-            }
-        }
+        let icon = match button {
+            UpdateButton::Install(_) => Icon::Install,
+            UpdateButton::Check => Icon::CheckForUpdate,
+            UpdateButton::Restart => Icon::Restart,
+        };
+        icon.draw(c, ix, cy, BLACK);
         c.text(Weight::Medium, 25.0, x0 + 72.0, cy + 9.0, Anchor::Start, button.text(), BLACK);
     }
 }
@@ -1645,7 +1552,7 @@ fn meter(c: &mut Canvas, xa: f32, y: f32, step: f32, level: u8, style: MeterStyl
 
 /// "< Back", the title and the page arrows.
 fn chrome(c: &mut Canvas, title: &str, page: Option<(usize, usize)>) {
-    c.polyline(&[(48.0, 37.0), (38.0, 48.0), (48.0, 59.0)], 3.0, BLACK, true);
+    Icon::Back.draw(c, 43.0, 48.0, BLACK);
     c.text(Weight::Medium, 22.0, 66.0, 56.0, Anchor::Start, "Back", BLACK);
     c.text(Weight::Medium, 84.0, 72.0, 170.0, Anchor::Start, title, BLACK);
     if let Some((n, total)) = page {
@@ -1653,8 +1560,8 @@ fn chrome(c: &mut Canvas, title: &str, page: Option<(usize, usize)>) {
         c.text(Weight::Regular, 28.0, cx, ny, Anchor::Middle, &format!("{n} / {total}"), gray(50));
         let prev = if n == 1 { gray(80) } else { BLACK };
         let next = if n == total { gray(80) } else { BLACK };
-        c.polyline(&[(cx - 74.0, ny - 20.0), (cx - 84.0, ny - 10.0), (cx - 74.0, ny)], 3.0, prev, true);
-        c.polyline(&[(cx + 74.0, ny - 20.0), (cx + 84.0, ny - 10.0), (cx + 74.0, ny)], 3.0, next, true);
+        Icon::PagePrevious.draw(c, cx - 79.0, ny - 10.0, prev);
+        Icon::PageNext.draw(c, cx + 79.0, ny - 10.0, next);
     }
 }
 
@@ -1706,12 +1613,12 @@ fn draw_summary(c: &mut Canvas, results: &[ResultRow], confirm_all: bool) {
     c.stroke_rect(72.0, y, all_right, y + ROW, 1.7, BLACK);
     let mid = y + (ROW / 2.0).floor();
     c.text(Weight::Medium, 34.0, 102.0, mid + 12.0, Anchor::Start, "All completed games", BLACK);
-    c.polyline(&[(all_right - 40.0, mid - 12.0), (all_right - 28.0, mid), (all_right - 40.0, mid + 12.0)], 3.0, BLACK, true);
+    Icon::OpenList.draw(c, all_right - 34.0, mid, BLACK);
     // "Delete all games": gray, with no effect, if there are no results (ANA-12).
     let col = if results.is_empty() { gray(70) } else { BLACK };
     let x0 = right - DELETE_ALL_W;
     c.stroke_rect(x0, y, right, y + ROW, 1.7, col);
-    bin(c, x0 + 50.0, mid, col);
+    Icon::Bin.draw(c, x0 + 50.0, mid, col);
     c.text(Weight::Medium, 34.0, x0 + 90.0, mid + 12.0, Anchor::Start, "Delete all games", col);
     if confirm_all {
         let n = results.len();
@@ -1819,7 +1726,7 @@ fn draw_list(c: &mut Canvas, app: &App) {
             c.text(Weight::Regular, 34.0, x, cy + 12.0, Anchor::Start, &date, BLACK);
             meter(c, x + meter_dx, cy, METER_STEP, r.mode, MeterStyle::ON_WHITE);
             c.text(Weight::Regular, 34.0, x + time_dx, cy + 12.0, Anchor::End, &clock, BLACK);
-            bin(c, x + bin_dx, cy, BLACK);
+            Icon::Bin.draw(c, x + bin_dx, cy, BLACK);
         });
         hline(c, y + ROW, x, x + w);
     }
@@ -1829,14 +1736,192 @@ fn draw_list(c: &mut Canvas, app: &App) {
     }
 }
 
-/// The bin icon of a delete button, with its center at (bx, cy).
-fn bin(c: &mut Canvas, bx: f32, cy: f32, col: Rgb) {
-    let w = 2.6;
-    c.line(bx - 14.0, cy - 11.0, bx + 14.0, cy - 11.0, w, col);
-    c.polyline(&[(bx - 5.0, cy - 11.0), (bx - 5.0, cy - 15.0), (bx + 5.0, cy - 15.0), (bx + 5.0, cy - 11.0)], w, col, true);
-    c.polyline(&[(bx - 10.0, cy - 11.0), (bx - 8.0, cy + 15.0), (bx + 8.0, cy + 15.0), (bx + 10.0, cy - 11.0)], w, col, true);
-    c.line(bx - 3.0, cy - 5.0, bx - 3.0, cy + 9.0, w, col);
-    c.line(bx + 3.0, cy - 5.0, bx + 3.0, cy + 9.0, w, col);
+// ---- Icons
+
+/// An icon of the app. The app and the icon sheet of the snapshot tool (`reference::icon_sheet`) use
+/// `Icon::draw`, thus the sheet shows the same icons as the app. Only the menu button of the game
+/// screen draws its image directly, because the image can be a mirror image.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Icon {
+    MenuClosed,
+    MenuOpen,
+    Close,
+    PaintBucket,
+    Gear,
+    Caution,
+    Undo,
+    Redo,
+    Help,
+    Statistics,
+    Plus,
+    Install,
+    CheckForUpdate,
+    Restart,
+    Back,
+    PagePrevious,
+    PageNext,
+    OpenList,
+    Bin,
+}
+
+impl Icon {
+    pub const ALL: [Icon; 19] = [
+        Icon::MenuClosed,
+        Icon::MenuOpen,
+        Icon::Close,
+        Icon::PaintBucket,
+        Icon::Gear,
+        Icon::Caution,
+        Icon::Undo,
+        Icon::Redo,
+        Icon::Help,
+        Icon::Statistics,
+        Icon::Plus,
+        Icon::Install,
+        Icon::CheckForUpdate,
+        Icon::Restart,
+        Icon::Back,
+        Icon::PagePrevious,
+        Icon::PageNext,
+        Icon::OpenList,
+        Icon::Bin,
+    ];
+
+    /// True if the app draws the icon in page units (the manual and the analytics pages), not in
+    /// screen pixels.
+    pub fn on_page(self) -> bool {
+        matches!(self, Icon::Back | Icon::PagePrevious | Icon::PageNext | Icon::OpenList | Icon::Bin)
+    }
+
+    /// Draws the icon with its center at (cx, cy). The menu icons are images: they do not use `col`.
+    /// The caution icon uses `col` for its border and its mark.
+    pub fn draw(self, c: &mut Canvas, cx: f32, cy: f32, col: Rgb) {
+        match self {
+            Icon::MenuClosed | Icon::MenuOpen => {
+                let img = toggle_icon(self == Icon::MenuOpen);
+                c.image(img, cx as i32 - img.width() as i32 / 2, cy as i32 - img.height() as i32 / 2, false);
+            }
+            Icon::Close => {
+                c.circle(cx, cy, 17.5, None, Some((col, 3.0)));
+                c.line(cx - 5.5, cy - 5.5, cx + 5.5, cy + 5.5, 3.0, col);
+                c.line(cx + 5.5, cy - 5.5, cx - 5.5, cy + 5.5, 3.0, col);
+            }
+            Icon::PaintBucket => {
+                let tf = Transform::from_translate(cx, cy);
+                let mut pb = PathBuilder::new();
+                pb.move_to(-18.0, 1.0);
+                pb.line_to(-3.0, -14.0);
+                pb.line_to(12.0, 1.0);
+                pb.line_to(-3.0, 16.0);
+                pb.close();
+                pb.move_to(-18.0, 1.0);
+                pb.line_to(12.0, 1.0);
+                pb.move_to(-10.0, -7.0);
+                pb.line_to(-15.0, -12.0);
+                pb.cubic_to(-17.0, -14.0, -15.0, -18.0, -12.0, -17.0);
+                pb.line_to(-5.0, -12.0);
+                c.path_stroke(pb, tf, 3.0, col);
+                let mut pb = PathBuilder::new();
+                pb.move_to(16.0, 3.0);
+                pb.cubic_to(16.0, 3.0, 21.0, 10.0, 21.0, 13.0);
+                pb.cubic_to(21.0, 16.0, 18.8, 18.0, 16.0, 18.0);
+                pb.cubic_to(13.2, 18.0, 11.0, 16.0, 11.0, 13.0);
+                pb.cubic_to(11.0, 10.0, 16.0, 3.0, 16.0, 3.0);
+                pb.close();
+                c.path_fill(pb, tf, col);
+            }
+            // A gear with eight teeth (scripts/toolbar.sh `gear_icon`).
+            Icon::Gear => {
+                c.circle(cx, cy, 11.0, None, Some((col, 3.0)));
+                c.circle(cx, cy, 4.5, None, Some((col, 3.0)));
+                for k in 0..8 {
+                    let a = (k as f32 * 45.0).to_radians();
+                    let (s, co) = a.sin_cos();
+                    c.line_butt(cx + 11.0 * co, cy + 11.0 * s, cx + 17.0 * co, cy + 17.0 * s, 6.0, col);
+                }
+            }
+            // The red caution icon at the top right of the gear (REQUIREMENTS.md §9.2).
+            Icon::Caution => {
+                c.circle(cx, cy, 10.0, Some(CAUTION_RED), Some((col, 3.0)));
+                c.line(cx, cy - 6.0, cx, cy + 1.5, 3.0, col);
+                c.circle(cx, cy + 5.5, 1.6, Some(col), None);
+            }
+            Icon::Undo | Icon::Redo => {
+                let sx = if self == Icon::Redo { -1.0 } else { 1.0 };
+                let tf = Transform::from_row(sx, 0.0, 0.0, 1.0, cx, cy);
+                let mut pb = PathBuilder::new();
+                pb.move_to(-18.0, -4.0);
+                pb.line_to(3.0, -4.0);
+                pb.cubic_to(13.0, -4.0, 19.0, 4.0, 19.0, 15.0);
+                pb.move_to(-10.0, -12.0);
+                pb.line_to(-18.0, -4.0);
+                pb.line_to(-10.0, 4.0);
+                c.path_stroke(pb, tf, 3.0, col);
+            }
+            Icon::Help => {
+                c.circle(cx, cy, 19.0, None, Some((col, 3.0)));
+                c.text(Weight::Medium, 26.0, cx, cy + 9.0, Anchor::Middle, "?", col);
+            }
+            // A line graph on axes.
+            Icon::Statistics => {
+                c.polyline(&[(cx - 18.0, cy - 18.0), (cx - 18.0, cy + 18.0), (cx + 18.0, cy + 18.0)], 3.0, col, true);
+                c.polyline(&[(cx - 12.0, cy + 8.0), (cx - 4.0, cy - 2.0), (cx + 3.0, cy + 4.0), (cx + 15.0, cy - 12.0)], 3.0, col, true);
+            }
+            Icon::Plus => {
+                c.line(cx - 18.0, cy, cx + 18.0, cy, 3.0, col);
+                c.line(cx, cy - 18.0, cx, cy + 18.0, 3.0, col);
+            }
+            // A down arrow into a tray.
+            Icon::Install => {
+                c.line(cx, cy - 13.0, cx, cy + 5.0, 3.0, col);
+                c.polyline(&[(cx - 8.0, cy - 3.0), (cx, cy + 5.0), (cx + 8.0, cy - 3.0)], 3.0, col, true);
+                c.polyline(&[(cx - 13.0, cy + 3.0), (cx - 13.0, cy + 13.0), (cx + 13.0, cy + 13.0), (cx + 13.0, cy + 3.0)], 3.0, col, true);
+            }
+            // A circular arrow: an arc (radius 12 px) clockwise from 330 degrees (the upper right)
+            // through the bottom and the left to the top (630 degrees), with the gap at the upper
+            // right. A short straight line continues the arc to the tip of the arrow head, 5 px to
+            // the right of the top. The head points to the right: two 7 px strokes, 45 degrees to
+            // each side of the line back from its tip.
+            Icon::CheckForUpdate => {
+                let mut arc: Vec<(f32, f32)> = (0..=20)
+                    .map(|k| {
+                        let a = (330.0 + 15.0 * k as f32).to_radians();
+                        (cx + 12.0 * a.cos(), cy + 12.0 * a.sin())
+                    })
+                    .collect();
+                let (ex, ey) = (cx + 5.0, arc[arc.len() - 1].1);
+                arc.push((ex, ey));
+                c.polyline(&arc, 3.0, col, true);
+                let wing = |deg: f32| (ex + 7.0 * deg.to_radians().cos(), ey + 7.0 * deg.to_radians().sin());
+                c.polyline(&[wing(225.0), (ex, ey), wing(135.0)], 3.0, col, true);
+            }
+            // A power symbol: an arc (radius 12 px) clockwise from 300 to 600 (240) degrees, with
+            // the gap at the top, and a line from 15 px to 3 px above the center.
+            Icon::Restart => {
+                let arc: Vec<(f32, f32)> = (0..=20)
+                    .map(|k| {
+                        let a = (300.0 + 15.0 * k as f32).to_radians();
+                        (cx + 12.0 * a.cos(), cy + 12.0 * a.sin())
+                    })
+                    .collect();
+                c.polyline(&arc, 3.0, col, true);
+                c.polyline(&[(cx, cy - 15.0), (cx, cy - 3.0)], 3.0, col, true);
+            }
+            Icon::Back => c.polyline(&[(cx + 5.0, cy - 11.0), (cx - 5.0, cy), (cx + 5.0, cy + 11.0)], 3.0, col, true),
+            Icon::PagePrevious => c.polyline(&[(cx + 5.0, cy - 10.0), (cx - 5.0, cy), (cx + 5.0, cy + 10.0)], 3.0, col, true),
+            Icon::PageNext => c.polyline(&[(cx - 5.0, cy - 10.0), (cx + 5.0, cy), (cx - 5.0, cy + 10.0)], 3.0, col, true),
+            Icon::OpenList => c.polyline(&[(cx - 6.0, cy - 12.0), (cx + 6.0, cy), (cx - 6.0, cy + 12.0)], 3.0, col, true),
+            // The bin of a delete button.
+            Icon::Bin => {
+                let w = 2.6;
+                c.line(cx - 14.0, cy - 11.0, cx + 14.0, cy - 11.0, w, col);
+                c.polyline(&[(cx - 5.0, cy - 11.0), (cx - 5.0, cy - 15.0), (cx + 5.0, cy - 15.0), (cx + 5.0, cy - 11.0)], w, col, true);
+                c.polyline(&[(cx - 10.0, cy - 11.0), (cx - 8.0, cy + 15.0), (cx + 8.0, cy + 15.0), (cx + 10.0, cy - 11.0)], w, col, true);
+                c.line(cx - 3.0, cy - 5.0, cx - 3.0, cy + 9.0, w, col);
+                c.line(cx + 3.0, cy - 5.0, cx + 3.0, cy + 9.0, w, col);
+            }
+        }
+    }
 }
 
 /// The RGB value of one pixel of an opaque pixmap.

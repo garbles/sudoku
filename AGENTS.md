@@ -23,13 +23,13 @@ All tests run on the computer. `Dockerfile.test` runs them again on aarch64 Linu
 | `Dockerfile`           | The static aarch64 build `dist/sudoku/`. No tests.                      |
 | `Dockerfile.dev`       | The fast development build of `dist/sudoku/`. No tests. Not for release |
 | `Dockerfile.test`      | All tests on aarch64 Linux: the stages `release` and `debug` (parallel) |
-| `Dockerfile.images`    | The design images `images/*.png` (not `install-*.png`) and the icon     |
+| `Dockerfile.images`    | The design images `images/*.png` (not `install-*.png`), the icon and the icon sheet `images/icons.png` |
 | `Dockerfile.installer` | The installer images `images/install-*.png`                             |
 | `Dockerfile.video`     | The demo videos in `video/`                                             |
 
 ```bash
 cargo test                                   # all tests on the computer (macOS or Linux)
-cargo run --release --bin snapshot -- DIR    # draw the reference states and compare them with images/
+cargo run --release --bin snapshot -- DIR    # draw the reference states and the icon sheet, and compare them with images/
 cargo run --release --bin video -- video/demo.txt video/demo.mp4   # demo video from an event script (ffmpeg)
 cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4   # extended demo video for the website
 scripts/bench.sh                             # performance bench: compare with bench/baseline-computer.json
@@ -206,7 +206,10 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `update.rs`: the update state, the signed `version.json` and the installation of a release
   archive. No network: `platform/` downloads the files on a background thread (ureq, rustls).
 - `platform/`: Linux only. The qtfb client, the eraser state (evdev) and the main loop.
-- `reference.rs`: the states of the images in `images/`, for the snapshot tool and `tests/render.rs`.
+- `reference.rs`: the states of the images in `images/`, for the snapshot tool and `tests/render.rs`,
+  and the icon sheet `images/icons.png`. The sheet draws each `render::Icon` with the same code as
+  the app. When you add an icon, add it to `Icon` and to `Icon::ALL`. When you change an icon, run
+  `make media-images` and commit the result.
 - `appload/sudoku/sudoku-penregion.qmd` (not in `src/`): the ink patch, a QML patch of AppLoad that
   gives the cell of the ink the fast pen waveform (REQUIREMENTS.md §14.4). It uses names of xochitl
   and AppLoad: examine it after an update of the tablet software or of AppLoad (`remarkable-debug` skill).

@@ -122,8 +122,9 @@ revert", do step 9 of the full track (revert), close the issue with a reason, an
    scripts if a manual page tells about or shows the change. The video event scripts if the demo
    shows the change, or if an event misses its target now (change the first part of
    `video/demo-full.txt` also).
-3. Build the media group that changed: `make media-images` or `make media-video`. Read the new
-   images or some frames of the video. They must show the approved result. If they do not, change
+3. Build the media group that changed: `make media-images` or `make media-video`. Read a crop of
+   the changed area of the new images (`magick IMAGE -crop WxH+X+Y +repage SCRATCH/crop.png`), or
+   some frames of the video. They must show the approved result. If they do not, change
    the scripts and build again.
 4. Add or change the tests and the reference states (`src/reference.rs`, `tests/render.rs`) if the
    behavior or the pixels changed. Write each test from REQUIREMENTS.md and INVARIANTS.md, not
@@ -228,8 +229,8 @@ step 8.
 
 ## Full track: phase 2 (implementation)
 
-8. **Write the description of the change.** Write it to `SCRATCH/dev-change-<id>.md` and copy it to
-   the design field of the issue (`bd update <id> --design`). The description tells **what** the
+8. **Write the description of the change.** Write it to `SCRATCH/dev-<id>/description.md` and copy
+   it to the design field of the issue (`bd update <id> --design`). The description tells **what** the
    user sees and what the app does, not **how** the prototype does it. Do not put code, diffs, function names or the
    names of variables in it. It must contain:
 
@@ -264,9 +265,19 @@ step 8.
    `.claude/agents/` (the table in "Agents" below), not `fork`: the agents must work from the
    description, not from the prototype. The definition of each agent type gives its task and its
    rules (STE, only its own files, no commit, no push, no change to the other changes in the
-   working tree, report the problems in other files). In the prompt, give the full text of the
-   description, the ID of its beads child issue and the files that it owns. Make one beads child
-   issue for each agent (`bd create --parent=<id>`).
+   working tree, report the problems in other files). In the prompt, give the absolute path of the
+   handoff folder, the ID of its beads child issue and the files that it owns. Do not copy the
+   description into the prompt. Make one beads child issue for each agent (`bd create
+   --parent=<id>`).
+
+   The handoff folder is `SCRATCH/dev-<id>/`. It lets the agents share context with no long
+   searches. Each agent reads `description.md` and the notes of the waves before its own wave, and
+   writes its own note (at most 40 lines), one file for each agent, thus parallel agents do not
+   write the same file. The agents of wave 1 do not read each other's notes.
+
+   Keep the context of this session small: each turn reads all of it again. The reports of the
+   agents have at most 20 lines. Do not read a note, a full diff or a full image here unless a
+   report shows a problem. Use `git diff --stat`.
 
    The team works in three waves. In a wave, the agents run in parallel (send all the Agent calls
    in one message). Start a wave only after all the agents of the wave before it are done.
@@ -298,7 +309,7 @@ step 8.
    The agents of wave 1 change only the scripts. They do not run the image build: two builds at
    the same time write the same files in `images/`. When the script agents are done, run
    `make media-images` one time, and send the paths of the changed images to the script agents
-   (SendMessage). They read the images and tell you if they show the approved result. If not, they
+   (SendMessage). They read crops of the images and tell you if they show the approved result. If not, they
    change their scripts, and you run the build again.
 
    Then compare all the documents of wave 1 with each other and with the description (the
@@ -359,8 +370,9 @@ step 8.
 
 ## Agents
 
-The agent types are in `.claude/agents/`. Each file gives the task, the input, the rules and the
-report of its agent. If the procedure of a phase changes, change the agent file also.
+The agent types are in `.claude/agents/`. Each file gives the task, the input, the rules, the
+report and, for some agents, the model and the effort of its agent. If the procedure of a phase
+changes, change the agent file also. `dev-test-writer` always uses Opus (owner decision).
 
 The fast track does not start an agent. The agents below belong to the full track.
 
@@ -413,7 +425,7 @@ tell the user.
 - Never update REQUIREMENTS.md, INVARIANTS.md, the tests or `images/` before the user approves
   the change on the tablet.
 - On the full track, never give the code or the diff of the prototype to the team. The description
-  is the only input.
+  and the handoff notes of the earlier waves are the only input.
 - Never remove changes in the working tree that were there before step 2 (or F1).
 - If you cannot connect to the tablet, tell the user. Then run
   `cargo run --release --bin snapshot -- DIR` with a `DIR` in the scratchpad, give the full paths

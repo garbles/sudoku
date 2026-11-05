@@ -6,8 +6,8 @@ These images are the design reference for the sudoku app on the reMarkable Paper
 1620×2160 (the portrait screen of the Paper Pro, 229 DPI), if the table does not give a different
 size. The images are exact. The app must show the same pixels.
 
-Scripts make all of the images. Do not edit the images. To change an image, change the scripts and
-run:
+Scripts make all of the images, but not `icons.png`. Do not edit the images. To change an image,
+change the scripts and run:
 
 ```sh
 sh scripts/build.sh
@@ -79,6 +79,7 @@ use one list of sample results. Thus their numbers agree.
 | `template.png` | A blank canvas of 1620×2160. |
 | `box.png` | One 3×3 box with 20 px of space around it, at the pixel scale of the board. |
 | `cell.png` | One cell with its micro-cells, with 20 px of space around it, at the same scale. |
+| `icons.png` | 1200×1050. All icons of the app, each with its name, in each of its looks (normal, white on the black slot, gray), then the AppLoad icon. The snapshot tool draws it with the code of the app (`reference::icon_sheet`), not the scripts: `make media-images` makes it. It is a list for people, not a design reference. |
 
 ## Manual
 

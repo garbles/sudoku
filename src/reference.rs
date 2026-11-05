@@ -1,12 +1,14 @@
 //! The states of the reference images in `images/` (the same data as the scripts in `scripts/`). The
-//! snapshot tool and the rendering tests use them to compare the app with the images.
+//! snapshot tool and the rendering tests use them to compare the app with the images. The snapshot
+//! tool also writes the sheet of all icons (`icon_sheet`).
 
-use tiny_skia::Pixmap;
+use tiny_skia::{Color as SkColor, Pixmap};
 
 use crate::app::{App, Menu, Panel, PendingInk, Screen};
-use crate::font::Fonts;
+use crate::font::{Anchor, Fonts, Weight};
 use crate::game::{peers, Game};
-use crate::render::{self, Canvas};
+use crate::layout::PAGE_SCALE;
+use crate::render::{self, decode_png, gray, Canvas, Icon, Units, BLACK};
 use crate::script::FixedEnv;
 use crate::store::{NewResult, ResultsDb};
 use crate::update::{Manifest, Update};
@@ -276,6 +278,88 @@ pub fn render(fonts: &Fonts, setup: Setup) -> Pixmap {
     let mut pm = Pixmap::new(crate::layout::screen_w(), crate::layout::screen_h()).unwrap();
     render::draw(&mut Canvas::new(&mut pm, fonts), &a);
     crate::layout::set_right_handed(false);
+    pm
+}
+
+/// The size of a tile of the icon sheet (px), and the quantity of tiles in a row.
+pub const ICON_TILE_W: u32 = 200;
+pub const ICON_TILE_H: u32 = 210;
+pub const ICON_COLUMNS: u32 = 6;
+/// The center of the icon and the base line of the name in a tile, from the top of the tile.
+pub const ICON_CENTER_Y: u32 = 85;
+const ICON_LABEL_Y: u32 = 195;
+
+/// The look of an icon in the sheet: the colors that the app gives it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum IconLook {
+    /// Black, on the white screen.
+    Normal,
+    /// White on the black slot of a toolbar button with an open panel (NAV-8).
+    Active,
+    /// The gray of an action that is not available.
+    Unavailable(u32),
+}
+
+/// All icons in all their looks, in the order of the tiles of the sheet.
+pub fn icon_tiles() -> Vec<(Icon, IconLook)> {
+    Icon::ALL
+        .into_iter()
+        .flat_map(|icon| {
+            let other = match icon {
+                Icon::PaintBucket | Icon::Gear | Icon::Plus => Some(IconLook::Active),
+                Icon::Undo | Icon::Redo | Icon::Bin => Some(IconLook::Unavailable(70)),
+                Icon::PagePrevious | Icon::PageNext => Some(IconLook::Unavailable(80)),
+                _ => None,
+            };
+            std::iter::once((icon, IconLook::Normal)).chain(other.map(|look| (icon, look)))
+        })
+        .collect()
+}
+
+/// The sheet of all icons at the true size (the icons of the pages at the page scale), with the name
+/// of each icon. The last tile is the icon of AppLoad (`appload/sudoku/icon.png`).
+pub fn icon_sheet(fonts: &Fonts) -> Pixmap {
+    let tiles = icon_tiles();
+    let rows = (tiles.len() as u32 + 1).div_ceil(ICON_COLUMNS);
+    let mut pm = Pixmap::new(ICON_COLUMNS * ICON_TILE_W, rows * ICON_TILE_H).unwrap();
+    pm.fill(SkColor::WHITE);
+    let mut c = Canvas::new(&mut pm, fonts);
+    let origin = |i: u32| ((i % ICON_COLUMNS * ICON_TILE_W) as f32, (i / ICON_COLUMNS * ICON_TILE_H) as f32);
+    let center = |(x, y): (f32, f32)| (x + (ICON_TILE_W / 2) as f32, y + ICON_CENTER_Y as f32);
+    let label = |c: &mut Canvas, (x, y): (f32, f32), name: &str| {
+        c.text(Weight::Regular, 20.0, x + (ICON_TILE_W / 2) as f32, y + ICON_LABEL_Y as f32, Anchor::Middle, name, gray(40));
+    };
+    for (i, &(icon, look)) in tiles.iter().enumerate() {
+        let o = origin(i as u32);
+        let (cx, cy) = center(o);
+        let col = match look {
+            IconLook::Normal => BLACK,
+            IconLook::Active => {
+                c.rect(cx - 56.0, cy - 56.0, cx + 56.0, cy + 56.0, BLACK);
+                [255, 255, 255]
+            }
+            IconLook::Unavailable(n) => gray(n),
+        };
+        if icon.on_page() {
+            c.set_units(Units::Page);
+            icon.draw(&mut c, cx / PAGE_SCALE, cy / PAGE_SCALE, col);
+            c.set_units(Units::Screen);
+        } else {
+            icon.draw(&mut c, cx, cy, col);
+        }
+        let name = match look {
+            IconLook::Normal => format!("{icon:?}"),
+            IconLook::Active => format!("{icon:?} (active)"),
+            IconLook::Unavailable(_) => format!("{icon:?} (gray)"),
+        };
+        label(&mut c, o, &name);
+    }
+    let o = origin(tiles.len() as u32);
+    let (cx, cy) = center(o);
+    // Read at run time: the Docker builds of the app do not have this file when they compile.
+    let app_icon = decode_png(&std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("appload/sudoku/icon.png")).unwrap());
+    c.image(&app_icon, cx as i32 - app_icon.width() as i32 / 2, cy as i32 - app_icon.height() as i32 / 2, false);
+    label(&mut c, o, "AppLoad");
     pm
 }
 

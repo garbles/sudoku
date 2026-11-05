@@ -595,3 +595,15 @@ not examined them at that build:
 - Fast writing in the next cell while a group changes color.
 - An eraser stroke over many cells.
 - The stronger colors behind ink that starts on a filled cell. A Pen area on a color can give ghosts.
+
+Owner decision, 2026-11-05: the circular arrow of "Check for updates" has the look of an image from
+the owner: the arc goes from the upper right (330 degrees) clockwise to the top, and a 7 px arrow head
+points to the right, with its tip 5 px to the right of the top. A dev build has no update row, thus
+the owner examined the icon in a snapshot of the Settings panel, not on the tablet.
+
+Rejected values, 2026-11-05:
+
+- The old icon: an arc from 0 to 255 degrees, a gap, and an 8 px arrow head on the circle at 330 degrees.
+  Reason: the owner gave an image with a different look.
+- The tip of the head at the top of the circle, and 2.5 px to the right of the top. Reason: the head
+  must be farther to the right.

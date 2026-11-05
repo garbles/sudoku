@@ -801,8 +801,10 @@ other rows. It shows one of these:
   - **Update to v\<version\>** has an update icon: a down arrow into a tray. Image:
     [`settings-update.png`](images/settings-update.png).
   - **Check for updates** has a circular arrow: an arc with a radius of 12 px, clockwise from the
-    right through the bottom and the left to the top. After a gap, an arrow head at the top right of
-    the circle points clockwise along the circle. Image:
+    upper right (330 degrees, where 0 degrees is the right) through the bottom and the left to the
+    top, with the gap at the upper right. A straight line continues the arc to the tip of an arrow
+    head, 5 px to the right of the top. The head points to the right: two 7 px strokes, 45 degrees to
+    each side of the line back from its tip. Image:
     [`settings-check-updates.png`](images/settings-check-updates.png).
 - A tap on **Update to v\<version\>** starts the installation. A tap on **Check for updates** starts
   one attempt, and the row shows "Looking for updates..." until the attempt is complete. If the
