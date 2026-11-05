@@ -1,10 +1,11 @@
-//! Tests for the rules of the saved data and the results: PER-3, PER-4, PER-5, PER-7 and ANA-1. The
+//! Tests for the rules of the saved data and the results: PER-3, PER-4, PER-5, PER-7, PER-8 and ANA-1. The
 //! platform part of PER-7 and CLK-6 (the main loop on Linux) is in tests/qtfb_e2e.rs.
 //!
 //! `invariants::check_app` runs after each input only in debug builds. These tests assert the rules
 //! directly, thus they also examine the release build.
 
 mod common;
+mod inv_groups;
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -63,14 +64,16 @@ fn first_seed(seed: u64) -> u64 {
 
 #[test]
 fn settings_and_last_mode_are_kept_when_the_app_opens_again() {
-    // PER-3: the colors, the micro-cell line gray (COL-7), `last_mode` (from Start new game) and the
-    // two switches go through the settings file. DIF-3: the slider opens at the kept mode.
+    // PER-3: the four colors, the micro-cell line gray (COL-7), `last_mode` (from Start new game) and the
+    // three switches go through the settings file. DIF-3: the slider opens at the kept mode.
     let mut d = Driver::new(61);
     d.button(Button::Menu);
     d.button(Button::Colors);
     let (x, y) = color_point(Section::Starting, Color::Yellow);
     d.finger_tap(x, y);
     let (x, y) = color_point(Section::Highlight, Color::Magenta);
+    d.finger_tap(x, y);
+    let (x, y) = color_point(Section::Completed, Color::Orange);
     d.finger_tap(x, y);
     let (x, y) = line_gray_point(LineGray::Gray55);
     d.finger_tap(x, y);
@@ -83,10 +86,10 @@ fn settings_and_last_mode_are_kept_when_the_app_opens_again() {
     d.finger_tap(d.app.ng_stops[4], layout::ng_slider_y() as f32);
     d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_start_y() as f32);
     let s = d.app.settings.clone();
-    assert_eq!((s.color_starting, s.color_clash, s.color_highlight), (Color::Yellow, Color::Red, Color::Magenta));
+    assert_eq!((s.color_starting, s.color_clash, s.color_highlight, s.color_completed), (Color::Yellow, Color::Red, Color::Magenta, Color::Orange));
     assert_eq!(s.micro_line, LineGray::Gray55);
     assert_eq!(s.last_mode, 4);
-    assert!(!s.highlight_on && !s.auto_hide_on);
+    assert!(!s.highlight_on && !s.auto_hide_on && !s.completed_color_on);
     assert!(d.app.settings_dirty, "PER-7: Start new game changes the settings");
 
     let dir = data_dir("settings");
@@ -106,6 +109,221 @@ fn settings_and_last_mode_are_kept_when_the_app_opens_again() {
     save_json(&sp, &app.settings).unwrap();
     let again = open_app(None, load_json(&sp), ResultsDb::in_memory(), 4);
     assert_eq!(again.settings, s);
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_completed_color_and_its_switch_go_through_the_file() {
+    // PER-3, COL-1, COL-11: each color of the Completed groups section, with the switch on and off. The
+    // file has the names of INVARIANTS.md §0. The app opens with the same values, and a second save and
+    // a second open do not change them.
+    let dir = data_dir("completed-round-trip");
+    let path = dir.join("settings.json");
+    for color in Color::ALL {
+        for on in [true, false] {
+            let s = Settings {
+                color_starting: Color::White,
+                color_clash: Color::White,
+                color_highlight: Color::White,
+                color_completed: color,
+                completed_color_on: on,
+                ..Settings::default()
+            };
+            assert!(s.is_valid(), "{color:?}");
+            save_json(&path, &s).unwrap();
+            let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+            assert_eq!(json["color_completed"], format!("{color:?}"), "PER-3: the name in the file");
+            assert_eq!(json["completed_color_on"], on, "PER-3: the name in the file");
+            let app = open_app(None, load_json(&path), ResultsDb::in_memory(), 5);
+            assert_eq!(app.settings, s, "PER-3: {color:?}, switch {on}");
+            save_json(&path, &app.settings).unwrap();
+            assert_eq!(load_json::<Settings>(&path), Some(s), "PER-3: the second open, {color:?}, switch {on}");
+        }
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_saved_files_do_not_have_the_completed_groups() {
+    // COL-9, R§14.3: the app does not save the completed color of a group. The game file has the same
+    // names with a completed group and without it, and the same game gives the same groups after an open.
+    let (game, row) = inv_groups::game_with_full_row(66, 2);
+    assert!(game.is_completed_group(sudoku::game::Group::Row(row)), "the fixture has a completed row");
+    let names = |g: &Game| -> HashSet<String> { serde_json::to_value(g).unwrap().as_object().unwrap().keys().cloned().collect() };
+    assert_eq!(names(&game), names(&new_game(66, 2)), "COL-9: the saved names");
+    assert!(names(&game).iter().all(|n| !n.contains("group") && !n.contains("clash")), "COL-9, CLS-1: {:?}", names(&game));
+    let dir = data_dir("no-groups");
+    let path = dir.join("game.json");
+    save_json(&path, &game).unwrap();
+    let app = open_app(load_json(&path), None, ResultsDb::in_memory(), 5);
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(app.game, game, "the app uses the saved game");
+    assert_eq!(app.game.completed_cells(), game.completed_cells(), "COL-9");
+}
+
+// ---- PER-8
+
+/// A settings file of an earlier version: three colors, and no `color_completed`. The other values are
+/// not the defaults, thus the test sees if they stay.
+fn old_file(starting: Color, clash: Color, highlight: Color) -> String {
+    format!(r#"{{"color_starting":"{starting:?}","color_clash":"{clash:?}","color_highlight":"{highlight:?}","last_mode":3,"highlight_on":false,"auto_remove_on":false,"micro_line":"Gray55"}}"#)
+}
+
+/// The app opens with the text of a settings file. Examines that each start gives the same result and
+/// that the start does not change the file (PER-8).
+fn open_with_file(name: &str, text: &str) -> Settings {
+    let dir = data_dir(&format!("per8-{name}"));
+    let path = dir.join("settings.json");
+    std::fs::write(&path, text).unwrap();
+    let app = open_app(None, load_json(&path), ResultsDb::in_memory(), 5);
+    assert!(!app.settings_dirty, "PER-8: {name}: the start asks for a save");
+    let second = open_app(None, load_json(&path), ResultsDb::in_memory(), 6);
+    assert_eq!(app.settings, second.settings, "PER-8: {name}: each start gives the same result");
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), text, "PER-8: {name}: the start changed the file");
+    std::fs::remove_dir_all(&dir).ok();
+    check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
+    app.settings
+}
+
+/// PER-8, written from INVARIANTS.md: the four colors of a file with no `color_completed`, or None if
+/// the file breaks COL-5. The order is the order of the palette (§0), without White.
+fn per_8_model(starting: Color, clash: Color, highlight: Color) -> Option<[Color; 4]> {
+    use Color::*;
+    if (starting != White && (starting == clash || starting == highlight)) || (clash != White && clash == highlight) {
+        return None;
+    }
+    let first_free = |used: &[Color]| [Gray, Yellow, Blue, Red, Green, Cyan, Magenta, Orange].into_iter().find(|c| !used.contains(c)).unwrap();
+    let new_highlight = match highlight {
+        Green if starting == Cyan || clash == Cyan => first_free(&[starting, clash]),
+        Green => Cyan,
+        other => other,
+    };
+    let used = [starting, clash, new_highlight];
+    let completed = if used.contains(&Green) { first_free(&used) } else { Green };
+    Some([starting, clash, new_highlight, completed])
+}
+
+fn colors_of(s: &Settings) -> [Color; 4] {
+    [s.color_starting, s.color_clash, s.color_highlight, s.color_completed]
+}
+
+#[test]
+fn an_earlier_settings_file_gets_the_colors_of_per_8() {
+    // PER-8, R§14.2: each case with its values. The switch is on, and the other values stay.
+    use Color::*;
+    let cases = [
+        ("green-highlight", (Gray, Red, Green), [Gray, Red, Cyan, Green]),
+        ("green-highlight-starting-cyan", (Cyan, Red, Green), [Cyan, Red, Gray, Green]),
+        ("green-highlight-clash-cyan", (Gray, Cyan, Green), [Gray, Cyan, Yellow, Green]),
+        ("green-highlight-both-before-cyan", (Yellow, Cyan, Green), [Yellow, Cyan, Gray, Green]),
+        ("starting-green", (Green, Red, Cyan), [Green, Red, Cyan, Gray]),
+        ("clash-green", (Gray, Green, Cyan), [Gray, Green, Cyan, Yellow]),
+        ("starting-green-other-highlight", (Green, Gray, Blue), [Green, Gray, Blue, Yellow]),
+        ("white-highlight", (Gray, Red, White), [Gray, Red, White, Green]),
+        ("white-highlight-starting-green", (Green, Red, White), [Green, Red, White, Gray]),
+        ("other-highlight", (Gray, Red, Magenta), [Gray, Red, Magenta, Green]),
+        ("all-white", (White, White, White), [White, White, White, Green]),
+        ("white-and-green-highlight", (White, White, Green), [White, White, Cyan, Green]),
+    ];
+    for (name, (a, b, c), want) in cases {
+        let s = open_with_file(name, &old_file(a, b, c));
+        assert_eq!(colors_of(&s), want, "PER-8: {name}");
+        assert!(s.completed_color_on, "PER-8: {name}: the switch");
+        assert_eq!((s.last_mode, s.highlight_on, s.auto_hide_on, s.micro_line), (3, false, false, LineGray::Gray55), "PER-3: {name}: the other values");
+    }
+}
+
+#[test]
+fn each_earlier_settings_file_agrees_with_a_separate_model_of_per_8() {
+    // PER-8, COL-1, COL-5: all 729 files of three colors. A file that breaks COL-5 gets the defaults, also
+    // the values that are not colors. Each other file has a result that agrees with COL-5.
+    for a in Color::ALL {
+        for b in Color::ALL {
+            for c in Color::ALL {
+                let s: Settings = serde_json::from_str(&old_file(a, b, c)).unwrap();
+                let what = format!("{a:?} {b:?} {c:?}");
+                match per_8_model(a, b, c) {
+                    Some(want) => {
+                        assert_eq!(colors_of(&s), want, "PER-8: {what}");
+                        assert!(s.completed_color_on && s.is_valid(), "PER-8, COL-5: {what}");
+                    }
+                    None => assert_eq!(s, Settings::default(), "PER-5, PER-8: {what}"),
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn an_earlier_settings_file_that_breaks_col_5_gets_the_defaults() {
+    // PER-8 part 1, PER-5: also when part 2 can remove the break (two Green sections), and when the color
+    // in the file is not Green. The app does not keep the values of a file that breaks the rule.
+    use Color::*;
+    for (name, a, b, c) in [("red-red", Red, Red, Blue), ("two-green", Green, Red, Green), ("clash-highlight-green", Gray, Green, Green), ("two-cyan", Cyan, Cyan, Green)] {
+        let s = open_with_file(name, &old_file(a, b, c));
+        assert_eq!(s, Settings::default(), "PER-8: {name}");
+    }
+}
+
+#[test]
+fn a_file_with_a_completed_color_does_not_change() {
+    // PER-8: a file that has `color_completed` keeps its colors, also with a Green highlight. A file with a
+    // color and no value for the switch gets the switch on. A switch in the file stays. PER-5: a file
+    // that has `color_completed` and breaks COL-5 gets the defaults.
+    use Color::*;
+    let file = |completed: Color, switch: &str| {
+        format!(r#"{{"color_starting":"Gray","color_clash":"Red","color_highlight":"Green","color_completed":"{completed:?}","last_mode":3{switch}}}"#)
+    };
+    let s = open_with_file("green-highlight-kept", &file(Blue, r#","completed_color_on":true"#));
+    assert_eq!(colors_of(&s), [Gray, Red, Green, Blue], "PER-8: a Green highlight stays");
+    assert!(s.completed_color_on);
+
+    let s = open_with_file("switch-off-kept", &file(Blue, r#","completed_color_on":false"#));
+    assert_eq!(colors_of(&s), [Gray, Red, Green, Blue], "PER-8");
+    assert!(!s.completed_color_on, "PER-3: the switch stays off");
+
+    let s = open_with_file("no-switch", &file(Blue, ""));
+    assert_eq!(colors_of(&s), [Gray, Red, Green, Blue], "PER-8: no value for the switch: the colors do not change");
+    assert!(s.completed_color_on, "PER-8: no value for the switch: on");
+
+    let s = open_with_file("white-completed", &file(White, ""));
+    assert_eq!(colors_of(&s), [Gray, Red, Green, White], "PER-8: White stays");
+
+    let s = open_with_file("completed-breaks-col-5", &file(Red, ""));
+    assert_eq!(s, Settings::default(), "PER-5: the completed color and the clash color are the same");
+}
+
+#[test]
+fn a_switch_in_a_file_with_no_completed_color_does_not_stay_off() {
+    // PER-8 part 4: with no `color_completed`, `completed_color_on = true`, also when the file has the
+    // value false.
+    let text = r#"{"color_starting":"Gray","color_clash":"Red","color_highlight":"Blue","last_mode":3,"completed_color_on":false}"#;
+    let s = open_with_file("no-color-switch-off", text);
+    assert!(s.completed_color_on, "PER-8");
+    assert_eq!(colors_of(&s), [Color::Gray, Color::Red, Color::Blue, Color::Green], "PER-8");
+}
+
+#[test]
+fn an_earlier_file_changes_only_at_the_next_change_of_the_settings() {
+    // PER-8, PER-7: the start does not save. The next change of the settings saves all values, and the
+    // next start gives the same settings: the steps of PER-8 do not apply again.
+    let dir = data_dir("per8-next-change");
+    let path = dir.join("settings.json");
+    std::fs::write(&path, old_file(Color::Gray, Color::Red, Color::Green)).unwrap();
+    let mut d = Driver::from(open_app(None, load_json(&path), ResultsDb::in_memory(), 5));
+    assert!(!d.app.settings_dirty, "PER-8");
+    d.button(Button::Menu);
+    d.button(Button::Colors);
+    assert!(!d.app.settings_dirty, "PER-8: the panels are not a change of the settings");
+    let (x, y) = color_point(Section::Completed, Color::Blue);
+    d.finger_tap(x, y);
+    assert!(d.app.settings_dirty, "PER-7");
+    let (x, y) = color_point(Section::Highlight, Color::Green);
+    d.finger_tap(x, y);
+    assert_eq!(colors_of(&d.app.settings), [Color::Gray, Color::Red, Color::Green, Color::Blue], "COL-3");
+    save_json(&path, &d.app.settings).unwrap();
+    let app = open_app(None, load_json(&path), ResultsDb::in_memory(), 6);
+    assert_eq!(app.settings, d.app.settings, "PER-8: a Green highlight that the player selects stays");
     std::fs::remove_dir_all(&dir).ok();
 }
 
@@ -367,7 +585,7 @@ fn a_saved_game_with_a_solution_that_is_not_a_sudoku_is_not_used() {
 
 #[test]
 fn saved_settings_that_break_a_rule_are_not_used() {
-    // PER-5, DIF-1: `last_mode` 5 or 9. COL-5: two sections with the same color (not White).
+    // PER-5, DIF-1: `last_mode` 5 or 9. COL-5: two of the four sections with the same color (not White).
     // A correct file with other values than the defaults is used.
     let dir = data_dir("bad-settings");
     let path = dir.join("settings.json");
@@ -376,6 +594,9 @@ fn saved_settings_that_break_a_rule_are_not_used() {
         ("last-mode-9", Settings { last_mode: 9, ..good.clone() }),
         ("last-mode-5", Settings { last_mode: MODES, ..good.clone() }),
         ("same-color", Settings { color_highlight: Color::Blue, color_starting: Color::Blue, ..good.clone() }),
+        ("completed-as-highlight", Settings { color_completed: Color::Cyan, ..good.clone() }),
+        ("completed-as-clash", Settings { color_completed: Color::Blue, color_clash: Color::Blue, ..good.clone() }),
+        ("completed-as-starting", Settings { color_completed: Color::Blue, color_starting: Color::Blue, ..good.clone() }),
     ];
     save_json(&path, &good).unwrap();
     assert_eq!(open_app(None, load_json(&path), ResultsDb::in_memory(), 5).settings, good);
@@ -403,7 +624,7 @@ fn each_change_of_the_board_and_the_settings_is_marked_for_saving() {
     };
     let cell = free_cell(&d.app, &[5]);
     type Step = (&'static str, fn(&mut Driver, Cell), bool, bool);
-    let steps: [Step; 9] = [
+    let steps: [Step; 11] = [
         ("mark", |d, c| d.tap_micro(c, 5), true, false),
         ("number", |d, c| d.write(c, d.app.game.solution[c.0 as usize][c.1 as usize]), true, false),
         ("erase", |d, c| d.erase(c), true, false),
@@ -420,6 +641,15 @@ fn each_change_of_the_board_and_the_settings_is_marked_for_saving() {
             let (x, y) = switch_point(Switch::HideMarksAutomatically);
             d.pen_tap(x, y);
         }, false, true),
+        ("switch of the completed groups", |d, _| {
+            let (x, y) = switch_point(Switch::ColorCompletedGroups);
+            d.pen_tap(x, y);
+        }, false, true),
+        ("completed color", |d, _| {
+            d.button(Button::Colors);
+            let (x, y) = color_point(Section::Completed, Color::Blue);
+            d.finger_tap(x, y);
+        }, false, true),
         ("start new game", |d, _| {
             d.button(Button::NewGame);
             d.finger_tap(d.app.ng_stops[0], layout::ng_slider_y() as f32);
@@ -432,6 +662,7 @@ fn each_change_of_the_board_and_the_settings_is_marked_for_saving() {
         assert_eq!((d.app.game_dirty, d.app.settings_dirty), (game, settings), "{name}");
     }
     assert_eq!((d.app.game.mode, d.app.settings.color_clash, d.app.settings.auto_hide_on), (0, Color::Orange, false));
+    assert_eq!((d.app.settings.color_completed, d.app.settings.completed_color_on), (Color::Blue, false));
     // A finger on the board and a tap on a starting number change nothing that is saved.
     clear(&mut d);
     let (x, y) = micro_center(empty_cell(&d.app.game), 5);

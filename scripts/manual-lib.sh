@@ -47,7 +47,12 @@ rub() {
 }
 
 # Board colors. They are the same as in screen-in-progress.png.
-GIVEN_BG='#C8C8C8'; ENTRY_FG=gray35; CLASH_BG='#F0A3A3'; UNIT_BG='#DCE9F7'
+GIVEN_BG='#AEAEAE'; ENTRY_FG=gray18; CLASH_BG='#FF8C8C'; COMPLETED_BG='#48D630'
+UNIT_BG='#DCE9F7'   # only for the rules on page 1. It is not a color of the board.
+
+# The top of the Cell colors panel in color-menu.png with the toolbar: the Starting numbers and Completed groups
+# sections (the panel is at x 708-1507, y 112-1192).
+COLOR_PANEL_CROP=912x362+708+111
 
 # minib X Y "r,c,bg ..." "r,c,digit,color ..." : a small 9x9 board (cells of 34 px) with colored cells and digits
 MC=34
@@ -64,6 +69,37 @@ X
     if [ $((i%3)) -eq 0 ]; then w=4; else w=1.5; fi
     echo "fill none stroke black stroke-width $w stroke-linecap square line $(($1+i*MC)),$2 $(($1+i*MC)),$(($2+9*MC)) line $1,$(($2+i*MC)) $(($1+9*MC)),$(($2+i*MC))" >> $M
     i=$((i+1)); done
+}
+
+# completed_examples X1 X2 X3 Y : three small boards. A full row and a full box have the completed color. In the
+# third board, a 5 of the full row clashes with a 5 outside the row, thus the row has no completed color.
+completed_examples() {
+  givens="4,0 4,3 4,5 4,8"
+  dg=""; hl=""; c=0
+  for d in 4 2 6 8 5 3 7 9 1; do
+    col=$ENTRY_FG; case " $givens " in *" 4,$c "*) col=black;; esac
+    hl="$hl 4,$c,$COMPLETED_BG"; dg="$dg 4,$c,$d,$col"
+    c=$((c+1))
+  done
+  minib $1 $4 "$hl 0,0,$GIVEN_BG 2,4,$GIVEN_BG 7,7,$GIVEN_BG" "$dg 0,0,5,black 2,4,4,black 7,7,3,black"
+  hl=""; dg=""; i=0
+  for d in 4 2 3 7 9 1 8 5 6; do
+    r=$((3+i/3)); c=$((6+i%3)); col=$ENTRY_FG; if [ $((i%3)) = 2 ]; then col=black; fi
+    hl="$hl $r,$c,$COMPLETED_BG"; dg="$dg $r,$c,$d,$col"; i=$((i+1))
+  done
+  minib $2 $4 "$hl 0,1,$GIVEN_BG 7,3,$GIVEN_BG 8,0,$GIVEN_BG" "$dg 0,1,3,black 7,3,4,black 8,0,3,black"
+  hl="1,4,$CLASH_BG"; dg="1,4,5,$ENTRY_FG"; c=0
+  for d in 4 2 6 8 5 3 7 9 1; do
+    col=$ENTRY_FG; bg=""; case " $givens " in *" 4,$c "*) col=black; bg=$GIVEN_BG;; esac
+    if [ $c = 4 ]; then bg=$CLASH_BG; fi
+    if [ -n "$bg" ]; then hl="$hl 4,$c,$bg"; fi
+    dg="$dg 4,$c,$d,$col"; c=$((c+1))
+  done
+  minib $3 $4 "$hl 2,1,$GIVEN_BG 7,7,$GIVEN_BG" "$dg 2,1,9,black 7,7,3,black"
+  cy=$(($4+9*MC+42))
+  text $(($1+153)) $cy 30 gray25 middle "Full row: color"
+  text $(($2+153)) $cy 30 gray25 middle "Full box: color"
+  text $(($3+153)) $cy 30 gray25 middle "Clash outside: no color"
 }
 
 # pagenum N TOTAL : the page number with the previous and next arrows (gray at the first and last page),

@@ -3,7 +3,8 @@
 #   board-state.py highlight     the same game after a tap on a 5: all 5s have the highlight color
 #   board-state.py unrecognized  the same game immediately after a scribble that the app cannot read: "?" in the cell
 #   board-state.py invalid-mark  the same game immediately after a pen tap on a pencil mark that a peer refuses: "x" in the micro-cell
-#   board-state.py completed     the complete, locked board. The time replaces the difficulty meter.
+#   board-state.py completed-group  a game with no clash and a complete box, column and row in the completed color
+#   board-state.py completed     the complete, locked board with the normal colors. The time replaces the difficulty meter.
 import os, sys
 C = 147; X0, Y0 = (1620 - 9*C)//2, (2160 - 9*C)//2   # must agree with ui-lib.sh
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -20,6 +21,11 @@ ENTERED = [(0,2),(0,3),(1,1),(1,2),(2,0),(3,1),(4,4),(5,4),(6,0),(7,0),(7,8),(8,
 MARKED = [(0,5),(0,6),(1,6),(2,3),(2,4),(3,2),(3,5),(4,2),(5,2),(6,3),(6,5),(8,1),(8,2),(4,6)]
 # a mistake: the player wrote a 9 here, but column 1 has a 9 already
 WRONG = {(5,1): 9}
+# "completed-group" has no mistake and these numbers more. Then box 0, column 4 and row 7 are complete.
+GROUP_ENTERED = [(2,4),(6,4),(7,1),(7,2),(7,6),(7,7)]
+# The colors of a cell (the defaults of the panel, the same values as ui-lib.sh) and the digits of the player.
+STARTING_BG, CLASH_BG, HIGHLIGHT_BG, COMPLETED_BG = "#AEAEAE", "#FF8C8C", "#6FCFE6", "#48D630"
+PLAYER_DIGIT = "#2E2E2E"  # gray18
 HIGHLIGHT = 5             # the digit that the player taps in "highlight"
 UNRECOGNIZED = (4,1)      # the cell with the scribble in "unrecognized"
 INVALID_MARK = (1,6,6)    # the row, the column and the digit of the tap in "invalid-mark". (1,0) and (2,7) have a 6.
@@ -32,8 +38,11 @@ if MODE == "completed":
     grid = [[int(c) for c in row] for row in SOLUTION]
     MARKED = []
 else:
+    if MODE == "completed-group":
+        ENTERED, WRONG = ENTERED + GROUP_ENTERED, {}
     for r, c in ENTERED: grid[r][c] = int(SOLUTION[r][c])
     for (r, c), d in WRONG.items(): grid[r][c] = d
+    MARKED = [(r, c) for r, c in MARKED if not grid[r][c]]
 
 def peers(r, c):
     return [(i, j) for i in range(9) for j in range(9) if (i, j) != (r, c)
@@ -42,6 +51,18 @@ def peers(r, c):
 # all numbers that have the same number in their row, column or box
 conflicts = {(r, c) for r in range(9) for c in range(9)
              if grid[r][c] and any(grid[i][j] == grid[r][c] for i, j in peers(r, c))}
+
+# A row, a column or a box is complete when all nine cells are filled and none of its cells clashes. A clash with a
+# cell outside the group also stops the group. A completed game shows no completed color.
+GROUPS = ([[(r, c) for c in range(9)] for r in range(9)] + [[(r, c) for r in range(9)] for c in range(9)]
+          + [[(br+i, bc+j) for i in range(3) for j in range(3)] for br in (0, 3, 6) for bc in (0, 3, 6)])
+complete_groups = [] if MODE == "completed" else [g for g in GROUPS
+                   if all(grid[r][c] for r, c in g) and not any(p in conflicts for p in g)]
+complete = {p for g in complete_groups for p in g}
+if MODE == "completed-group":
+    assert not conflicts and len(complete_groups) == 3
+else:
+    assert not complete_groups   # the sample game has a full box with a clash outside the box: no completed color
 
 # the app hides pencil marks automatically, so a cell shows only its possible digits
 def candidates(r, c):
@@ -58,21 +79,23 @@ out = []
 filled =[(r, c) for r in range(9) for c in range(9) if grid[r][c]]
 covered = filled + ([UNRECOGNIZED] if MODE == "unrecognized" else [])
 # remove the micro-cells below numbers, then draw the board lines again, as render.sh does.
-# Backgrounds: first the clash color (red), then the highlight color (green), then the starting-number gray.
+# Backgrounds: the first rule that applies: the clash color, the highlight color, the completed color, the
+# starting-number color, white.
 highlighted = {(r, c) for r, c in filled if MODE == "highlight" and grid[r][c] == HIGHLIGHT}
 for r, c in covered:
     x, y = X0+c*C, Y0+r*C
-    bg = ("#F0A3A3" if (r, c) in conflicts else "#B5DF9E" if (r, c) in highlighted
-          else "#C8C8C8" if GIVENS[r][c] != "." else "white")
+    bg = (CLASH_BG if (r, c) in conflicts else HIGHLIGHT_BG if (r, c) in highlighted
+          else COMPLETED_BG if (r, c) in complete
+          else STARTING_BG if GIVENS[r][c] != "." else "white")
     out.append(f"stroke none fill {bg} rectangle {x},{y} {x+C},{y+C}")
 thin = " ".join(f"line {X0+i*C},{Y0} {X0+i*C},{Y0+9*C} line {X0},{Y0+i*C} {X0+9*C},{Y0+i*C}" for i in range(10) if i % 3)
 thick = " ".join(f"line {X0+i*C},{Y0} {X0+i*C},{Y0+9*C} line {X0},{Y0+i*C} {X0+9*C},{Y0+i*C}" for i in range(0, 10, 3))
 out.append(f"fill none stroke black stroke-width 3 {thin}")
 out.append(f"stroke-width 12 stroke-linecap square {thick}")
-# numbers: starting numbers black, player numbers dark gray
+# numbers: starting numbers black, player numbers gray18
 for r, c in filled:
     x, y = X0+c*C, Y0+r*C
-    color = "black" if GIVENS[r][c] != "." else "gray35"
+    color = "black" if GIVENS[r][c] != "." else PLAYER_DIGIT
     out.append(f"stroke none fill {color} font '{FONT}' font-size 104 text-anchor middle text {x+C//2},{y+111} '{grid[r][c]}'")
 # pencil marks: the possible digits of each cell with marks
 for r, c in MARKED:

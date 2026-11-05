@@ -81,8 +81,8 @@ A refactor must not change these. They are the contract of the app:
   not change, and the snapshot tool agrees with `images/`. A seed gives the same puzzle (PUZ-5).
 - **Saved data.** The format of `game.json`, `settings.json`, `results.sqlite`, the stamp file and
   `version.json` does not change, and the app reads the files of earlier versions (generator
-  version 1, `auto_remove_on`). Look at the `serde` attributes before you change a type that the
-  app saves. When an enum replaces fields of a saved type, keep the JSON the same (for example with
+  version 1, `auto_remove_on`, a settings file with no `color_completed`: PER-8). Look at the
+  `serde` attributes before you change a type that the app saves. When an enum replaces fields of a saved type, keep the JSON the same (for example with
   `#[serde(from, into)]`) or do not do it.
 - **Performance.** `present.rs`, `render.rs`, `recognizer.rs`, `generator.rs` and `solver.rs` are hot
   paths. A change there must not make the bench slower by more than the noise (approximately 3%).

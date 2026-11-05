@@ -158,7 +158,8 @@ builds in parallel).
 
 One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuffer.
 
-- `game.rs`: the board, the pencil marks, the undo and redo history, clashes and completion.
+- `game.rs`: the board, the pencil marks, the undo and redo history, clashes, completed groups and
+  completion.
 - `generator.rs`: the puzzle generator with a seed (only one solution). Version 1 stays for old saves.
   After the first attempt, up to 4 threads make batches of attempts; the results are examined in
   the order of the attempts, thus the puzzle does not depend on the threads (PUZ-5). While the New

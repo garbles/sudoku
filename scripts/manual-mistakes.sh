@@ -36,9 +36,10 @@ cell 1027 $Y "" ""
 text 387 $((Y+CW+60)) 34 gray25 middle "Erase your 9"
 text 1017 $((Y+CW+60)) 34 gray25 middle "No clash"
 
-text 72 1640 50 black start "The app shows only clashes"
-text 72 1710 38 gray25 start "The app does not compare your numbers with the solution."
-text 72 1760 38 gray25 start "Thus a number can be incorrect and not red."
+text 72 1610 50 black start "The app does not find all mistakes"
+text 72 1675 38 gray25 start "The app does not compare your numbers with the solution. Thus a"
+text 72 1725 38 gray25 start "number can be incorrect and not red. A completed group (page 5) can"
+text 72 1775 38 gray25 start "also have an incorrect number: the color is not a check."
 
 pagenum 6 9
 render "$1/manual-mistakes.png"

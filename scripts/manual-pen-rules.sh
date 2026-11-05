@@ -27,7 +27,7 @@ text 72 995 38 gray25 start "Writing on a number has no effect. Erase the number
 SEVEN='M 40,35 L 102,32 L 62,112'; THREE='M 45,30 C 90,20 100,60 65,68 C 105,72 100,120 45,110'
 Y=1040; AY=$((Y+CW/2))
 filled 120 $Y 7 "$GIVEN_BG"; ink 120 $Y "$THREE"; arrow 305 365 $AY; filled 380 $Y 7 "$GIVEN_BG"
-filled 850 $Y 4 "" gray35; ink 850 $Y "$SEVEN"; arrow 1035 1095 $AY; filled 1110 $Y 4 "" gray35
+filled 850 $Y 4 "" $ENTRY_FG; ink 850 $Y "$SEVEN"; arrow 1035 1095 $AY; filled 1110 $Y 4 "" $ENTRY_FG
 text 337 $((Y+CW+50)) 34 gray25 middle "Starting number: no change"
 text 1067 $((Y+CW+50)) 34 gray25 middle "Your number: no change"
 

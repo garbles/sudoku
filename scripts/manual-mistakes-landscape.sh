@@ -25,10 +25,12 @@ text 72 1025 38 gray25 start "must change your number. Erase it with the pen,"
 text 72 1075 38 gray25 start "or use undo. When there is no clash, the app"
 text 72 1125 38 gray25 start "removes the red color."
 
-text 972 910 50 black start "The app shows only clashes"
+text 972 910 50 black start "The app does not find all mistakes"
 text 972 975 38 gray25 start "The app does not compare your numbers with"
 text 972 1025 38 gray25 start "the solution. Thus a number can be incorrect"
-text 972 1075 38 gray25 start "and not red."
+text 972 1075 38 gray25 start "and not red. A completed group (page 5) can"
+text 972 1125 38 gray25 start "also have an incorrect number: the color is"
+text 972 1175 38 gray25 start "not a check."
 
 # The correction (manual-mistakes.sh): your 9 clashes with a starting 9; erase it, then there is no clash.
 K=1.0; CW=140

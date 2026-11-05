@@ -24,11 +24,12 @@ dimensions of the toolbar, the panels and the fonts come from screenshots of a r
 | Image | Content | Purpose |
 |---|---|---|
 | `screen.png` | Empty board, menu closed. It shows only the menu button (top right, closed icon: dot at the bottom left) and the difficulty meter below the board. | The base layout. The board has 9×9 cells of 147 px, at the center, from (148, 418) to (1471, 1741). Each cell has a faint 3×3 grid of 49 px micro-cells. The close button does not show when the menu is closed. |
-| `screen-in-progress.png` | A game in progress: starting numbers (gray background, black digits), your numbers (white background, gray digits), pencil marks and one clash (two red 9s). | The main state of the game. The pencil marks are the possible digits only, because the app hides the marks of the digits of peers. |
-| `screen-highlight.png` | The same game after a tap on a 5. All 5s have the highlight color (green). | Highlights. A tap on the same number again, or a different action, removes the highlight. |
+| `screen-in-progress.png` | A game in progress: starting numbers (gray background, black digits), your numbers (white background, `gray18` digits, `#2E2E2E`), pencil marks and one clash (two red 9s). Box 0 at the top left is full, but its 9 clashes with a 9 outside the box. Thus the box has no completed color. | The main state of the game. The pencil marks are the possible digits only, because the app hides the marks of the digits of peers. |
+| `screen-highlight.png` | The same game after a tap on a 5. All 5s have the highlight color (Cyan). | Highlights. A tap on the same number again, or a different action, removes the highlight. |
 | `screen-unrecognized.png` | The same game immediately after a scribble that the app cannot read. A gray **?** shows in the cell for approximately one second. | The response to writing that is not a number from 1 to 9 (for example a scribble, 0 or 12). After the "?", the cell is the same as before. |
 | `screen-invalid-mark.png` | The same game immediately after a pen tap on the micro-cell of digit 6 in the empty cell at row 1, column 6 (from 0). A peer has a 6. A small gray **x** shows only in that micro-cell for approximately one second. The marks 3, 4 and 8 and the micro-cell lines of the cell stay. | The response to a pencil mark that a peer refuses, when "Hide pencil marks automatically" is on. The x has two lines with round ends, each from -10 px to +10 px on the two axes around the anchor point of the mark (20×20 px between the line centers), line width 3 px, `gray15`. After the x, the cell is the same as before. |
-| `screen-completed.png` | The complete board. The text "Completed in 23:41" replaces the difficulty meter. | The complete, locked state. |
+| `screen-completed-group.png` | A game with no clash. Box 0 (top left), column 4 and row 7 are complete. All their cells have the completed color (Green), also the cell where column 4 and row 7 cross, and the starting numbers in these groups. Other starting numbers stay gray. The state is the game of `screen-in-progress.png` without the 9 at row 5, column 1, and with the correct numbers in the cells (2,4), (6,4), (7,1), (7,2), (7,6) and (7,7) (row, column, from 0). | Completed groups. The color comes only from the current numbers. |
+| `screen-completed.png` | The complete board with the normal colors: starting numbers on gray, your numbers on white. It has no completed color. The text "Completed in 23:41" replaces the difficulty meter. | The complete, locked state. |
 
 ## Menu (open)
 
@@ -41,15 +42,16 @@ open, the close button shows at the top left.
 |---|---|---|
 | `screen-toolbar.png` | The menu is open on a new game. Undo and redo are gray, because there is no change to undo. | Shows all menu buttons and their icons. |
 | `new-game-menu.png` | The + button is black, and its panel is open. The panel has the difficulty slider (seven modes) and "Start new game". | How to start a new game. The panel is wider than the menus of the device, so that the slider is easy to use. The slider has the same size as the meter below the board. |
-| `color-menu.png` | The Cell colors panel is open on the game in progress. It has four sections: starting numbers (Gray), clashing numbers (Red), highlighted numbers (Green) and micro-cell lines (90). | The only place to change the cell colors and the gray of the micro-cell lines. Each section has the same design as the pen-color menu of the device: a title, a 3×3 grid of cells (112 px wide, 90 px high) and a black box around the selected item. |
-| `color-menu-right-handed.png` | The same state as `color-menu.png`, for a right-handed player. The toolbar is at the left edge (x 0–112), the menu icon is a mirror image (dot at the right), the close button is at the top right and the panel is at x 112–511. | The menu at the other side (REQUIREMENTS.md §3.1). The other icons and the contents of the panel do not change. `scripts/toolbar.sh` makes it from `color-menu.png`. |
+| `color-menu.png` | The Cell colors panel is open on the game in progress, at x 708–1507 and y 112–1192. It has two columns of 400 px and three rows of 360 px. Left column, from the top: starting numbers (Gray), clashing numbers (Red) and highlighted numbers (Cyan). Right column, from the top: completed groups (Green), micro-cell lines (90) and empty space. A vertical line of 2 px at 400 px from the left of the panel is between the columns. | The only place to change the cell colors and the gray of the micro-cell lines. Each section has the same design as the pen-color menu of the device: a title, a 3×3 grid of cells (112 px wide, 90 px high) and a black box around the selected item. |
+| `color-menu-right-handed.png` | The same state as `color-menu.png`, for a right-handed player. The toolbar is at the left edge (x 0–112), the menu icon is a mirror image (dot at the right), the close button is at the top right and the panel is at x 112–911, with the same order of columns. | The menu at the other side (REQUIREMENTS.md §3.1). The other icons and the contents of the panel do not change. `scripts/toolbar.sh` makes it from `color-menu.png`. |
+| `color-menu-landscape.png` | The same state as `color-menu.png`, in landscape (2160×1620). The board is at x 418–1741, y 148–1471, the toolbar is at x 2048–2160, its bottom slot starts at y 1508 and the panel is at x 1248–2047, y 112–1192. | The panel fits in landscape (REQUIREMENTS.md §3.3, §10). `scripts/toolbar.sh` makes it from `color-menu.png` and `screen-in-progress.png`. |
 | `color-menu-lines-90.png`, `color-menu-lines-40.png` | The same state as `color-menu.png`, with the micro-cell line gray 90 (the lightest) and 40 (the darkest) selected. The board below the panel has lines of that gray. | The setting of the micro-cell lines (REQUIREMENTS.md §10, COL-7). `scripts/toolbar.sh` makes them. |
-| `settings-menu.png` | The Settings panel is open on the game in progress (the gear is white on black). Two rows: "Highlight numbers" and "Hide pencil marks automatically", each with a switch (both on). The third row is "Version" with the version of a development build ("dev", Regular, black) at the right. | The only place to turn the two helpers off and on (REQUIREMENTS.md §9.1). |
+| `settings-menu.png` | The Settings panel is open on the game in progress (the gear is white on black). Three rows: "Highlight numbers", "Hide pencil marks automatically" and "Color completed groups" (two lines), each with a switch (all on). The fourth row is "Version" with the version of a development build ("dev", Regular, black) at the right. The panel stays 400 px wide. | The only place to turn the three settings off and on (REQUIREMENTS.md §9.1). |
 | `screen-toolbar-update.png` | The menu is open on the game in progress of a stable build (v0.1.0). An update (v0.2.0) is available: the gear has the red caution icon at its top right. | The caution icon (REQUIREMENTS.md §9.2). |
-| `settings-update.png` | The Settings panel of the stable build v0.1.0 when v0.2.0 is available. The Version row shows "v0.1.0". The fourth row has the button "Update to v0.2.0" with the update icon. The gear has the caution icon. | The update button (REQUIREMENTS.md §9.2). |
-| `settings-up-to-date.png` | The Settings panel of the stable build v0.1.0 just after a check that found no update. The fourth row shows "Sudoku is up to date" (Regular, gray40). No caution icon. | The text states of the update row (REQUIREMENTS.md §9.2). The other texts have the same position and font. |
-| `settings-check-updates.png` | The same panel after it closed and opened again. The fourth row has the button "Check for updates" with a circular arrow icon. | The check button (REQUIREMENTS.md §9.2). |
-| `settings-restart.png` | The Settings panel of the stable build v0.1.0 after the update v0.2.0 is installed and replaced the ink patch, and the user tapped "Later". The fourth row has the button "Restart interface" with a power icon. The gear has the caution icon. | The restart button (REQUIREMENTS.md §9.2, UPD-10). The text "Restart Sudoku to update" (no patch change) has the same position and font as "Sudoku is up to date". |
+| `settings-update.png` | The Settings panel of the stable build v0.1.0 when v0.2.0 is available. The Version row shows "v0.1.0". The fifth row has the button "Update to v0.2.0" with the update icon. The gear has the caution icon. | The update button (REQUIREMENTS.md §9.2). |
+| `settings-up-to-date.png` | The Settings panel of the stable build v0.1.0 just after a check that found no update. The fifth row shows "Sudoku is up to date" (Regular, gray40). No caution icon. | The text states of the update row (REQUIREMENTS.md §9.2). The other texts have the same position and font. |
+| `settings-check-updates.png` | The same panel after it closed and opened again. The fifth row has the button "Check for updates" with a circular arrow icon. | The check button (REQUIREMENTS.md §9.2). |
+| `settings-restart.png` | The Settings panel of the stable build v0.1.0 after the update v0.2.0 is installed and replaced the ink patch, and the user tapped "Later". The fifth row has the button "Restart interface" with a power icon. The gear has the caution icon. | The restart button (REQUIREMENTS.md §9.2, UPD-10). The text "Restart Sudoku to update" (no patch change) has the same position and font as "Sudoku is up to date". |
 | `update-restart.png` | `settings-restart.png` with the dialog "Restart the interface?" on the pale screen: two lines of text, "Later" (left) and "Restart" (white on black, right). | The restart dialog (REQUIREMENTS.md §9.2, UPD-10). Same design and position as `analytics-delete.png`. |
 | `screen-completed-menu.png` | The menu is open on a complete puzzle. Undo and redo are gray. | Shows that a complete puzzle is locked. |
 
@@ -93,9 +95,9 @@ next page, next to the page number.
 | 2 | `manual-candidates.png` | Pencil marks: how to tap micro-cells to add and remove them. |
 | 3 | `manual-pen.png` | How to write a number (the app reads it and shows a typed number) and how to erase it (the pencil marks show again). |
 | 4 | `manual-pen-rules.png` | What a tap is. Finger touches have no effect. One number for each cell. Writing on a number has no effect. Writing that the app cannot read shows **?**. |
-| 5 | `manual-helpers.png` | Automatic pencil mark hiding and highlights. |
-| 6 | `manual-mistakes.png` | Numbers in a clash become red. How to correct them. The app shows only clashes. |
-| 7 | `manual-menu.png` | All menu buttons, and how to select a color. |
+| 5 | `manual-helpers.png` | Automatic pencil mark hiding, highlights and completed groups: a full group with no clash gets the completed color, a clash with a cell outside the group stops the color, and the color is not a check against the solution. Settings can turn each one off. |
+| 6 | `manual-mistakes.png` | Numbers in a clash get the clash color. How to correct them. The section "The app does not find all mistakes": the app does not compare the numbers with the solution, and a completed group can have an incorrect number. |
+| 7 | `manual-menu.png` | All menu buttons, with the three settings of the gear, and how to select a color in the five sections of the Cell colors panel. White in Completed groups gives no completed color. |
 | 8 | `manual-new-game.png` | How to start a new game, step by step. The difficulty meter, which you cannot change. |
 | 9 | `manual-finished.png` | How a puzzle becomes complete, the lock, the clock and the saved results. |
 
@@ -139,21 +141,30 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 **Helpers**
 - When you write a number, the app hides that digit in the pencil marks in the same row, column and
   box. It keeps the marks: erase or undo the number, and they show again.
-- A highlight gives the highlight color (default: green) to all cells with the same number. A cell
+- A highlight gives the highlight color (default: Cyan) to all cells with the same number. A cell
   that clashes keeps the clash color. A tap on the same number again removes the highlight. All other
   actions also remove it, for example a tap on the menu button.
-- There are three cell colors: starting numbers (default: gray), clashing numbers (default: red) and
-  highlighted numbers (default: green). You select each color from nine medium-light colors in the Cell colors
-  panel. Black is not available.
-- The three colors must be different. White is the only exception: all three can be White. If a
+- There are four cell colors: starting numbers (default: Gray), clashing numbers (default: Red),
+  highlighted numbers (default: Cyan) and completed groups (default: Green). You select each color
+  from nine colors in the Cell colors panel: Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue
+  `#408CFF`, Red `#FF8C8C`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0` and Orange `#FF9A1F`.
+  Black is not available.
+- The four colors must be different. White is the only exception: all four can be White. If a
   section uses a color, the other sections show a line through it.
-- If a cell has two colors, the clash color is first, then the highlight color, then the
-  starting-number color.
-- Numbers in a clash (the same digit in a row, column or box) get the clash color. The app shows only
-  clashes. It does not compare the numbers with the solution.
+- The background of a filled cell is the first rule that applies: the clash color, the highlight
+  color, the completed color, the starting-number color, white.
+- Numbers in a clash (the same digit in a row, column or box) get the clash color. The app does not
+  compare the numbers with the solution.
+- A row, a column or a box with nine filled cells and no clashing cell is complete. A clash with a
+  cell outside the group also stops the group. All nine cells of a complete group get the completed
+  color. This color does not tell that a number is correct.
+- The switch "Color completed groups" off, or White in the Completed groups section, removes the
+  completed color. A starting number then keeps its starting color.
 
 **Puzzle completion**
 - A puzzle is complete when all cells have a number and there is no clash.
+- A complete puzzle shows no completed color: starting numbers have the starting color, and your
+  numbers have a white background.
 - The difficulty meter changes to "Completed in m:ss" (h:mm:ss after one hour).
 - The board locks. Writing, the eraser, pencil marks, highlights, undo and redo have no effect. The +
   button continues to start a new game.
@@ -178,7 +189,7 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 - **Puzzle generator (done).** `src/generator.rs` makes puzzles with only one solution. It sets the
   quantity of starting numbers for each mode (REQUIREMENTS.md §14.5).
 - **Recognition pause (done).** The owner examined 0.5 s on the device (REQUIREMENTS.md §16).
-- **E-ink check (done).** The owner examined the faint micro-cell lines, the pale cell colors and the
+- **E-ink check (done).** The owner examined the faint micro-cell lines, the cell colors and the
   gray icons on the tablet. All are clear.
 - **Launcher (decided).** AppLoad (asivery/rm-appload), installed with Vellum. Refer to
   `REQUIREMENTS.md` §14.4.

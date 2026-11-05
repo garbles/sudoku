@@ -512,3 +512,86 @@ Rejected value, 2026-11-04:
 
 - An x at the center of the full cell: 56×56 px, line 8 px, `gray40`, the marks of the cell hidden, at
   the position of the "?". Reason: the x must be only in the micro-cell.
+
+### Owner request: a color for completed groups, a stronger palette, a wider Cell colors panel, 2026-11-05
+
+The owner asked: "whenever a row/column/box is fully filled out without any errors, the entire
+row/column/box should change its background to green (which is customizable via the paint bucket
+menu). because we're adding another colour selection, we should probably make the menu wider to
+support all of the different selectors. especially important on landscape". Later requests during the
+trial: "can you make the colors less opaque so that they are easier to see on the tablet. all of
+them"; "make the your numbers also a touch darker still"; "There should be an option to turn it off."
+Beads issue: remarkable-sudoku-vms. The change is now in REQUIREMENTS.md (§2, §3.1, §3.3, §4.1, §4.2,
+§5.2, §6.2, §6.3, §6.4, §7, §8.3, §9.1, §9.2, §10, §12, §14.2, §14.3, §15, §16, §17). The new images
+are `images/color-menu-landscape.png` and `images/screen-completed-group.png`.
+
+Examination on the tablet, 2026-11-04 and 2026-11-05 (the prototype). The owner approved these items:
+
+| Item | What the owner examined | Result |
+|---|---|---|
+| Completed groups | A row, a column or a box that is full with no clash gets the color. A clash or an erasure removes it. | Approved. |
+| Solved board | At completion, the groups lose the color, and the board shows the normal colors. | Approved. A solved board in the completed color is rejected. |
+| White in the Completed groups section | White means "no completed color". A starting number keeps its starting color. | Approved. White that paints the group white is rejected. |
+| Switch | "Color completed groups" in the Settings panel, default on. The Settings panel stays 400 px wide. | Approved. |
+| Cell colors panel | Five sections in two columns, 800 px wide, y 112 to 1192, in portrait and in landscape. It covers approximately 27 cells in portrait and 24 in landscape. | Approved. The owner accepted this size. |
+| Palette | The values in R§15, on the board and in the panel. | Approved. |
+| Default highlight | Cyan (was Green), on top of the green of a complete group. | Approved. |
+| Digits of the player | `gray18` (`#2E2E2E`, was `gray35`). Starting digits stay black. | Approved. |
+
+The device results are only these prototype results. The items below are decisions, measurements and
+review results. They are not results of a device test.
+
+Decisions on the approved behavior, 2026-11-04 and 2026-11-05:
+
+1. "No errors" means "no clash". The app does not compare numbers with the solution. Thus a group with
+   an incorrect number and no clash is complete.
+2. A cell of a group that clashes with a cell outside the group also stops the group.
+3. A group with only starting numbers that is full at the start of a game gets the color from the
+   first frame. There is no exception for it. Measured: 19 of 300 Easy puzzles; no puzzle in the other
+   modes.
+4. Settings file of an earlier version: R§14.2 gives the steps.
+
+Review finding, not an owner decision: the prototype did not send an earlier settings file that breaks
+COL-5 to the defaults. R§14.2 now tells this. The rule applies PER-5 to an earlier settings file. Its
+source is PER-5 and the review finding. The owner did not examine it on the tablet.
+
+Palette, 2026-11-04 and 2026-11-05:
+
+| Color | Old value (rejected: too faint) | Approved value |
+|---|---|---|
+| Gray | `#C8C8C8` | `#AEAEAE` |
+| White | `#FFFFFF` | `#FFFFFF` |
+| Yellow | `#FFE680` | `#FFD740` |
+| Blue | `#AFC4F5` | `#408CFF` |
+| Red | `#F0A3A3` | `#FF8C8C` |
+| Green | `#B5DF9E` | `#48D630` |
+| Cyan | `#A6E0EE` | `#6FCFE6` |
+| Magenta | `#DCB3E6` | `#E650E0` |
+| Orange | `#F7C594` | `#FF9A1F` |
+
+Rejected values:
+
+| Item | Value | Reason |
+|---|---|---|
+| Red | `#EC7A7A` | Too intense. |
+| Red | `#F09292` | Not sufficiently red. |
+| Red | `#FF7F7F` | Not sufficiently light. |
+| Red | `#FF5C5C`, `#FF3B3B` | Too dark. |
+| Red | `#FF9C9C`, `#FF7C7C`, `#FFACAC` | Tried. `#FF8C8C` is the selection. |
+| Blue | `#7FA3F0` | Too gray. |
+| Blue | `#62A0FF` | Not sufficiently blue. |
+| Green | `#8FCF6C` | Too gray. |
+| Green | `#6CD650` | Not sufficiently green. |
+| Magenta with Orange | `#C98CDB` with `#F5A45C` | Too similar. |
+| Digits of the player | `gray35`, `gray25` | Not sufficiently dark. |
+| Cell colors panel | One column with five sections | It does not fit in landscape (5 × 360 px). |
+| Solved board | The completed color on a solved board | The board shows the normal colors at completion. |
+| White in the Completed groups section | White paints the group white | White means "no completed color". |
+
+Items to examine on the tablet at the final build. The computer cannot prove them, and the owner has
+not examined them at that build:
+
+- The screen updates when one input changes the color of many cells.
+- Fast writing in the next cell while a group changes color.
+- An eraser stroke over many cells.
+- The stronger colors behind ink that starts on a filled cell. A Pen area on a color can give ghosts.

@@ -20,6 +20,9 @@ const ENTERED: [(u8, u8); 12] = [(0, 2), (0, 3), (1, 1), (1, 2), (2, 0), (3, 1),
 const MARKED: [(u8, u8); 14] =
     [(0, 5), (0, 6), (1, 6), (2, 3), (2, 4), (3, 2), (3, 5), (4, 2), (5, 2), (6, 3), (6, 5), (8, 1), (8, 2), (4, 6)];
 
+/// The numbers that `board-state.py completed-group` adds. Then box 0, column 4 and row 7 are complete.
+const GROUP_ENTERED: [(u8, u8); 6] = [(2, 4), (6, 4), (7, 1), (7, 2), (7, 6), (7, 7)];
+
 /// The results of scripts/analytics.py (tests/fixtures/analytics-results.json), as (unix time in UTC,
 /// mode, seconds).
 fn analytics_results() -> Vec<(i64, u8, u64)> {
@@ -74,14 +77,33 @@ pub fn sample_game() -> Game {
         g.add_number((r, c), sol[r as usize][c as usize]);
     }
     g.add_number((5, 1), 9); // The clash in column 1.
-    // Pencil marks: the possible digits of each marked cell.
+    add_marks(&mut g);
+    g
+}
+
+/// Pencil marks: the possible digits of each marked cell that has no number.
+fn add_marks(g: &mut Game) {
     for &(r, c) in &MARKED {
+        if g.is_filled((r, c)) {
+            continue;
+        }
         for d in 1..=9u8 {
             if !peers((r, c)).any(|p| g.value_at(p) == d) {
                 g.toggle_mark((r, c), d);
             }
         }
     }
+}
+
+/// The game of screen-completed-group.png (`board-state.py completed-group`): no clash, and box 0,
+/// column 4 and row 7 are complete.
+pub fn completed_group_game() -> Game {
+    let sol = grid(&SOLUTION);
+    let mut g = Game::new(1, 2, sol, grid(&GIVENS));
+    for &(r, c) in ENTERED.iter().chain(&GROUP_ENTERED) {
+        g.add_number((r, c), sol[r as usize][c as usize]);
+    }
+    add_marks(&mut g);
     g
 }
 
@@ -141,6 +163,7 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             a.game = sample_game();
             a.ui.refused = Some(((1, 6), 6, 0))
         }),
+        ("screen-completed-group.png", |a| a.game = completed_group_game()),
         ("screen-completed.png", |a| a.game = completed_game()),
         ("screen-toolbar.png", |a| {
             a.game = empty_game();
