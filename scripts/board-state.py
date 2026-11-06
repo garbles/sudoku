@@ -5,6 +5,8 @@
 #   board-state.py invalid-mark  the same game immediately after a pen tap on a pencil mark that a peer refuses: "x" in the micro-cell
 #   board-state.py completed-group  a game with no clash and a complete box, column and row in the completed color
 #   board-state.py completed     the complete, locked board with the normal colors. The time replaces the difficulty meter.
+#   board-state.py mini STATE X Y CELL  the small board of a checkpoint (MINI_STATES) with its first cell at X,Y
+#   board-state.py mini-count STATE     the quantity of filled cells of that checkpoint
 import os, sys
 C = 147; X0, Y0 = (1620 - 9*C)//2, (2160 - 9*C)//2   # must agree with ui-lib.sh
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -32,6 +34,16 @@ INVALID_MARK = (1,6,6)    # the row, the column and the digit of the tap in "inv
 X_HALF = 10               # each line of the x goes from -10 px to +10 px on the two axes around the center
 X_WIDTH = 3               # the line width of the x
 TIME = "23:41"            # the time used in "completed"
+# The small boards of the Checkpoints panel: the player numbers, the mistakes and the cells with pencil marks.
+MINI_STATES = {
+    "current": (ENTERED, WRONG, MARKED),                        # the same as the game in progress
+    "group": (ENTERED + GROUP_ENTERED, {}, MARKED),             # the same numbers as "completed-group"
+    "clean": (ENTERED, {}, MARKED),                             # the game in progress before the mistake
+    "mid": (ENTERED[:6], {}, MARKED[:8]),
+    "early": (ENTERED[:2], {}, MARKED[:4]),
+}
+MINI_FONT_SIZE = 14       # the digits of the small board
+MINI_BASELINE = 14        # the baseline of a digit, from the top of its cell
 
 grid = [[int(c) if c != "." else 0 for c in row] for row in GIVENS]
 if MODE == "completed":
@@ -49,15 +61,18 @@ def peers(r, c):
             and (i == r or j == c or (i//3 == r//3 and j//3 == c//3))]
 
 # all numbers that have the same number in their row, column or box
-conflicts = {(r, c) for r in range(9) for c in range(9)
-             if grid[r][c] and any(grid[i][j] == grid[r][c] for i, j in peers(r, c))}
+def find_conflicts(b):
+    return {(r, c) for r in range(9) for c in range(9)
+            if b[r][c] and any(b[i][j] == b[r][c] for i, j in peers(r, c))}
+conflicts = find_conflicts(grid)
 
 # A row, a column or a box is complete when all nine cells are filled and none of its cells clashes. A clash with a
 # cell outside the group also stops the group. A completed game shows no completed color.
 GROUPS = ([[(r, c) for c in range(9)] for r in range(9)] + [[(r, c) for r in range(9)] for c in range(9)]
           + [[(br+i, bc+j) for i in range(3) for j in range(3)] for br in (0, 3, 6) for bc in (0, 3, 6)])
-complete_groups = [] if MODE == "completed" else [g for g in GROUPS
-                   if all(grid[r][c] for r, c in g) and not any(p in conflicts for p in g)]
+def find_complete(b, clashes):
+    return [g for g in GROUPS if all(b[r][c] for r, c in g) and not any(p in clashes for p in g)]
+complete_groups = [] if MODE == "completed" else find_complete(grid, conflicts)
 complete = {p for g in complete_groups for p in g}
 if MODE == "completed-group":
     assert not conflicts and len(complete_groups) == 3
@@ -74,6 +89,62 @@ def candidates(r, c):
 # the anchor point of the pencil mark of digit d in the cell at x,y: 24, 74 or 122 px on each axis
 def mark_anchor(x, y, d):
     return x + round(((d-1)%3 + 0.5)*C/3), y + round(((d-1)//3 + 0.5)*C/3)
+
+# The small board of a checkpoint. Cell (r, c) has its top left pixel at (X + c*CELL, Y + r*CELL). Each line of 1 px
+# is on the first pixel of the cell after it. Each line of 2 px is on the last pixel of the cell before it and the
+# first pixel of the cell after it. Thus the board with its outer lines is 2 px more than 9 cells, 1 px on each side.
+def mini_grid(state):
+    entered, wrong, _ = MINI_STATES[state]
+    b = [[int(c) if c != "." else 0 for c in row] for row in GIVENS]
+    for r, c in entered: b[r][c] = int(SOLUTION[r][c])
+    for (r, c), d in wrong.items(): b[r][c] = d
+    return b
+
+def mini_board(state, bx, by, cell):
+    marked = MINI_STATES[state][2]
+    b = mini_grid(state)
+    clashes = find_conflicts(b)
+    done = {p for grp in find_complete(b, clashes) for p in grp}
+    side = 9*cell
+    m = []
+    for r in range(9):
+        for c in range(9):
+            if not b[r][c]: continue
+            x, y = bx+c*cell, by+r*cell
+            bg = (CLASH_BG if (r, c) in clashes else COMPLETED_BG if (r, c) in done
+                  else STARTING_BG if GIVENS[r][c] != "." else "white")
+            m.append(f"stroke none fill {bg} rectangle {x},{y} {x+cell-1},{y+cell-1}")
+    # one dot of 2x2 px for each visible pencil mark
+    for r, c in marked:
+        if b[r][c]: continue
+        used = {b[i][j] for i, j in peers(r, c)}
+        x, y = bx+c*cell, by+r*cell
+        for d in range(1, 10):
+            if d in used: continue
+            dx, dy = x+3+5*((d-1) % 3), y+3+5*((d-1)//3)
+            m.append(f"stroke none fill gray40 rectangle {dx},{dy} {dx+1},{dy+1}")
+    for i in range(1, 9):
+        if i % 3:
+            a = i*cell
+            m.append(f"stroke none fill gray60 rectangle {bx+a},{by} {bx+a},{by+side-1} rectangle {bx},{by+a} {bx+side-1},{by+a}")
+    for i in range(0, 10, 3):
+        a = i*cell
+        m.append(f"stroke none fill black rectangle {bx+a-1},{by-1} {bx+a},{by+side} rectangle {bx-1},{by+a-1} {bx+side},{by+a}")
+    for r in range(9):
+        for c in range(9):
+            if not b[r][c]: continue
+            x, y = bx+c*cell, by+r*cell
+            color = "black" if GIVENS[r][c] != "." else PLAYER_DIGIT
+            m.append(f"stroke none fill {color} font '{FONT}' font-size {MINI_FONT_SIZE} text-anchor middle "
+                     f"text {x+cell/2},{y+MINI_BASELINE} '{b[r][c]}'")
+    return m
+
+if MODE == "mini":
+    print("\n".join(mini_board(sys.argv[2], int(sys.argv[3]), int(sys.argv[4]), int(sys.argv[5]))))
+    sys.exit(0)
+if MODE == "mini-count":
+    print(sum(1 for row in mini_grid(sys.argv[2]) for d in row if d))   # all filled cells, also the starting numbers
+    sys.exit(0)
 
 out = []
 filled =[(r, c) for r in range(9) for c in range(9) if grid[r][c]]

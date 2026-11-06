@@ -1,6 +1,7 @@
-//! The game: the puzzle, the numbers, the pencil marks, the undo and redo history and the clock.
+//! The game: the puzzle, the numbers, the pencil marks, the undo and redo history, the checkpoints
+//! and the clock.
 //!
-//! All changes to the board go through this module. Refer to REQUIREMENTS.md §4, §6, §7 and §8.
+//! All changes to the board go through this module. Refer to REQUIREMENTS.md §4, §6, §7, §8 and §9.3.
 
 use serde::{Deserialize, Serialize};
 
@@ -82,6 +83,100 @@ pub struct BoardSets {
     pub completed: CellSet,
 }
 
+/// The numbers of all cells. 0 is an empty cell.
+pub type Values = [[u8; 9]; 9];
+
+/// The maximum quantity of checkpoints of a game (§9.3, CKP-4).
+pub const MAX_CHECKPOINTS: usize = 5;
+
+/// True if the cell is filled and a peer has the same number (§6.3).
+fn clashes(value: &Values, cell: Cell) -> bool {
+    let v = value[cell.0 as usize][cell.1 as usize];
+    v != 0 && peers(cell).any(|(r, c)| value[r as usize][c as usize] == v)
+}
+
+/// The sets of the board with these numbers. It examines each cell one time for clashes, thus a
+/// drawing of a board calls it one time, not for each cell.
+fn sets_of(value: &Values) -> BoardSets {
+    let mut clashing = CellSet::default();
+    cells().filter(|&c| clashes(value, c)).for_each(|c| clashing.insert(c));
+    let mut completed = CellSet::default();
+    for group in Group::all().map(Group::cells) {
+        if group.iter().all(|&(r, c)| value[r as usize][c as usize] != 0 && !clashing.contains((r, c))) {
+            group.into_iter().for_each(|c| completed.insert(c));
+        }
+    }
+    BoardSets { clashing, completed }
+}
+
+/// The digits of the numbers in the peers of a cell, as a set of marks.
+fn digits_of_peers(value: &Values, cell: Cell) -> Marks {
+    peers(cell).fold(0, |m, (r, c)| match value[r as usize][c as usize] {
+        0 => m,
+        v => m | mark_bit(v),
+    })
+}
+
+/// The marks `marks` of a cell that show. Refer to `Game::visible_marks`.
+fn visible(value: &Values, marks: Marks, cell: Cell, hide: bool) -> Marks {
+    if value[cell.0 as usize][cell.1 as usize] != 0 {
+        0
+    } else if hide {
+        marks & !digits_of_peers(value, cell)
+    } else {
+        marks
+    }
+}
+
+/// All cells are filled and no cell clashes (§8.3).
+fn solved(value: &Values) -> bool {
+    value.iter().flatten().all(|&v| v != 0) && !cells().any(|c| clashes(value, c))
+}
+
+/// The numbers and all pencil marks of the board, also the marks that do not show (§9.3).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Board {
+    pub value: Values,
+    pub marks: [[Marks; 9]; 9],
+}
+
+impl Board {
+    /// The quantity of filled cells, also the starting numbers.
+    pub fn filled_count(&self) -> usize {
+        self.value.iter().flatten().filter(|&&v| v != 0).count()
+    }
+
+    /// The clashing cells and the cells of the completed groups of this board.
+    pub fn board_sets(&self) -> BoardSets {
+        sets_of(&self.value)
+    }
+
+    /// The marks that show in a cell of this board (MRK-2, MRK-4).
+    pub fn visible_marks(&self, cell: Cell, hide: bool) -> Marks {
+        visible(&self.value, self.marks[cell.0 as usize][cell.1 as usize], cell, hide)
+    }
+
+    /// All cells are filled and no cell clashes (CKP-5).
+    pub fn is_solved(&self) -> bool {
+        solved(&self.value)
+    }
+}
+
+/// A copy of the board and of the clock at the time of a save (§9.3).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct Checkpoint {
+    pub board: Board,
+    /// The clock at the save, in milliseconds.
+    pub elapsed_ms: u64,
+}
+
+impl Checkpoint {
+    /// Seconds on the clock at the save (whole seconds, rounded down).
+    pub fn seconds(&self) -> u64 {
+        self.elapsed_ms / 1000
+    }
+}
+
 /// One change to the board. Each change is one item in the undo history (REQUIREMENTS.md §7).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Change {
@@ -98,6 +193,9 @@ pub enum Change {
     },
     /// Erase your number.
     Erase { cell: Cell, digit: u8 },
+    /// Replace all numbers and all marks with those of a checkpoint (§9.3, CKP-2). The item keeps the
+    /// two boards, thus its undo and redo do not need the checkpoint (CKP-3).
+    Restore { before: Box<Board>, after: Box<Board> },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -117,6 +215,9 @@ pub struct Game {
     /// The clock, in milliseconds. Refer to §8.4.
     pub elapsed_ms: u64,
     pub completed: bool,
+    /// The checkpoints, the newest first (§9.3, CKP-4). A game file of an earlier version has none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub checkpoints: Vec<Checkpoint>,
 }
 
 fn first_generator() -> u8 {
@@ -159,6 +260,7 @@ impl Game {
             redo: Vec::new(),
             elapsed_ms: 0,
             completed: false,
+            checkpoints: Vec::new(),
         };
         g.completed = g.is_solved_board();
         g
@@ -187,28 +289,18 @@ impl Game {
 
     /// The digits of the numbers in the peers of a cell, as a set of marks.
     pub fn peer_digits(&self, cell: Cell) -> Marks {
-        peers(cell).fold(0, |m, p| match self.value_at(p) {
-            0 => m,
-            v => m | mark_bit(v),
-        })
+        digits_of_peers(&self.value, cell)
     }
 
     /// The marks that show in a cell. A filled cell shows no marks (MRK-2). If `hide`, a mark does
     /// not show while a peer has its digit as a number (§6.1, MRK-4).
     pub fn visible_marks(&self, cell: Cell, hide: bool) -> Marks {
-        if self.is_filled(cell) {
-            0
-        } else if hide {
-            self.marks_at(cell) & !self.peer_digits(cell)
-        } else {
-            self.marks_at(cell)
-        }
+        visible(&self.value, self.marks_at(cell), cell, hide)
     }
 
     /// The cell is filled and a peer has the same value (§6.3).
     pub fn is_clashing(&self, cell: Cell) -> bool {
-        let v = self.value_at(cell);
-        v != 0 && peers(cell).any(|p| self.value_at(p) == v)
+        clashes(&self.value, cell)
     }
 
     /// The group is full and none of its cells clashes, also with a cell outside the group (§6.4, COL-8).
@@ -216,18 +308,9 @@ impl Game {
         group.cells().into_iter().all(|c| self.is_filled(c) && !self.is_clashing(c))
     }
 
-    /// The clashing cells and the cells of the completed groups. It examines each cell one time for
-    /// clashes, thus a drawing of the board calls it one time, not for each cell.
+    /// The clashing cells and the cells of the completed groups.
     pub fn board_sets(&self) -> BoardSets {
-        let mut clashing = CellSet::default();
-        cells().filter(|&c| self.is_clashing(c)).for_each(|c| clashing.insert(c));
-        let mut completed = CellSet::default();
-        for group in Group::all().map(Group::cells) {
-            if group.iter().all(|&c| self.is_filled(c) && !clashing.contains(c)) {
-                group.into_iter().for_each(|c| completed.insert(c));
-            }
-        }
-        BoardSets { clashing, completed }
+        sets_of(&self.value)
     }
 
     /// The cells of the completed groups (COL-8, COL-9).
@@ -249,7 +332,7 @@ impl Game {
 
     /// All cells are filled and no cell clashes (§8.3).
     pub fn is_solved_board(&self) -> bool {
-        cells().all(|c| self.is_filled(c)) && !cells().any(|c| self.is_clashing(c))
+        solved(&self.value)
     }
 
     /// Seconds on the clock (whole seconds, rounded down).
@@ -319,6 +402,54 @@ impl Game {
         self.after_change()
     }
 
+    /// A copy of the numbers and of all marks.
+    pub fn board(&self) -> Board {
+        Board { value: self.value, marks: self.marks }
+    }
+
+    /// The numbers and all marks are the same as `board`, also the marks that do not show (`same_board`
+    /// of INVARIANTS.md §0).
+    pub fn same_board(&self, board: &Board) -> bool {
+        self.value == board.value && self.marks == board.marks
+    }
+
+    /// A save is available: the game is in progress, the list is not full and no checkpoint has this
+    /// board (CKP-1).
+    pub fn can_save_checkpoint(&self) -> bool {
+        !self.completed && self.checkpoints.len() < MAX_CHECKPOINTS && !self.checkpoints.iter().any(|k| self.same_board(&k.board))
+    }
+
+    /// Adds the board and the clock as the newest checkpoint (CKP-1). The board, the undo and redo
+    /// history and the clock do not change. False if a save is not available.
+    pub fn save_checkpoint(&mut self) -> bool {
+        let available = self.can_save_checkpoint();
+        if available {
+            self.checkpoints.insert(0, Checkpoint { board: self.board(), elapsed_ms: self.elapsed_ms });
+        }
+        available
+    }
+
+    /// "Restore" of the checkpoint `i`: one new item of the undo history (CKP-2). A checkpoint with the
+    /// same board ("Current") has no effect and keeps the redo history. The clock and the list do
+    /// not change.
+    pub fn restore_checkpoint(&mut self, i: usize) -> Outcome {
+        let after = match self.checkpoints.get(i) {
+            Some(k) if !self.completed && !self.same_board(&k.board) => Box::new(k.board.clone()),
+            _ => return Outcome::NoChange,
+        };
+        self.record(Change::Restore { before: Box::new(self.board()), after })
+    }
+
+    /// Removes the checkpoint `i` (CKP-3). The board, the undo and redo history and the clock do not
+    /// change. A complete game keeps its list (CKP-9). False if nothing changed.
+    pub fn delete_checkpoint(&mut self, i: usize) -> bool {
+        let available = !self.completed && i < self.checkpoints.len();
+        if available {
+            self.checkpoints.remove(i);
+        }
+        available
+    }
+
     /// Adds time to the clock. The clock stops when the puzzle is complete (§8.4).
     pub fn tick(&mut self, ms: u64) {
         if !self.completed {
@@ -356,6 +487,7 @@ impl Game {
             Change::Erase { cell: (r, c), .. } => {
                 self.value[r as usize][c as usize] = 0;
             }
+            Change::Restore { ref after, .. } => self.set_board(after),
         }
     }
 
@@ -371,7 +503,13 @@ impl Game {
             Change::Erase { cell: (r, c), digit } => {
                 self.value[r as usize][c as usize] = digit;
             }
+            Change::Restore { ref before, .. } => self.set_board(before),
         }
+    }
+
+    fn set_board(&mut self, board: &Board) {
+        self.value = board.value;
+        self.marks = board.marks;
     }
 }
 
@@ -536,6 +674,60 @@ mod tests {
             let in_group = Group::all().any(|x| g.is_completed_group(x) && x.cells().contains(&c));
             assert_eq!(set.completed.contains(c), in_group, "{c:?}");
         }
+    }
+
+    #[test]
+    fn a_restore_is_one_undo_item_and_a_save_or_a_delete_is_none() {
+        // CKP-1, CKP-2, CKP-3
+        let mut g = sample(&[(0, 0), (0, 1), (4, 4)]);
+        g.toggle_mark_with((0, 1), 1, false);
+        g.elapsed_ms = 5000;
+        let saved = g.board();
+        assert!(g.save_checkpoint());
+        assert!(!g.can_save_checkpoint(), "a checkpoint has this board");
+        assert_eq!(g.undo.len(), 1);
+        assert_eq!(g.restore_checkpoint(0), Outcome::NoChange, "Current");
+        g.add_number((4, 4), 5);
+        let later = g.board();
+        g.toggle_mark_with((0, 1), 2, false);
+        g.undo();
+        assert!(!g.redo.is_empty());
+        assert_eq!(g.restore_checkpoint(0), Outcome::Changed);
+        assert!(g.redo.is_empty(), "a Restore removes the redo history");
+        assert!(g.same_board(&saved));
+        assert!(g.delete_checkpoint(0));
+        assert_eq!(g.undo(), Outcome::Changed);
+        assert!(g.same_board(&later));
+        assert_eq!(g.redo(), Outcome::Changed);
+        assert!(g.same_board(&saved), "the item does not need its checkpoint");
+        assert_eq!(g.elapsed_ms, 5000);
+    }
+
+    #[test]
+    fn the_list_has_at_most_five_checkpoints_the_newest_first() {
+        // CKP-4
+        let mut g = sample(&[(0, 0), (0, 1)]);
+        for d in 1..=5 {
+            g.elapsed_ms = d * 1000;
+            g.toggle_mark_with((0, 0), d as u8, false);
+            assert!(g.save_checkpoint());
+        }
+        g.toggle_mark_with((0, 0), 6, false);
+        assert!(!g.save_checkpoint(), "the list is full");
+        assert_eq!(g.checkpoints.iter().map(Checkpoint::seconds).collect::<Vec<_>>(), [5, 4, 3, 2, 1]);
+    }
+
+    #[test]
+    fn a_saved_game_keeps_the_checkpoints_and_an_earlier_file_has_none() {
+        // PER-1, CKP-5
+        let mut g = sample(&[(0, 0), (0, 1)]);
+        let earlier = serde_json::to_string(&g).unwrap();
+        assert!(!earlier.contains("checkpoints"));
+        assert!(serde_json::from_str::<Game>(&earlier).unwrap().checkpoints.is_empty());
+        g.save_checkpoint();
+        g.toggle_mark_with((0, 1), 1, false);
+        g.restore_checkpoint(0);
+        assert_eq!(serde_json::from_str::<Game>(&serde_json::to_string(&g).unwrap()).unwrap(), g);
     }
 
     #[test]

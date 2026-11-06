@@ -6,7 +6,7 @@
 
 use crate::game::{Cell, Game, Outcome};
 use crate::generator::{generate, generate_early};
-use crate::layout::{self, Button, Rect};
+use crate::layout::{self, Button, CheckpointControl, Rect};
 use crate::recognizer::{self, Stroke};
 use crate::settings::{Color, LineGray, Section, Settings, Switch};
 use crate::store::{NewResult, ResultRow, ResultsDb};
@@ -29,6 +29,9 @@ const STALE_TOUCH_MS: u64 = 150;
 /// After "< Back" from the manual or from Statistics, the app ignores a press on the toolbar and on
 /// the close button for this time (NAV-16).
 pub const BACK_GUARD_MS: u64 = 500;
+/// After a delete of a checkpoint, a press in the area of the Checkpoints panel changes nothing for
+/// this time (CKP-8).
+pub const DELETE_GUARD_MS: u64 = 500;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Screen {
@@ -43,6 +46,7 @@ pub enum Panel {
     Colors,
     Settings,
     NewGame,
+    Checkpoints,
 }
 
 /// The toolbar menu of the game screen (§9). A panel is open only when the menu is open: the
@@ -76,6 +80,7 @@ impl Panel {
             Button::Colors => Some(Panel::Colors),
             Button::Settings => Some(Panel::Settings),
             Button::NewGame => Some(Panel::NewGame),
+            Button::Checkpoints => Some(Panel::Checkpoints),
             Button::Menu | Button::Undo | Button::Redo | Button::Help | Button::Statistics | Button::Close => None,
         }
     }
@@ -116,6 +121,9 @@ pub struct GameUi {
     pub refused: Option<(Cell, u8, u64)>,
     pub pending_ink: Option<PendingInk>,
     pub slider: u8,
+    /// The time of the last delete of a checkpoint, during the guard after it (CKP-8). The app does
+    /// not save it. It is None when the Checkpoints panel is not open.
+    pub delete_guard: Option<u64>,
 }
 
 impl GameUi {
@@ -128,7 +136,7 @@ impl GameUi {
 
     /// The state of the game screen when a different screen shows: the menu is closed (NAV-5).
     fn closed(slider: u8) -> GameUi {
-        GameUi { menu: Menu::Closed, highlight: None, question: None, refused: None, pending_ink: None, slider }
+        GameUi { menu: Menu::Closed, highlight: None, question: None, refused: None, pending_ink: None, slider, delete_guard: None }
     }
 }
 
@@ -220,6 +228,8 @@ enum Target {
     Color(Section, Color),
     /// A gray in the Micro-cell lines section of the Cell colors panel.
     LineGray(LineGray),
+    /// A control of the Checkpoints panel.
+    Checkpoint(CheckpointControl),
     StartNewGame,
     Back,
     Prev,
@@ -395,6 +405,9 @@ impl App {
         if self.toolbar_ignored_until.is_some_and(|t| now >= t) {
             self.toolbar_ignored_until = None;
         }
+        if self.ui.delete_guard.is_some_and(|t| now.saturating_sub(t) >= DELETE_GUARD_MS) {
+            self.ui.delete_guard = None;
+        }
     }
 
     /// True while the player writes: from the first stroke on the board until the app has read the
@@ -535,6 +548,13 @@ impl App {
         if toolbar_ignored && self.screen == Screen::Game && layout::game_button(x, y, self.ui.menu.is_open()).is_some() {
             return Gesture::Ignored;
         }
+        // CKP-8: shortly after a delete, a press in the area of the Checkpoints panel at its maximum
+        // size changes nothing. It is often the second tap of a fast double tap on a bin, and a
+        // different row is at that position now. The dialog "Restart the interface?" covers the panel.
+        let guarded = self.ui.delete_guard.is_some_and(|t| now.saturating_sub(t) < DELETE_GUARD_MS);
+        if guarded && !self.update.dialog_shown() && layout::ckp_guard_area().contains(x, y) {
+            return Gesture::Ignored;
+        }
         // Each action removes the highlight, the "?" and the x before the app does the action (HLT-2,
         // QST-4, MRK-15).
         let prev_highlight = self.ui.highlight.take();
@@ -607,8 +627,8 @@ impl App {
     fn press_game(&mut self, x: f32, y: f32, tool: Option<Tool>, prev_highlight: Option<u8>) -> Gesture {
         let button = layout::game_button(x, y, self.ui.menu.is_open());
 
-        // A panel is open: a tap outside the panel only closes the panel (NAV-11). The paint bucket and
-        // the + also change the panel (§9).
+        // A panel is open: a tap outside the panel only closes the panel (NAV-11). The panel buttons (the
+        // paint bucket, the gear, the bookmark and the +) also change the panel (§9, NAV-12).
         if let Some(panel) = self.ui.menu.panel() {
             if let Some(b) = button.filter(|&b| Panel::of_button(b).is_some()) {
                 return Gesture::Control(Target::Game(b));
@@ -636,6 +656,11 @@ impl App {
                         return Gesture::Control(Target::StartNewGame);
                     }
                     return Gesture::Ignored;
+                }
+                Panel::Checkpoints if layout::ckp_panel(self.game.checkpoints.len()).contains(x, y) => {
+                    return layout::checkpoint_control_at(x, y, self.game.checkpoints.len())
+                        .map(|control| Gesture::Control(Target::Checkpoint(control)))
+                        .unwrap_or(Gesture::Ignored);
                 }
                 _ => {
                     self.close_panel();
@@ -946,6 +971,7 @@ impl App {
             Target::Game(b) => layout::game_button(x, y, self.ui.menu.is_open()) == Some(b),
             Target::Color(s, c) => layout::color_at(x, y) == Some((s, c)),
             Target::LineGray(g) => layout::line_gray_at(x, y) == Some(g),
+            Target::Checkpoint(control) => layout::checkpoint_control_at(x, y, self.game.checkpoints.len()) == Some(control),
             Target::StartNewGame => layout::ng_start_row().contains(x, y),
             Target::Switch(s) => layout::settings_at(x, y) == Some(s),
             Target::Update => layout::update_button_area().contains(x, y),
@@ -994,6 +1020,7 @@ impl App {
                     self.settings_dirty = true;
                 }
             }
+            Target::Checkpoint(control) => self.checkpoint_control(control, now),
             Target::StartNewGame => self.start_new_game(),
             Target::Back => match self.screen {
                 Screen::GamesList => self.screen = Screen::Statistics,
@@ -1063,6 +1090,13 @@ impl App {
             Button::Colors => self.toggle_panel(Panel::Colors),
             Button::Settings => self.toggle_panel(Panel::Settings),
             Button::NewGame => self.toggle_panel(Panel::NewGame),
+            // CKP-9: on a complete puzzle, the tap has no effect. This includes a tap that read the ink
+            // that completed the puzzle, and a different open panel stays open.
+            Button::Checkpoints => {
+                if !self.game.completed {
+                    self.toggle_panel(Panel::Checkpoints);
+                }
+            }
             Button::Undo => {
                 let o = self.game.undo();
                 self.after_game_change(o);
@@ -1089,6 +1123,35 @@ impl App {
         }
     }
 
+    /// A release of a control of the Checkpoints panel (§9.3).
+    fn checkpoint_control(&mut self, control: CheckpointControl, now: u64) {
+        match control {
+            CheckpointControl::Save => {
+                if self.game.save_checkpoint() {
+                    self.checkpoints_changed();
+                }
+            }
+            CheckpointControl::Restore(i) => {
+                let o = self.game.restore_checkpoint(i);
+                self.after_game_change(o);
+            }
+            CheckpointControl::Delete(i) => {
+                if self.game.delete_checkpoint(i) {
+                    self.ui.delete_guard = Some(now);
+                    self.checkpoints_changed();
+                }
+            }
+        }
+    }
+
+    /// The list of checkpoints changed: the app saves the game file (PER-7). The rows moved, thus the
+    /// other pen or finger has no more effect: its release never operates a different checkpoint
+    /// (CKP-6). `view_key` contains the list, thus the screen gets a redraw.
+    fn checkpoints_changed(&mut self) {
+        self.game_dirty = true;
+        self.cancel_gestures();
+    }
+
     /// Opens the panel, or closes it if it is open. An open panel of a different button closes.
     fn toggle_panel(&mut self, panel: Panel) {
         let open = self.ui.menu.panel() != Some(panel);
@@ -1104,6 +1167,7 @@ impl App {
             self.ui.menu = Menu::Open(None);
         }
         self.ui.slider = self.settings.last_mode; // DIF-4: the selection is not kept.
+        self.ui.delete_guard = None;
         self.cancel_gestures();
     }
 
@@ -1195,7 +1259,7 @@ impl App {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         let g = &self.game;
-        (self.screen, g.value, g.marks, g.given, g.undo.len(), g.redo.len(), g.completed).hash(&mut h);
+        (self.screen, g.value, g.marks, g.given, g.undo.len(), g.redo.len(), g.completed, &g.checkpoints).hash(&mut h);
         if g.completed {
             g.seconds().hash(&mut h);
         }

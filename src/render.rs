@@ -10,7 +10,7 @@ use tiny_skia::{FillRule, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, P
 
 use crate::app::{average_seconds, App, Menu, Panel, Screen, MANUAL_PAGES};
 use crate::font::{Anchor, Fonts, Weight};
-use crate::game::{cells, format_clock, CellSet, Game};
+use crate::game::{cells, format_clock, Board, CellSet, Game};
 use crate::generator::MODES;
 use crate::layout::{self, *};
 use crate::settings::{Color, LineGray, Section, Settings, Switch};
@@ -684,6 +684,7 @@ fn draw_game(c: &mut Canvas, app: &App) {
         caution: app.update.caution(),
         undo: app.game.can_undo(),
         redo: app.game.can_redo(),
+        bookmark: !app.game.completed,
     };
     put_overlay(c, menu, |c| {
         c.image(toggle_icon(app.ui.menu.is_open()), tb_x(), 0, layout::right_handed());
@@ -703,8 +704,8 @@ enum OverlayLook {
     /// The difficulty meter at this mode.
     Meter(u8),
     /// The menu button and, if `panel` is Some, the toolbar with the button of this panel active
-    /// (`draw_toolbar`, without the panel).
-    Menu { panel: Option<Option<Panel>>, caution: bool, undo: bool, redo: bool },
+    /// (`draw_toolbar`, without the panel). `bookmark` is false when the bookmark is gray (CKP-9).
+    Menu { panel: Option<Option<Panel>>, caution: bool, undo: bool, redo: bool, bookmark: bool },
 }
 
 /// The key of a cached overlay: the fonts (address), the layout (rotation and hand) and the look.
@@ -1251,6 +1252,7 @@ fn draw_toolbar(c: &mut Canvas, app: &App, panel: Option<Panel>) {
     let colors_active = panel == Some(Panel::Colors);
     let settings_active = panel == Some(Panel::Settings);
     let plus_active = panel == Some(Panel::NewGame);
+    let bookmark_active = panel == Some(Panel::Checkpoints);
     if colors_active {
         active_slot(c, TB_SLOT);
     }
@@ -1272,6 +1274,17 @@ fn draw_toolbar(c: &mut Canvas, app: &App, panel: Option<Panel>) {
         icon.draw(c, tb_cx(), tb_cy(k), if available { BLACK } else { gray(70) });
     }
 
+    // The bookmark: gray on a complete puzzle (CKP-9), and white on black while its panel is open (NAV-8).
+    if bookmark_active {
+        active_slot(c, layout::CKP_SLOT * TB_SLOT);
+    }
+    let bookmark = match (bookmark_active, app.game.completed) {
+        (true, _) => WHITE,
+        (false, true) => gray(70),
+        (false, false) => BLACK,
+    };
+    Icon::Bookmark.draw(c, tb_cx(), tb_cy(layout::CKP_SLOT), bookmark);
+
     // + (new game), Analytics and Help at the bottom.
     let x = tb_cx();
     Icon::Plus.draw(c, x, (tb_bottom_y() + 56) as f32, if plus_active { WHITE } else { BLACK });
@@ -1285,6 +1298,7 @@ fn draw_panel(c: &mut Canvas, app: &App, panel: Panel) {
         Panel::Colors => draw_colors_panel(c, &app.settings),
         Panel::Settings => draw_settings_panel(c, &app.settings, &app.update),
         Panel::NewGame => draw_new_game_panel(c, app.ui.slider),
+        Panel::Checkpoints => draw_checkpoints_panel(c, &app.game, &app.settings),
     }
 }
 
@@ -1439,13 +1453,15 @@ enum BoxLook {
     Swatch(Rgb, String, Swatch),
     /// A row of the list of completed games: the date, the mode and the time.
     ListRow(String, u8, String),
+    /// A row of the Checkpoints panel.
+    CheckpointRow(Box<CheckpointRow>),
 }
 
 /// The key of a cached box: the fonts (address), the layout, the box (screen px) and the look.
 type BoxKey = (usize, layout::Rotation, bool, (i32, i32, i32, i32), BoxLook);
 
 /// More bytes of cached boxes than this: the cache starts again. A page of the games list (rows of
-/// 0.7 MB) and all items of the Cell colors panel fit.
+/// 0.7 MB), all items of the Cell colors panel and 5 rows of the Checkpoints panel (0.4 MB each) fit.
 const MAX_BOX_BYTES: usize = 16 << 20;
 
 thread_local! {
@@ -1513,6 +1529,150 @@ fn draw_new_game_panel(c: &mut Canvas, slider_level: u8) {
     c.rect(ng_pl() as f32, tb_bottom_y() as f32, ng_pr() as f32, (tb_bottom_y() + 1) as f32, BLACK);
     labeled_slider(c, ng_tx(), ng_tr(), ng_slider_y(), slider_level);
     c.text(Weight::Medium, 25.0, ng_tx() as f32, (ng_start_y() + 9) as f32, Anchor::Start, "Start new game", BLACK);
+}
+
+/// The Checkpoints panel (§9.3, toolbar.sh `ckp_frame` and `ckp_row`).
+fn draw_checkpoints_panel(c: &mut Canvas, g: &Game, settings: &Settings) {
+    let n = g.checkpoints.len();
+    let p = layout::ckp_panel(n);
+    let (pl, pr, bottom) = (p.x0, p.x1 - 1, p.y1 - 1);
+    panel_frame(c, pl, pr, p.y0, bottom);
+    // The record keeps one area for all drawings in the panel, and not one area for each digit.
+    // The margin contains the margin of a drawing at the edge of the panel.
+    if let Some(r) = SkRect::from_ltrb(pl as f32, p.y0 as f32, p.x1 as f32, p.y1 as f32) {
+        c.touched(r, 3.0);
+    }
+    let divider = |c: &mut Canvas, y: i32| c.rect(pl as f32, (y - 2) as f32, pr as f32, (y - 1) as f32, BLACK);
+    let at = |dx: i32| (pl + dx) as f32;
+
+    // The row "Save checkpoint" (CKP-1).
+    divider(c, layout::ckp_row_top(0));
+    let save = if g.can_save_checkpoint() { BLACK } else { gray(70) };
+    Icon::Plus.draw(c, at(layout::CKP_SAVE_ICON.0), layout::CKP_SAVE_ICON.1 as f32, save);
+    c.text(Weight::Medium, 28.0, at(layout::CKP_SAVE_TEXT.0), layout::CKP_SAVE_TEXT.1 as f32, Anchor::Start, "Save checkpoint", save);
+
+    if n == 0 {
+        let (first, second) = layout::CKP_EMPTY_BASELINES;
+        c.text(Weight::Regular, 28.0, at(layout::CKP_EMPTY_CX), first as f32, Anchor::Middle, "No checkpoints", gray(25));
+        c.text(Weight::Regular, 25.0, at(layout::CKP_EMPTY_CX), second as f32, Anchor::Middle, "Save the board before a difficult guess.", gray(40));
+    }
+    for (i, k) in g.checkpoints.iter().enumerate() {
+        let y0 = layout::ckp_row_top(i);
+        if i > 0 {
+            divider(c, y0);
+        }
+        let look = CheckpointRow {
+            board: k.board.clone(),
+            seconds: k.seconds(),
+            current: g.same_board(&k.board),
+            given: g.given,
+            starting: settings.color_starting.rgb(),
+            clash: settings.color_clash.rgb(),
+            completed: settings.completed_fill(g).map(Color::rgb),
+            hide: settings.auto_hide_on,
+        };
+        // The box is in the white panel, between the side lines and the lines between the rows.
+        let row_box = (pl + 2, y0, pr - 1, y0 + layout::CKP_ROW_H - 2);
+        put_box(c, row_box, BoxLook::CheckpointRow(Box::new(look.clone())), |c| checkpoint_row(c, &look, pl, y0, i));
+    }
+}
+
+/// All that the pixels of a checkpoint row depend on, with its position (CKP-7).
+#[derive(Clone, PartialEq, Eq, Hash)]
+struct CheckpointRow {
+    board: Board,
+    seconds: u64,
+    /// The board of the game is the same as this checkpoint: the button shows "Current".
+    current: bool,
+    /// The starting cells of the game.
+    given: [[bool; 9]; 9],
+    starting: Rgb,
+    clash: Rgb,
+    /// The completed color, if it shows (COL-11, COL-12).
+    completed: Option<Rgb>,
+    /// The setting "Hide pencil marks automatically".
+    hide: bool,
+}
+
+/// The contents of row `i` of the Checkpoints panel, in a white box.
+fn checkpoint_row(c: &mut Canvas, look: &CheckpointRow, pl: i32, y0: i32, i: usize) {
+    let at = |dx: i32| (pl + dx) as f32;
+    small_board(c, look, pl + layout::CKP_BOARD.0, y0 + layout::CKP_BOARD.1);
+
+    let (clock_y, cells_y) = layout::CKP_TEXT_BASELINES;
+    let played = format!("{} played", format_clock(look.seconds));
+    c.text(Weight::Regular, 25.0, at(layout::CKP_TEXT_X), (y0 + clock_y) as f32, Anchor::Start, &played, gray(25));
+    let filled = format!("{} of 81 cells", look.board.filled_count());
+    c.text(Weight::Regular, 25.0, at(layout::CKP_TEXT_X), (y0 + cells_y) as f32, Anchor::Start, &filled, gray(25));
+
+    // The button (CKP-2): the pixels from the first to the last x and y of `ckp_button`.
+    let b = layout::ckp_button(i);
+    let (bx0, by0, bx1, by1) = (b.x0 as f32, b.y0 as f32, (b.x1 - 1) as f32, (b.y1 - 1) as f32);
+    c.rect(bx0, by0, bx1, by1, BLACK);
+    let (label, label_color) = if look.current {
+        ("Current", WHITE)
+    } else {
+        c.rect(bx0 + 2.0, by0 + 2.0, bx1 - 2.0, by1 - 2.0, WHITE);
+        ("Restore", BLACK)
+    };
+    c.text(Weight::Medium, 25.0, at(layout::CKP_BUTTON_TEXT.0), (y0 + layout::CKP_BUTTON_TEXT.1) as f32, Anchor::Middle, label, label_color);
+
+    Icon::Bin.draw(c, at(layout::CKP_BIN.0), (y0 + layout::CKP_BIN.1) as f32, BLACK);
+}
+
+/// The small board of a checkpoint with its first cell at (bx, by) (CKP-7, board-state.py `mini_board`).
+/// The colors have the same rules as the board, with no highlight.
+fn small_board(c: &mut Canvas, look: &CheckpointRow, bx: i32, by: i32) {
+    let size = layout::CKP_BOARD_CELL;
+    let board = &look.board;
+    let sets = board.board_sets();
+    let origin = |(r, col): crate::game::Cell| (bx + col as i32 * size, by + r as i32 * size);
+    let filled = || cells().filter(|&(r, col)| board.value[r as usize][col as usize] != 0);
+    let is_given = |(r, col): crate::game::Cell| look.given[r as usize][col as usize];
+
+    for cell in filled() {
+        let (x, y) = origin(cell);
+        let bg = if sets.clashing.contains(cell) {
+            look.clash
+        } else if let Some(rgb) = look.completed.filter(|_| sets.completed.contains(cell)) {
+            rgb
+        } else if is_given(cell) {
+            look.starting
+        } else {
+            Color::White.rgb()
+        };
+        c.rect(x as f32, y as f32, (x + size - 1) as f32, (y + size - 1) as f32, bg);
+    }
+    // One dot of 2x2 px for each mark that shows, at its keypad position.
+    for cell in cells() {
+        let marks = board.visible_marks(cell, look.hide);
+        let (x, y) = origin(cell);
+        for d in 1..=9 {
+            if marks & crate::game::mark_bit(d as u8) != 0 {
+                let (dx, dy) = (x + 3 + 5 * ((d - 1) % 3), y + 3 + 5 * ((d - 1) / 3));
+                c.rect(dx as f32, dy as f32, (dx + 1) as f32, (dy + 1) as f32, gray(40));
+            }
+        }
+    }
+    // The lines: first the thin lines, then the thick lines. A thin line is on the first pixel of the
+    // cell after it. A thick line is on the last pixel of the cell before it and that first pixel.
+    let side = 9 * size;
+    for i in (1..9).filter(|i| i % 3 != 0) {
+        let a = i * size;
+        c.rect((bx + a) as f32, by as f32, (bx + a) as f32, (by + side - 1) as f32, gray(60));
+        c.rect(bx as f32, (by + a) as f32, (bx + side - 1) as f32, (by + a) as f32, gray(60));
+    }
+    for i in [0, 3, 6, 9] {
+        let a = i * size;
+        c.rect((bx + a - 1) as f32, (by - 1) as f32, (bx + a) as f32, (by + side) as f32, BLACK);
+        c.rect((bx - 1) as f32, (by + a - 1) as f32, (bx + side) as f32, (by + a) as f32, BLACK);
+    }
+    for cell in filled() {
+        let (x, y) = origin(cell);
+        let col = if is_given(cell) { BLACK } else { ENTRY_DIGIT };
+        let digit = board.value[cell.0 as usize][cell.1 as usize].to_string();
+        c.text(Weight::Regular, 14.0, x as f32 + size as f32 / 2.0, (y + 14) as f32, Anchor::Middle, &digit, col);
+    }
 }
 
 // ---- Analytics (analytics.py)
@@ -1750,6 +1910,7 @@ pub enum Icon {
     Caution,
     Undo,
     Redo,
+    Bookmark,
     Help,
     Statistics,
     Plus,
@@ -1764,7 +1925,7 @@ pub enum Icon {
 }
 
 impl Icon {
-    pub const ALL: [Icon; 19] = [
+    pub const ALL: [Icon; 20] = [
         Icon::MenuClosed,
         Icon::MenuOpen,
         Icon::Close,
@@ -1773,6 +1934,7 @@ impl Icon {
         Icon::Caution,
         Icon::Undo,
         Icon::Redo,
+        Icon::Bookmark,
         Icon::Help,
         Icon::Statistics,
         Icon::Plus,
@@ -1856,6 +2018,17 @@ impl Icon {
                 pb.line_to(-18.0, -4.0);
                 pb.line_to(-10.0, 4.0);
                 c.path_stroke(pb, tf, 3.0, col);
+            }
+            // A bookmark with a notch at the bottom (§15): a closed line.
+            Icon::Bookmark => {
+                let mut pb = PathBuilder::new();
+                pb.move_to(-12.0, -18.0);
+                pb.line_to(12.0, -18.0);
+                pb.line_to(12.0, 18.0);
+                pb.line_to(0.0, 8.0);
+                pb.line_to(-12.0, 18.0);
+                pb.close();
+                c.path_stroke(pb, Transform::from_translate(cx, cy), 3.0, col);
             }
             Icon::Help => {
                 c.circle(cx, cy, 19.0, None, Some((col, 3.0)));

@@ -26,6 +26,7 @@ comes from (for example *R§4.1*). Rules that are not confirmed yet are in
 8. [Completion and the lock](#8-completion-and-the-lock)
 9. [Clock](#9-clock)
 10. [Screens, menu and panels](#10-screens-menu-and-panels)
+    - [Checkpoints panel](#101-checkpoints-panel)
 11. [Difficulty](#11-difficulty)
 12. [Cell colors](#12-cell-colors)
 13. [Manual](#13-manual)
@@ -62,17 +63,26 @@ Game
   value[r][c]     ∈ 0..9                       (0 = empty)
   marks[r][c]     ⊆ {1..9}                     (pencil marks; kept also when hidden)
   undo, redo      : stacks of Change
+  checkpoints     : list of Checkpoint         (newest first; 0 to 5 items; default empty; CKP-4)
   elapsed         : seconds ≥ 0
   completed       : bool
 
+Checkpoint
+  value[r][c], marks[r][c]                     (the numbers and all marks at the save, also the hidden marks)
+  elapsed         : seconds ≥ 0                (the clock at the save)
+
+Change = a mark | a number | an erasure | Restore { before, after }
+                                               (Restore: before and after each have value and marks of all cells)
+
 GameUI
   menu            ∈ {Closed, Open}
-  panel           ∈ {None, Colors, Settings, NewGame}
+  panel           ∈ {None, Colors, Settings, NewGame, Checkpoints}
   highlight       ∈ {None} ∪ 1..9
   question        ∈ {None} ∪ (cell, shown_at)   (the temporary "?")
   refused         ∈ {None} ∪ (cell, digit, shown_at)   (the temporary x of a refused tap; default None; not saved)
   pending_ink     ∈ {None} ∪ (cell, strokes, last_lift_at)
   slider          ∈ 0..6                       (the selection in the New game panel)
+  delete_guard    ∈ {None} ∪ deleted_at        (the time of the last delete of a checkpoint, for 0.5 s; default None; not saved; CKP-8)
 
 ListUI
   filter          ∈ {All} ∪ 0..6
@@ -116,6 +126,11 @@ Terms:
 - **shows_completed(r, c)**: (r, c) is in a completed group, `completed_color_on`,
   `color_completed ≠ White` and `¬completed`.
 - **can_undo / can_redo**: the stack is not empty and the game is not complete.
+- **same_board(a, b)**: a and b have the same `value` and the same `marks` in all cells. This includes the
+  hidden marks. It does not include the clock.
+- **current(k)**: `same_board(k, game)` for a checkpoint k.
+- **can_save**: `¬completed`, `|checkpoints| < 5`, and no checkpoint is `current`.
+- **Restore**: the change that replaces all of `value` and `marks` with those of a checkpoint (CKP-2).
 - **refused tap**: a pen tap on the micro-cell of digit d of an empty cell, when `auto_hide_on` and a
   peer has the number d (MRK-7).
 
@@ -136,8 +151,8 @@ Terms:
 |---|---|---|
 | BRD-1 | Each cell is always one of these types: starting number (`given`), your number (`entry`), empty with no marks, empty with marks. | R§4.1 |
 | BRD-2 | `given ⇒ filled`. The value of a starting number does not change. | R§4.1 |
-| BRD-3 | The value of an entry is 1–9. Only the eraser, undo or redo can remove it. Writing does not replace it. | R§4.1, R§5.1 |
-| BRD-4 | A value changes from 0 to a digit only by a number from 1 to 9 that the app reads, by redo, by undo of an erasure, or by the generator. | R§5.1, R§7 |
+| BRD-3 | The value of an entry is 1–9. Only the eraser, undo, redo or a Restore can remove or change it. Writing does not replace it. | R§4.1, R§5.1, R§9.3, owner approval 2026-11-06 |
+| BRD-4 | A value changes from 0 to a digit only by a number from 1 to 9 that the app reads, by redo, by undo of an erasure, by a Restore, by undo of a Restore, or by the generator. | R§5.1, R§7, R§9.3, owner approval 2026-11-06 |
 | BRD-5 | An entry can be incorrect. `value ≠ solution` is a correct state. The app gives no cell a color because of `value ≠ solution`: an incorrect entry gets a color only by the rules that also apply to a correct entry (BRD-7). | R§6.3, owner decision 2026-11-05 |
 | BRD-6 | Filled cells do not show the micro-cell grid or pencil marks. Empty cells show the micro-cell grid in the gray of `micro_line` (COL-7), or no grid if it is None. The only exception is an empty cell with a "?" (QST-1): it does not show the grid while the "?" shows. | R§4.1, R§5.1, R§10 |
 | BRD-7 | The background of a filled cell is the **first** of these: the clash color if clashing; the highlight color if `value = highlight`; the completed color if `shows_completed`; the starting color if given; white. Empty cells are white. Thus a cell with a "?" (QST-1) has no completed color. | R§4.2, owner decision 2026-11-05 |
@@ -151,17 +166,17 @@ Terms:
 | MRK-2 | Marks **show only when the cell is empty**. A filled cell can have marks, but they are hidden. | R§4.1 |
 | MRK-3 | Starting numbers never have marks. You can add marks only to empty cells, and starting numbers are never empty. | R§4.1 |
 | MRK-4 | **Automatic hiding:** if `auto_hide_on`, an empty cell shows the marks `marks[r][c]` minus the digits of the numbers in its peers. A filled peer keeps its hidden marks with no change. | R§6.1 |
-| MRK-5 | Marks change only in these ways: a pen tap adds or removes one mark in an empty cell; undo and redo of these changes. A new number, the eraser and the switches never change marks. Exception: undo and redo of a number of an earlier version that has a `removed` list (R§6.1). | R§5.1, R§6.1, R§7 |
-| MRK-6 | When a number goes (the eraser, undo or redo), the hidden marks of that cell show again with no change. | R§4.1, R§6.1 |
+| MRK-5 | Marks change only in these ways: a pen tap adds or removes one mark in an empty cell; a Restore sets all marks to those of the checkpoint; undo and redo of these changes. A new number, the eraser and the switches never change marks. Exception: undo and redo of a number of an earlier version that has a `removed` list (R§6.1). | R§5.1, R§6.1, R§7, R§9.3, owner approval 2026-11-06 |
+| MRK-6 | When a number goes (the eraser, undo or redo), the hidden marks of that cell show again with no change. A Restore and its undo and redo are different: the cell has the marks of the board that the change sets (CKP-2). | R§4.1, R§6.1, R§9.3, owner approval 2026-11-06 |
 | MRK-7 | If `auto_hide_on`, a pen tap on micro-cell d of an empty cell does not change the game when a peer has the number d. This is also true when the cell has the hidden mark d. This tap is a refused tap, and it shows the x (MRK-10). If `¬auto_hide_on`, the tap adds or removes the mark d, and no x shows. A mark does not have to be a possible digit. | R§6.1 (owner decisions 2026-10-31 and 2026-11-04) |
-| MRK-8 | When a number d goes (the eraser, undo or redo), the marks d of its peers show again, if no other peer of those cells has the number d. | R§6.1 (owner decision 2026-10-31) |
+| MRK-8 | When a number d goes (the eraser, undo or redo), the marks d of its peers show again, if no other peer of those cells has the number d. After a Restore and its undo and redo, MRK-4 gives the visible marks from the board that the change sets. | R§6.1 (owner decision 2026-10-31), R§9.3, owner approval 2026-11-06 |
 | MRK-9 | If `¬auto_hide_on`, each empty cell shows all of `marks[r][c]`. A new number never has removed marks, and its undo and redo change only that cell. | R§6.1, R§9.1 |
 
 ## 4. Clashes
 
 | ID | Rule | Source |
 |---|---|---|
-| CLS-1 | The set of clashing cells is always `{(r, c) : clashing(r, c)}`. The app calculates it from `value` after each change: a new number, an erasure, undo, redo and a new game. The app does not keep it separately from the board. | R§6.3 |
+| CLS-1 | The set of clashing cells is always `{(r, c) : clashing(r, c)}`. The app calculates it from `value` after each change: a new number, an erasure, a Restore, undo, redo (also of a Restore) and a new game. The app does not keep it separately from the board. | R§6.3, R§9.3, owner approval 2026-11-06 |
 | CLS-2 | Clashes go in two directions. If (r, c) clashes with a peer, that peer also clashes. Both cells get the clash color. | R§6.3 |
 | CLS-3 | Two starting numbers never clash (PUZ-3). Thus each clash includes one or more entries. | R§6.3, R§14.5 |
 | CLS-4 | The app never compares the board with `solution` for the player. An incorrect entry with no clash looks the same as a correct entry. This is also true in a completed group: the completed color does not tell that a number is correct or incorrect (COL-9). | R§6.3, owner decision 2026-11-05 |
@@ -215,15 +230,15 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| UND-1 | Each change to the board is one of these: add or remove a mark; add a number; erase a number. Each change adds one item to `undo` and empties `redo`. | R§7 |
-| UND-2 | No other action adds to `undo`. Highlights, the "?", the x, color changes, switch changes, a group that gets or loses the completed color, panels and screens never add to it. | R§7, owner decision 2026-11-05 |
+| UND-1 | Each change to the board is one of these: add or remove a mark; add a number; erase a number; a Restore (one item for all cells). Each change adds one item to `undo` and empties `redo`. | R§7, R§9.3, owner approval 2026-11-06 |
+| UND-2 | No other action adds to `undo`. Highlights, the "?", the x, color changes, switch changes, a group that gets or loses the completed color, panels, screens, the save and the delete of a checkpoint, and a tap on "Current" never add to it. | R§7, owner decision 2026-11-05, R§9.3, owner approval 2026-11-06 |
 | UND-3 | Undo does the exact opposite of the top change and moves the change to `redo`. Redo does the change again and moves it back to `undo`. An undo and then a redo give the same board as before. A redo and then an undo also give the same board. | R§7 |
 | UND-4 | Undo of a number shows the hidden marks of that cell again, and the marks of the peers that the number hid (MRK-8). For a number of an earlier version with a `removed` list, undo puts back those marks. | R§6.1 |
 | UND-5 | After each undo or redo, CLS-1 is true. The app calculates the clashes again. | R§6.3 |
-| UND-6 | A new game sets `undo = redo = ∅`. | R§7 |
+| UND-6 | A new game sets `undo = redo = ∅` and `checkpoints = ∅`. | R§7, R§9.3, owner approval 2026-11-06 |
 | UND-7 | The undo button is black only if `can_undo`. The redo button is black only if `can_redo`. In all other conditions, the button is gray and has no effect. | R§7 |
 | UND-8 | `completed ⇒` the two buttons are gray and have no effect. This is also true when the stacks are not empty. | R§7, R§8.3 |
-| UND-9 | Undo and redo do not change `given`, `solution`, `seed`, `mode` or `elapsed`. | R§7 |
+| UND-9 | Undo, redo and a Restore do not change `given`, `solution`, `seed`, `mode` or `elapsed`. | R§7, R§9.3, owner approval 2026-11-06 |
 
 ## 8. Completion and the lock
 
@@ -231,10 +246,10 @@ Terms:
 |---|---|---|
 | CMP-1 | `completed ⇔` all cells are filled and no cell clashes. The app sets it to true immediately when this becomes true. Only a new game sets it to false. | R§8.1, R§8.3 |
 | CMP-2 | Each row, column and box of a complete board has the digits 1–9 one time. Thus a complete board is the same as `solution` (PUZ-2). | R§8.3, R§14.5 |
-| CMP-3 | `completed ⇒` the board, the marks and the stacks do not change (INP-9, UND-8), and `highlight = None`, `question = None`, `refused = None`, `pending_ink = None`. | R§8.3 |
+| CMP-3 | `completed ⇒` the board, the marks, the stacks and `checkpoints` do not change (INP-9, UND-8, CKP-9), and `panel ≠ Checkpoints`, `highlight = None`, `question = None`, `refused = None`, `pending_ink = None`. | R§8.3, R§9.3, owner decision 2026-11-06 |
 | CMP-4 | `completed ⇒` the text "Completed in" and `elapsed` replace the meter below the board. The format is `m:ss`, and `h:mm:ss` after one hour. `¬completed ⇒` the meter shows `mode`. The player cannot change the meter. | R§3.1, R§8.3 |
 | CMP-5 | Completion adds **one** row to `results`. The row has the `mode`, the quantity of starting numbers, the final `elapsed`, the `seed` and the `generator` version of this game. The app never adds a row for a game that is not complete. | R§8.3, R§14.1 |
-| CMP-6 | Only Start new game ends the `completed` state. Help, Statistics, colors, settings and the menu continue to operate. | R§8.3 |
+| CMP-6 | Only Start new game ends the `completed` state. Help, Statistics, colors, settings and the menu continue to operate. The Checkpoints panel is not available (CKP-9). | R§8.3, R§9.3, owner decision 2026-11-06 |
 
 ## 9. Clock
 
@@ -264,10 +279,27 @@ Terms:
 | NAV-15 | When the device is right-handed, the game screen shows the toolbar, the menu button, the close button and the panels as a mirror image of the left-handed screen: the toolbar is at the left edge (x 0–112), the close button is at the top right, and the panels touch the toolbar at x 112. The icons other than the menu button and the contents of the panels are the same. The hit areas move with the buttons. | R§3.1 (owner request 2026-10-26) |
 | NAV-13 | A turn of the tablet does not change the game, the settings or the screen. It removes the pending ink and the touches in progress, and it changes only the page of the games list: the list shows the page with the first game of the page before the turn (R§3.3). | R§3.3 (confirmed 2026-10-25) |
 | NAV-14 | The Settings panel opens from the gear (top slot 2). It is 400 px wide (x 1108–1507 for a left-handed player in portrait). Rows 1 to 3 have the switches `highlight_on`, `auto_hide_on` and `completed_color_on`, in this order. A tap on one of these rows changes only its switch, immediately; the panel stays open. A tap on the version row (row 4) changes nothing, and the panel stays open. A change of a switch does not change the game or the undo and redo stacks, and it does not change the changes that are already in the stacks. The switches also operate when `completed` (CMP-6). | R§9.1 (version row: owner decision 2026-10-26; third switch and width: owner decision 2026-11-05) |
-| NAV-11 | When `panel ≠ None`, a tap outside the panel only sets `panel = None`. It does not change the game, also when the tap is on the board. When `menu = Open` and `panel = None`, the board operates as usual. | R§9 |
-| NAV-12 | When `panel ≠ None`, a tap on a toolbar button that is not the paint bucket, the gear or the + only closes the panel. A tap on the button of a different panel opens that panel. This includes the menu button and the close button. | R§9 (confirmed 2026-10-25) |
-| NAV-16 | For 0.5 s after "< Back" from Manual or Statistics shows Game, a press on a toolbar button (also the menu button) or on the close button changes nothing: `menu`, `panel`, `screen` and the game do not change, and the app does not close. A first press that the app ignores in this time does not remove the x or the "?" (the exception to MRK-15 and QST-4). A second finger on one of these items, while another finger stays on the screen, operates no item, but it removes the x and the "?" (INP-15). A press on the board operates as usual. This is true for the left-handed and the right-handed layout. | R§9, R§12, R§13.1 (owner decisions 2026-11-02, 2026-11-04 and 2026-11-05) |
+| NAV-11 | When `panel ≠ None`, a tap outside the panel only sets `panel = None`. It does not change the game, also when the tap is on the board. The only exception is the guard after a delete (CKP-8). When `menu = Open` and `panel = None`, the board operates as usual. | R§9, R§9.3, owner decision 2026-11-06 |
+| NAV-12 | When `panel ≠ None`, a tap on a toolbar button that is not the paint bucket, the gear, the bookmark or the + only closes the panel. This includes the menu button, the close button, undo and redo: with an open panel, the first tap on undo only closes the panel, and a second tap does the undo. A tap on the button of a different panel opens that panel. The only exception is the gray bookmark: a tap on it changes nothing, and an open panel stays open (CKP-9). | R§9 (confirmed 2026-10-25), R§9.3, owner decision 2026-11-06 |
+| NAV-16 | For 0.5 s after "< Back" from Manual or Statistics shows Game, a press on a toolbar button (also the menu button and the bookmark in top slot 5) or on the close button changes nothing: `menu`, `panel`, `screen` and the game do not change, and the app does not close. A first press that the app ignores in this time does not remove the x or the "?" (the exception to MRK-15 and QST-4). A second finger on one of these items, while another finger stays on the screen, operates no item, but it removes the x and the "?" (INP-15). A press on the board operates as usual. This is true for the left-handed and the right-handed layout. | R§9, R§12, R§13.1 (owner decisions 2026-11-02, 2026-11-04 and 2026-11-05), R§9.3, review finding 2026-11-06 |
 | NAV-17 | The Cell colors panel is 800 px wide and covers y 112 to 1192, with the two ends included (1081 rows: three rows of 360 px and the last border row). Its x range, also with the two ends included, is 708–1507 for a left-handed player in portrait, 1248–2047 for a left-handed player in landscape, and 112–911 for a right-handed player in the two orientations. It has two columns of 400 px, in the same order for the two hands. The left column has, from the top, Starting numbers, Clashing numbers and Highlighted numbers. The right column has, from the top, Completed groups, Micro-cell lines and empty space. In all four layouts, the panel does not cover a toolbar button, the close button, the meter or "Completed in". A tap on the empty space or on a title changes nothing, and the panel stays open. | R§3.1, R§10, owner decision 2026-11-05 |
+| NAV-18 | The Checkpoints panel opens from the bookmark (top slot 5, y 560–671). A second tap on the bookmark closes it. It is 600 px wide. Its x range, with the two ends included, is 908–1507 for a left-handed player in portrait, 1448–2047 for a left-handed player in landscape, and 112–711 for a right-handed player in the two orientations. It starts at y 560 in all layouts. It ends at y 864 with no checkpoint, and at y `672 + 180 × n` with n checkpoints, n ≥ 1 (y 1572 with 5). The contents have the same order in all layouts. In all four layouts, the panel does not cover a toolbar button, the close button, the meter or "Completed in". `panel = Checkpoints ⇒ pending_ink = None` and no stroke is live. The pen, the eraser and a finger operate the panel in the same way. A tap in the panel on no control changes nothing, and the panel stays open. | R§3.1, R§3.3, R§9.3, owner approval 2026-11-06 |
+
+### 10.1 Checkpoints panel
+
+The x values in this table are for a left-handed player in portrait. In the other layouts, each x value keeps the same distance from the left edge of the panel (NAV-18). For row i of the list, `y0 = 672 + 180 × i`.
+
+| ID | Rule | Source |
+|---|---|---|
+| CKP-1 | The row "Save checkpoint" (y 560–671; the full row is the tap area) is black exactly when `can_save`, and else gray 70. When `can_save`, a tap adds one checkpoint at the start of `checkpoints`, with `value`, `marks` and `elapsed` of the game. It does not change `value`, `marks`, the stacks or `elapsed`. The app saves the game file. When `¬can_save`, a tap changes nothing. | R§9.3, owner approval 2026-11-06 |
+| CKP-2 | The button of a row shows "Current" exactly when the checkpoint is `current`, and else "Restore". A tap on "Restore" sets `value` and `marks` to those of the checkpoint, adds one Restore item to `undo` and empties `redo`. Undo of this item gives the board before it. Redo gives the board of the checkpoint, also after the delete of the checkpoint (CKP-3). A Restore does not change `elapsed` or `checkpoints`, and `panel` stays `Checkpoints`. A tap on "Current" changes nothing and does not empty `redo`. A checkpoint that is different only in hidden marks shows "Restore", and a tap adds one undo item with no visible change. | R§9.3, owner approval 2026-11-06 |
+| CKP-3 | A tap on the bin of a row removes that checkpoint immediately, with no dialog and no undo. It does not change `value`, `marks`, the stacks or `elapsed`. The app saves the game file. A Restore item in the stacks does not change, and its undo and redo give the same boards after the delete of its checkpoint. | R§9.3, owner approval 2026-11-06 |
+| CKP-4 | `checkpoints` has 0 to 5 items, newest first. No two items have `same_board`. The `elapsed` of each item is at most the `elapsed` of the next newer item, and at most the `elapsed` of the game. | R§9.3, review finding 2026-11-06 |
+| CKP-5 | When the app opens a saved game, these must be true for each checkpoint and for each of the two boards of each Restore item: each value is 0 to 9; a given cell has its value from `solution` and has no marks; the marks of all other cells are in 1 to 9; the board is not solved (all cells filled and no clash). For each Restore item, `before` is the board at that point of the history, and `before` is not `same_board` as `after`. A checkpoint on a complete game is correct. A game file that breaks this rule or CKP-4 is incorrect saved data, and the app makes a new game (PER-5). A game file of an earlier version has no checkpoints: `checkpoints = ∅`. | R§9.3, review finding 2026-11-06, PER-5 |
+| CKP-6 | Each change of `checkpoints` stops all other pen and finger gestures that are in progress. Thus a release never operates a different checkpoint. | R§9.3, review finding 2026-11-06 |
+| CKP-7 | With `checkpoints = ∅`, the panel shows "No checkpoints" and "Save the board before a difficult guess.", and no row. Each row shows a small board, `<clock> played` (the `elapsed` of the checkpoint in the format of CMP-4), `<n> of 81 cells` (n counts all filled cells of the checkpoint, also the starting numbers), the button and the bin. A row has no title and no name. On the small board, the background of a filled cell is the first of these, from the values of the checkpoint: the clash color if clashing; the completed color with the switch and color rules of `shows_completed`; the starting color if given; white. It never has the highlight color. The digit has the color of BRD-8. An empty cell shows a dot for each mark that MRK-4 shows, with the current `auto_hide_on`. The tap area of the button is x 1289–1429, y y0+55 to y0+125, with the two ends included. The tap area of the bin is x 1441–1507, the full height of the row. The 12 px between these two areas operate nothing. | R§9.3, owner approval 2026-11-06 |
+| CKP-8 | For 0.5 s after a delete of a checkpoint, while `panel = Checkpoints`, a press in the area of the panel at its maximum size changes nothing: the game, `checkpoints` and `panel` do not change. This area has the x range of NAV-18 and y 560–1572 in all layouts. A press out of this area, and a press on the toolbar, operate as usual. Thus the second tap of a fast double tap does not delete the row that moved up and does not close the panel. | R§9.3, owner decision 2026-11-06 |
+| CKP-9 | `completed ⇒ panel ≠ Checkpoints`, the bookmark is gray 70, `checkpoints` does not change, and a tap on the bookmark changes nothing. This is also true when a different panel is open: that panel stays open (the exception to NAV-12). The list stays in the game file until a new game (UND-6). `¬completed ⇒` the bookmark is black, or white on black while the panel is open (NAV-8). If a tap on the bookmark makes the app read waiting ink that completes the puzzle, the panel does not open. | R§8.3, R§9.3, owner decision 2026-11-06 |
 
 ## 11. Difficulty
 
@@ -277,7 +309,7 @@ Terms:
 | DIF-2 | At the first start, before the player selects a mode, `last_mode = 2` and the first puzzle has mode 2. | R§11 (confirmed again 2026-10-25) |
 | DIF-3 | When the New game panel opens, `slider = last_mode`. | R§11 |
 | DIF-4 | When you move the slider, only `slider` changes. The game, `last_mode` and the meter do not change. If the panel closes before Start new game, the app does not keep `slider`. | R§11 |
-| DIF-5 | Start new game sets `last_mode = slider`. It makes a game with `mode = slider`, a new seed, `elapsed = 0`, empty stacks, `completed = false`, no entries and no marks. | R§11 |
+| DIF-5 | Start new game sets `last_mode = slider`. It makes a game with `mode = slider`, a new seed, `elapsed = 0`, empty stacks, `checkpoints = ∅`, `completed = false`, no entries and no marks. | R§11, R§9.3, owner approval 2026-11-06 |
 | DIF-6 | `¬completed ⇒` the meter below the board shows `game.mode`. When the game is complete, "Completed in …" replaces the meter (CMP-4). The player cannot change the meter. | R§3.1, R§8.3, R§11 |
 | DIF-7 | Start new game never asks for a confirmation. It never records the old game in `results` (CMP-5). | R§11 |
 
@@ -294,7 +326,7 @@ Terms:
 | COL-7 | `micro_line` always has one of the nine values of the Micro-cell lines section: None, gray90, gray80, gray70, gray60, gray55, gray50, gray45 or gray40. The default is gray90, also for a settings file of an earlier version. The section shows the selected value (black box). A tap on a value changes only `micro_line`, and the board shows the new lines immediately. | R§10 (owner decision 2026-11-02) |
 | COL-8 | A group is a completed group exactly when all its nine cells are filled and no cell of the group is clashing. A clash with a cell outside the group also stops the group. An empty cell is never in a completed group. | R§4.2, R§6.3, owner decision 2026-11-05 |
 | COL-9 | The set of completed groups is a function of `value` only. The app does not use `solution` for it, does not keep it as a state and does not save it. Each completed group has the digits 1–9 one time. A completed group can have an entry with `value ≠ solution`. A group with only starting numbers that is full at the start of a game is a completed group from the first frame. | R§4.2, R§6.3, owner decision 2026-11-05 |
-| COL-10 | After each change (a new number, an erasure, undo, redo and a new game), a cell has the completed color exactly when `shows_completed` and no earlier item of BRD-7 applies. This is also true for cells that are not peers of the changed cell: an erasure can remove a clash, and then a different group of the other clashing cell becomes a completed group. A group that gets or loses the color does not change the undo and redo stacks, the clock, `results` or `completed`. | R§4.2, R§6.3, owner decision 2026-11-05 |
+| COL-10 | After each change (a new number, an erasure, a Restore, undo, redo (also of a Restore) and a new game), a cell has the completed color exactly when `shows_completed` and no earlier item of BRD-7 applies. This is also true for cells that are not peers of the changed cell: an erasure can remove a clash, and then a different group of the other clashing cell becomes a completed group. A group that gets or loses the color does not change the undo and redo stacks, the clock, `results` or `completed`. | R§4.2, R§6.3, owner decision 2026-11-05, R§9.3, owner approval 2026-11-06 |
 | COL-11 | `completed_color_on` and the selection of White in the Completed groups section only select whether the completed color shows. With `¬completed_color_on` or `color_completed = White`, no cell has the completed color, and a starting number keeps its starting color (BRD-7). The two conditions give the same board. They do not change the set of completed groups. With `¬completed_color_on`, the Completed groups section stays operative, and `color_completed` stays not available for the other sections (COL-5). | R§9.1, R§10, owner decision 2026-11-05 |
 | COL-12 | `completed ⇒` no cell has the completed color. At completion, the board shows the starting color for starting numbers and white for entries. This is also true when a saved completed game opens. | R§8.3, owner decision 2026-11-05 |
 
@@ -328,13 +360,13 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| PER-1 | At each point where the app can close or be suspended, the saved game is equal to the game in memory: `seed`, `mode`, the `generator` version, starting numbers, `value`, `marks`, the two stacks, `elapsed` and `completed`. | R§14.3 |
-| PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Open`, `panel = None`, `highlight = None`, `question = None`, `refused = None` and `pending_ink = None`. The app does not keep the menu state. This is true for a new game and for a saved game. | R§9, R§14.3 (owner decision 2026-11-02) |
+| PER-1 | At each point where the app can close or be suspended, the saved game is equal to the game in memory: `seed`, `mode`, the `generator` version, starting numbers, `value`, `marks`, the two stacks, `checkpoints`, `elapsed` and `completed`. | R§14.3, R§9.3, owner approval 2026-11-06 |
+| PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Open`, `panel = None`, `highlight = None`, `question = None`, `refused = None` and `pending_ink = None`. The app does not keep the menu state. This is true for a new game and for a saved game. `checkpoints` is the same as before the close (CKP-5 gives the exception for a game file of an earlier version). | R§9, R§14.3 (owner decision 2026-11-02), R§9.3, owner approval 2026-11-06 |
 | PER-3 | The settings (`color_*`, `micro_line`, `last_mode`, `highlight_on`, `auto_hide_on` and `completed_color_on`) stay the same when the app closes and opens again. | R§14.2, owner decision 2026-11-05 |
 | PER-4 | `results` stays the same when the app closes and opens again. Only ANA-2 changes it. | R§14.1 |
-| PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. When the app opens, it does not use saved data that breaks a rule (PUZ-5, ANA-1). It uses the default settings in place of a settings file that breaks COL-5 (also PER-8). A saved history that play cannot make, but that agrees with UND-3, is correct: each undo and redo item still changes the board. | — (confirmed 2026-10-25; settings: review finding) |
+| PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. When the app opens, it does not use saved data that breaks a rule (PUZ-5, ANA-1). It uses the default settings in place of a settings file that breaks COL-5 (also PER-8). A saved history that play cannot make, but that agrees with UND-3, is correct: each undo and redo item still changes the board. CKP-5 gives the checks of the checkpoints and of the Restore items. | — (confirmed 2026-10-25; settings: review finding; checkpoints: R§9.3, review finding 2026-11-06) |
 | PER-6 | If the app closes during the recognition pause, the app removes the ink. The app never reads it later. | R§14.3 |
-| PER-7 | The app saves the game after each change to the board, the settings after each change, and the clock at least each 5 seconds. It also saves when it closes or gets SIGTERM, SIGINT or SIGHUP. A power loss can lose a maximum of 5 seconds of the clock. | R§14.3 (confirmed 2026-10-25) |
+| PER-7 | The app saves the game after each change to the board and after each save and each delete of a checkpoint, the settings after each change, and the clock at least each 5 seconds. It also saves when it closes or gets SIGTERM, SIGINT or SIGHUP. A power loss can lose a maximum of 5 seconds of the clock. | R§14.3 (confirmed 2026-10-25), R§9.3, owner approval 2026-11-06 |
 | PER-8 | When a settings file has no `color_completed`: (1) If its three colors break COL-5, the app uses the default settings (PER-5). (2) Else, if `color_highlight = Green`, it becomes Cyan, or the first free color if another section uses Cyan. A highlight of another color, also White, does not change. (3) Then `color_completed` becomes Green, or the first free color if another section uses Green. (4) `completed_color_on = true`. The first free color is the first color in the order of the Palette (§0, also the order of the panel) that is not White and that no other section uses. A settings file that has `color_completed` does not get these changes, also with `color_highlight = Green`. A settings file that has `color_completed` and no value for the switch gets `completed_color_on = true`, and its colors do not change. Each start gives the same result from the same file. The app changes the file only at the next change of the settings. | R§14.2; part (1): PER-5 and a review finding, not an owner decision; no value for the switch: default of §0; other parts: owner decision 2026-11-05 |
 
 ## 16. Updates

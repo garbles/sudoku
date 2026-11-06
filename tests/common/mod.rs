@@ -201,6 +201,7 @@ pub fn button_center(b: layout::Button) -> (f32, f32) {
         Settings => (x, layout::tb_cy(2)),
         Undo => (x, layout::tb_cy(3)),
         Redo => (x, layout::tb_cy(4)),
+        Checkpoints => (x, layout::tb_cy(layout::CKP_SLOT)),
         Help => (x, (layout::tb_bottom_y() - 168) as f32),
         Statistics => (x, (layout::tb_bottom_y() - 56) as f32),
         NewGame => (x, (layout::tb_bottom_y() + 56) as f32),
@@ -403,6 +404,7 @@ pub fn assert_board(app: &App, fonts: &Fonts, case: &str) {
         Panel::Colors => layout::colors_panel(),
         Panel::Settings => layout::settings_panel(app.update.has_row()),
         Panel::NewGame => layout::ng_panel(),
+        Panel::Checkpoints => layout::ckp_panel(app.game.checkpoints.len()),
     });
     for c in cells() {
         assert_eq!(set.contains(c), model_in_completed_group(&app.game, c), "COL-8, {case}: {c:?}");
@@ -429,6 +431,15 @@ pub fn documented_settings_x() -> (i32, i32) {
         (true, _) => (112, 511),
         (false, false) => (1108, 1507),
         (false, true) => (1648, 2047),
+    }
+}
+
+/// The x range of the Checkpoints panel in the current layout, with the two ends (NAV-18).
+pub fn documented_checkpoints_x() -> (i32, i32) {
+    match (layout::right_handed(), layout::screen_w() == 2160) {
+        (true, _) => (112, 711),
+        (false, false) => (908, 1507),
+        (false, true) => (1448, 2047),
     }
 }
 

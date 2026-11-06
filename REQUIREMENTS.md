@@ -49,7 +49,7 @@ document does not include unknown behavior.
 
 ## 2. Screens
 
-The app has four screens. The game screen also has a menu with three panels. Refer to
+The app has four screens. The game screen also has a menu with four panels. Refer to
 [§9](#9-the-menu).
 
 ```mermaid
@@ -102,7 +102,8 @@ The positions above are for a **left-handed** player. The app reads the handedne
 - The toolbar is at the left edge (x 0–112). The menu button is at the top left, center (55.5, 55.5).
   Its icon is a mirror image (the dot is at the right).
 - The close button is at the top right, center (1563.5, 55.5).
-- The panels touch the toolbar at its right side (for example, Cell colors at x 112–911).
+- The panels touch the toolbar at its right side (for example, Cell colors at x 112–911 and
+  Checkpoints at x 112–711).
 - The other icons and the contents of the panels do not change.
 
 The board, the meter, the manual and the statistics do not change.
@@ -184,7 +185,7 @@ The landscape layout has the same items, at the same sizes, as the portrait layo
 | Item | Landscape position |
 |---|---|
 | Board | At the center: x 418–1741, y 148–1471. The difficulty meter is 50 px below the board. |
-| Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. The Cell colors panel is at x 1248–2047, y 112–1192 (right-handed: x 112–911; [§10](#10-cell-colors-panel)). |
+| Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. The Cell colors panel is at x 1248–2047, y 112–1192 (right-handed: x 112–911; [§10](#10-cell-colors-panel)). The Checkpoints panel is at x 1448–2047, with its top at y 560 (right-handed: x 112–711; [§9.3](#93-checkpoints-panel)). |
 | Close button | Top left, as in portrait. For a right-handed player, the toolbar is at the left edge (x 0–112) and the close button is at the top right (§3.1). |
 | Manual | Each page has a landscape version with two columns (`manual-*-landscape.png`, made by `scripts/manual-*-landscape.sh`). The content is the same as in portrait. |
 | Statistics | The same scale as in portrait, across the full width. The games list is one table across the full width. Each page shows 6 games, because the height is too small for 12. When the tablet turns, the list shows the page with the first game of the page before the turn. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png`, made by `scripts/analytics.py`). |
@@ -204,7 +205,7 @@ Each cell is always one of these four types:
 | Type | Appearance | Changes |
 |---|---|---|
 | **Starting number** | Black digit. No micro-cells. Background: refer to [§4.2](#42-cell-background-color). | It does not change. Writing on it and the eraser have no effect. |
-| **Your number** | Dark gray digit. No micro-cells. Background: refer to [§4.2](#42-cell-background-color). The app keeps its pencil marks but does not show them. | Only the eraser, undo or redo can remove it. Writing on it has no effect. |
+| **Your number** | Dark gray digit. No micro-cells. Background: refer to [§4.2](#42-cell-background-color). The app keeps its pencil marks but does not show them. | Only the eraser, undo, redo or a Restore ([§9.3](#93-checkpoints-panel)) can remove it. Writing on it has no effect. |
 | **Empty, no pencil marks** | The very faint 3×3 grid of micro-cells. | Tap to add a pencil mark. Write to add a number. |
 | **Empty, with pencil marks** | The grid of micro-cells with small digits in their keypad positions. | Tap to add or remove a pencil mark. Write to add a number. |
 
@@ -245,6 +246,15 @@ stateDiagram-v2
 
     Entry --> Empty: undo the number
     Entry --> Marked: undo the number
+
+    Empty --> Entry: Restore (the checkpoint has a number in the cell)
+    Marked --> Entry: Restore (the checkpoint has a number in the cell)
+    Entry --> Entry: Restore (the checkpoint has a number in the cell)
+    Entry --> Empty: Restore (the checkpoint has an empty cell, no visible marks)
+    Entry --> Marked: Restore (the checkpoint has marks in the cell)
+    Empty --> Marked: Restore (the checkpoint has marks in the cell)
+    Marked --> Marked: Restore (the checkpoint has marks in the cell)
+    Marked --> Empty: Restore (the checkpoint has an empty cell, no visible marks)
 ```
 
 ### 4.2 Cell background color
@@ -314,9 +324,11 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
 - The **eraser** is the other end of the pen. When you rub it on your number, the app removes the
   number. The micro-cells and the pencil marks of that cell show again.
 - The eraser has no effect on other cells. It does not change starting numbers. It does not change
-  empty cells. Only a tap removes a pencil mark. A number only hides the marks of its peers (§6.1).
+  empty cells. Only a tap (or a Restore, §9.3) removes a pencil mark. A number only hides the marks of its peers (§6.1).
 - The eraser on the cell of ink that waits for the recognition pause removes that ink. The app does
   not read it, thus the board and the undo history do not change (owner decision 2026-11-02).
+- A **Restore** in the Checkpoints panel ([§9.3](#93-checkpoints-panel)) replaces all numbers and all
+  marks, also your numbers, without the pen on the board (owner approval 2026-11-06).
 - Pen input on the board of a completed puzzle has no effect
   ([§8](#8-puzzle-states-and-the-clock)).
 
@@ -367,7 +379,7 @@ of that press, with the exception in [§5.1](#51-rules).
 
 A pencil mark does not show while a cell in the same row, column or 3×3 box has the same digit as a
 number (a starting number or your number). The app does not remove the mark: it keeps it. When the
-number goes (the eraser, undo or redo), the mark shows again (owner decision 2026-10-31). Image:
+number goes (the eraser, undo, redo or a Restore, [§9.3](#93-checkpoints-panel)), the mark shows again (owner decision 2026-10-31). Image:
 [`manual-helpers.png`](images/manual-helpers.png) (top).
 
 - A number does not change the pencil marks of other cells. It only hides them. Thus, the change of a
@@ -380,6 +392,8 @@ number goes (the eraser, undo or redo), the mark shows again (owner decision 202
   all pencil marks of the empty cells show, and a tap on each micro-cell adds or removes its mark. No
   x shows (owner decision 2026-11-04). When the player turns it on again, the marks of the digits of
   peers are hidden again.
+- A Restore replaces the marks with the marks of the checkpoint, also the hidden marks (owner approval
+  2026-11-06; [§9.3](#93-checkpoints-panel)).
 - A game that was saved by an earlier version can have numbers in its undo history that removed
   marks. Undo and redo of these numbers still put back and remove those marks.
 
@@ -430,7 +444,8 @@ Two numbers **clash** when the same digit is two times in a row, column or 3×3 
 clash get the clash color (default: red). This applies to the two numbers of a pair, starting
 numbers and your numbers.
 
-- The app finds the clashes again after each new number, erasure, undo and redo.
+- The app finds the clashes again after each new number, erasure, undo, redo and Restore
+  ([§9.3](#93-checkpoints-panel)).
 - When there is no clash, the app removes the clash color.
 - The app does not compare your numbers with the solution. The clash color and the completed color
   ([§6.4](#64-completed-groups)) come only from the current numbers. Thus a number can be incorrect
@@ -449,6 +464,8 @@ stateDiagram-v2
     Ok --> Clash: add a digit that is already in the row, column or box
     Clash --> Ok: erase or undo one of the numbers in the clash
     Clash --> Clash: a new clash, or one of many clashes removed
+    Ok --> Clash: undo, redo or Restore gives a board with a clash
+    Clash --> Ok: undo, redo or Restore gives a board with no clash
 ```
 
 ### 6.4 Completed groups
@@ -477,8 +494,8 @@ Green). [§4.2](#42-cell-background-color) gives the order of the colors.
   game gets the color from the first frame. There is no exception for it. (Measured: 19 of 300 Easy
   puzzles; no puzzle in the other modes.)
 - **Source of the color.** The color comes only from the current numbers. It is not a separate state,
-  and the app does not save it. It follows each change: a new number, an erasure, undo, redo and a new
-  game. One input can change cells far from the changed cell: an erasure can remove a clash, and then
+  and the app does not save it. It follows each change: a new number, an erasure, undo, redo, a Restore
+  ([§9.3](#93-checkpoints-panel)) and a new game. One input can change cells far from the changed cell: an erasure can remove a clash, and then
   a different group of the other clashing cell becomes complete.
 - **No effect on the game.** A group that gets or loses the color adds nothing to the undo and redo
   history. It does not change the clock, the results or the completion state.
@@ -507,12 +524,18 @@ stateDiagram-v2
     `removed` list; undo and redo of it put back and remove those marks
     ([§6.1](#61-automatic-pencil-mark-hiding)).)
   - Erase a number.
+  - Restore a checkpoint ([§9.3](#93-checkpoints-panel)). This is one change, also when it changes many
+    cells. Undo returns the board as it was before the Restore, and redo applies the Restore again,
+    also after the delete of the checkpoint. In the diagram below, it is a change to the board (owner
+    approval 2026-11-06).
 - These actions are not changes to the board and are not a part of undo: highlights, the "?",
   the x and the refused tap that makes it (§6.1), a group that gets or loses the completed color
-  (§6.4), color changes, switch changes, and the panels and screens that you open.
+  (§6.4), color changes, switch changes, the panels and screens that you open, and the save and the
+  delete of a checkpoint (§9.3; owner approval 2026-11-06). Thus these do not remove the redo history. A
+  tap on **Current** has no effect, and it also does not remove the redo history.
 - A new change after an undo removes the redo history. A refused tap is not a change, thus it does
   not remove the redo history (owner approval 2026-11-04).
-- A new game removes the undo history and the redo history.
+- A new game removes the undo history, the redo history and all checkpoints (owner approval 2026-11-06).
 - The buttons are **black** when an undo or redo is available. They are **gray** when it is not
   available. Gray buttons have no effect. On a completed puzzle, both buttons are gray and have no
   effect.
@@ -550,7 +573,7 @@ stateDiagram-v2
     state "In progress" as Playing
     state "Complete (locked)" as Done
     [*] --> Playing: first start (mode 2) or Start new game
-    Playing --> Playing: changes to the board, undo, redo
+    Playing --> Playing: changes to the board, undo, redo, Restore of a checkpoint
     Playing --> Done: all cells have a number and there is no clash
     Playing --> Playing: Start new game (replaces the puzzle)
     Done --> Playing: Start new game
@@ -575,6 +598,9 @@ A puzzle is **complete** when all cells have a number and there is no clash. The
 - The app saves the result in the database ([§14](#14-data-that-the-app-keeps)).
 - **+** and **Start new game** continue to operate. The menu, Help, Statistics, Cell colors and the
   Settings panel continue to operate.
+- The Checkpoints panel is not available. The bookmark is `gray70`, a tap on it has no effect, and the
+  panel cannot be open. The checkpoints stay in the saved game until a new game
+  ([§9.3](#93-checkpoints-panel); owner decision 2026-11-06).
 
 Images: [`screen-completed.png`](images/screen-completed.png),
 [`screen-completed-menu.png`](images/screen-completed-menu.png),
@@ -583,7 +609,9 @@ Images: [`screen-completed.png`](images/screen-completed.png),
 ### 8.4 The clock
 
 The clock measures the time that the player uses for the current puzzle. The app does not show the
-clock during the game.
+current clock during the game. Each row of the Checkpoints panel shows the clock at the time of its
+save ([§9.3](#93-checkpoints-panel); owner approval 2026-11-06). A save, a Restore and a delete of a
+checkpoint do not change the clock.
 
 ```mermaid
 stateDiagram-v2
@@ -616,6 +644,7 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
 | top 2 | Settings | Gear | Opens the Settings panel ([§9.1](#91-settings-panel)). |
 | top 3 | Undo | Arrow that turns to the left | [§7](#7-undo-and-redo) |
 | top 4 | Redo | Arrow that turns to the right | [§7](#7-undo-and-redo) |
+| top 5 | Checkpoints | Bookmark | Opens the Checkpoints panel ([§9.3](#93-checkpoints-panel)). Not available on a complete puzzle (owner approval 2026-11-06). |
 | bottom 2 | Help | ? in a circle | Opens the manual ([§12](#12-manual-help)). |
 | bottom 1 | Statistics | Line graph on axes | Opens the statistics ([§13](#13-statistics)). |
 | bottom 0 | New game | + | Opens the New game panel ([§11](#11-new-game-panel-and-difficulty)). |
@@ -638,7 +667,9 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
   tap a number to make a highlight. With the menu open and no panel, a refused tap shows the x
   ([§6.1](#61-automatic-pencil-mark-hiding); owner approval 2026-11-04).
 - When a panel is open, a tap outside the panel only closes the panel. The tap has no other effect,
-  also when it is on the board. Thus it makes no x.
+  also when it is on the board. Thus it makes no x. Exception: on a complete puzzle, a tap on the gray
+  bookmark changes nothing, and the open panel stays open ([§9.3](#93-checkpoints-panel); approved
+  prototype 2026-11-06).
 - A finger can stay on a control while the pen does a refused tap. When that finger lifts, the release
   of a control that does an action removes the x, as it removes the highlight. Thus an open panel
   never shows an x, an undo that removes the peer number never leaves an x, and a mark never shows
@@ -667,6 +698,7 @@ stateDiagram-v2
     state "Cell colors panel" as Colors
     state "Settings panel" as SettingsP
     state "New game panel" as NewGame
+    state "Checkpoints panel" as Checkpoints
     [*] --> Open: start the app
     Closed --> Open: tap the menu button
     Open --> Closed: tap the menu button
@@ -683,6 +715,14 @@ stateDiagram-v2
     SettingsP --> NewGame: tap +
     Colors --> SettingsP: tap the gear
     NewGame --> SettingsP: tap the gear
+    Open --> Checkpoints: tap the bookmark (game in progress)
+    Checkpoints --> Open: tap the bookmark again, tap outside the panel, or tap undo or redo
+    Checkpoints --> Colors: tap the paint bucket
+    Checkpoints --> SettingsP: tap the gear
+    Checkpoints --> NewGame: tap +
+    Colors --> Checkpoints: tap the bookmark (game in progress)
+    SettingsP --> Checkpoints: tap the bookmark (game in progress)
+    NewGame --> Checkpoints: tap the bookmark (game in progress)
     Open --> Manual: Help
     Open --> Statistics: Statistics
     Open --> [*]: close button (close the app)
@@ -693,8 +733,8 @@ stateDiagram-v2
 ```
 
 Images: [`screen-toolbar.png`](images/screen-toolbar.png) (menu open, new game, undo and redo gray),
-[`screen-completed-menu.png`](images/screen-completed-menu.png) (menu open, complete puzzle, undo
-and redo gray), [`manual-menu.png`](images/manual-menu.png).
+[`screen-completed-menu.png`](images/screen-completed-menu.png) (menu open, complete puzzle, undo,
+redo and the bookmark gray), [`manual-menu.png`](images/manual-menu.png).
 
 ### 9.1 Settings panel
 
@@ -875,6 +915,134 @@ with the signed `version.json`:
 If step 1, 2, 3 or 4 fails, the app folder does not change, and the row shows "Update failed". If
 step 6 fails, the row also shows "Update failed", and a new tap installs the release again.
 
+### 9.3 Checkpoints panel
+
+A **checkpoint** is a copy of all numbers, all pencil marks and the clock of the game at one time. The
+player can save the board, continue, and later put the board back as one new action. The owner approved
+this section on the tablet (prototype, 2026-11-06), with the exception of the items that give a
+different source. Images: [`checkpoints-menu.png`](images/checkpoints-menu.png) (rows),
+[`checkpoints-menu-empty.png`](images/checkpoints-menu-empty.png) (no checkpoint),
+[`checkpoints-menu-current.png`](images/checkpoints-menu-current.png) (a row with "Current"),
+[`checkpoints-menu-landscape.png`](images/checkpoints-menu-landscape.png),
+[`checkpoints-menu-right-handed.png`](images/checkpoints-menu-right-handed.png),
+[`screen-completed-menu.png`](images/screen-completed-menu.png) (the gray bookmark).
+
+**The button.** The bookmark is in top slot 5 (y 560–671), below redo. It goes on the icon sheet.
+[§15](#15-visual-specification) gives its shape.
+
+- In a game in progress, the icon is black. A tap opens the panel. A second tap closes it.
+- While the panel is open, the slot is black and the icon is white, as the other panel buttons.
+- On a complete puzzle, the icon is `gray70`, a tap has no effect and the panel cannot be open (owner
+  decision 2026-11-06). The tap changes nothing also when a different panel is open: that panel stays
+  open. This is the only exception to the rule that a tap on a toolbar button that is not a panel button
+  closes the open panel ([§9](#9-the-menu); approved prototype 2026-11-06). If a tap on the button reads waiting ink and that ink completes the puzzle, the
+  panel does not open.
+
+**The panel.** The panel touches the toolbar and is 600 px wide. Its top is at y 560 in all layouts. It
+is white and has a 2 px black border, as the Settings panel.
+
+| Layout | x range |
+|---|---|
+| Left-handed, portrait | 908–1507 |
+| Left-handed, landscape | 1448–2047 |
+| Right-handed, portrait and landscape | 112–711 |
+
+The values below are for a left-handed player in portrait. In the other layouts, the contents have the
+same order and move with the panel.
+
+- **Save row**, y 560–671. A plus icon with its center at (966, 616). The text "Save checkpoint",
+  reMarkable Sans Medium 28 px, x 1008, baseline y 625. A line of 2 px at y 670–671. The tap area is the
+  full row. The icon and the text are black when a save is available. Else they are `gray70` and the row
+  has no effect.
+- **No checkpoint.** The panel ends at y 864. Two lines of text have their center at x 1207: "No
+  checkpoints" (Regular 28 px, `gray25`, baseline y 760) and "Save the board before a difficult guess."
+  (Regular 25 px, `gray40`, baseline y 800).
+- **Checkpoint rows.** The newest is first. There are at most 5 rows, and each row is 180 px high. Row i
+  has its top at y0 = 672 + 180 i. The panel ends at y 672 + 180 n (y 1572 with 5 rows). Each row below
+  the first has a line of 2 px at y0-2 to y0-1. A row has no title and no name.
+
+Each checkpoint row has these items:
+
+| Item | Position and size | Content |
+|---|---|---|
+| Small board | Origin (926, y0+14). Cells of 17 px: 153 px, 155 px with the outer lines. | The board of the checkpoint (below). |
+| Text | x 1098, Regular 25 px, `gray25`. Baselines y0+81 and y0+115. | "\<clock\> played" (the format of [§8.3](#83-complete), the clock at the save) and "\<n\> of 81 cells" (n counts all filled cells, also the starting numbers). |
+| Button | x 1289–1429, y y0+55 to y0+125 (these pixels are included). Text center x 1359, baseline y0+99, Medium 25 px. | **Restore**: white, 2 px black border, black text. **Current**: black, white text, when the numbers and all marks of the board are the same as the checkpoint. |
+| Bin | The icon of the games list, center (1468, y0+90). Tap area x 1441–1507, the full row height. | Deletes the checkpoint. The 12 px between the button and this area operate nothing. |
+
+The small board:
+
+- Each filled cell has a background of 17×17 px and a digit: Regular 14 px, center x at cell + 8.5,
+  baseline at cell + 14. The color of the digit is the same as on the board.
+- The background is the first rule that applies: clash color, completed color (with the same switch and
+  color rules as the board, [§6.4](#64-completed-groups)), starting color, white. The small board shows
+  no highlight.
+- Each visible pencil mark of an empty cell has a dot of 2×2 px, `gray40`, at (cell x + 3 + 5 × ((d-1) mod 3),
+  cell y + 3 + 5 × ((d-1) div 3)). The rule for a visible mark is the same as on the board, with the
+  setting "Hide pencil marks automatically" ([§6.1](#61-automatic-pencil-mark-hiding)).
+- The lines are 1 px `gray60` between the cells, and 2 px black at the box borders and the outside.
+
+**Other taps.**
+
+- A tap in the panel on no control has no effect.
+- A tap outside the panel closes the panel ([§9](#9-the-menu)).
+- A tap on undo or redo with this panel open only closes the panel. A second tap does the undo or the
+  redo (owner decision 2026-11-06: keep two taps).
+- The bookmark, the paint bucket, the gear and the + change the panel, as for the other panels.
+- The eraser and a finger operate the panel in the same way as the pen, as the other panels.
+- A release of a control in this panel reads waiting ink with the same rules as the other controls.
+
+**Save.** A save is available when all of these are true: the game is in progress, there are fewer than
+5 checkpoints, and no checkpoint has the same numbers and marks as the board. A save keeps the numbers,
+the marks and the clock as the newest checkpoint. It does not change the board, the undo and redo history
+or the clock. The app saves the game file.
+
+**Restore.** A tap on **Restore** replaces all numbers and all marks with those of the checkpoint, as one
+new item of the undo history ([§7](#7-undo-and-redo)). It removes the redo history. Undo returns the board
+as it was, and redo applies it again, also after the delete of the checkpoint. The clock, the list and the
+panel do not change, thus the panel stays open. A tap on **Current** has no effect and does not remove the
+redo history.
+
+The comparison uses all marks, also the marks that do not show ([§6.1](#61-automatic-pencil-mark-hiding)).
+Thus a difference only in hidden marks shows **Restore**, and that Restore adds an undo item with no
+visible change (review finding 2026-11-06).
+
+**Delete.** A tap on the bin removes that checkpoint at once, with no dialog and no undo. The board, the
+undo and redo history and the clock do not change. The app saves the game file.
+
+**Guard after a delete** (owner decision 2026-11-06). For 0.5 s after a delete, with this panel open, a
+press in the area of the panel at its maximum size changes nothing (portrait: x 908–1507, y 560–1572; in
+the other layouts, the x range of the table above and the same y range). Thus the second tap of a fast
+double tap does not delete the row that moved up, and it does not close the panel. A press out of that
+area and on the toolbar operates as usual.
+
+**The list.**
+
+- The list has 0 to 5 checkpoints, all with different boards, the newest first. The clock of each
+  checkpoint is at most the clock of the next newer checkpoint and at most the clock of the game (review
+  finding 2026-11-06).
+- A new game removes all checkpoints. The checkpoints stay when the app closes and opens, in the saved
+  game ([§14.3](#143-game-in-progress-kept-when-the-app-closes)). A game that an earlier version saved has
+  no checkpoints.
+- Each change of the list causes a redraw, also a save and a delete in one wake (review finding
+  2026-11-06).
+- Each change of the list stops the other pen or finger gesture. Thus a release never operates a different
+  checkpoint, for example when a finger stays on a control while the pen operates a different control
+  (review finding 2026-11-06).
+- The panel does not cover a toolbar button, the close button, the meter or "Completed in" in any layout.
+  The panel never has waiting ink or a stroke in progress (review finding 2026-11-06).
+
+**Validity at load** (review finding 2026-11-06). The app examines each checkpoint and each board of a
+Restore item in the undo and redo history when it reads the saved game:
+
+- Each value is 0 to 9. The starting cells equal the solution and have no marks. The other marks are in 1
+  to 9. The board is not solved.
+- For a Restore item, the board before equals the board at that point of the history, and the board before
+  is different from the board after.
+- A checkpoint on a complete game is permitted. It stays in the file until a new game.
+- A file that breaks these rules is incorrect saved data, as for the other rules of the saved game (PER-5):
+  the app makes a new game.
+
 ## 10. Cell colors panel
 
 Images: [`images/color-menu.png`](images/color-menu.png),
@@ -981,7 +1149,7 @@ Images: [`images/new-game-menu.png`](images/new-game-menu.png),
   confirmation. Then the app:
   - Makes a new puzzle of the selected mode.
   - Closes the New game panel. The menu stays open.
-  - Removes the undo and redo history and sets the clock to zero.
+  - Removes the undo and redo history and all checkpoints, and sets the clock to zero.
   - Keeps the selected mode for the next time.
 - The meter below the board shows the mode of the current puzzle. When the puzzle is complete,
   "Completed in …" replaces the meter ([§8.3](#83-complete)). You cannot change the meter.
@@ -1185,13 +1353,19 @@ The app keeps:
 
 - The puzzle, its seed, its mode and the version of the generator.
 - All numbers and pencil marks.
-- All of the undo and redo history.
+- All of the undo and redo history, with each Restore ([§9.3](#93-checkpoints-panel)).
+- The checkpoints, each with its numbers, its marks and its clock (owner approval 2026-11-06). A game
+  that an earlier version saved has no checkpoints.
 - The time on the clock.
 - The completion state.
 
 When the app closes, no progress is lost. A power loss can lose a maximum of 5 seconds of the clock,
 because the app saves the clock each 5 seconds (owner decision 2026-11-02). All other data is saved
-after each change.
+after each change, also after each save and each delete of a checkpoint (owner approval 2026-11-06).
+
+An earlier version cannot read a saved game with the new undo item of a Restore. Thus an update to an
+older version loses that game. A preview build can update to an older stable version (review finding
+2026-11-06; refer to `DECISIONS.md`).
 
 The app does **not** keep temporary UI states. The app always opens again at the game screen, with
 the menu open, the panels closed, no highlight, no "?" and no x. The app does not save the x (owner
@@ -1404,9 +1578,12 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Background of a filled cell | First rule that applies: clash, highlight, completed, starting number, white (§4.2) |
 | UI text | reMarkable Sans Medium 25 px (menus, meter labels, "Completed in …"). The version value and the text of an update state are reMarkable Sans Regular 25 px (§9.1, §9.2). |
 | Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |
+| Bookmark icon | Closed line of 3 px through (-12,-18), (12,-18), (12,18), (0,8), (-12,18) from the center of top slot 5 (y 560–671). Black; white on black while its panel is open; `gray70` on a complete puzzle (owner approval 2026-11-06) |
 | Panels | 2 px black border, rows of 112 px, 2 px dividers, inner margin of 33 px |
 | Settings panel | 400 px wide (x 1108–1507 for a left-handed player in portrait). Three switch rows, the version row and, in a stable or preview build, the update row (§9.1, §9.2) |
 | Cell colors panel | 800 px wide (two columns of 400 px), three rows of 360 px, y 112–1192. x 708–1507 (left-handed, portrait), x 1248–2047 (left-handed, landscape), x 112–911 (right-handed). Vertical line of 2 px at 400 px from the left of the panel. Section title 33 px, grid 32 px from the left of the column; grid cells 112×90 px (owner approval 2026-11-04 and 2026-11-05) |
+| Checkpoints panel | 600 px wide, top at y 560. x 908–1507 (left-handed, portrait), x 1448–2047 (left-handed, landscape), x 112–711 (right-handed). White, 2 px black border. Save row of 112 px; no checkpoint: the panel ends at y 864; else rows of 180 px, the panel ends at y 672 + 180 n, at most y 1572 (§9.3; owner approval 2026-11-06) |
+| Checkpoint row | Small board of 155 px with cells of 17 px, digits Regular 14, mark dots of 2×2 px `gray40`; text Regular 25 `gray25`; button 141×71 px, text Medium 25; bin icon of the games list (§9.3; owner approval 2026-11-06) |
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
 | Difficulty meter | "Easy" to "Hard" across 440 px; 7 stops; the current stop is a knob with a radius of 13 px |
 | Switch (Settings panel) | Track 72×36 px, 3 px border; knob of 28 px; 33 px from the right edge of the panel |
@@ -1425,6 +1602,10 @@ The values are in [`scripts/ui-lib.sh`](scripts/ui-lib.sh), in the other scripts
    from the bottom up) were not read; the typeface examples correct this (`tests/fixtures/owner-ink.jsonl`).
    If a digit is often read incorrectly for a player, add examples for it: the examples of the
    owner are in `assets/owner-handwriting.jsonl` (refer to `assets/README.md`).
+2. **Very long clock in a checkpoint row.** The space from the text (x 1098) to the button (x 1289) is
+   191 px. From the font metrics, with no kerning: "10:00:00 played" and "99:59:59 played" are 183 px,
+   and "100:00:00 played" is 197 px. Thus at 100 hours the text touches the button. The owner has not
+   given a rule for this. This is a calculation, not a test on the tablet.
 
 These items are closed:
 
@@ -1451,7 +1632,7 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`screen-invalid-mark.png`](images/screen-invalid-mark.png) | [§3.2](#32-game-screen-states), [§5](#5-pen-and-touch-input), [§6.1](#61-automatic-pencil-mark-hiding) |
 | [`screen-completed-group.png`](images/screen-completed-group.png) | [§2](#2-screens), [§6.4](#64-completed-groups) |
 | [`screen-completed.png`](images/screen-completed.png) | [§8.3](#83-complete) |
-| [`screen-completed-menu.png`](images/screen-completed-menu.png) | [§8.3](#83-complete), [§9](#9-the-menu) |
+| [`screen-completed-menu.png`](images/screen-completed-menu.png) | [§8.3](#83-complete), [§9](#9-the-menu), [§9.3](#93-checkpoints-panel) |
 | [`screen-toolbar.png`](images/screen-toolbar.png) | [§9](#9-the-menu) |
 | [`color-menu.png`](images/color-menu.png) | [§10](#10-cell-colors-panel) |
 | [`color-menu-landscape.png`](images/color-menu-landscape.png) | [§10](#10-cell-colors-panel) |
@@ -1471,6 +1652,11 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`manual-finished.png`](images/manual-finished.png) | [§8.3](#83-complete), [§12](#12-manual-help) |
 | `manual-*-landscape.png` (9 images) | [§3.3](#33-landscape), [§12](#12-manual-help) |
 | [`settings-menu.png`](images/settings-menu.png) | [§9.1](#91-settings-panel) |
+| [`checkpoints-menu.png`](images/checkpoints-menu.png) | [§9.3](#93-checkpoints-panel) |
+| [`checkpoints-menu-empty.png`](images/checkpoints-menu-empty.png) | [§9.3](#93-checkpoints-panel) |
+| [`checkpoints-menu-current.png`](images/checkpoints-menu-current.png) | [§9.3](#93-checkpoints-panel) |
+| [`checkpoints-menu-landscape.png`](images/checkpoints-menu-landscape.png) | [§3.3](#33-landscape), [§9.3](#93-checkpoints-panel) |
+| [`checkpoints-menu-right-handed.png`](images/checkpoints-menu-right-handed.png) | [§3.1](#31-layout), [§9.3](#93-checkpoints-panel) |
 | [`settings-update.png`](images/settings-update.png) | [§9.2](#92-updates) |
 | [`settings-up-to-date.png`](images/settings-up-to-date.png) | [§9.2](#92-updates) |
 | [`settings-check-updates.png`](images/settings-check-updates.png) | [§9.2](#92-updates) |

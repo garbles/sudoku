@@ -6,7 +6,7 @@ use tiny_skia::{Color as SkColor, Pixmap};
 
 use crate::app::{App, Menu, Panel, PendingInk, Screen};
 use crate::font::{Anchor, Fonts, Weight};
-use crate::game::{peers, Game};
+use crate::game::{peers, Checkpoint, Game};
 use crate::layout::PAGE_SCALE;
 use crate::render::{self, decode_png, gray, Canvas, Icon, Units, BLACK};
 use crate::script::FixedEnv;
@@ -85,7 +85,11 @@ pub fn sample_game() -> Game {
 
 /// Pencil marks: the possible digits of each marked cell that has no number.
 fn add_marks(g: &mut Game) {
-    for &(r, c) in &MARKED {
+    add_marks_of(g, &MARKED);
+}
+
+fn add_marks_of(g: &mut Game, marked: &[(u8, u8)]) {
+    for &(r, c) in marked {
         if g.is_filled((r, c)) {
             continue;
         }
@@ -115,6 +119,54 @@ fn sample_game_with_redo() -> Game {
     g.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
     g.undo();
     g
+}
+
+/// A board of a checkpoint (`MINI_STATES` of board-state.py): the numbers of `entered`, the clash of
+/// sample_game() if `mistake`, and the marks of `marked` that are free in THIS board.
+fn checkpoint(entered: &[(u8, u8)], mistake: bool, marked: &[(u8, u8)], minutes: u64, seconds: u64) -> Checkpoint {
+    let sol = grid(&SOLUTION);
+    let mut g = Game::new(1, 2, sol, grid(&GIVENS));
+    for &(r, c) in entered {
+        g.add_number((r, c), sol[r as usize][c as usize]);
+    }
+    if mistake {
+        g.add_number((5, 1), 9);
+    }
+    add_marks_of(&mut g, marked);
+    Checkpoint { board: g.board(), elapsed_ms: (minutes * 60 + seconds) * 1000 }
+}
+
+/// The game of checkpoints-menu*.png (REQUIREMENTS.md §9.3): the same board as
+/// sample_game_with_redo(). `list` is the list of checkpoints, newest first. The clock is the time of
+/// the newest row of checkpoints-menu-current.png (CKP-4).
+fn game_with_checkpoints(list: Vec<Checkpoint>) -> Game {
+    let mut g = sample_game_with_redo();
+    g.elapsed_ms = (20 * 60 + 14) * 1000;
+    g.checkpoints = list;
+    g
+}
+
+/// The three rows of checkpoints-menu.png. They do not equal the board, thus all show "Restore".
+fn three_checkpoints() -> Vec<Checkpoint> {
+    vec![
+        checkpoint(&ENTERED, false, &MARKED, 18, 32),
+        checkpoint(&ENTERED[..6], false, &MARKED[..8], 11, 7),
+        checkpoint(&ENTERED[..2], false, &MARKED[..4], 4, 15),
+    ]
+}
+
+/// The game of checkpoints-menu.png.
+pub fn checkpoints_game() -> Game {
+    game_with_checkpoints(three_checkpoints())
+}
+
+/// The game of checkpoints-menu-current.png: the maximum of five rows. The newest row has the same
+/// board as the game ("Current"), thus a save is not available for two causes (CKP-1).
+pub fn full_checkpoints_game() -> Game {
+    let group: Vec<(u8, u8)> = ENTERED.iter().chain(&GROUP_ENTERED).copied().collect();
+    let mut list = vec![checkpoint(&ENTERED, true, &MARKED, 20, 14), checkpoint(&group, false, &MARKED, 19, 26)];
+    list.extend(three_checkpoints());
+    game_with_checkpoints(list)
 }
 
 pub fn completed_game() -> Game {
@@ -199,6 +251,25 @@ pub fn states() -> Vec<(&'static str, Setup)> {
         ("screen-completed-menu.png", |a| {
             a.game = completed_game();
             a.ui.menu = Menu::Open(None)
+        }),
+        ("checkpoints-menu-empty.png", |a| {
+            a.game = game_with_checkpoints(Vec::new());
+            a.ui.menu = Menu::Open(Some(Panel::Checkpoints))
+        }),
+        ("checkpoints-menu.png", |a| {
+            a.game = checkpoints_game();
+            a.ui.menu = Menu::Open(Some(Panel::Checkpoints))
+        }),
+        ("checkpoints-menu-current.png", |a| {
+            a.game = full_checkpoints_game();
+            a.ui.menu = Menu::Open(Some(Panel::Checkpoints))
+        }),
+        ("checkpoints-menu-right-handed.png", |a| {
+            // The same state as checkpoints-menu.png, for a right-handed player (NAV-18). The state
+            // of checkpoints-menu.png in landscape gives checkpoints-menu-landscape.png.
+            crate::layout::set_right_handed(true);
+            a.game = checkpoints_game();
+            a.ui.menu = Menu::Open(Some(Panel::Checkpoints))
         }),
         ("settings-menu.png", |a| {
             a.game = sample_game_with_redo();
@@ -306,12 +377,14 @@ pub fn icon_tiles() -> Vec<(Icon, IconLook)> {
         .into_iter()
         .flat_map(|icon| {
             let other = match icon {
-                Icon::PaintBucket | Icon::Gear | Icon::Plus => Some(IconLook::Active),
-                Icon::Undo | Icon::Redo | Icon::Bin => Some(IconLook::Unavailable(70)),
-                Icon::PagePrevious | Icon::PageNext => Some(IconLook::Unavailable(80)),
-                _ => None,
+                Icon::PaintBucket | Icon::Gear | Icon::Plus => vec![IconLook::Active],
+                Icon::Undo | Icon::Redo | Icon::Bin => vec![IconLook::Unavailable(70)],
+                Icon::PagePrevious | Icon::PageNext => vec![IconLook::Unavailable(80)],
+                // White on the black slot of the open panel (NAV-8), gray on a complete game (CKP-9).
+                Icon::Bookmark => vec![IconLook::Active, IconLook::Unavailable(70)],
+                _ => vec![],
             };
-            std::iter::once((icon, IconLook::Normal)).chain(other.map(|look| (icon, look)))
+            std::iter::once(IconLook::Normal).chain(other).map(move |look| (icon, look))
         })
         .collect()
 }

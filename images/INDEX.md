@@ -35,7 +35,7 @@ dimensions of the toolbar, the panels and the fonts come from screenshots of a r
 
 The menu is a column of 112 px on the right. It has the same design as the toolbar of the device.
 From the top to the bottom, it has these buttons: the menu button (open icon: dot at the top left),
-cell colors, settings (gear), undo and redo. At the bottom, it has Help, Statistics and + (new game). When the menu is
+cell colors, settings (gear), undo, redo and checkpoints (bookmark). At the bottom, it has Help, Statistics and + (new game). When the menu is
 open, the close button shows at the top left.
 
 | Image | Content | Purpose |
@@ -53,7 +53,12 @@ open, the close button shows at the top left.
 | `settings-check-updates.png` | The same panel after it closed and opened again. The fifth row has the button "Check for updates" with a circular arrow icon. | The check button (REQUIREMENTS.md §9.2). |
 | `settings-restart.png` | The Settings panel of the stable build v0.1.0 after the update v0.2.0 is installed and replaced the ink patch, and the user tapped "Later". The fifth row has the button "Restart interface" with a power icon. The gear has the caution icon. | The restart button (REQUIREMENTS.md §9.2, UPD-10). The text "Restart Sudoku to update" (no patch change) has the same position and font as "Sudoku is up to date". |
 | `update-restart.png` | `settings-restart.png` with the dialog "Restart the interface?" on the pale screen: two lines of text, "Later" (left) and "Restart" (white on black, right). | The restart dialog (REQUIREMENTS.md §9.2, UPD-10). Same design and position as `analytics-delete.png`. |
-| `screen-completed-menu.png` | The menu is open on a complete puzzle. Undo and redo are gray. | Shows that a complete puzzle is locked. |
+| `screen-completed-menu.png` | The menu is open on a complete puzzle. Undo, redo and the bookmark are gray (`gray70`). | Shows that a complete puzzle is locked. The Checkpoints panel is not available. |
+| `checkpoints-menu-empty.png` | The Checkpoints panel is open on the game in progress, with no checkpoint: x 908–1507, y 560–864. The bookmark is white on black. "Save checkpoint" is black. "No checkpoints" and one line of help text are below it. | The panel before the first save (REQUIREMENTS.md §9.3). |
+| `checkpoints-menu.png` | The same panel with three rows (y 560–1212), the newest first: 18:32 and 40 cells, 11:07 and 36 cells, 4:15 and 32 cells. Each row has a small board, the clock, the quantity of cells, "Restore" and a bin. The board of a row has the clash color, the completed color, the starting color and a dot for each visible pencil mark. | A checkpoint row (REQUIREMENTS.md §9.3). The rows have the states `clean`, `mid` and `early` of `scripts/board-state.py`. |
+| `checkpoints-menu-current.png` | The same panel with the maximum of five rows (y 560–1572). The first row has the same board as the game (20:14, 41 cells, one clash) and a black "Current" button. The second row (19:26, 46 cells) has three completed groups. "Save checkpoint" is gray (`gray70`). | The "Current" button, the save that is not available, and the maximum size of the panel (REQUIREMENTS.md §9.3). |
+| `checkpoints-menu-right-handed.png` | `checkpoints-menu.png` for a right-handed player. The toolbar is at the left edge and the panel is at x 112–711, with the same order of items. | The panel at the other side (REQUIREMENTS.md §3.1). `scripts/toolbar.sh` makes it from `checkpoints-menu.png`. |
+| `checkpoints-menu-landscape.png` | `checkpoints-menu.png` in landscape (2160×1620). The panel is at x 1448–2047, y 560–1212. | The panel in landscape (REQUIREMENTS.md §3.3). `scripts/toolbar.sh` makes it from `checkpoints-menu.png` and `screen-in-progress.png`. |
 
 ## Statistics
 
@@ -167,7 +172,7 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 - A complete puzzle shows no completed color: starting numbers have the starting color, and your
   numbers have a white background.
 - The difficulty meter changes to "Completed in m:ss" (h:mm:ss after one hour).
-- The board locks. Writing, the eraser, pencil marks, highlights, undo and redo have no effect. The +
+- The board locks. Writing, the eraser, pencil marks, highlights, undo, redo and the bookmark have no effect. The +
   button continues to start a new game.
 - The clock operates only when the app is open.
 - The app saves the game in progress (board, pencil marks, undo and redo history, clock). When the
@@ -184,6 +189,9 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 - "Start new game" replaces the current puzzle immediately.
 - The difficulty meter below the board shows the mode of the current puzzle. When the puzzle is
   complete, "Completed in m:ss" replaces it. You cannot change the meter.
+- The bookmark opens the Checkpoints panel. "Save checkpoint" keeps the numbers, the marks and the clock
+  (at most 5 checkpoints). "Restore" puts them back as one new item of the undo history. The bin
+  removes the checkpoint at once. A new game removes all checkpoints.
 
 ## Work to do
 

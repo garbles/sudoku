@@ -638,3 +638,50 @@ Rejected, 2026-11-05:
 
 - The number color `#001E1E`. The owner changed it on the tablet before the approval. This value was in
   the first pull of `colors.json`.
+
+### Owner request: a Checkpoints panel, 2026-11-06
+
+The owner asked: "a checkpoint / save state / snapshot feature where i could take a snapshot, continue on
+with my puzzle, and then at any point apply my snapshot as a new action which replaces the entire state of
+the puzzle." Later, on the tablet: "The checkpoints don't need a title and so the pop out doesn't need to
+be so wide." Beads issue: remarkable-sudoku-jpv. The change is now in REQUIREMENTS.md (§2, §3.1, §3.3,
+§4.1, §5.1, §6.1, §6.3, §6.4, §7, §8.1, §8.3, §8.4, §9, new §9.3, §11, §14.3, §15, §16, §17).
+
+Examination on the tablet, 2026-11-06 (the prototype). The owner selected the panel design from 10
+proposals, and approved the prototype on the tablet. These items have the owner approval or an owner
+decision:
+
+| Item | Result |
+|---|---|
+| Bookmark button in top slot 5, panel of 600 px at y 560, no title in a row | Approved. |
+| Save, Restore as one new undo item, delete with no dialog | Approved. |
+| A complete puzzle | Owner decision: the panel is disabled, and the bookmark is gray. In the approved prototype, a tap on the gray bookmark changes nothing, also when a different panel is open: that panel stays open (an exception to NAV-12). |
+| A tap on undo or redo with the panel open | Owner decision: keep two taps. The first tap only closes the panel. |
+| A press in the panel in the 0.5 s after a delete | Owner decision: it changes nothing. Thus a fast double tap does not delete the next row. |
+
+The device results are only these prototype results. The items below are review results and measurements.
+They are not results of a device test, and the owner did not examine them on the tablet:
+
+- CKP-2: a difference only in hidden marks shows "Restore". A Restore then adds an undo item with no
+  visible change.
+- CKP-4: the rules of the list. CKP-5: the validity of the checkpoints and of the Restore items at load.
+- CKP-6: each change of the list stops the other pen or finger gesture.
+- The panel covers no toolbar button, close button, meter or "Completed in", and it has no waiting ink and
+  no stroke in progress.
+- Compatibility: an earlier version cannot read a saved game with the new undo item of a Restore. Thus an
+  update to an older version loses the game. A preview build can update to an older stable version.
+- Long clock: from the font metrics with no kerning, "99:59:59 played" is 183 px and "100:00:00 played" is
+  197 px. The space to the button is 191 px. The owner has not given a rule for this (R§16).
+
+Rejected values, 2026-11-06:
+
+| Item | Value | Reason |
+|---|---|---|
+| Row of a checkpoint | A title "Checkpoint N" | Not necessary. |
+| Panel width | 800 px (x 708–1507) | Too wide without the title. |
+| Complete game | A choice on the small boards | The owner disabled the panel on a complete game. |
+
+Items to examine on the tablet at the final build. The computer cannot prove them, and the owner has not
+examined them at that build: open the menu, tap the bookmark below redo, tap Save checkpoint, write numbers
+and marks, open the panel and tap Restore, tap outside the panel, tap undo, double-tap a bin, and complete
+a puzzle (the bookmark is gray).

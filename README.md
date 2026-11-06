@@ -32,6 +32,9 @@ paper, and it does the work that paper cannot do.
   column or box also stops the color. A completed game does not show this color.
 - You can turn the pencil mark hiding, the highlights and the completed color off. You can also select the cell colors and the gray of the micro-cell lines (or no lines).
 - Undo and redo for all changes on the board.
+- Checkpoints: save the board (numbers and pencil marks) with the bookmark button, up to 5 at one
+  time. Later, tap Restore to replace the board with a checkpoint. Undo reverses a restore. A new
+  game removes the checkpoints.
 
 **Puzzles**
 
@@ -152,7 +155,7 @@ The app keeps its data in `/home/root/.local/share/rm-sudoku/` on the tablet:
 
 | File             | Contents                                                                                    |
 | ---------------- | ------------------------------------------------------------------------------------------- |
-| `game.json`      | The current game: the puzzle, its seed, its mode and the version of the generator, your numbers and pencil marks, the undo and redo history, the clock and the completion state |
+| `game.json`      | The current game: the puzzle, its seed, its mode and the version of the generator, your numbers and pencil marks, the undo and redo history, your checkpoints, the clock and the completion state |
 | `settings.json`  | The cell colors, the micro-cell line gray, the last difficulty and the three switches of the Settings panel |
 | `results.sqlite` | Your completed games: the date and time, the difficulty, the quantity of starting numbers, the time, the puzzle seed and the generator version |
 

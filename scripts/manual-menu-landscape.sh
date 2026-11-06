@@ -17,14 +17,15 @@ row() {
 slot() { shot "$UI/screen-toolbar.png" 112x112+1508+$1; }
 slot_on() { shot "$UI/color-menu.png" 112x112+1508+$1; }
 row 300 "$(slot 0)" "Menu" "Opens and closes the menu."
-row 420 "$(slot 112)" "Cell colors" "Sets the colors of numbers and completed groups."
-row 540 "$(slot 224)" "Settings" "Turns highlights, pencil mark hiding and"
-row 694 "$(slot_on 336)" "Undo" "Cancels your last change to the board."
-row 814 "$(slot_on 448)" "Redo" "Makes the last canceled change again."
-row 934 "$(slot 1824)" "Help" "Opens this manual."
-row 1054 "$(slot 1936)" "Statistics" "Shows your completed puzzles and their times."
-row 1174 "$(slot 2048)" "New game" "Starts a new puzzle. Refer to page 8."
-text 200 $((540+128)) 34 gray25 start "completed group colors on or off."
+row 410 "$(slot 112)" "Cell colors" "Sets the colors of numbers and completed groups."
+row 520 "$(slot 224)" "Settings" "Turns highlights, pencil mark hiding and"
+row 664 "$(slot_on 336)" "Undo" "Cancels your last change to the board."
+row 774 "$(slot_on 448)" "Redo" "Makes the last canceled change again."
+row 884 "$(slot 560)" "Checkpoints" "Saves the board. Restore shows it again."
+row 994 "$(slot 1824)" "Help" "Opens this manual."
+row 1104 "$(slot 1936)" "Statistics" "Shows your completed puzzles and their times."
+row 1214 "$(slot 2048)" "New game" "Starts a new puzzle. Refer to page 8."
+text 200 $((520+128)) 34 gray25 start "completed group colors on or off."
 
 text 1010 330 50 black start "Select colors"
 text 1010 395 38 gray25 start "Tap Cell colors to open the panel. It has"

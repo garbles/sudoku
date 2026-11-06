@@ -6,13 +6,17 @@
 #   color-menu.png            the Cell colors panel is open (two columns: starting, clashing, highlighted; completed,
 #                             micro-cell lines), on a game
 #   color-menu-lines-90.png, color-menu-lines-40.png  color-menu.png with the lightest and the darkest micro-cell lines
-#   screen-completed-menu.png menu open on a complete (locked) puzzle: undo and redo not available
+#   screen-completed-menu.png menu open on a complete (locked) puzzle: undo, redo and checkpoints not available
+#   checkpoints-menu-empty.png    the Checkpoints panel with no checkpoint
+#   checkpoints-menu.png          the Checkpoints panel with three rows
+#   checkpoints-menu-current.png  the maximum of five rows: the first row is "Current", and a save is not available
+#   checkpoints-menu-right-handed.png, checkpoints-menu-landscape.png  checkpoints-menu.png in these layouts
 #   color-menu-right-handed.png  color-menu.png for a right-handed player (toolbar on the left)
 #   color-menu-landscape.png  color-menu.png in landscape (2160x1620)
 #   settings-menu.png         the Settings panel of a development build
 #   screen-toolbar-update.png, settings-update.png, settings-up-to-date.png, settings-check-updates.png,
 #   settings-restart.png                                                      updates (stable build v0.1.0)
-# Top of the menu: menu button, cell colors, undo, redo. Bottom, from the bottom to the top: + (new game),
+# Top of the menu: menu button, cell colors, settings, undo, redo, checkpoints. Bottom, from the bottom to the top: + (new game),
 # Analytics, Help.
 set -e
 . "$(dirname "$0")/ui-lib.sh"
@@ -55,6 +59,12 @@ undo_redo() {
   done
 }
 
+# bookmark_icon COLOR : checkpoints (slot 5). A closed line: a bookmark with a notch at the bottom.
+bookmark_icon() {
+  cy=$(tb_cy 5)
+  echo "push graphic-context translate $TB_CX,$cy fill none stroke $1 stroke-width 3 stroke-linecap round stroke-linejoin round polygon -12,-18 12,-18 12,18 0,8 -12,18 pop graphic-context" >> $M
+}
+
 # plus_icon ACTIVE : + (new game) in the bottom toolbar slot. Analytics and Help are above it.
 plus_icon() {
   cy=$((TB_BOTTOM_Y+56)); fg=black
@@ -70,11 +80,13 @@ plus_icon() {
   echo "stroke none fill black font '$UI_FONT' font-size 26 text-anchor middle text $TB_CX,$((hy+9)) '?'" >> $M
 }
 
-# toolbar UNDO ACTIVE : all menu buttons. UNDO is the color of undo and redo. ACTIVE is "colors", "settings",
-# "plus" or "".
+# toolbar UNDO ACTIVE [BOOKMARK] : all menu buttons. UNDO is the color of undo and redo. ACTIVE is "colors", "settings",
+# "checkpoints", "plus" or "". BOOKMARK is the color of the bookmark when its panel is not open (default: black).
 toolbar() {
   [ "$2" = colors ] && active_slot 1
   [ "$2" = settings ] && active_slot 2
+  [ "$2" = checkpoints ] && active_slot 5
+  if [ "$2" = checkpoints ]; then bookmark_icon white; else bookmark_icon "${3:-black}"; fi
   colors_icon $([ "$2" = colors ] && echo active); gear_icon $([ "$2" = settings ] && echo active)
   undo_redo $1; plus_icon $([ "$2" = plus ] && echo active)
 }
@@ -265,28 +277,90 @@ settings_panel v0.1.0 $SET_BOTTOM_STABLE; update_button "Restart interface" rest
 toolbar black settings; caution
 compose screen-in-progress.png settings-restart.png
 
-# --- complete puzzle: the board is locked, so undo and redo are not available
-toolbar gray70 ""
+# --- complete puzzle: the board is locked, so undo, redo and the Checkpoints panel are not available
+toolbar gray70 "" gray70
 compose screen-completed.png screen-completed-menu.png
-# --- color-menu.png for a right-handed player (REQUIREMENTS.md §3.1). The toolbar moves to the left edge and
+
+# --- the Checkpoints panel (REQUIREMENTS.md §9.3), on the game in progress.
+# ckp_text FONT SIZE COLOR ANCHOR X Y TEXT
+ckp_text() { echo "stroke none fill $3 font '$1' font-size $2 text-anchor $4 text $5,$6 '$7'" >> $M; }
+# ckp_frame SAVE N : the frame for N rows and the row "Save checkpoint" in the color SAVE. With no row, the text of the
+# empty panel. The panel has the same style as the Settings panel.
+ckp_frame() {
+  PL=$CKP_PL
+  if [ "$2" -eq 0 ]; then ckp_bottom=$CKP_EMPTY_BOTTOM; else ckp_bottom=$((CKP_ROW0+$2*CKP_STEP)); fi
+  panel $CKP_TOP $ckp_bottom; divider $((CKP_ROW0-2))
+  echo "fill none stroke $1 stroke-width 3 stroke-linecap round line $((CKP_SAVE_ICON_X-18)),$CKP_SAVE_ICON_Y $((CKP_SAVE_ICON_X+18)),$CKP_SAVE_ICON_Y line $CKP_SAVE_ICON_X,$((CKP_SAVE_ICON_Y-18)) $CKP_SAVE_ICON_X,$((CKP_SAVE_ICON_Y+18))" >> $M
+  ckp_text "$UI_FONT" 28 "$1" start $CKP_SAVE_TEXT_X $CKP_SAVE_BASE "Save checkpoint"
+  if [ "$2" -eq 0 ]; then
+    ckp_text "$DIGIT_FONT" 28 gray25 middle $CKP_CX 760 "No checkpoints"
+    ckp_text "$DIGIT_FONT" $UI_SIZE gray40 middle $CKP_CX 800 "Save the board before a difficult guess."
+  fi
+}
+# ckp_row I STATE CLOCK BUTTON : row I with the small board of STATE (board-state.py), the clock at the save and the
+# button "restore" or "current".
+ckp_row() {
+  y0=$((CKP_ROW0+$1*CKP_STEP))
+  [ "$1" -gt 0 ] && divider $((y0-2))
+  python3 -I "$UI_DIR/board-state.py" mini "$2" $CKP_BOARD_X $((y0+CKP_BOARD_DY)) $CKP_CELL >> $M
+  ckp_cells=$(python3 -I "$UI_DIR/board-state.py" mini-count "$2")
+  ckp_text "$DIGIT_FONT" $UI_SIZE gray25 start $CKP_TEXT_X $((y0+CKP_CLOCK_DY)) "$3 played"
+  ckp_text "$DIGIT_FONT" $UI_SIZE gray25 start $CKP_TEXT_X $((y0+CKP_CELLS_DY)) "$ckp_cells of 81 cells"
+  by0=$((y0+CKP_BTN_Y0)); by1=$((y0+CKP_BTN_Y1))
+  if [ "$4" = current ]; then
+    echo "stroke none fill black rectangle $CKP_BTN_X0,$by0 $CKP_BTN_X1,$by1" >> $M
+    ckp_text "$UI_FONT" $UI_SIZE white middle $CKP_BTN_CX $((y0+CKP_BTN_BASE)) "Current"
+  else
+    echo "stroke none fill black rectangle $CKP_BTN_X0,$by0 $CKP_BTN_X1,$by1 fill white rectangle $((CKP_BTN_X0+2)),$((by0+2)) $((CKP_BTN_X1-2)),$((by1-2))" >> $M
+    ckp_text "$UI_FONT" $UI_SIZE black middle $CKP_BTN_CX $((y0+CKP_BTN_BASE)) "Restore"
+  fi
+  # The bin of the games list (analytics.py bin_icon, Icon::Bin), in screen pixels.
+  echo "push graphic-context translate $CKP_BIN_X,$((y0+CKP_BIN_DY)) fill none stroke black stroke-width 2.6 stroke-linecap round stroke-linejoin round line -14,-11 14,-11 polyline -5,-11 -5,-15 5,-15 5,-11 polyline -10,-11 -8,15 8,15 10,-11 line -3,-5 -3,9 line 3,-5 3,9 pop graphic-context" >> $M
+}
+ckp_frame black 0
+toolbar black checkpoints
+compose screen-in-progress.png checkpoints-menu-empty.png
+ckp_frame black 3
+ckp_row 0 clean 18:32 restore; ckp_row 1 mid 11:07 restore; ckp_row 2 early 4:15 restore
+toolbar black checkpoints
+compose screen-in-progress.png checkpoints-menu.png
+ckp_frame gray70 5
+ckp_row 0 current 20:14 current; ckp_row 1 group 19:26 restore; ckp_row 2 clean 18:32 restore
+ckp_row 3 mid 11:07 restore; ckp_row 4 early 4:15 restore
+toolbar black checkpoints
+compose screen-in-progress.png checkpoints-menu-current.png
+PL=$SET_PL
+
+# --- A panel image for a right-handed player (REQUIREMENTS.md §3.1). The toolbar moves to the left edge and
 # the close button to the top right. The menu icon is a mirror image. The other icons and the panel contents
-# do not change: the panel moves to x 112-911, with the same order of columns. All moves are full pixels.
-CM_CROP=${CM_W}x$((CM_BOTTOM-CM_TOP+1))+$CM_PL+$CM_TOP   # the full panel, with its bottom line
-magick "$OUT/screen-in-progress.png" \
-  \( "$OUT/color-menu.png" -crop 112x2160+$TB_X+0 +repage \) -geometry +0+0 -composite \
-  \( "$OUT/color-menu.png" -crop 112x112+$TB_X+0 +repage -flop \) -geometry +0+0 -composite \
-  \( "$OUT/color-menu.png" -crop 112x112+0+0 +repage \) -geometry +$TB_X+0 -composite \
-  \( "$OUT/color-menu.png" -crop $CM_CROP +repage \) -geometry +$CM_PL_RIGHT+$CM_TOP -composite \
-  -units PixelsPerInch -density 229 "$OUT/color-menu-right-handed.png"
-# --- color-menu.png in landscape (REQUIREMENTS.md §3.3). The items do not change. They move by full pixels: the
+# do not change. All moves are full pixels.
+# right_handed SOURCE OUTFILE CROP X Y : the crop of the panel of SOURCE goes to X,Y.
+right_handed() {
+  magick "$OUT/screen-in-progress.png" \
+    \( "$OUT/$1" -crop 112x2160+$TB_X+0 +repage \) -geometry +0+0 -composite \
+    \( "$OUT/$1" -crop 112x112+$TB_X+0 +repage -flop \) -geometry +0+0 -composite \
+    \( "$OUT/$1" -crop 112x112+0+0 +repage \) -geometry +$TB_X+0 -composite \
+    \( "$OUT/$1" -crop $3 +repage \) -geometry +$4+$5 -composite \
+    -units PixelsPerInch -density 229 "$OUT/$2"
+}
+# --- A panel image in landscape (REQUIREMENTS.md §3.3). The items do not change. They move by full pixels: the
 # board and the meter to the center of the 2160x1620 screen, the toolbar to the right edge with its bottom slots
-# at the bottom edge, and the panel to x 1248-2047, where it covers the right part of the board.
-TB_TOP_H=$((5*112)); TB_LOW_Y=$((TB_BOTTOM_Y-224))
-magick -size ${LS_W}x${LS_H} xc:white \
-  \( "$OUT/screen-in-progress.png" -crop 1360x1440+130+400 +repage \) -geometry +$((130+LS_DX))+$((400+LS_DY)) -composite \
-  \( "$OUT/color-menu.png" -crop 112x112+0+0 +repage \) -geometry +0+0 -composite \
-  \( "$OUT/color-menu.png" -crop 112x$TB_TOP_H+$TB_X+0 +repage \) -geometry +$LS_TB_X+0 -composite \
-  \( "$OUT/color-menu.png" -crop 112x$((2160-TB_LOW_Y))+$TB_X+$TB_LOW_Y +repage \) -geometry +$LS_TB_X+$((TB_LOW_Y+LS_BOTTOM_DY)) -composite \
-  \( "$OUT/color-menu.png" -crop $CM_CROP +repage \) -geometry +$CM_PL_LANDSCAPE+$CM_TOP -composite \
-  -units PixelsPerInch -density 229 "$OUT/color-menu-landscape.png"
+# at the bottom edge, and the panel to its position, where it covers the right part of the board.
+TB_TOP_H=$((6*112)); TB_LOW_Y=$((TB_BOTTOM_Y-224))
+# landscape SOURCE OUTFILE CROP X Y : the crop of the panel of SOURCE goes to X,Y.
+landscape() {
+  magick -size ${LS_W}x${LS_H} xc:white \
+    \( "$OUT/screen-in-progress.png" -crop 1360x1440+130+400 +repage \) -geometry +$((130+LS_DX))+$((400+LS_DY)) -composite \
+    \( "$OUT/$1" -crop 112x112+0+0 +repage \) -geometry +0+0 -composite \
+    \( "$OUT/$1" -crop 112x$TB_TOP_H+$TB_X+0 +repage \) -geometry +$LS_TB_X+0 -composite \
+    \( "$OUT/$1" -crop 112x$((2160-TB_LOW_Y))+$TB_X+$TB_LOW_Y +repage \) -geometry +$LS_TB_X+$((TB_LOW_Y+LS_BOTTOM_DY)) -composite \
+    \( "$OUT/$1" -crop $3 +repage \) -geometry +$4+$5 -composite \
+    -units PixelsPerInch -density 229 "$OUT/$2"
+}
+CM_CROP=${CM_W}x$((CM_BOTTOM-CM_TOP+1))+$CM_PL+$CM_TOP   # the full panel, with its bottom line
+right_handed color-menu.png color-menu-right-handed.png $CM_CROP $CM_PL_RIGHT $CM_TOP
+landscape color-menu.png color-menu-landscape.png $CM_CROP $CM_PL_LANDSCAPE $CM_TOP
+CKP_CROP=${CKP_W}x$((CKP_ROW0+3*CKP_STEP-CKP_TOP+1))+$CKP_PL+$CKP_TOP   # the panel of checkpoints-menu.png (three rows)
+right_handed checkpoints-menu.png checkpoints-menu-right-handed.png $CKP_CROP $CKP_PL_RIGHT $CKP_TOP
+landscape checkpoints-menu.png checkpoints-menu-landscape.png $CKP_CROP $CKP_PL_LANDSCAPE $CKP_TOP
 rm -f $M

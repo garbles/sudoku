@@ -10,7 +10,7 @@ mod inv_groups;
 use common::*;
 use proptest::prelude::*;
 use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, OVERLAY_MS};
-use sudoku::game::{cells, mark_bit, Cell, Game, Group};
+use sudoku::game::{cells, mark_bit, Cell, Change, Game, Group};
 use sudoku::invariants::check_app;
 use sudoku::layout::{self, Button};
 use sudoku::reference;
@@ -412,6 +412,7 @@ proptest! {
             if before.completed && !new_game {
                 prop_assert_eq!(board(g), board(&before), "INP-9 after {:?}", a);
                 prop_assert_eq!(g.elapsed_ms, before.elapsed_ms, "CLK-3 after {:?}", a);
+                prop_assert_eq!(&g.checkpoints, &before.checkpoints, "CMP-3, CKP-9 after {:?}", a);
             }
             // UND-2, INP-1, HLT-5, COL-4: actions that are not changes to the board.
             if not_board && !new_game {
@@ -420,6 +421,7 @@ proptest! {
             // UND-6, DIF-5
             if new_game {
                 prop_assert!(g.undo.is_empty() && g.redo.is_empty() && !g.completed, "UND-6");
+                prop_assert!(g.checkpoints.is_empty(), "UND-6, DIF-5");
                 prop_assert_eq!(g.mode, d.app.settings.last_mode, "DIF-5");
                 // NAV-9: after Start new game, the menu is open with no panel.
                 prop_assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-9 after {:?}", a);
@@ -455,10 +457,13 @@ fn panels_never_cover_the_toolbar_and_the_toolbar_never_covers_the_board() {
         assert_eq!(layout::tb_x(), 0, "{o:?}");
         assert_eq!(layout::colors_panel().x0, layout::TB_SLOT, "{o:?}");
         assert_eq!(layout::ng_panel().x0, layout::TB_SLOT, "{o:?}");
+        assert_eq!(layout::ckp_panel(0).x0, layout::TB_SLOT, "NAV-18: {o:?}");
         assert!(layout::TB_SLOT < layout::board_x(), "{o:?}");
         layout::set_right_handed(false);
         assert!(layout::colors_panel().x1 <= layout::tb_x(), "{o:?}");
         assert!(layout::ng_panel().x1 <= layout::tb_x(), "{o:?}");
+        assert_eq!(layout::ckp_panel(5).x1, layout::tb_x(), "NAV-18: {o:?}");
+        assert!(layout::ckp_panel(5).y1 <= layout::screen_h() as i32, "NAV-18: {o:?}");
         assert!(layout::board_x() + layout::BOARD_SIZE < layout::tb_x(), "{o:?}");
         assert!(layout::colors_panel().y1 <= layout::screen_h() as i32, "{o:?}");
         assert!(layout::meter_y() + 20 < layout::screen_h() as i32, "{o:?}");
@@ -1674,4 +1679,513 @@ fn the_group_sequences_reach_each_rule() {
     assert!(all.far > 0, "COL-10: no far cell changed");
     assert!(all.hidden > 0, "COL-11: no completed group with no color");
     assert!(all.new_game > 0, "COL-10: no new game");
+}
+
+// ---- UND-1, UND-3, UND-6, UND-9, CMP-1, CMP-3, CKP-1 to CKP-5, CKP-8, CKP-9, PER-1: the checkpoint
+// sequences. A separate model keeps the boards of the two histories and the list of checkpoints. It does
+// not use the code of the app. All controls operate with taps at the positions of `layout`, in all layouts.
+
+/// The numbers and all marks of a board.
+type Snap = ([[u8; 9]; 9], [[u16; 9]; 9]);
+
+fn snap(g: &Game) -> Snap {
+    (g.value, g.marks)
+}
+
+/// The acts of the checkpoint sequences. The cell is an index in the list of open cells.
+#[derive(Clone, Debug)]
+enum CkpAct {
+    Mark(u8, u8),
+    Write(u8, u8),
+    Correct(u8),
+    Erase(u8),
+    Undo,
+    Redo,
+    /// `true`: the pen. `false`: a finger.
+    Save(bool),
+    Restore(u8, bool),
+    /// `true` as the second value: a double tap (CKP-8).
+    Delete(u8, bool),
+    Wait(u16),
+    NewGame,
+}
+
+fn ckp_act() -> impl Strategy<Value = CkpAct> {
+    prop_oneof![
+        3 => (0..4u8, 1..=9u8).prop_map(|(i, d)| CkpAct::Mark(i, d)),
+        2 => (0..4u8, 1..=9u8).prop_map(|(i, d)| CkpAct::Write(i, d)),
+        3 => (0..4u8).prop_map(CkpAct::Correct),
+        2 => (0..4u8).prop_map(CkpAct::Erase),
+        4 => Just(CkpAct::Undo),
+        3 => Just(CkpAct::Redo),
+        4 => any::<bool>().prop_map(CkpAct::Save),
+        4 => (0..5u8, any::<bool>()).prop_map(|(i, pen)| CkpAct::Restore(i, pen)),
+        2 => (0..5u8, any::<bool>()).prop_map(|(i, double)| CkpAct::Delete(i, double)),
+        1 => (0..2000u16).prop_map(CkpAct::Wait),
+    ]
+}
+
+/// The same acts, and sometimes a new game.
+fn ckp_act_with_new_game() -> impl Strategy<Value = CkpAct> {
+    prop_oneof![30 => ckp_act(), 1 => Just(CkpAct::NewGame)]
+}
+
+/// A game in progress with all cells correct, except 1 to 3 open cells: then the sequences get to the
+/// completion. The model keeps the boards of the numbers that fill the other cells.
+fn ckp_start(seed: u64) -> (Game, Vec<Cell>, Vec<Snap>) {
+    let mut g = sudoku::app::new_game(seed, 2);
+    let empty: Vec<Cell> = cells().filter(|&c| !g.is_filled(c)).collect();
+    let (open, rest) = empty.split_at(1 + seed as usize % 3);
+    let mut past = Vec::new();
+    for &(r, c) in rest {
+        past.push(snap(&g));
+        g.add_number((r, c), g.solution[r as usize][c as usize]);
+    }
+    (g, open.to_vec(), past)
+}
+
+/// The model of the game: the two histories and the list.
+struct CkpModel {
+    /// The board before each item of `undo`.
+    past: Vec<Snap>,
+    /// The board after each item of `redo`.
+    future: Vec<Snap>,
+    /// The boards and the clocks, the newest first.
+    list: Vec<(Snap, u64)>,
+}
+
+/// The items that the checkpoint sequences count, to prove that they reach the state of each rule.
+#[derive(Default)]
+struct CkpReached {
+    saves: usize,
+    /// A tap on the row "Save checkpoint" with a full list.
+    full: usize,
+    /// A tap on the row "Save checkpoint" when a checkpoint that is not the newest has the board.
+    same_old: usize,
+    same_new: usize,
+    restores: usize,
+    /// A tap on "Current" with a redo history that stays.
+    current_keeps_redo: usize,
+    /// A Restore that removed a redo history.
+    restore_clears_redo: usize,
+    deletes: usize,
+    /// A second tap of a double tap in the guard time, with a different row at that position.
+    guarded: usize,
+    undo_of_restore: usize,
+    redo_of_restore: usize,
+    /// A Restore item changes the board, and no checkpoint in the list has the board of the item.
+    restore_item_without_checkpoint: usize,
+    /// A game that became complete after a Restore.
+    completed_after_restore: usize,
+    /// A tap on the controls of a complete game.
+    acts_on_complete: usize,
+    full_board_not_solved: usize,
+    new_games: usize,
+}
+
+/// True if the top of the undo history is a Restore item.
+fn top_is_restore(stack: &[Change]) -> bool {
+    matches!(stack.last(), Some(Change::Restore { .. }))
+}
+
+/// CMP-1, CKP-4, UND-1, UND-3, CKP-1 and PER-1 for one state, against the model.
+fn ckp_state_rule(d: &Driver, m: &CkpModel) -> Result<(), String> {
+    let g = &d.app.game;
+    check_app(&d.app)?;
+    // UND-1, UND-3: the stacks have one item for each change. The list has the boards of the model.
+    if g.undo.len() != m.past.len() || g.redo.len() != m.future.len() {
+        return Err(format!("UND-1: the stacks have {} and {} items, the model {} and {}", g.undo.len(), g.redo.len(), m.past.len(), m.future.len()));
+    }
+    // CMP-1: from the values only, with the clash rule of the model.
+    let full = g.value.iter().flatten().all(|&v| v != 0);
+    let solved = full && !cells().any(|c| inv_groups::clashing(&g.value, c));
+    if g.completed != solved {
+        return Err(format!("CMP-1: completed = {}, the model {solved}", g.completed));
+    }
+    // CKP-1, CKP-3, CKP-4.
+    let list: Vec<(Snap, u64)> = g.checkpoints.iter().map(|k| ((k.board.value, k.board.marks), k.elapsed_ms)).collect();
+    if list != m.list {
+        return Err("CKP-1, CKP-3: the list is not the list of the model".to_string());
+    }
+    if list.len() > 5 {
+        return Err(format!("CKP-4: {} checkpoints", list.len()));
+    }
+    for (i, (board, clock)) in list.iter().enumerate() {
+        if list[..i].iter().any(|(b, _)| b == board) {
+            return Err(format!("CKP-4: checkpoint {i} has the board of a newer checkpoint"));
+        }
+        let limit = if i == 0 { g.elapsed_ms } else { list[i - 1].1 };
+        if *clock > limit {
+            return Err(format!("CKP-4: the clock of checkpoint {i} is {clock}, and the limit is {limit}"));
+        }
+        // CKP-5: the app never makes a board that the load refuses.
+        let full = board.0.iter().flatten().all(|&v| v != 0);
+        if full && !cells().any(|c| inv_groups::clashing(&board.0, c)) {
+            return Err(format!("CKP-5: checkpoint {i} is a solved board"));
+        }
+    }
+    // CKP-9, CMP-3
+    if g.completed && d.app.ui.menu.panel() == Some(Panel::Checkpoints) {
+        return Err("CKP-9: the Checkpoints panel is open on a complete game".to_string());
+    }
+    // PER-1: the text of the file gives the same game, and the load accepts it (PER-5).
+    let text = serde_json::to_string(g).map_err(|e| e.to_string())?;
+    let loaded: Game = serde_json::from_str(&text).map_err(|e| format!("PER-1: {e}"))?;
+    if &loaded != g {
+        return Err("PER-1: the file does not give the same game".to_string());
+    }
+    Ok(())
+}
+
+/// Opens the menu if it is closed.
+fn ckp_menu(d: &mut Driver) {
+    if !d.app.ui.menu.is_open() {
+        d.button(Button::Menu);
+    }
+}
+
+/// Closes a panel and leaves the menu open. Then the board and undo and redo operate as usual (NAV-11).
+fn ckp_no_panel(d: &mut Driver) {
+    ckp_menu(d);
+    if d.app.ui.menu.panel().is_some() {
+        d.button(Button::Menu);
+    }
+}
+
+/// Opens the panel. On a complete game the tap on the bookmark has no effect (CKP-9).
+fn ckp_panel(d: &mut Driver) {
+    ckp_menu(d);
+    if d.app.ui.menu.panel() != Some(Panel::Checkpoints) {
+        d.button(Button::Checkpoints);
+    }
+}
+
+fn ckp_tap(d: &mut Driver, (x, y): (f32, f32), pen: bool) {
+    if pen {
+        d.pen_tap(x, y);
+    } else {
+        d.finger_tap(x, y);
+    }
+}
+
+/// One act and its rules. The model gives the expected result of each act before the act.
+fn ckp_step(d: &mut Driver, m: &mut CkpModel, open: &[Cell], a: &CkpAct, r: &mut CkpReached) -> Result<(), String> {
+    let before = d.app.game.clone();
+    let start = d.now;
+    let was = snap(&before);
+    let in_progress = !before.completed;
+    let (mut expect_board, mut one_change) = (was, false);
+    let mut stays_in_panel = false;
+    let cell_of = |i: u8| open[i as usize % open.len()];
+    match *a {
+        CkpAct::Mark(i, digit) => {
+            ckp_no_panel(d);
+            let cell = cell_of(i);
+            d.tap_micro(cell, digit);
+            let free = !before.is_filled(cell) && (!d.app.settings.auto_hide_on || !peer_has(&before, cell, digit));
+            if in_progress && free {
+                let mut want = was;
+                want.1[cell.0 as usize][cell.1 as usize] ^= mark_bit(digit);
+                expect_board = want;
+                one_change = true;
+            }
+        }
+        CkpAct::Write(i, digit) => {
+            ckp_no_panel(d);
+            let cell = cell_of(i);
+            d.write(cell, digit);
+            if in_progress && !before.is_filled(cell) {
+                let mut want = was;
+                want.0[cell.0 as usize][cell.1 as usize] = digit;
+                expect_board = want;
+                one_change = true;
+            }
+        }
+        CkpAct::Correct(i) => {
+            ckp_no_panel(d);
+            let cell = cell_of(i);
+            let digit = before.solution[cell.0 as usize][cell.1 as usize];
+            d.write(cell, digit);
+            if in_progress && !before.is_filled(cell) {
+                let mut want = was;
+                want.0[cell.0 as usize][cell.1 as usize] = digit;
+                expect_board = want;
+                one_change = true;
+            }
+        }
+        CkpAct::Erase(i) => {
+            ckp_no_panel(d);
+            let cell = cell_of(i);
+            d.erase(cell);
+            if in_progress && before.is_entry(cell) {
+                let mut want = was;
+                want.0[cell.0 as usize][cell.1 as usize] = 0;
+                expect_board = want;
+                one_change = true;
+            }
+        }
+        CkpAct::Undo => {
+            ckp_no_panel(d);
+            d.button(Button::Undo);
+            if in_progress {
+                if let Some(board) = m.past.pop() {
+                    r.undo_of_restore += usize::from(top_is_restore(&before.undo));
+                    m.future.push(was);
+                    expect_board = board;
+                }
+            }
+        }
+        CkpAct::Redo => {
+            ckp_no_panel(d);
+            d.button(Button::Redo);
+            if in_progress {
+                if let Some(board) = m.future.pop() {
+                    r.redo_of_restore += usize::from(top_is_restore(&before.redo));
+                    if top_is_restore(&before.redo) && !m.list.iter().any(|(b, _)| *b == board) {
+                        r.restore_item_without_checkpoint += 1;
+                    }
+                    m.past.push(was);
+                    expect_board = board;
+                }
+            }
+        }
+        CkpAct::Save(pen) => {
+            ckp_panel(d);
+            ckp_tap(d, exact_center(layout::ckp_save_row()), pen);
+            let same = m.list.iter().position(|(b, _)| *b == was);
+            r.full += usize::from(in_progress && m.list.len() == 5);
+            r.same_new += usize::from(in_progress && same == Some(0));
+            r.same_old += usize::from(in_progress && same.is_some_and(|i| i > 0));
+            if in_progress && m.list.len() < 5 && same.is_none() {
+                // CKP-1: the clock at the save, between the clock before the act and the clock after it.
+                let Some(k) = d.app.game.checkpoints.first() else { return Err(format!("CKP-1: no checkpoint after {a:?}")) };
+                if k.elapsed_ms < before.elapsed_ms || k.elapsed_ms > d.app.game.elapsed_ms {
+                    return Err(format!("CKP-1: the clock of the checkpoint is {}", k.elapsed_ms));
+                }
+                m.list.insert(0, (was, k.elapsed_ms));
+                r.saves += 1;
+            }
+            stays_in_panel = in_progress;
+        }
+        CkpAct::Restore(i, pen) => {
+            ckp_panel(d);
+            if !in_progress {
+                ckp_tap(d, exact_center(layout::ckp_save_row()), pen);
+            } else if !m.list.is_empty() {
+                let i = i as usize % m.list.len();
+                let target = m.list[i].0;
+                ckp_tap(d, exact_center(layout::ckp_button(i)), pen);
+                if target == was {
+                    // CKP-2: "Current". The redo history stays.
+                    r.current_keeps_redo += usize::from(!m.future.is_empty());
+                } else {
+                    r.restores += 1;
+                    r.restore_clears_redo += usize::from(!m.future.is_empty());
+                    expect_board = target;
+                    one_change = true;
+                }
+            }
+            stays_in_panel = in_progress;
+        }
+        CkpAct::Delete(i, double) => {
+            ckp_panel(d);
+            if !in_progress {
+                ckp_tap(d, exact_center(layout::ckp_save_row()), false);
+            } else if !m.list.is_empty() {
+                let i = i as usize % m.list.len();
+                let bin = exact_center(layout::ckp_bin_area(i));
+                d.finger_tap(bin.0, bin.1);
+                m.list.remove(i);
+                r.deletes += 1;
+                if double {
+                    // CKP-8: the second tap of a fast double tap has no effect.
+                    d.finger_tap(bin.0, bin.1);
+                    r.guarded += usize::from(i < m.list.len());
+                }
+                d.wait(510);
+            }
+            stays_in_panel = in_progress;
+        }
+        CkpAct::Wait(ms) => d.wait(ms as u64),
+        CkpAct::NewGame => {
+            run(d, &Act::NewGame(0, true));
+            if d.app.game.seed != before.seed {
+                let g = &d.app.game;
+                if !(g.undo.is_empty() && g.redo.is_empty() && g.checkpoints.is_empty() && !g.completed) {
+                    return Err("UND-6, DIF-5: a new game keeps the stacks or the checkpoints".to_string());
+                }
+                *m = CkpModel { past: Vec::new(), future: Vec::new(), list: Vec::new() };
+                r.new_games += 1;
+                return ckp_state_rule(d, m);
+            }
+        }
+    }
+    if snap(&d.app.game) != expect_board {
+        return Err(format!("UND-1, UND-3, CKP-2: the board is not the board of the model after {a:?}"));
+    }
+    if one_change {
+        // UND-1: one item, and no redo history.
+        m.past.push(was);
+        m.future.clear();
+    }
+    // CMP-1: only a new game sets it to false.
+    if before.completed && !d.app.game.completed {
+        return Err(format!("CMP-1: a game stopped being complete after {a:?}"));
+    }
+    // CMP-3, CKP-9: a complete game does not change.
+    if before.completed {
+        r.acts_on_complete += 1;
+        if d.app.game != before {
+            return Err(format!("CMP-3: a complete game changed after {a:?}"));
+        }
+    }
+    if stays_in_panel && d.app.ui.menu.panel() != Some(Panel::Checkpoints) {
+        return Err(format!("CKP-2: the panel closed after {a:?}"));
+    }
+    // UND-9, CKP-1, CKP-2, CKP-3: the clock only counts the time of the act. The time of an act is at
+    // most the time of the driver.
+    let (elapsed, time) = (d.app.game.elapsed_ms, d.now - start);
+    if !before.completed && (elapsed < before.elapsed_ms || elapsed > before.elapsed_ms + time) {
+        return Err(format!("UND-9: the clock went from {} to {elapsed} in {time} ms after {a:?}", before.elapsed_ms));
+    }
+    if !before.completed && d.app.game.completed {
+        // The sequences count the completion that comes after a Restore.
+        r.completed_after_restore += usize::from(d.app.game.undo.iter().any(|c| matches!(c, Change::Restore { .. })));
+    }
+    if d.app.game.value.iter().flatten().all(|&v| v != 0) && !d.app.game.completed {
+        r.full_board_not_solved += 1;
+    }
+    ckp_state_rule(d, m)
+}
+
+/// One sequence, then the file: the app opens with the same game, and all items undo and redo to the boards
+/// of the model (PER-1, PER-2, UND-3, CKP-3).
+fn ckp_sequence(seed: u64, acts: &[CkpAct]) -> Result<CkpReached, String> {
+    let _layout = InLayout::set(seed & 2 != 0, seed & 4 != 0);
+    let (game, open, past) = ckp_start(seed);
+    let mut d = Driver::opened(app_with_game(game.clone(), START_TIME, seed));
+    if d.app.game != game {
+        return Err("PER-5: the app did not use the start game".to_string());
+    }
+    // With the switch off, a tap adds each mark (MRK-7): the board of a game that is almost full gets more
+    // different boards, and the list gets full.
+    d.app.settings.auto_hide_on = seed & 8 == 0;
+    let mut m = CkpModel { past, future: Vec::new(), list: Vec::new() };
+    let mut r = CkpReached::default();
+    ckp_state_rule(&d, &m)?;
+    for a in acts {
+        ckp_step(&mut d, &mut m, &open, a, &mut r)?;
+        d.app.quit = false;
+    }
+
+    // PER-1, PER-2: the file gives the same game, and the app uses it (CKP-5).
+    let text = serde_json::to_string(&d.app.game).unwrap();
+    let loaded: Game = serde_json::from_str(&text).unwrap();
+    let reopened = app_with_game(loaded, START_TIME, seed);
+    if reopened.game != d.app.game {
+        return Err("PER-1, PER-5: the app did not use the saved game".to_string());
+    }
+    if reopened.ui.menu.panel().is_some() {
+        return Err("PER-2: a panel is open at the start".to_string());
+    }
+    // UND-3, CKP-3: down the undo history and up again, with no checkpoints in the list.
+    let mut g = reopened.game.clone();
+    if !g.completed {
+        while !g.checkpoints.is_empty() {
+            g.delete_checkpoint(0);
+        }
+        let top = snap(&g);
+        let mut going_up = vec![top];
+        for want in m.past.iter().rev() {
+            g.undo();
+            if snap(&g) != *want {
+                return Err("UND-3: undo after the file is not the board of the model".to_string());
+            }
+            going_up.push(*want);
+        }
+        if g.can_undo() {
+            return Err("UND-1: the undo history has more items than the model".to_string());
+        }
+        going_up.pop();
+        while let Some(want) = going_up.pop() {
+            g.redo();
+            if snap(&g) != want {
+                return Err("UND-3: redo after the file is not the board of the model".to_string());
+            }
+        }
+        for want in m.future.iter().rev() {
+            g.redo();
+            if snap(&g) != *want {
+                return Err("UND-3: an item of the redo history after the file is not the board of the model".to_string());
+            }
+        }
+        if g.can_redo() {
+            return Err("UND-1: the redo history has more items than the model".to_string());
+        }
+    }
+    Ok(r)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 32, max_shrink_iters: 300, ..ProptestConfig::default() })]
+
+    /// UND-1, UND-3, CMP-1, CKP-1 to CKP-5, CKP-8, CKP-9, PER-1 with random saves, Restores, deletes, undo
+    /// and redo, in all layouts.
+    #[test]
+    fn the_checkpoints_and_the_histories_agree_with_the_model(seed in any::<u64>(), acts in proptest::collection::vec(ckp_act_with_new_game(), 1..50)) {
+        ckp_sequence(seed, &acts).map_err(TestCaseError::fail)?;
+    }
+}
+
+#[test]
+fn the_checkpoint_sequences_reach_each_rule() {
+    // The sequences must reach each state that their checks examine: else they prove nothing.
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+    let mut runner = TestRunner::deterministic();
+    let mut all = CkpReached::default();
+    for case in 0..24 {
+        let mut acts = proptest::collection::vec(ckp_act(), 40..60).new_tree(&mut runner).unwrap().current();
+        // A full list: with the switch off (bit 3 of the seed), each tap gives a different board. The
+        // random acts delete too often to fill the list.
+        if case & 8 != 0 {
+            let fill = (1..=6).flat_map(|digit| [CkpAct::Mark(0, digit), CkpAct::Save(false)]);
+            acts.splice(0..0, fill);
+        }
+        let r = ckp_sequence(case, &acts).unwrap_or_else(|e| panic!("{e}"));
+        all.saves += r.saves;
+        all.full += r.full;
+        all.same_old += r.same_old;
+        all.same_new += r.same_new;
+        all.restores += r.restores;
+        all.current_keeps_redo += r.current_keeps_redo;
+        all.restore_clears_redo += r.restore_clears_redo;
+        all.deletes += r.deletes;
+        all.guarded += r.guarded;
+        all.undo_of_restore += r.undo_of_restore;
+        all.redo_of_restore += r.redo_of_restore;
+        all.restore_item_without_checkpoint += r.restore_item_without_checkpoint;
+        all.completed_after_restore += r.completed_after_restore;
+        all.acts_on_complete += r.acts_on_complete;
+        all.full_board_not_solved += r.full_board_not_solved;
+    }
+    println!(
+        "saves {}, full {}, same old {}, same new {}, restores {}, current {}, clears redo {}, deletes {}, guarded {}, undo {}, redo {}, no checkpoint {}, completed {}, on complete {}, full {}",
+        all.saves, all.full, all.same_old, all.same_new, all.restores, all.current_keeps_redo, all.restore_clears_redo, all.deletes, all.guarded, all.undo_of_restore, all.redo_of_restore, all.restore_item_without_checkpoint, all.completed_after_restore, all.acts_on_complete, all.full_board_not_solved
+    );
+    assert!(all.saves > 0, "CKP-1: no save");
+    assert!(all.full > 0, "CKP-1, CKP-4: no tap with a full list");
+    assert!(all.same_old > 0, "CKP-1, CKP-4: no tap with the board of an older checkpoint");
+    assert!(all.same_new > 0, "CKP-1, CKP-4: no tap with the board of the newest checkpoint");
+    assert!(all.restores > 0, "CKP-2: no Restore");
+    assert!(all.current_keeps_redo > 0, "CKP-2: no tap on \"Current\" with a redo history");
+    assert!(all.restore_clears_redo > 0, "UND-1: no Restore with a redo history");
+    assert!(all.deletes > 0, "CKP-3: no delete");
+    assert!(all.guarded > 0, "CKP-8: no second tap with a different row at that position");
+    assert!(all.undo_of_restore > 0, "UND-3: no undo of a Restore");
+    assert!(all.redo_of_restore > 0, "UND-3: no redo of a Restore");
+    assert!(all.restore_item_without_checkpoint > 0, "CKP-3: no redo of a Restore after the delete of its checkpoint");
+    assert!(all.completed_after_restore > 0, "CMP-1: no completion after a Restore");
+    assert!(all.acts_on_complete > 0, "CMP-3, CKP-9: no act on a complete game");
+    assert!(all.full_board_not_solved > 0, "CMP-1: no full board with a clash");
 }

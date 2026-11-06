@@ -4,7 +4,7 @@
 //! Rules about a sequence of states (for example CLK-2 or UND-3) are in the tests.
 
 use crate::app::{App, Menu, Panel, Screen, MANUAL_PAGES};
-use crate::game::{cells, mark_bit, Change, Game, Group};
+use crate::game::{cells, mark_bit, Board, Change, Game, Group, MAX_CHECKPOINTS};
 use crate::generator::{count_solutions, is_valid_solution, MODES, V1_MODES, VERSION};
 use crate::layout;
 use crate::settings::Color;
@@ -58,6 +58,7 @@ pub fn check_game(g: &Game) -> Result<(), String> {
     }
 
     check_completed_groups(g)?;
+    check_checkpoints(g)?;
 
     // UND-1, UND-3: the board is the result of the changes in the undo history, applied in order to
     // the puzzle. The redo history applies to the current board in the opposite order.
@@ -71,6 +72,41 @@ pub fn check_game(g: &Game) -> Result<(), String> {
     for (i, change) in g.redo.iter().rev().enumerate() {
         check_change_applies(&replay, change).map_err(|e| format!("UND-3: redo item {i}: {e}"))?;
         replay.apply(change);
+    }
+    Ok(())
+}
+
+/// CKP-5: a board of a checkpoint or of a Restore item is possible in this game. The drawing and undo
+/// can use the values of a saved file only after this check (PER-5).
+fn check_saved_board(g: &Game, b: &Board) -> Result<(), String> {
+    for (r, c) in cells() {
+        let (ri, ci) = (r as usize, c as usize);
+        let (v, marks) = (b.value[ri][ci], b.marks[ri][ci]);
+        if v > 9 {
+            return Err(format!("value {v} at ({r},{c})"));
+        }
+        if marks & !crate::game::ALL_MARKS != 0 {
+            return Err(format!("marks out of 1..9 at ({r},{c})"));
+        }
+        if g.given[ri][ci] && (v != g.solution[ri][ci] || marks != 0) {
+            return Err(format!("the starting number at ({r},{c}) is not the solution or has marks"));
+        }
+    }
+    if b.is_solved() {
+        return Err("the board is solved".to_string());
+    }
+    Ok(())
+}
+
+/// CKP-4, CKP-5: the list of checkpoints. A checkpoint on a complete game is correct.
+fn check_checkpoints(g: &Game) -> Result<(), String> {
+    let list = &g.checkpoints;
+    ensure!(list.len() <= MAX_CHECKPOINTS, "CKP-4", "{} checkpoints", list.len());
+    for (i, k) in list.iter().enumerate() {
+        check_saved_board(g, &k.board).map_err(|e| format!("CKP-5: checkpoint {i}: {e}"))?;
+        ensure!(list[..i].iter().all(|newer| newer.board != k.board), "CKP-4", "checkpoint {i} has the board of a newer checkpoint");
+        let limit = if i == 0 { g.elapsed_ms } else { list[i - 1].elapsed_ms };
+        ensure!(k.elapsed_ms <= limit, "CKP-4", "the clock of checkpoint {i} is more than {limit}");
     }
     Ok(())
 }
@@ -103,6 +139,7 @@ fn check_change_applies(g: &Game, change: &Change) -> Result<(), String> {
     let cells_ok = match change {
         Change::ToggleMark { cell, .. } | Change::Erase { cell, .. } => in_range(cell),
         Change::AddNumber { cell, removed, .. } => in_range(cell) && removed.iter().all(in_range),
+        Change::Restore { .. } => true,
     };
     if !cells_ok {
         return Err(format!("a cell is not on the board: {change:?}"));
@@ -128,6 +165,17 @@ fn check_change_applies(g: &Game, change: &Change) -> Result<(), String> {
         Change::Erase { cell, digit } => {
             if !g.is_entry(*cell) || g.value_at(*cell) != *digit {
                 return Err(format!("erase of {digit} at {cell:?}, which is not that entry"));
+            }
+        }
+        // CKP-5
+        Change::Restore { before, after } => {
+            check_saved_board(g, before).map_err(|e| format!("CKP-5: the board before: {e}"))?;
+            check_saved_board(g, after).map_err(|e| format!("CKP-5: the board after: {e}"))?;
+            if !g.same_board(before) {
+                return Err("CKP-5: the board before a Restore is not the board at that point of the history".to_string());
+            }
+            if before == after {
+                return Err("CKP-5: the two boards of a Restore are the same".to_string());
             }
         }
     }
@@ -167,6 +215,21 @@ fn check_panel_layout(app: &App) -> Result<(), String> {
         Some(Panel::Settings) => {
             let p = layout::settings_panel(app.update.has_row());
             ensure!(p.x1 - p.x0 == 400, "NAV-14", "the Settings panel is at {p:?}");
+        }
+        Some(Panel::Checkpoints) => {
+            let x0 = match (layout::right_handed(), layout::orientation()) {
+                (true, _) => 112,
+                (false, layout::Orientation::Portrait) => 908,
+                (false, layout::Orientation::Landscape) => 1448,
+            };
+            let n = app.game.checkpoints.len();
+            let bottom = if n == 0 { 864 } else { 672 + 180 * n as i32 };
+            let p = layout::ckp_panel(n);
+            ensure!((p.x0, p.x1, p.y0, p.y1) == (x0, x0 + 600, 560, bottom + 1), "NAV-18", "the Checkpoints panel is at {p:?}");
+            for corner in [(p.x0, p.y0), (p.x1 - 1, p.y0), (p.x0, p.y1 - 1), (p.x1 - 1, p.y1 - 1)] {
+                ensure!(layout::game_button(corner.0 as f32, corner.1 as f32, true).is_none(), "NAV-18", "the panel covers a button at {corner:?}");
+            }
+            ensure!(p.y1 + 13 < layout::meter_y() || p.x1 <= layout::meter_xl() || p.x0 >= layout::meter_xr(), "NAV-18", "the panel covers the meter");
         }
         _ => {}
     }
@@ -214,6 +277,12 @@ pub fn check_app(app: &App) -> Result<(), String> {
     }
     if g.completed {
         ensure!(ui.highlight.is_none() && ui.question.is_none() && ui.refused.is_none() && ui.pending_ink.is_none(), "CMP-3", "overlay on a complete game");
+        ensure!(ui.menu.panel() != Some(Panel::Checkpoints), "CKP-9", "the Checkpoints panel is open on a complete game");
+    }
+    if ui.menu.panel() == Some(Panel::Checkpoints) {
+        ensure!(ui.pending_ink.is_none() && app.live_stroke.is_none(), "NAV-18", "ink in the Checkpoints panel");
+    } else {
+        ensure!(ui.delete_guard.is_none(), "CKP-8", "the guard after a delete with panel {:?}", ui.menu.panel());
     }
     // NAV-4: the type `Menu` keeps a panel only in `Menu::Open`.
     if app.screen != Screen::Game {

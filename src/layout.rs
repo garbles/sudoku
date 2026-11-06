@@ -222,6 +222,8 @@ pub enum Button {
     Settings,
     Undo,
     Redo,
+    /// The bookmark: it opens the Checkpoints panel (§9.3).
+    Checkpoints,
     Help,
     Statistics,
     NewGame,
@@ -250,6 +252,7 @@ pub fn game_button(x: f32, y: f32, menu_open: bool) -> Option<Button> {
         2 => return Some(Button::Settings),
         3 => return Some(Button::Undo),
         4 => return Some(Button::Redo),
+        CKP_SLOT => return Some(Button::Checkpoints),
         _ => {}
     }
     if y >= tb_bottom_y() {
@@ -410,6 +413,106 @@ pub fn color_at(x: f32, y: f32) -> Option<(Section, Color)> {
         .into_iter()
         .flat_map(|s| Color::ALL.map(|c| (s, c)))
         .find(|&(s, c)| color_cell(s, c).contains(x, y))
+}
+
+/// The Checkpoints panel (§9.3, NAV-18). It touches the toolbar and starts at the top of the slot of
+/// the bookmark. Each x offset below is from the left edge of the panel: the contents move with the
+/// panel in the other layouts.
+pub const CKP_SLOT: i32 = 5;
+const CKP_W: i32 = 600;
+const CKP_TOP: i32 = CKP_SLOT * TB_SLOT;
+/// The top of the first checkpoint row, below the row "Save checkpoint".
+const CKP_ROW0: i32 = CKP_TOP + TB_SLOT;
+pub const CKP_ROW_H: i32 = 180;
+/// The last y of the panel with no checkpoint.
+const CKP_EMPTY_BOTTOM: i32 = 864;
+/// The center of the plus of the row "Save checkpoint", and the start and the baseline of its text.
+pub const CKP_SAVE_ICON: (i32, i32) = (58, 616);
+pub const CKP_SAVE_TEXT: (i32, i32) = (100, 625);
+/// The center x of the text with no checkpoint, and the two baselines.
+pub const CKP_EMPTY_CX: i32 = 299;
+pub const CKP_EMPTY_BASELINES: (i32, i32) = (760, 800);
+/// The small board: the top left of its first cell from the left of the panel and from the top of the
+/// row, and the size of a cell.
+pub const CKP_BOARD: (i32, i32) = (18, 14);
+pub const CKP_BOARD_CELL: i32 = 17;
+/// The text of a row: x, and the two baselines from the top of the row.
+pub const CKP_TEXT_X: i32 = 190;
+pub const CKP_TEXT_BASELINES: (i32, i32) = (81, 115);
+/// The center x of the text of the button, and its baseline from the top of the row.
+pub const CKP_BUTTON_TEXT: (i32, i32) = (451, 99);
+/// The first and the last x of the button from the left of the panel, and its first and last y from
+/// the top of the row.
+const CKP_BUTTON_X: (i32, i32) = (381, 521);
+const CKP_BUTTON_Y: (i32, i32) = (55, 125);
+/// The center of the bin from the left of the panel and from the top of the row.
+pub const CKP_BIN: (i32, i32) = (560, 90);
+/// The bin operates from this x to the right edge of the panel (§9.3).
+const CKP_BIN_AREA_X: i32 = 533;
+
+/// A control of the Checkpoints panel. The index is the row: the index in `Game::checkpoints`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CheckpointControl {
+    Save,
+    Restore(usize),
+    Delete(usize),
+}
+
+/// The left x of the Checkpoints panel: 908 in portrait, 1448 in landscape, 112 for a right-handed player.
+pub fn ckp_pl() -> i32 {
+    panel_x(CKP_W).0
+}
+
+/// The Checkpoints panel with `n` checkpoints. It ends at y 864 with no checkpoint (NAV-18).
+pub fn ckp_panel(n: usize) -> Rect {
+    let (pl, pr) = panel_x(CKP_W);
+    let bottom = if n == 0 { CKP_EMPTY_BOTTOM } else { ckp_row_top(n) };
+    Rect::new(pl, CKP_TOP, pr + 1, bottom + 1)
+}
+
+/// The area of the Checkpoints panel at its maximum size: the guard after a delete uses it (CKP-8).
+pub fn ckp_guard_area() -> Rect {
+    ckp_panel(crate::game::MAX_CHECKPOINTS)
+}
+
+/// The top of row `i` of the Checkpoints panel.
+pub fn ckp_row_top(i: usize) -> i32 {
+    CKP_ROW0 + i as i32 * CKP_ROW_H
+}
+
+/// The row "Save checkpoint": the full row is the tap area.
+pub fn ckp_save_row() -> Rect {
+    let (pl, pr) = panel_x(CKP_W);
+    Rect::new(pl, CKP_TOP, pr + 1, CKP_ROW0)
+}
+
+/// The tap area of the button of row `i`.
+pub fn ckp_button(i: usize) -> Rect {
+    let (x, y) = (ckp_pl(), ckp_row_top(i));
+    Rect::new(x + CKP_BUTTON_X.0, y + CKP_BUTTON_Y.0, x + CKP_BUTTON_X.1 + 1, y + CKP_BUTTON_Y.1 + 1)
+}
+
+/// The tap area of the bin of row `i`: to the right edge of the panel, the full height of the row.
+pub fn ckp_bin_area(i: usize) -> Rect {
+    let (pl, pr) = panel_x(CKP_W);
+    let y = ckp_row_top(i);
+    Rect::new(pl + CKP_BIN_AREA_X, y, pr + 1, y + CKP_ROW_H)
+}
+
+/// The control at a point in the Checkpoints panel with `n` checkpoints.
+pub fn checkpoint_control_at(x: f32, y: f32, n: usize) -> Option<CheckpointControl> {
+    if ckp_save_row().contains(x, y) {
+        return Some(CheckpointControl::Save);
+    }
+    (0..n).find_map(|i| {
+        if ckp_button(i).contains(x, y) {
+            Some(CheckpointControl::Restore(i))
+        } else if ckp_bin_area(i).contains(x, y) {
+            Some(CheckpointControl::Delete(i))
+        } else {
+            None
+        }
+    })
 }
 
 /// The New game panel (toolbar.sh): from the slot above the + to the bottom of the screen.
@@ -770,6 +873,39 @@ mod tests {
             let empty = (p.x1 - 200, COLORS_TOP + 2 * COLOR_SECTION_H + 100);
             assert_eq!(color_at(empty.0 as f32, empty.1 as f32), None);
             assert_eq!(line_gray_at(empty.0 as f32, empty.1 as f32), None);
+        }
+        set_right_handed(false);
+        set_rotation(0);
+    }
+
+    #[test]
+    fn the_checkpoints_panel_agrees_with_nav_18_in_all_layouts() {
+        for (rotation, right, x0, x1) in [(0, false, 908, 1507), (2, false, 1448, 2047), (0, true, 112, 711), (2, true, 112, 711)] {
+            set_rotation(rotation);
+            set_right_handed(right);
+            for (n, bottom) in [(0, 864), (1, 852), (3, 1212), (5, 1572)] {
+                let p = ckp_panel(n);
+                assert_eq!((p.x0, p.x1 - 1, p.y0, p.y1 - 1), (x0, x1, 560, bottom), "{rotation} {right} {n}");
+                // The panel covers no button, not the meter and not "Completed in".
+                for (x, y) in [(p.x0, p.y0), (p.x1 - 1, p.y0), (p.x0, p.y1 - 1), (p.x1 - 1, p.y1 - 1)] {
+                    assert_eq!(game_button(x as f32, y as f32, true), None, "{rotation} {right} {x} {y}");
+                }
+                assert!(p.y1 + 13 < meter_y() || p.x1 <= meter_xl() || p.x0 >= meter_xr(), "{rotation} {right}");
+            }
+            assert_eq!(game_button(tb_cx(), 560.0, true), Some(Button::Checkpoints));
+            assert_eq!(game_button(tb_cx(), 671.0, true), Some(Button::Checkpoints));
+            let (row, button) = (ckp_row_top(1), ckp_button(1));
+            assert_eq!((button.x0 - x0, button.x1 - 1 - x0, button.y0 - row, button.y1 - 1 - row), (381, 521, 55, 125));
+            // CKP-7: the 12 px between the button and the bin operate nothing. x 908 + 533 = 1441.
+            let on = |x: i32, y: i32| checkpoint_control_at(x as f32, y as f32, 5);
+            assert_eq!(on(x0 + 521, row + 90), Some(CheckpointControl::Restore(1)));
+            assert_eq!(on(x0 + 522, row + 90), None);
+            assert_eq!(on(x0 + 532, row + 90), None);
+            assert_eq!(on(x0 + 533, row + 90), Some(CheckpointControl::Delete(1)));
+            assert_eq!(on(x1, row), Some(CheckpointControl::Delete(1)));
+            assert_eq!(on(x0, 560), Some(CheckpointControl::Save));
+            assert_eq!(on(x0, 672), None);
+            assert_eq!(checkpoint_control_at((x0 + 533) as f32, row as f32, 1), None, "there is no row 1");
         }
         set_right_handed(false);
         set_rotation(0);

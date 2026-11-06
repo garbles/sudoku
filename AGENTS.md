@@ -166,8 +166,9 @@ builds in parallel).
 
 One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuffer.
 
-- `game.rs`: the board, the pencil marks, the undo and redo history, clashes, completed groups and
-  completion.
+- `game.rs`: the board, the pencil marks, the undo and redo history (also the item of a checkpoint
+  restore, which sets the full board), the checkpoints (up to 5, newest first, saved in the game
+  file), clashes, completed groups and completion.
 - `generator.rs`: the puzzle generator with a seed (only one solution). Version 1 stays for old saves.
   After the first attempt, up to 4 threads make batches of attempts; the results are examined in
   the order of the attempts, thus the puzzle does not depend on the threads (PUZ-5). While the New
@@ -211,8 +212,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   `render.rs` keeps the pixels of each board cell in a cache (tiles at their true position). Each
   `Canvas` operation records the area that it can change (for the `FrameRecord`). On a frame with
   a record, `put_overlay` also keeps the pixels of the meter and of the menu button with the
-  toolbar (the key must contain all that the pixels depend on). The items of the Cell colors panel
-  and the rows of the list of completed games also have a cache (`put_box`): a redraw draws only the
+  toolbar (the key must contain all that the pixels depend on). The items of the Cell colors panel,
+  the rows of the Checkpoints panel and the rows of the list of completed games also have a cache (`put_box`): a redraw draws only the
   boxes that changed. A full drawing of the board (the
   first frame, a new game) uses up to 4 threads, in stripes that end at the borders of cell rows
   (tiny-skia gives other pixels for a glyph that the edge of a pixmap cuts). A thread that draws

@@ -735,7 +735,7 @@ fn the_toolbar_ignores_all_buttons_shortly_after_back() {
     // nothing, for the left-handed and the right-handed layout. After this time, they operate.
     for right_handed in [false, true] {
         layout::set_right_handed(right_handed);
-        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
             let case = format!("right-handed: {right_handed}, button: {b:?}");
             let mut d = Driver::new(46);
             // Two marks and one undo give the undo button and the redo button an action.
@@ -1418,7 +1418,7 @@ fn a_tap_with_an_open_panel_only_closes_the_panel() {
     // the menu open and no panel, the same tap shows the x. A tap in the panel also shows no x. All
     // layouts and all panels.
     for_each_layout(|case| {
-        for (b, panel) in [(Button::Colors, Panel::Colors), (Button::Settings, Panel::Settings), (Button::NewGame, Panel::NewGame)] {
+        for (b, panel) in [(Button::Colors, Panel::Colors), (Button::Settings, Panel::Settings), (Button::NewGame, Panel::NewGame), (Button::Checkpoints, Panel::Checkpoints)] {
             let case = format!("{case}, panel: {panel:?}");
             let mut d = Driver::new(112);
             d.button(Button::Menu);
@@ -1428,6 +1428,7 @@ fn a_tap_with_an_open_panel_only_closes_the_panel() {
                 Panel::Colors => layout::colors_panel(),
                 Panel::Settings => layout::settings_panel(d.app.update.has_row()),
                 Panel::NewGame => layout::ng_panel(),
+                Panel::Checkpoints => layout::ckp_panel(d.app.game.checkpoints.len()),
             };
             let before = board(&d.app.game);
             let pairs = refused_pairs(&d.app.game);
@@ -1446,10 +1447,16 @@ fn a_tap_with_an_open_panel_only_closes_the_panel() {
             assert_x_rule(&d, &case);
 
             // A tap on a micro-cell under the panel. It can operate an item of the panel, thus this
-            // part has a new driver, and it does not use the row "Start new game". The tap makes no x.
+            // part has a new driver, and it does not use the row "Start new game" or the row "Save
+            // checkpoint". The tap makes no x.
             let inside = pairs.iter().find(|p| {
                 let (x, y) = micro_center(p.0, p.1);
-                in_panel(p) && !layout::ng_start_row().contains(x, y)
+                let control = match panel {
+                    Panel::NewGame => layout::ng_start_row().contains(x, y),
+                    Panel::Checkpoints => layout::ckp_save_row().contains(x, y),
+                    _ => false,
+                };
+                in_panel(p) && !control
             });
             if let Some(&(cell, digit)) = inside {
                 let mut d = Driver::new(112);
@@ -1662,7 +1669,7 @@ fn a_press_that_the_guard_time_ignores_does_not_remove_the_x() {
         assert_eq!(x, Some((cell, digit, d.now)), "{case}");
         assert_eq!(question.map(|q| q.0), Some(other), "{case}");
 
-        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
             let (px, py) = button_center(b);
             d.send(Input::TouchDown { id: 1, x: px, y: py });
             assert_eq!((d.app.ui.refused, d.app.ui.question), (x, question), "NAV-16: finger press ({case}, {b:?})");
@@ -1700,7 +1707,7 @@ fn the_release_of_a_control_removes_the_x() {
     // MRK-15, MRK-12: a finger stays on a control while the pen does a refused tap. The release does the
     // action of the control and removes the x. All controls of the toolbar, in all layouts.
     for_each_layout(|case| {
-        for b in [Button::Menu, Button::Colors, Button::Settings, Button::NewGame, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::Close] {
+        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::Close] {
             let case = format!("{case}, control: {b:?}");
             let mut d = Driver::new(121);
             fill_stacks(&mut d);
@@ -1716,6 +1723,7 @@ fn the_release_of_a_control_removes_the_x() {
                 Button::Colors => d.app.ui.menu.panel() == Some(Panel::Colors),
                 Button::Settings => d.app.ui.menu.panel() == Some(Panel::Settings),
                 Button::NewGame => d.app.ui.menu.panel() == Some(Panel::NewGame),
+                Button::Checkpoints => d.app.ui.menu.panel() == Some(Panel::Checkpoints),
                 Button::Undo | Button::Redo => board(&d.app.game) != before,
                 Button::Help => d.app.screen == Screen::Manual,
                 Button::Statistics => d.app.screen == Screen::Statistics,
@@ -1730,7 +1738,7 @@ fn the_release_of_a_control_removes_the_x() {
 fn the_release_of_a_control_keeps_a_question_mark_in_a_different_cell() {
     // MRK-15, QST-4, R§9: the release removes only the x. The "?" stays, with its own time. A change of
     // screen removes the two (NAV-5).
-    for b in [Button::Colors, Button::Settings, Button::NewGame, Button::Undo, Button::Redo] {
+    for b in [Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame, Button::Undo, Button::Redo] {
         let mut d = Driver::new(122);
         fill_stacks(&mut d);
         let (x, y) = hold(&mut d, b);
@@ -2648,6 +2656,7 @@ fn assert_normal_colors(app: &App, fonts: &sudoku::font::Fonts, starting: [u8; 3
             Panel::Colors => layout::colors_panel().contains(x, y + 111.0),
             Panel::Settings => layout::settings_panel(app.update.has_row()).contains(x, y + 111.0),
             Panel::NewGame => layout::ng_panel().contains(x, y + 111.0),
+            Panel::Checkpoints => layout::ckp_panel(app.game.checkpoints.len()).contains(x, y + 111.0),
         });
         if !panel {
             assert_eq!(cell_background(&pm, c), want, "{case}: {c:?}");
@@ -2892,8 +2901,9 @@ fn a_tap_on_the_empty_space_or_a_title_of_the_colors_panel_has_no_effect() {
             assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors), "{layout_case}: pen at ({x}, {y})");
             assert_eq!(panel_state(&d), before, "{layout_case}: ({x}, {y})");
         }
-        // One pixel out of the panel: the tap only closes it (NAV-11, NAV-12).
-        for (x, y) in [(x0 - 1, 600), (x1 + 1, 600), (x0 + 100, 111), (x0 + 100, 1193)] {
+        // One pixel out of the panel: the tap only closes it (NAV-11, NAV-12). At y 700, the toolbar has
+        // no button (top slot 5, y 560-671, has the bookmark).
+        for (x, y) in [(x0 - 1, 700), (x1 + 1, 700), (x0 + 100, 111), (x0 + 100, 1193)] {
             d.finger_tap(x as f32, y as f32);
             assert_eq!(d.app.ui.menu, Menu::Open(None), "{layout_case}: ({x}, {y})");
             assert_eq!(panel_state(&d), before, "{layout_case}: ({x}, {y})");
@@ -2937,7 +2947,7 @@ fn the_colors_panel_does_not_cover_the_other_items() {
         }
         // The buttons and the close button are out of the panel.
         let (x0, x1) = documented_colors_x();
-        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
             let (x, y) = button_center(b);
             assert!(x < x0 as f32 || x > x1 as f32 || y < 112.0 || y > 1192.0, "{layout_case}: {b:?}");
         }
@@ -3081,4 +3091,1005 @@ fn a_settings_file_of_an_earlier_version_goes_through_the_app() {
     std::fs::write(&path, r#"{"color_starting":"Gray","color_clash":"Red","color_highlight":"Green","color_completed":"Green","last_mode":1}"#).unwrap();
     assert_eq!(start(&path).settings, Settings::default());
     std::fs::remove_dir_all(&dir).ok();
+}
+
+// ---- The Checkpoints panel (REQUIREMENTS.md §9.3). The positions come from the documents, not from
+// `layout`. A value of the documents is for a left-handed player in portrait: each x below is the
+// distance from the left edge of the panel (NAV-18).
+
+/// `gray70` of the documents: 70 percent of white.
+const GRAY70: u8 = 179;
+
+#[derive(Clone, Copy, Debug)]
+enum By {
+    Pen,
+    Eraser,
+    Finger,
+}
+
+const ALL_TOOLS: [By; 3] = [By::Pen, By::Eraser, By::Finger];
+
+fn tap_by(d: &mut Driver, by: By, (x, y): (f32, f32)) {
+    match by {
+        By::Pen => d.pen_tap(x, y),
+        By::Finger => d.finger_tap(x, y),
+        By::Eraser => {
+            d.send(Input::PenDown { x, y, tool: Tool::Eraser });
+            d.send(Input::PenUp { x, y });
+        }
+    }
+}
+
+fn row_y(i: usize) -> i32 {
+    672 + 180 * i as i32
+}
+
+fn at(x: i32, y: i32) -> (f32, f32) {
+    (x as f32, y as f32)
+}
+
+/// The center of the row "Save checkpoint".
+fn save_point() -> (f32, f32) {
+    at(documented_checkpoints_x().0 + 300, 616)
+}
+
+/// The center of the button of row `i` ("Restore" or "Current").
+fn restore_point(i: usize) -> (f32, f32) {
+    at(documented_checkpoints_x().0 + 451, row_y(i) + 90)
+}
+
+/// The center of the bin of row `i`.
+fn bin_point(i: usize) -> (f32, f32) {
+    at(documented_checkpoints_x().0 + 560, row_y(i) + 90)
+}
+
+fn panel_of(d: &Driver) -> Option<Panel> {
+    d.app.ui.menu.panel()
+}
+
+/// Opens the Checkpoints panel with a tap on the bookmark.
+fn open_checkpoints(d: &mut Driver) {
+    if !d.app.ui.menu.is_open() {
+        d.button(Button::Menu);
+    }
+    if panel_of(d) != Some(Panel::Checkpoints) {
+        d.button(Button::Checkpoints);
+    }
+    assert_eq!(panel_of(d), Some(Panel::Checkpoints), "NAV-18: the bookmark opens the panel");
+}
+
+/// Closes the Checkpoints panel with a tap on the bookmark.
+fn close_checkpoints(d: &mut Driver) {
+    if panel_of(d) == Some(Panel::Checkpoints) {
+        d.button(Button::Checkpoints);
+    }
+    assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-18: a second tap on the bookmark closes the panel");
+}
+
+/// Adds a mark with the pen to an empty cell that has no mark. This makes a board that is different
+/// from all earlier boards.
+fn new_mark(d: &mut Driver) -> (Cell, u8) {
+    close_checkpoints(d);
+    let g = &d.app.game;
+    let (cell, digit) = cells()
+        .filter(|&c| !g.is_filled(c) && g.marks_at(c) == 0)
+        .find_map(|c| (1..=9u8).find(|&v| !peer_has(g, c, v)).map(|v| (c, v)))
+        .expect("an empty cell with a free digit");
+    d.tap_micro(cell, digit);
+    assert_eq!(d.app.game.marks_at(cell), mark_bit(digit), "the pen adds the mark");
+    (cell, digit)
+}
+
+/// A driver with `n` checkpoints, each with a different board and clock, and with the panel open.
+/// The board is the board of the newest checkpoint.
+fn with_checkpoints(seed: u64, n: usize) -> Driver {
+    let mut d = Driver::new(seed);
+    d.button(Button::Menu);
+    for k in 0..n {
+        new_mark(&mut d);
+        d.wait(1000);
+        open_checkpoints(&mut d);
+        tap_by(&mut d, By::Finger, save_point());
+        assert_eq!(d.app.game.checkpoints.len(), k + 1, "CKP-1");
+    }
+    open_checkpoints(&mut d);
+    d
+}
+
+/// The game without the clock and without the list of checkpoints.
+fn play_state(g: &sudoku::game::Game) -> sudoku::game::Game {
+    let mut g = board(g);
+    g.checkpoints.clear();
+    g
+}
+
+/// The smallest and the largest gray value in an area, with the two ends.
+fn gray_range(pm: &tiny_skia::Pixmap, (x0, y0): (i32, i32), (x1, y1): (i32, i32)) -> (u8, u8) {
+    let mut range = (255, 0);
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let v = rgb_at(pm, x, y)[0];
+            range = (range.0.min(v), range.1.max(v));
+        }
+    }
+    range
+}
+
+/// The gray values of the icon in the slot of the bookmark.
+fn bookmark_grays(app: &App) -> (u8, u8) {
+    let pm = draw_screen(app, &fonts());
+    let (x, y) = (layout::tb_cx() as i32, layout::tb_cy(5) as i32);
+    gray_range(&pm, (x - 16, y - 22), (x + 16, y + 22))
+}
+
+/// The gray values of the plus icon and the text of the row "Save checkpoint".
+fn save_row_grays(app: &App) -> (u8, u8) {
+    let pm = draw_screen(app, &fonts());
+    let x0 = documented_checkpoints_x().0;
+    gray_range(&pm, (x0 + 40, 595), (x0 + 340, 635))
+}
+
+/// The color of a point in the button of row `i` that has no border and no text.
+fn button_fill(app: &App, i: usize) -> [u8; 3] {
+    let pm = draw_screen(app, &fonts());
+    rgb_at(&pm, documented_checkpoints_x().0 + 391, row_y(i) + 62)
+}
+
+const BUTTON_RESTORE: [u8; 3] = [255, 255, 255];
+const BUTTON_CURRENT: [u8; 3] = [0, 0, 0];
+
+#[test]
+fn a_save_adds_the_newest_checkpoint_and_changes_nothing_else() {
+    // CKP-1, CKP-4, PER-7, UND-9. The four layouts, the pen, the eraser and a finger.
+    for_each_layout(|case| {
+        for by in ALL_TOOLS {
+            let case = format!("{case}, {by:?}");
+            let mut d = Driver::new(300);
+            d.button(Button::Menu);
+            fill_stacks(&mut d);
+            d.wait(3000);
+            open_checkpoints(&mut d);
+            assert_eq!(save_row_grays(&d.app).0, 0, "CKP-1: the row is black when a save is available ({case})");
+            let before = d.app.game.clone();
+            let t = d.now;
+            d.app.game_dirty = false;
+            tap_by(&mut d, by, save_point());
+            let g = &d.app.game;
+            assert_eq!(play_state(g), play_state(&before), "CKP-1: the board and the stacks ({case})");
+            assert_eq!(g.elapsed_ms, before.elapsed_ms + (d.now - t), "CKP-1, UND-9: the clock goes on as usual ({case})");
+            assert_eq!(g.checkpoints.len(), 1, "CKP-1 ({case})");
+            let k = &g.checkpoints[0];
+            assert_eq!((k.board.value, k.board.marks), (before.value, before.marks), "CKP-1 ({case})");
+            assert_eq!(k.elapsed_ms, g.elapsed_ms, "CKP-1: the clock at the save ({case})");
+            assert!(d.app.game_dirty, "PER-7: a save saves the game file ({case})");
+            assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "the panel stays open ({case})");
+            assert_eq!(save_row_grays(&d.app).0, GRAY70, "CKP-1: no save is available ({case})");
+
+            // The same board: no second checkpoint, also at the corners of the row.
+            let (x0, x1) = documented_checkpoints_x();
+            for p in [save_point(), at(x0, 560), at(x1, 671)] {
+                d.app.game_dirty = false;
+                let same = d.app.game.checkpoints.clone();
+                tap_by(&mut d, by, p);
+                assert_eq!(d.app.game.checkpoints, same, "CKP-1, CKP-4: the same board ({case})");
+                assert!(!d.app.game_dirty, "CKP-1: the tap changes nothing ({case})");
+            }
+
+            // A new board. The newest is first, and the clock of the older checkpoint is not larger.
+            let older = d.app.game.checkpoints[0].clone();
+            new_mark(&mut d);
+            d.wait(1000);
+            assert!(d.app.game.can_save_checkpoint(), "CKP-1 ({case})");
+            open_checkpoints(&mut d);
+            assert_eq!(save_row_grays(&d.app).0, 0, "CKP-1: a save is available again ({case})");
+            tap_by(&mut d, by, save_point());
+            let list = &d.app.game.checkpoints;
+            assert_eq!(list.len(), 2, "CKP-1 ({case})");
+            assert_eq!(list[1], older, "CKP-4: newest first ({case})");
+            assert!(list[0].elapsed_ms > older.elapsed_ms, "CKP-4 ({case})");
+        }
+    });
+}
+
+#[test]
+fn the_full_row_is_the_tap_area_of_save_in_all_layouts() {
+    // CKP-1, NAV-18: the corners of the row operate. y 672 is below the row.
+    for_each_layout(|case| {
+        let (x0, x1) = documented_checkpoints_x();
+        for p in [at(x0, 560), at(x1, 560), at(x0, 671), at(x1, 671)] {
+            let mut d = with_checkpoints(301, 0);
+            d.finger_tap(p.0, p.1);
+            assert_eq!(d.app.game.checkpoints.len(), 1, "CKP-1: {p:?} ({case})");
+        }
+        let mut d = with_checkpoints(301, 0);
+        d.finger_tap((x0 + 300) as f32, 672.0);
+        assert!(d.app.game.checkpoints.is_empty(), "CKP-1 ({case})");
+        assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "NAV-18: no control ({case})");
+    });
+}
+
+#[test]
+fn a_full_list_has_no_save() {
+    // CKP-1, CKP-4: the limit of 5, with a board that no checkpoint has. A delete makes a save
+    // available again.
+    let mut d = with_checkpoints(302, 5);
+    new_mark(&mut d);
+    open_checkpoints(&mut d);
+    let list = d.app.game.checkpoints.clone();
+    let board_now = play_state(&d.app.game);
+    assert!(list.iter().all(|k| !d.app.game.same_board(&k.board)), "the board is new");
+    assert!(!d.app.game.can_save_checkpoint(), "CKP-1");
+    assert_eq!(save_row_grays(&d.app).0, GRAY70, "CKP-1");
+    d.app.game_dirty = false;
+    d.finger_tap(save_point().0, save_point().1);
+    assert_eq!(d.app.game.checkpoints, list, "CKP-1, CKP-4");
+    assert_eq!(play_state(&d.app.game), board_now, "CKP-1");
+    assert!(!d.app.game_dirty, "CKP-1");
+
+    d.finger_tap(bin_point(4).0, bin_point(4).1);
+    assert_eq!(d.app.game.checkpoints.len(), 4, "CKP-3");
+    assert_eq!(d.app.game.checkpoints[..], list[..4], "CKP-3: the bin of the last row");
+    assert!(d.app.game.can_save_checkpoint(), "CKP-1");
+    assert_eq!(save_row_grays(&d.app).0, 0, "CKP-1");
+    d.wait(BACK_GUARD_MS); // CKP-8
+    d.finger_tap(save_point().0, save_point().1);
+    assert_eq!(d.app.game.checkpoints.len(), 5, "CKP-1");
+    assert!(d.app.game.same_board(&d.app.game.checkpoints[0].board), "CKP-1: the newest is first");
+}
+
+#[test]
+fn a_save_is_not_available_when_an_older_checkpoint_is_current() {
+    // CKP-1, CKP-4: "no checkpoint is current" examines all rows, not only the newest.
+    let mut d = with_checkpoints(303, 2);
+    d.finger_tap(restore_point(1).0, restore_point(1).1);
+    assert!(d.app.game.same_board(&d.app.game.checkpoints[1].board), "CKP-2");
+    assert!(!d.app.game.can_save_checkpoint(), "CKP-1: the older checkpoint is current");
+    assert_eq!(save_row_grays(&d.app).0, GRAY70, "CKP-1");
+    let list = d.app.game.checkpoints.clone();
+    d.finger_tap(save_point().0, save_point().1);
+    assert_eq!(d.app.game.checkpoints, list, "CKP-1, CKP-4: no two checkpoints have the same board");
+}
+
+#[test]
+fn a_restore_is_one_undo_item_that_replaces_all_numbers_and_marks() {
+    // CKP-2, UND-9, MRK-5, MRK-6, PER-7. The checkpoint has a mark in an empty cell. After the save, the
+    // player removes that mark, adds a different mark and writes a number in that cell.
+    for_each_layout(|case| {
+        for by in ALL_TOOLS {
+            let case = format!("{case}, {by:?}");
+            let mut d = Driver::new(304);
+            d.button(Button::Menu);
+            let (cell, a) = new_mark(&mut d);
+            d.wait(2000);
+            open_checkpoints(&mut d);
+            tap_by(&mut d, By::Finger, save_point());
+            assert_eq!(button_fill(&d.app, 0), BUTTON_CURRENT, "CKP-2: the same board ({case})");
+            let saved = d.app.game.board();
+            let saved_clock = d.app.game.checkpoints[0].elapsed_ms;
+            close_checkpoints(&mut d);
+
+            // The changes after the save.
+            d.tap_micro(cell, a);
+            assert_eq!(d.app.game.marks_at(cell), 0, "the tap removes the mark");
+            let b = (1..=9u8).find(|&v| v != a && !peer_has(&d.app.game, cell, v)).expect("a second free digit");
+            d.tap_micro(cell, b);
+            let v = d.app.game.solution[cell.0 as usize][cell.1 as usize];
+            d.write(cell, v);
+            assert_eq!(d.app.game.value_at(cell), v, "the app read the number ({case})");
+            new_mark(&mut d);
+            let (extra, _) = new_mark(&mut d);
+            d.button(Button::Undo);
+            assert_eq!(d.app.game.marks_at(extra), 0, "the undo removes the last mark ({case})");
+            assert_eq!(d.app.game.redo.len(), 1);
+
+            d.wait(5000);
+            open_checkpoints(&mut d);
+            assert_eq!(button_fill(&d.app, 0), BUTTON_RESTORE, "CKP-2: a different board ({case})");
+            let before = d.app.game.clone();
+            let list = before.checkpoints.clone();
+            let t = d.now;
+            d.app.game_dirty = false;
+            tap_by(&mut d, by, restore_point(0));
+
+            let g = &d.app.game;
+            assert_eq!(g.board(), saved, "CKP-2, MRK-5: all numbers and marks ({case})");
+            assert_eq!(g.value_at(cell), 0, "CKP-2: an entry goes ({case})");
+            assert_eq!(g.marks_at(cell), mark_bit(a), "MRK-6: the marks of the checkpoint, not the marks before ({case})");
+            assert_eq!(g.undo.len(), before.undo.len() + 1, "CKP-2: one item for many changes ({case})");
+            assert!(g.redo.is_empty(), "CKP-2 ({case})");
+            assert_eq!(g.elapsed_ms, before.elapsed_ms + (d.now - t), "CKP-2, UND-9: the clock does not go back ({case})");
+            assert!(g.elapsed_ms > saved_clock + 5000, "CKP-2 ({case})");
+            assert_eq!(g.checkpoints, list, "CKP-2 ({case})");
+            assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "CKP-2: the panel stays open ({case})");
+            assert_eq!(button_fill(&d.app, 0), BUTTON_CURRENT, "CKP-2: the row shows Current ({case})");
+            assert!(d.app.game_dirty, "PER-7 ({case})");
+
+            // The first tap closes the panel (NAV-12). Undo gives the board before, with its marks.
+            close_checkpoints(&mut d);
+            d.button(Button::Undo);
+            let g = &d.app.game;
+            assert_eq!((g.value, g.marks), (before.value, before.marks), "CKP-2, MRK-6: undo ({case})");
+            assert_eq!(g.marks_at(cell), mark_bit(b), "MRK-6: the marks before the Restore ({case})");
+            assert_eq!(g.value_at(cell), v, "CKP-2: undo ({case})");
+            assert_eq!(g.undo.len(), before.undo.len(), "CKP-2 ({case})");
+            assert_eq!(g.redo.len(), 1, "CKP-2 ({case})");
+            d.button(Button::Redo);
+            assert_eq!(d.app.game.board(), saved, "CKP-2, MRK-6: redo ({case})");
+            assert_eq!(d.app.game.undo.len(), before.undo.len() + 1, "CKP-2 ({case})");
+            assert!(d.app.game.redo.is_empty(), "CKP-2 ({case})");
+        }
+    });
+}
+
+#[test]
+fn current_has_no_effect_and_keeps_the_redo_history() {
+    // CKP-2: the undo returns the board to the checkpoint, thus the row shows Current while the redo
+    // history has an item. A tap on Current must not remove it, and it must not add an undo item.
+    for_each_layout(|case| {
+        for by in ALL_TOOLS {
+            let case = format!("{case}, {by:?}");
+            let mut d = with_checkpoints(305, 1);
+            new_mark(&mut d);
+            d.button(Button::Undo);
+            assert_eq!(d.app.game.redo.len(), 1);
+            open_checkpoints(&mut d);
+            assert_eq!(button_fill(&d.app, 0), BUTTON_CURRENT, "CKP-2 ({case})");
+            let before = board(&d.app.game);
+            d.app.game_dirty = false;
+            tap_by(&mut d, by, restore_point(0));
+            assert_eq!(board(&d.app.game), before, "CKP-2: Current changes nothing ({case})");
+            assert_eq!(d.app.game.redo.len(), 1, "CKP-2: the redo history stays ({case})");
+            assert!(!d.app.game_dirty, "CKP-2 ({case})");
+            assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "CKP-2 ({case})");
+        }
+    });
+}
+
+#[test]
+fn only_the_row_with_the_same_board_shows_current() {
+    // CKP-2: each of the rows in turn. The panel stays open between the restores.
+    let mut d = with_checkpoints(306, 3);
+    for current in [2, 0, 1] {
+        d.finger_tap(restore_point(current).0, restore_point(current).1);
+        for i in 0..3 {
+            let want = if i == current { BUTTON_CURRENT } else { BUTTON_RESTORE };
+            assert_eq!(button_fill(&d.app, i), want, "CKP-2: row {i}, current {current}");
+        }
+    }
+}
+
+#[test]
+fn a_difference_only_in_hidden_marks_shows_restore() {
+    // CKP-2, MRK-5, MRK-6, §6.1: a mark that a number of a peer hides counts in the comparison. The
+    // Restore adds one undo item with no visible change, and undo gives the hidden mark back.
+    let mut d = Driver::new(307);
+    d.button(Button::Menu);
+    let (cell, peer, v) = cell_and_peer(&d.app);
+    d.write(cell, v);
+    open_checkpoints(&mut d);
+    d.finger_tap(save_point().0, save_point().1);
+    let saved = d.app.game.board();
+    close_checkpoints(&mut d);
+
+    // The same numbers, and the peer now has the mark v, which the number hides.
+    d.erase(cell);
+    d.tap_micro(peer, v);
+    d.write(cell, v);
+    let g = &d.app.game;
+    assert_eq!(g.value, saved.value, "the same numbers");
+    assert_eq!(g.marks_at(peer), mark_bit(v), "MRK-6: the app keeps the hidden mark");
+    assert!(!g.same_board(&saved), "same_board includes the hidden marks");
+    let with_hidden = g.board();
+    for c in cells() {
+        assert_eq!(with_hidden.visible_marks(c, true), saved.visible_marks(c, true), "no visible difference at {c:?}");
+    }
+    assert!(g.can_save_checkpoint(), "CKP-1: no checkpoint is current");
+
+    open_checkpoints(&mut d);
+    assert_eq!(button_fill(&d.app, 0), BUTTON_RESTORE, "CKP-2");
+    let undo = d.app.game.undo.len();
+    d.finger_tap(restore_point(0).0, restore_point(0).1);
+    assert_eq!(d.app.game.board(), saved, "CKP-2");
+    assert_eq!(d.app.game.undo.len(), undo + 1, "CKP-2: one undo item");
+    assert_eq!(button_fill(&d.app, 0), BUTTON_CURRENT, "CKP-2");
+
+    close_checkpoints(&mut d);
+    d.button(Button::Undo);
+    assert_eq!(d.app.game.board(), with_hidden, "MRK-6: the hidden mark is back");
+}
+
+#[test]
+fn a_delete_removes_only_its_row_and_keeps_the_restore_items() {
+    // CKP-3, CKP-2, UND-9, PER-7: the bin of the row in the middle, with no dialog and no undo. The undo
+    // and redo of a Restore give the same boards after the delete of its checkpoint.
+    for_each_layout(|case| {
+        for by in ALL_TOOLS {
+            let case = format!("{case}, {by:?}");
+            let mut d = with_checkpoints(308, 3);
+            let list = d.app.game.checkpoints.clone();
+            new_mark(&mut d);
+            open_checkpoints(&mut d);
+            let board_before = d.app.game.board();
+            d.finger_tap(restore_point(1).0, restore_point(1).1);
+            let restored = d.app.game.board();
+            assert_eq!(restored, list[1].board, "CKP-2 ({case})");
+            d.wait(1000);
+
+            let before = play_state(&d.app.game);
+            let t = (d.now, d.app.game.elapsed_ms);
+            d.app.game_dirty = false;
+            tap_by(&mut d, by, bin_point(1));
+            assert_eq!(d.app.game.checkpoints, vec![list[0].clone(), list[2].clone()], "CKP-3 ({case})");
+            assert_eq!(play_state(&d.app.game), before, "CKP-3: the board and the stacks ({case})");
+            assert_eq!(d.app.game.elapsed_ms, t.1 + (d.now - t.0), "CKP-3: the clock ({case})");
+            assert!(d.app.game_dirty, "PER-7 ({case})");
+            assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "CKP-3 ({case})");
+
+            close_checkpoints(&mut d);
+            d.button(Button::Undo);
+            assert_eq!(d.app.game.board(), board_before, "CKP-3: undo after the delete ({case})");
+            d.button(Button::Redo);
+            assert_eq!(d.app.game.board(), restored, "CKP-2, CKP-3: redo after the delete ({case})");
+            assert_eq!(d.app.game.checkpoints.len(), 2, "CKP-3: undo and redo do not change the list ({case})");
+        }
+    });
+}
+
+#[test]
+fn a_delete_of_the_current_checkpoint_makes_a_save_available() {
+    // CKP-3, CKP-1: the bin of the only row. The board stays.
+    let mut d = with_checkpoints(309, 1);
+    let board_now = d.app.game.board();
+    assert!(!d.app.game.can_save_checkpoint());
+    d.finger_tap(bin_point(0).0, bin_point(0).1);
+    assert!(d.app.game.checkpoints.is_empty(), "CKP-3");
+    assert_eq!(d.app.game.board(), board_now, "CKP-3");
+    assert!(d.app.game.can_save_checkpoint(), "CKP-1");
+    assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "CKP-3");
+    assert_eq!(save_row_grays(&d.app).0, 0, "CKP-1");
+}
+
+#[test]
+fn a_change_of_the_list_stops_the_other_gesture() {
+    // CKP-6: a pen or a finger stays on a control while the other changes the list. The release of the
+    // first has no effect: the rows moved, thus it never operates a different checkpoint.
+    type Hold = fn(usize) -> (f32, f32);
+    for_each_layout(|case| {
+        // A delete of row 0 moves the rows up. A save moves them down.
+        let cases: [(&str, Hold, usize, (f32, f32), usize); 4] = [
+            ("bin 1, delete 0", bin_point, 1, bin_point(0), 2),
+            ("button 1, delete 0", restore_point, 1, bin_point(0), 2),
+            ("bin 0, save", bin_point, 0, save_point(), 4),
+            ("button 0, save", restore_point, 0, save_point(), 4),
+        ];
+        for (name, held, row, action, want) in cases {
+            for finger_holds in [true, false] {
+                let case = format!("{case}, {name}, finger holds: {finger_holds}");
+                let mut d = with_checkpoints(310, 3);
+                // A new board: a save is available and each Restore has an effect.
+                new_mark(&mut d);
+                open_checkpoints(&mut d);
+                let (x, y) = held(row);
+                if finger_holds {
+                    d.send(Input::TouchDown { id: 1, x, y });
+                    d.pen_tap(action.0, action.1);
+                } else {
+                    d.send(Input::PenDown { x, y, tool: Tool::Pen });
+                    d.send(Input::TouchDown { id: 2, x: action.0, y: action.1 });
+                    d.send(Input::TouchUp { id: 2, x: action.0, y: action.1 });
+                }
+                assert_eq!(d.app.game.checkpoints.len(), want, "the action operates ({case})");
+                let list = d.app.game.checkpoints.clone();
+                let state = play_state(&d.app.game);
+                if finger_holds {
+                    d.send(Input::TouchUp { id: 1, x, y });
+                } else {
+                    d.send(Input::PenUp { x, y });
+                }
+                assert_eq!(d.app.game.checkpoints, list, "CKP-6: the release ({case})");
+                assert_eq!(play_state(&d.app.game), state, "CKP-6: the release ({case})");
+                assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "CKP-6 ({case})");
+            }
+        }
+    });
+}
+
+/// A driver with 3 checkpoints after a tap on the bin of row 0 at the time that it returns.
+fn just_deleted(seed: u64) -> (Driver, u64) {
+    let mut d = with_checkpoints(seed, 4);
+    d.finger_tap(bin_point(0).0, bin_point(0).1);
+    assert_eq!(d.app.game.checkpoints.len(), 3, "CKP-3");
+    let t = d.now;
+    (d, t)
+}
+
+/// The state that the guard of CKP-8 must keep.
+fn guard_state(d: &Driver) -> (sudoku::game::Game, Menu) {
+    (board(&d.app.game), d.app.ui.menu)
+}
+
+#[test]
+fn the_second_tap_of_a_double_tap_on_a_bin_changes_nothing() {
+    // CKP-8: the row that moved up is at the same position. The pen, the eraser and a finger, the four
+    // layouts, the bin, the button and the row "Save checkpoint".
+    for_each_layout(|case| {
+        for by in ALL_TOOLS {
+            let case = format!("{case}, {by:?}");
+            let (mut d, _) = just_deleted(311);
+            let before = guard_state(&d);
+            for p in [bin_point(0), restore_point(1), save_point()] {
+                tap_by(&mut d, by, p);
+                assert_eq!(guard_state(&d), before, "CKP-8: {p:?} ({case})");
+            }
+        }
+    });
+}
+
+#[test]
+fn the_guard_uses_the_area_of_the_panel_at_its_maximum_size() {
+    // CKP-8: the panel has 3 rows and ends at y 1212. A press below it, in the area of the panel with
+    // 5 rows, does not close it. The four corners of the area are included. One pixel out of the area,
+    // the tap closes the panel (NAV-11).
+    for_each_layout(|case| {
+        let (x0, x1) = documented_checkpoints_x();
+        for p in [at(x0, 560), at(x1, 560), at(x0, 1572), at(x1, 1572), at(x0 + 100, 1400)] {
+            let (mut d, _) = just_deleted(312);
+            let before = guard_state(&d);
+            d.finger_tap(p.0, p.1);
+            assert_eq!(guard_state(&d), before, "CKP-8: {p:?} ({case})");
+        }
+        for p in [at(x0 - 1, 1000), at(x1 + 1, 1000), at(x0 + 100, 559), at(x0 + 100, 1573)] {
+            let (mut d, _) = just_deleted(312);
+            let (game, _) = guard_state(&d);
+            d.finger_tap(p.0, p.1);
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "CKP-8, NAV-11: {p:?} ({case})");
+            assert_eq!(board(&d.app.game), game, "CKP-8, NAV-11: {p:?} ({case})");
+        }
+    });
+}
+
+#[test]
+fn the_guard_ends_after_half_a_second() {
+    // CKP-8: the limit, in milliseconds. A press at 499 ms changes nothing, also when its release
+    // comes after the time. A press at 500 ms operates.
+    for_each_layout(|case| {
+        let (x, y) = bin_point(0);
+        let (mut d, t) = just_deleted(313);
+        let before = guard_state(&d);
+        d.wait(489);
+        d.send(Input::TouchDown { id: 1, x, y });
+        assert_eq!(d.now - t, 499, "{case}");
+        assert_eq!(guard_state(&d), before, "CKP-8 ({case})");
+        d.wait(100);
+        d.send(Input::TouchUp { id: 1, x, y });
+        assert_eq!(guard_state(&d), before, "CKP-8: the release of a press in the time ({case})");
+
+        let (mut d, t) = just_deleted(313);
+        d.wait(490);
+        d.send(Input::TouchDown { id: 1, x, y });
+        assert_eq!(d.now - t, 500, "{case}");
+        d.send(Input::TouchUp { id: 1, x, y });
+        assert_eq!(d.app.game.checkpoints.len(), 2, "CKP-8: the same tap operates after the time ({case})");
+
+        // The time starts again at each delete. A tap below the panel closes it only after the time.
+        let (x0, _) = documented_checkpoints_x();
+        d.finger_tap((x0 + 100) as f32, 1400.0);
+        assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "CKP-8: the time of the second delete ({case})");
+        d.wait(BACK_GUARD_MS);
+        d.finger_tap((x0 + 100) as f32, 1400.0);
+        assert_eq!(d.app.ui.menu, Menu::Open(None), "CKP-8, NAV-11: after the time ({case})");
+    });
+}
+
+#[test]
+fn a_press_on_the_toolbar_operates_as_usual_in_the_guard_time() {
+    // CKP-8, NAV-12: the guard does not apply to the toolbar. Undo only closes the panel.
+    for_each_layout(|case| {
+        let (mut d, _) = just_deleted(314);
+        let game = board(&d.app.game);
+        d.button(Button::Undo);
+        assert_eq!(d.app.ui.menu, Menu::Open(None), "CKP-8 ({case})");
+        assert_eq!(board(&d.app.game), game, "NAV-12: only the panel closes ({case})");
+
+        let (mut d, _) = just_deleted(314);
+        d.button(Button::Checkpoints);
+        assert_eq!(d.app.ui.menu, Menu::Open(None), "CKP-8 ({case})");
+
+        let (mut d, _) = just_deleted(314);
+        d.button(Button::Colors);
+        assert_eq!(panel_of(&d), Some(Panel::Colors), "CKP-8 ({case})");
+
+        let (mut d, _) = just_deleted(314);
+        d.button(Button::Close);
+        assert!(!d.app.quit, "NAV-12 ({case})");
+        assert_eq!(d.app.ui.menu, Menu::Open(None), "CKP-8 ({case})");
+    });
+}
+
+/// A game with `n` checkpoints and one empty cell. The panel is closed.
+fn nearly_complete(seed: u64, n: usize) -> (Driver, Cell, u8) {
+    let mut d = with_checkpoints(seed, n);
+    close_checkpoints(&mut d);
+    let last = empty_cell(&d.app.game);
+    fill_except(&mut d, last);
+    let v = d.app.game.solution[last.0 as usize][last.1 as usize];
+    (d, last, v)
+}
+
+#[test]
+fn the_bookmark_is_gray_and_has_no_effect_on_a_complete_puzzle() {
+    // CKP-9, CMP-3, CMP-6, NAV-12, UND-6: the list stays until a new game. A different panel stays open,
+    // and only Start new game ends the state. Then the panel operates again.
+    for_each_layout(|case| {
+        let (mut d, last, v) = nearly_complete(315, 2);
+        assert_eq!(bookmark_grays(&d.app), (0, 255), "CKP-9: black in a game in progress ({case})");
+        d.write(last, v);
+        assert!(d.app.game.completed, "{case}");
+        assert_eq!(d.app.game.checkpoints.len(), 2, "CKP-9 ({case})");
+        let game = d.app.game.clone();
+        assert_eq!(bookmark_grays(&d.app).0, GRAY70, "CKP-9: gray 70 ({case})");
+
+        for by in ALL_TOOLS {
+            tap_by(&mut d, by, button_center(Button::Checkpoints));
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "CKP-9: {by:?} ({case})");
+        }
+        // The exception to NAV-12: the other panels stay open.
+        for (b, panel) in [(Button::Colors, Panel::Colors), (Button::Settings, Panel::Settings), (Button::NewGame, Panel::NewGame)] {
+            d.button(b);
+            d.button(Button::Checkpoints);
+            assert_eq!(panel_of(&d), Some(panel), "CKP-9 ({case})");
+            d.button(b);
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "{case}");
+        }
+        assert_eq!(d.app.game, game, "CMP-3, CKP-9 ({case})");
+        assert_eq!(bookmark_grays(&d.app).0, GRAY70, "CKP-9 ({case})");
+
+        // CMP-6: only Start new game ends the state. UND-6: the list goes.
+        d.button(Button::NewGame);
+        let (x, y) = pixel_center(layout::ng_start_row());
+        d.finger_tap(x, y);
+        assert!(!d.app.game.completed, "CMP-6 ({case})");
+        assert!(d.app.game.checkpoints.is_empty(), "UND-6 ({case})");
+        assert_eq!(bookmark_grays(&d.app), (0, 255), "CKP-9 ({case})");
+        open_checkpoints(&mut d);
+    });
+}
+
+#[test]
+fn a_tap_on_the_bookmark_that_reads_the_last_number_does_not_open_the_panel() {
+    // CKP-9, CMP-3: the tap reads the waiting ink, and that ink completes the puzzle. A second case: the
+    // finger stays on the bookmark while the pen writes the last number.
+    for_each_layout(|case| {
+        let (mut d, last, v) = nearly_complete(316, 1);
+        d.write_strokes(&digit_ink(last, v));
+        assert!(!d.app.game.completed, "the ink waits ({case})");
+        d.button(Button::Checkpoints);
+        assert!(d.app.game.completed, "the tap reads the ink ({case})");
+        assert_eq!(d.app.ui.menu, Menu::Open(None), "CKP-9 ({case})");
+        assert_eq!(d.app.game.checkpoints.len(), 1, "CKP-9 ({case})");
+
+        let (mut d, last, v) = nearly_complete(316, 1);
+        let (x, y) = hold(&mut d, Button::Checkpoints);
+        d.write(last, v);
+        assert!(d.app.game.completed, "{case}");
+        d.send(Input::TouchUp { id: 1, x, y });
+        assert_eq!(d.app.ui.menu, Menu::Open(None), "CKP-9: the release ({case})");
+    });
+}
+
+#[test]
+fn a_tap_on_the_bookmark_reads_the_waiting_ink_and_opens_the_panel() {
+    // NAV-18: with the panel open, no ink waits and no stroke is live. The number of the ink is on the
+    // board before the panel opens, thus a save keeps it.
+    for_each_layout(|case| {
+        let mut d = Driver::new(317);
+        d.button(Button::Menu);
+        let cell = empty_cell(&d.app.game);
+        let v = d.app.game.solution[cell.0 as usize][cell.1 as usize];
+        d.write_strokes(&digit_ink(cell, v));
+        assert!(d.app.ui.pending_ink.is_some(), "{case}");
+        d.button(Button::Checkpoints);
+        assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "NAV-18 ({case})");
+        assert!(d.app.ui.pending_ink.is_none(), "NAV-18 ({case})");
+        assert_eq!(d.app.game.value_at(cell), v, "the tap reads the ink ({case})");
+        d.finger_tap(save_point().0, save_point().1);
+        assert_eq!(d.app.game.checkpoints[0].board.value[cell.0 as usize][cell.1 as usize], v, "CKP-1 ({case})");
+    });
+}
+
+#[test]
+fn the_panel_never_has_a_live_stroke() {
+    // NAV-18: the pen in the panel starts no stroke. The bookmark opens the panel while the pen is on the
+    // board, and the stroke stops.
+    for_each_layout(|case| {
+        let mut d = with_checkpoints(318, 1);
+        let (x, y) = at(documented_checkpoints_x().0 + 200, row_y(0) + 90);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        d.send(Input::PenMove { x: x + 40.0, y: y + 40.0 });
+        assert!(d.app.live_stroke.is_none(), "NAV-18 ({case})");
+        d.send(Input::PenUp { x: x + 40.0, y: y + 40.0 });
+        assert!(d.app.ui.pending_ink.is_none(), "NAV-18 ({case})");
+        assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "NAV-18: no control ({case})");
+
+        // The pen is on the board. A finger taps the bookmark.
+        let mut d = Driver::new(318);
+        d.button(Button::Menu);
+        let cell = empty_cell(&d.app.game);
+        let (x, y) = micro_center(cell, 5);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        d.send(Input::PenMove { x: x + 5.0, y: y + 5.0 });
+        d.button(Button::Checkpoints);
+        assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "NAV-18 ({case})");
+        assert!(d.app.live_stroke.is_none() && d.app.ui.pending_ink.is_none(), "NAV-18: a finger on the bookmark ({case})");
+        d.send(Input::PenMove { x: x + 10.0, y: y + 10.0 });
+        d.send(Input::PenUp { x: x + 10.0, y: y + 10.0 });
+        assert!(d.app.live_stroke.is_none() && d.app.ui.pending_ink.is_none(), "NAV-18: after the release ({case})");
+
+        // A finger stays on the bookmark while the pen starts a stroke. The release opens the panel.
+        let mut d = Driver::new(318);
+        d.button(Button::Menu);
+        let (fx, fy) = hold(&mut d, Button::Checkpoints);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        d.send(Input::PenMove { x: x + 5.0, y: y + 5.0 });
+        d.send(Input::TouchUp { id: 1, x: fx, y: fy });
+        assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "NAV-18 ({case})");
+        assert!(d.app.live_stroke.is_none() && d.app.ui.pending_ink.is_none(), "NAV-18: a held finger ({case})");
+    });
+}
+
+#[test]
+fn a_new_game_removes_the_checkpoints() {
+    // UND-6: undo, redo and the list. The old boards do not stay as a Restore or a Current.
+    for_each_layout(|case| {
+        let mut d = with_checkpoints(319, 3);
+        new_mark(&mut d);
+        d.button(Button::Undo);
+        assert!(d.app.game.can_undo() && d.app.game.can_redo());
+        d.button(Button::NewGame);
+        let (x, y) = pixel_center(layout::ng_start_row());
+        d.finger_tap(x, y);
+        let g = &d.app.game;
+        assert!(g.undo.is_empty() && g.redo.is_empty() && g.checkpoints.is_empty(), "UND-6 ({case})");
+        assert!(g.can_save_checkpoint(), "CKP-1 ({case})");
+    });
+}
+
+#[test]
+fn with_the_panel_open_undo_redo_and_the_other_buttons_only_close_it() {
+    // NAV-12: the first tap only closes the panel, and a second tap on undo or redo does the action.
+    // The pen and a finger, the four layouts.
+    for_each_layout(|case| {
+        for b in [Button::Menu, Button::Close, Button::Undo, Button::Redo, Button::Help, Button::Statistics] {
+            for by in [By::Finger, By::Pen] {
+                let case = format!("{case}, {b:?}, {by:?}");
+                let mut d = Driver::new(320);
+                d.button(Button::Menu);
+                fill_stacks(&mut d);
+                d.button(Button::Checkpoints);
+                assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "{case}");
+                let game = board(&d.app.game);
+                tap_by(&mut d, by, button_center(b));
+                assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-12: the menu stays and the panel closes ({case})");
+                assert_eq!(d.app.screen, Screen::Game, "NAV-12 ({case})");
+                assert!(!d.app.quit, "NAV-12 ({case})");
+                assert_eq!(board(&d.app.game), game, "NAV-12 ({case})");
+                match b {
+                    Button::Undo => {
+                        tap_by(&mut d, by, button_center(b));
+                        assert_eq!((d.app.game.undo.len(), d.app.game.redo.len()), (0, 2), "NAV-12: the second tap does the undo ({case})");
+                    }
+                    Button::Redo => {
+                        tap_by(&mut d, by, button_center(b));
+                        assert_eq!((d.app.game.undo.len(), d.app.game.redo.len()), (2, 0), "NAV-12: the second tap does the redo ({case})");
+                    }
+                    _ => {}
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn the_panel_buttons_change_the_panel() {
+    // NAV-12, NAV-18: the bookmark, the paint bucket, the gear and the + change the panel. A second tap
+    // on the bookmark closes its panel.
+    for_each_layout(|case| {
+        let mut d = Driver::new(321);
+        d.button(Button::Menu);
+        for (b, panel) in [(Button::Colors, Panel::Colors), (Button::Settings, Panel::Settings), (Button::NewGame, Panel::NewGame)] {
+            d.button(Button::Checkpoints);
+            assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "NAV-18 ({case})");
+            d.button(b);
+            assert_eq!(panel_of(&d), Some(panel), "NAV-12 ({case})");
+            d.button(Button::Checkpoints);
+            assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "NAV-12 ({case})");
+            d.button(Button::Checkpoints);
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-18 ({case})");
+        }
+    });
+}
+
+#[test]
+fn the_bookmark_shows_the_state_of_its_panel() {
+    // NAV-8, CKP-9: a black icon on white. While the panel is open: a white icon on a black slot.
+    for_each_layout(|case| {
+        let mut d = Driver::new(322);
+        d.button(Button::Menu);
+        assert_eq!(bookmark_grays(&d.app), (0, 255), "CKP-9 ({case})");
+        let pm = draw_screen(&d.app, &fonts());
+        let (x, y) = (layout::tb_cx() as i32, layout::tb_cy(5) as i32);
+        assert_eq!(rgb_at(&pm, x - 50, y - 50), [255, 255, 255], "NAV-8 ({case})");
+        d.button(Button::Checkpoints);
+        assert_eq!(bookmark_grays(&d.app), (0, 255), "CKP-9 ({case})");
+        let pm = draw_screen(&d.app, &fonts());
+        assert_eq!(rgb_at(&pm, x - 50, y - 50), [0, 0, 0], "NAV-8: the slot is black ({case})");
+    });
+}
+
+#[test]
+fn the_bookmark_is_in_top_slot_5_and_obeys_the_guard_after_back() {
+    // NAV-16, NAV-18: y 560-671 in the four layouts, with the two ends. For BACK_GUARD_MS after "< Back",
+    // a press on these pixels changes nothing, with the pen and with a finger. Then it opens the panel.
+    for_each_layout(|case| {
+        let x = layout::tb_cx();
+        assert_eq!(layout::game_button(x, 559.0, true), Some(Button::Redo), "{case}");
+        assert_eq!(layout::game_button(x, 560.0, true), Some(Button::Checkpoints), "NAV-18 ({case})");
+        assert_eq!(layout::game_button(x, 671.0, true), Some(Button::Checkpoints), "NAV-18 ({case})");
+        assert_eq!(layout::game_button(x, 672.0, true), None, "NAV-18 ({case})");
+        assert_eq!(layout::game_button(x, 615.0, false), None, "the closed menu has no bookmark ({case})");
+        for y in [560.0, 615.0, 671.0] {
+            for by in [By::Finger, By::Pen] {
+                let case = format!("{case}, y {y}, {by:?}");
+                let mut d = Driver::new(323);
+                back_from(&mut d, Button::Help, false);
+                let game = board(&d.app.game);
+                d.wait(BACK_GUARD_MS - 50);
+                tap_by(&mut d, by, (x, y));
+                assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-16 ({case})");
+                assert_eq!(board(&d.app.game), game, "NAV-16 ({case})");
+                d.wait(50);
+                tap_by(&mut d, by, (x, y));
+                assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "NAV-16: it operates after the time ({case})");
+            }
+        }
+    });
+}
+
+#[test]
+fn the_panel_has_the_documented_position_in_the_four_layouts() {
+    // NAV-18: the x range, y 560, and the bottom y 864 or 672 + 180 n. The corners are in the panel: a tap on
+    // a corner has no effect, and the border is black. One pixel out of the panel, a tap only closes it.
+    for_each_layout(|case| {
+        let (x0, x1) = documented_checkpoints_x();
+        assert_eq!(x1 - x0 + 1, 600, "NAV-18 ({case})");
+        for (n, bottom) in [(0, 864), (1, 852), (2, 1032), (3, 1212), (5, 1572)] {
+            let case = format!("{case}, {n} rows");
+            let r = layout::ckp_panel(n);
+            assert_eq!((r.x0, r.y0, r.x1 - 1, r.y1 - 1), (x0, 560, x1, bottom), "NAV-18 ({case})");
+
+            let d = with_checkpoints(324, n);
+            let pm = draw_screen(&d.app, &fonts());
+            for (x, y) in [(x0, 560), (x1, 560), (x0, bottom), (x1, bottom)] {
+                assert_eq!(rgb_at(&pm, x, y), [0, 0, 0], "NAV-18: the border at ({x}, {y}) ({case})");
+            }
+
+            // The corners of the bottom edge are on no control. So are the corners of the top edge when
+            // a save is not available.
+            let mut corners = vec![at(x0, bottom), at(x1, bottom)];
+            if n > 0 {
+                corners.extend([at(x0, 560), at(x1, 560)]);
+            }
+            let mut d = with_checkpoints(324, n);
+            let game = board(&d.app.game);
+            for (x, y) in corners {
+                for by in ALL_TOOLS {
+                    tap_by(&mut d, by, (x, y));
+                    assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "NAV-18: ({x}, {y}), {by:?} ({case})");
+                    assert_eq!(board(&d.app.game), game, "NAV-18: ({x}, {y}), {by:?} ({case})");
+                }
+            }
+
+            for (x, y) in [(x0 - 1, 700), (x1 + 1, 700), (x0 + 100, 559), (x0 + 100, bottom + 1)] {
+                let mut d = with_checkpoints(324, n);
+                let game = board(&d.app.game);
+                d.finger_tap(x as f32, y as f32);
+                assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-11, NAV-18: ({x}, {y}) ({case})");
+                assert_eq!(board(&d.app.game), game, "NAV-11: ({x}, {y}) ({case})");
+            }
+        }
+    });
+}
+
+#[test]
+fn each_control_of_the_panel_is_at_its_documented_place() {
+    // NAV-18, R§9.3: the same distance from the left edge of the panel in the four layouts, with the two
+    // ends of each area. The 12 px between the button and the bin operate nothing.
+    use layout::{checkpoint_control_at as control, CheckpointControl as C};
+    for_each_layout(|case| {
+        let (x0, x1) = documented_checkpoints_x();
+        let px = |x: i32, y: i32| control(x as f32, y as f32, 5);
+        assert_eq!(px(x0, 560), Some(C::Save), "{case}");
+        assert_eq!(px(x1, 671), Some(C::Save), "{case}");
+        assert_eq!(px(x0 + 300, 672), None, "{case}");
+        for i in 0..5 {
+            let y0 = row_y(i);
+            let case = format!("{case}, row {i}");
+            for (dx, dy) in [(381, 55), (521, 55), (381, 125), (521, 125), (451, 90)] {
+                assert_eq!(px(x0 + dx, y0 + dy), Some(C::Restore(i)), "the button ({case}): {dx}, {dy}");
+            }
+            for (dx, dy) in [(380, 90), (522, 90), (451, 54), (451, 126), (532, 90), (100, 90), (240, 90), (0, 90)] {
+                assert_eq!(px(x0 + dx, y0 + dy), None, "no control ({case}): {dx}, {dy}");
+            }
+            for (x, dy) in [(x0 + 533, 0), (x1, 0), (x0 + 533, 179), (x1, 179), (x0 + 560, 90)] {
+                assert_eq!(px(x, y0 + dy), Some(C::Delete(i)), "the bin ({case}): {x}, {dy}");
+            }
+        }
+        // The last row has no controls below it. With fewer rows, the place of a row has none.
+        assert_eq!(px(x1, row_y(5)), None, "{case}");
+        assert_eq!(control((x0 + 451) as f32, (row_y(2) + 90) as f32, 2), None, "{case}");
+        assert_eq!(control((x0 + 560) as f32, (row_y(2) + 90) as f32, 2), None, "{case}");
+    });
+}
+
+#[test]
+fn a_tap_in_the_panel_on_no_control_has_no_effect() {
+    // NAV-18, R§9.3: the small board, the text, the gap of 12 px and the place below the button. The panel
+    // covers cells of the board, but the board does not get the tap (NAV-11).
+    for_each_layout(|case| {
+        let (x0, _) = documented_checkpoints_x();
+        let mut d = with_checkpoints(325, 2);
+        new_mark(&mut d);
+        open_checkpoints(&mut d);
+        let game = board(&d.app.game);
+        for by in ALL_TOOLS {
+            for (dx, dy) in [(100, 90), (240, 90), (527, 90), (451, 40), (451, 140)] {
+                tap_by(&mut d, by, at(x0 + dx, row_y(1) + dy));
+                assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "NAV-18: {dx}, {dy}, {by:?} ({case})");
+                assert_eq!(board(&d.app.game), game, "NAV-18: {dx}, {dy}, {by:?} ({case})");
+            }
+        }
+    });
+}
+
+#[test]
+fn the_taps_operate_the_documented_row_in_the_four_layouts() {
+    // NAV-18, CKP-2, CKP-3: a real tap at the two ends of the areas. It selects the row of the documents.
+    for_each_layout(|case| {
+        let (x0, x1) = documented_checkpoints_x();
+        for (p, row) in [(at(x0 + 381, row_y(2) + 55), 2), (at(x0 + 521, row_y(1) + 125), 1), (at(x0 + 451, row_y(0) + 90), 0)] {
+            let mut d = with_checkpoints(326, 3);
+            new_mark(&mut d);
+            open_checkpoints(&mut d);
+            let want = d.app.game.checkpoints[row].board.clone();
+            d.finger_tap(p.0, p.1);
+            assert_eq!(d.app.game.board(), want, "CKP-2: row {row} ({case})");
+        }
+        for (p, row) in [(at(x0 + 533, row_y(2)), 2), (at(x1, row_y(1) + 179), 1), (at(x1, row_y(0)), 0)] {
+            let mut d = with_checkpoints(326, 3);
+            let mut want = d.app.game.checkpoints.clone();
+            want.remove(row);
+            d.finger_tap(p.0, p.1);
+            assert_eq!(d.app.game.checkpoints, want, "CKP-3: row {row} ({case})");
+        }
+    });
+}
+
+#[test]
+fn the_panel_covers_no_toolbar_button_close_button_or_meter() {
+    // NAV-18: the panel at its maximum size, in the four layouts.
+    for_each_layout(|case| {
+        let r = layout::ckp_panel(5);
+        for y in (r.y0..r.y1).step_by(4) {
+            for x in (r.x0..r.x1).step_by(4) {
+                assert_eq!(layout::game_button(x as f32, y as f32, true), None, "NAV-18: ({x}, {y}) ({case})");
+            }
+        }
+        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+            let (x, y) = button_center(b);
+            assert!(!r.contains(x, y), "NAV-18: {b:?} ({case})");
+        }
+        for x in [layout::meter_xl(), layout::meter_xr()] {
+            assert!(!r.contains(x as f32, layout::meter_y() as f32), "NAV-18: the meter ({case})");
+        }
+    });
 }

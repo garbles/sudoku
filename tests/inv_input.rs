@@ -117,7 +117,7 @@ fn only_the_eraser_or_undo_removes_an_entry() {
     entry_ok(&d, "a \"?\" in a different cell");
     // The same input with the menu and each panel open.
     d.button(Button::Menu);
-    for panel in [Button::Colors, Button::Settings, Button::NewGame] {
+    for panel in [Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame] {
         d.button(panel);
         d.tap_micro(cell, 1);
         d.write(cell, 4);
@@ -227,7 +227,7 @@ fn starting_numbers_never_get_marks() {
         d.tap_micro(given, digit);
     }
     no_marks(&d, "pen taps, menu open");
-    for panel in [Button::Colors, Button::Settings, Button::NewGame] {
+    for panel in [Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame] {
         d.button(panel);
         d.tap_micro(given, 1);
         d.tap_micro(given, 9);
@@ -604,7 +604,7 @@ fn only_the_open_menu_opens_the_manual_and_statistics() {
         assert!(!d.app.ui.menu.is_open());
     }
     d.button(Button::Menu);
-    for panel in [Button::Colors, Button::Settings, Button::NewGame] {
+    for panel in [Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame] {
         for b in [Button::Help, Button::Statistics] {
             d.button(panel);
             d.button(b);

@@ -18,12 +18,13 @@ row() {
 slot() { shot "$UI/screen-toolbar.png" 112x112+1508+$1; }
 slot_on() { shot "$UI/color-menu.png" 112x112+1508+$1; }   # undo and redo are available, as in a game in progress
 row 270 "$(slot 0)" "Menu" "Opens and closes the menu."
-row 382 "$(slot 112)" "Cell colors" "Sets the colors of numbers and completed groups."
-row 494 "$(slot 224)" "Settings" "Turns highlights, pencil mark hiding and completed group colors on or off."
-row 606 "$(slot_on 336)" "Undo" "Cancels your last change to the board."
-row 718 "$(slot_on 448)" "Redo" "Makes the last canceled change again."
-row 830 "$(slot 1824)" "Help" "Opens this manual."
-row 942 "$(slot 1936)" "Statistics" "Shows your completed puzzles and their times."
+row 368 "$(slot 112)" "Cell colors" "Sets the colors of numbers and completed groups."
+row 466 "$(slot 224)" "Settings" "Turns highlights, pencil mark hiding and completed group colors on or off."
+row 564 "$(slot_on 336)" "Undo" "Cancels your last change to the board."
+row 662 "$(slot_on 448)" "Redo" "Makes the last canceled change again."
+row 760 "$(slot 560)" "Checkpoints" "Saves the board. Restore shows it again."
+row 858 "$(slot 1824)" "Help" "Opens this manual."
+row 956 "$(slot 1936)" "Statistics" "Shows your completed puzzles and their times."
 row 1054 "$(slot 2048)" "New game" "Starts a new puzzle. Refer to page 8."
 
 text 72 1205 50 black start "Select colors"

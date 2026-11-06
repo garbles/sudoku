@@ -397,13 +397,14 @@ fn only_the_button_of_the_open_panel_is_white_on_black() {
         (Some(Panel::Settings), 2 * layout::TB_SLOT),
         (None, 3 * layout::TB_SLOT),
         (None, 4 * layout::TB_SLOT),
+        (Some(Panel::Checkpoints), 5 * layout::TB_SLOT),
         (None, layout::tb_bottom_y() - 2 * layout::TB_SLOT),
         (None, layout::tb_bottom_y() - layout::TB_SLOT),
         (Some(Panel::NewGame), layout::tb_bottom_y()),
     ];
     let mut d = Driver::new(77);
     d.button(Button::Menu);
-    for (button, panel) in [(None, None), (Some(Button::Colors), Some(Panel::Colors)), (Some(Button::Settings), Some(Panel::Settings)), (Some(Button::NewGame), Some(Panel::NewGame)), (Some(Button::NewGame), None)] {
+    for (button, panel) in [(None, None), (Some(Button::Colors), Some(Panel::Colors)), (Some(Button::Settings), Some(Panel::Settings)), (Some(Button::Checkpoints), Some(Panel::Checkpoints)), (Some(Button::NewGame), Some(Panel::NewGame)), (Some(Button::NewGame), None)] {
         if let Some(b) = button {
             d.button(b);
         }
@@ -439,14 +440,19 @@ fn draw_handed(app: &App, fonts: &Fonts, right_handed: bool) -> Pixmap {
 #[test]
 fn a_right_handed_player_has_the_toolbar_at_the_left() {
     // NAV-15: for a right-handed player the toolbar and its panels are at the left edge, with the same
-    // icons, and the menu button and the close button are mirror images.
+    // icons, and the menu button and the close button are mirror images. NAV-18: the Checkpoints panel
+    // has the same contents in all layouts, here with two rows.
     let fonts = fonts();
     let mut d = Driver::new(79);
+    assert!(d.app.game.save_checkpoint());
+    let marked = empty_cell(&d.app.game);
+    assert!(d.app.game.toggle_mark_with(marked, 1, false).changed());
+    assert!(d.app.game.save_checkpoint());
     for o in [layout::Orientation::Portrait, layout::Orientation::Landscape] {
         layout::set_orientation(o);
         let w = layout::screen_w() as i32;
         let shift = w - layout::TB_SLOT;
-        for (button, panel) in [(Some(Button::Menu), None), (Some(Button::Colors), Some(Panel::Colors)), (Some(Button::Settings), Some(Panel::Settings)), (Some(Button::NewGame), Some(Panel::NewGame))] {
+        for (button, panel) in [(Some(Button::Menu), None), (Some(Button::Colors), Some(Panel::Colors)), (Some(Button::Settings), Some(Panel::Settings)), (Some(Button::Checkpoints), Some(Panel::Checkpoints)), (Some(Button::NewGame), Some(Panel::NewGame))] {
             if let Some(b) = button {
                 d.button(b);
             }
@@ -468,12 +474,18 @@ fn a_right_handed_player_has_the_toolbar_at_the_left() {
                 Some(Panel::Colors) => Some(layout::colors_panel()),
                 Some(Panel::Settings) => Some(layout::settings_panel(false)),
                 Some(Panel::NewGame) => Some(layout::ng_panel()),
+                Some(Panel::Checkpoints) => Some(layout::ckp_panel(d.app.game.checkpoints.len())),
                 None => None,
             };
             if let Some(p) = p {
                 let pw = p.x1 - p.x0;
+                // The text of the Checkpoints panel starts at a different x: the rounding of the glyph
+                // positions (f32) can change the edge pixels of a glyph by a small amount. NAV-18.
+                let limit = if panel == Some(Panel::Checkpoints) { 8 } else { 0 };
                 for (x, y) in mirror(layout::TB_SLOT, p.y0, layout::TB_SLOT + pw, p.y1.min(layout::screen_h() as i32)) {
-                    assert_eq!(rgb_at(&right, x, y), rgb_at(&left, x - layout::TB_SLOT + p.x0, y), "{o:?} {panel:?}: panel at ({x}, {y})");
+                    let (a, b) = (rgb_at(&right, x, y), rgb_at(&left, x - layout::TB_SLOT + p.x0, y));
+                    let close = a.iter().zip(b.iter()).all(|(p, q)| p.abs_diff(*q) <= limit);
+                    assert!(close, "{o:?} {panel:?}: panel at ({x}, {y}): {a:?} and {b:?}");
                 }
             }
         }
@@ -1630,7 +1642,7 @@ fn the_cell_colors_panel_covers_no_button_and_not_the_meter_or_completed_in() {
         }
         // The buttons are outside the panel, and the hit area of each button stays a button.
         let what = format!("{o:?}, right-handed {right_handed}");
-        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
             let (cx, cy) = button_center(b);
             // The first and the last pixel of the slot of 112 px: the center is between two pixels.
             let (l, r, t, y1) = (cx - 55.5, cx + 55.5, cy - 55.5, cy + 55.5);

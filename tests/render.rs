@@ -333,8 +333,8 @@ fn a_retained_frame_is_the_same_as_a_full_drawing() {
 fn a_retained_frame_follows_each_change_of_the_cached_overlays() {
     // render.rs keeps the pixels of the meter, the menu button and the toolbar (put_overlay). A
     // random sequence of states changes each input of these pixels (the menu, the panel, undo and
-    // redo, the caution, the mode, the hand) and puts ink over them. Each retained frame must be the
-    // same as a full drawing.
+    // redo, the complete game with the gray bookmark (CKP-9), the caution, the mode, the hand) and puts
+    // ink over them. Each retained frame must be the same as a full drawing.
     use sudoku::app::{Menu, Panel};
     use sudoku::render::{draw, Canvas, FrameRecord};
     use tiny_skia::Pixmap;
@@ -359,12 +359,21 @@ fn a_retained_frame_follows_each_change_of_the_cached_overlays() {
             }
             a.game.undo();
         }
+        if next(3) == 0 {
+            a.game.save_checkpoint();
+        }
+        let complete = next(6) == 0;
+        if complete {
+            a.game = reference::completed_game();
+        }
         a.game.mode = next(7) as u8;
-        a.ui.menu = match next(5) {
+        a.ui.menu = match next(6) {
             0 => Menu::Closed,
             1 => Menu::Open(None),
             2 => Menu::Open(Some(Panel::NewGame)),
             3 => Menu::Open(Some(Panel::Colors)),
+            // The Checkpoints panel is not available on a complete game (CKP-9).
+            4 if !complete => Menu::Open(Some(Panel::Checkpoints)),
             _ => Menu::Open(Some(Panel::Settings)),
         };
         if next(4) == 0 {
@@ -1113,6 +1122,688 @@ fn the_cached_items_of_the_completed_section_are_the_same_as_a_new_drawing() {
             .unwrap()
         });
         assert!(cached.data() == fresh.data(), "{layout:?}: the cached items are not the same as a new drawing");
+    }
+    reset_layout();
+}
+
+// ---- The Checkpoints panel (REQUIREMENTS.md §9.3). The expected positions are the values of the
+// documents, as an offset from the left edge of the panel. They do not use the constants of layout.rs.
+
+/// The left edge of the Checkpoints panel in each of the LAYOUTS (NAV-18).
+const CKP_LEFT: [i32; 4] = [908, 112, 1448, 112];
+const WHITE: [u8; 3] = [255, 255, 255];
+const BLACK: [u8; 3] = [0, 0, 0];
+
+fn ckp_row_top(i: i32) -> i32 {
+    672 + 180 * i
+}
+
+/// The last y of the panel with `n` checkpoints (NAV-18).
+fn ckp_bottom(n: i32) -> i32 {
+    if n == 0 {
+        864
+    } else {
+        ckp_row_top(n)
+    }
+}
+
+fn with_panel(fonts: &sudoku::font::Fonts, game: sudoku::game::Game) -> sudoku::app::App {
+    let mut app = reference::app(fonts);
+    app.game = game;
+    app.ui.menu = sudoku::app::Menu::Open(Some(sudoku::app::Panel::Checkpoints));
+    app
+}
+
+/// A setup in the current layout, also the hand (reference::render uses a left-handed player).
+fn draw_setup(fonts: &sudoku::font::Fonts, setup: reference::Setup) -> tiny_skia::Pixmap {
+    let mut app = reference::app(fonts);
+    setup(&mut app);
+    draw_app(fonts, &app)
+}
+
+/// The pixels of the area around the baseline are the same as `text` on a white background.
+fn assert_text(
+    fonts: &sudoku::font::Fonts,
+    pm: &tiny_skia::Pixmap,
+    (weight, size, color): (sudoku::font::Weight, f32, [u8; 3]),
+    (x, y): (i32, i32),
+    anchor: sudoku::font::Anchor,
+    text: &str,
+    area: std::ops::Range<i32>,
+) {
+    let mut want = tiny_skia::Pixmap::new(pm.width(), pm.height()).unwrap();
+    want.fill(tiny_skia::Color::WHITE);
+    sudoku::render::Canvas::new(&mut want, fonts).text(weight, size, x as f32, y as f32, anchor, text, color);
+    for py in y - size as i32..y + 8 {
+        for px in area.clone() {
+            assert_eq!(rgb_at(pm, px, py), rgb_at(&want, px, py), "the text \"{text}\" at ({px}, {py})");
+        }
+    }
+}
+
+/// The first pixel of a cell of the small board of row `i`.
+fn small_cell((pl, i): (i32, i32), (r, c): sudoku::game::Cell) -> (i32, i32) {
+    (pl + 18 + 17 * c as i32, ckp_row_top(i) + 14 + 17 * r as i32)
+}
+
+/// The background of a cell of the small board: the digit, the dots and the lines do not touch this pixel.
+fn small_bg(pm: &tiny_skia::Pixmap, at: (i32, i32), cell: sudoku::game::Cell) -> [u8; 3] {
+    let (x, y) = small_cell(at, cell);
+    rgb_at(pm, x + 2, y + 2)
+}
+
+#[test]
+fn landscape_checkpoints_menu_agrees_with_the_reference_image() {
+    // NAV-18, R§3.3, §15: reference::states() draws in portrait, thus this test uses the state of
+    // checkpoints-menu.png in landscape.
+    reference::use_utc();
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Landscape);
+    let pm = reference::render(&fonts, reference_setup("checkpoints-menu.png"));
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
+    let want = decode_png(&std::fs::read(root.join("images/checkpoints-menu-landscape.png")).unwrap());
+    assert_eq!((want.width(), want.height()), (2160, 1620), "the size of the image");
+    assert_eq!((pm.width(), pm.height()), (2160, 1620), "the size of the app");
+    let (mean, big) = reference::compare(&pm, &want);
+    assert!(mean < 1.5 && big < 0.008, "mean difference {mean:.2}, {:.3}% of pixels differ", big * 100.0);
+    let off2 = reference::differences_off_edges(&pm, &want, 2);
+    assert!(off2.is_empty(), "pixels that differ away from all edges: {:?}", &off2[..off2.len().min(10)]);
+    let off1 = reference::differences_off_edges(&pm, &want, 1);
+    assert!(off1.len() <= 2, "pixels that differ more than 1 px from an edge: {:?}", &off1[..off1.len().min(10)]);
+}
+
+#[test]
+fn the_lines_of_the_checkpoints_panel_are_at_the_exact_pixels_of_each_image() {
+    // NAV-18, CKP-7: a panel at a different position by some pixels stays near the edges of the image.
+    // Thus the frame, the lines between the rows and the buttons must be at the exact pixels in the
+    // app and in the image.
+    use sudoku::layout::Orientation::{Landscape, Portrait};
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let images = [
+        ("checkpoints-menu-empty.png", "checkpoints-menu-empty.png", Portrait, 908, 0),
+        ("checkpoints-menu.png", "checkpoints-menu.png", Portrait, 908, 3),
+        ("checkpoints-menu-current.png", "checkpoints-menu-current.png", Portrait, 908, 5),
+        ("checkpoints-menu-right-handed.png", "checkpoints-menu-right-handed.png", Portrait, 112, 3),
+        ("checkpoints-menu.png", "checkpoints-menu-landscape.png", Landscape, 1448, 3),
+    ];
+    for (state, file, orientation, pl, n) in images {
+        sudoku::layout::set_orientation(orientation);
+        let pm = reference::render(&fonts, reference_setup(state));
+        sudoku::layout::set_orientation(Portrait);
+        let want = decode_png(&std::fs::read(root.join("images").join(file)).unwrap());
+        let bottom = ckp_bottom(n);
+        let mut black = vec![
+            (pl, 616),
+            (pl + 1, 616),
+            (pl + 598, 616),
+            (pl + 599, 616),
+            (pl + 300, 560),
+            (pl + 300, 561),
+            (pl + 300, 670),
+            (pl + 300, 671),
+            (pl + 300, bottom - 1),
+            (pl + 300, bottom),
+        ];
+        let mut white = vec![(pl + 2, 616), (pl + 597, 616), (pl + 300, 562), (pl + 300, 669), (pl + 300, 672), (pl + 300, bottom - 2)];
+        for i in 0..n {
+            let y0 = ckp_row_top(i);
+            // The button: the first and the last pixels are in the button.
+            black.extend([(pl + 381, y0 + 55), (pl + 521, y0 + 55), (pl + 381, y0 + 125), (pl + 521, y0 + 125)]);
+            white.extend([(pl + 380, y0 + 90), (pl + 522, y0 + 90), (pl + 400, y0 + 54), (pl + 400, y0 + 126)]);
+            if i > 0 {
+                black.extend([(pl + 300, y0 - 2), (pl + 300, y0 - 1)]);
+                white.extend([(pl + 300, y0 - 3), (pl + 300, y0)]);
+            }
+        }
+        for (x, y) in black {
+            assert_eq!(rgb_at(&pm, x, y), BLACK, "{file}, app: ({x}, {y})");
+            assert_eq!(rgb_at(&want, x, y), BLACK, "{file}, image: ({x}, {y})");
+        }
+        for (x, y) in white {
+            assert_eq!(rgb_at(&pm, x, y), WHITE, "{file}, app: ({x}, {y})");
+            assert_eq!(rgb_at(&want, x, y), WHITE, "{file}, image: ({x}, {y})");
+        }
+    }
+}
+
+#[test]
+fn the_checkpoints_panel_has_the_same_pixels_and_covers_nothing_in_each_layout() {
+    // NAV-18: for each size of the list, the panel is at its x range and its y range. The contents have
+    // the same order in the four layouts. Out of the panel, only the toolbar slot of the bookmark
+    // changes: the panel does not cover a toolbar button, the close button or the meter.
+    use sudoku::app::Menu;
+    let fonts = fonts();
+    let mut empty = reference::checkpoints_game();
+    empty.checkpoints.clear();
+    for (game, n) in [(empty, 0), (reference::checkpoints_game(), 3), (reference::full_checkpoints_game(), 5)] {
+        let bottom = ckp_bottom(n);
+        let mut first: Option<Vec<[u8; 3]>> = None;
+        for (layout, pl) in LAYOUTS.into_iter().zip(CKP_LEFT) {
+            set_layout(layout);
+            let at = format!("{layout:?}, {n} rows");
+            // The meter is out of the panel: below it, or next to it. The meter starts 13 px above meter_y.
+            let (my, mxl, mxr) = (sudoku::layout::meter_y(), sudoku::layout::meter_xl(), sudoku::layout::meter_xr());
+            assert!(bottom + 13 < my || pl + 600 <= mxl || pl >= mxr, "{at}: the panel covers the meter at x {mxl}-{mxr}, y {my}");
+            let mut app = with_panel(&fonts, game.clone());
+            let open = draw_app(&fonts, &app);
+            app.ui.menu = Menu::Open(None);
+            let closed = draw_app(&fonts, &app);
+            let tb = sudoku::layout::tb_x();
+            let mut slots = std::collections::BTreeSet::new();
+            for (x, y) in changed_pixels(&open, &closed) {
+                if (pl..pl + 600).contains(&x) && (560..=bottom).contains(&y) {
+                    continue;
+                }
+                assert!((tb..tb + 112).contains(&x), "{at}: the panel changes ({x}, {y})");
+                slots.insert(y / 112);
+            }
+            assert_eq!(slots, std::collections::BTreeSet::from([5]), "{at}: the panel changes the toolbar slots");
+            // The panel touches the toolbar: there is no space between its side line and the slot.
+            let side = if pl == 112 { pl } else { pl + 599 };
+            assert_eq!(rgb_at(&open, side, 616), BLACK, "{at}: the side line next to the toolbar");
+            let mut inner = Vec::new();
+            for y in 560..=bottom {
+                for x in pl + 2..pl + 598 {
+                    inner.push(rgb_at(&open, x, y));
+                }
+            }
+            let first = first.get_or_insert_with(|| inner.clone());
+            // The same contents at the same offsets. A glyph has a different float position in each
+            // layout, thus an edge pixel of a glyph can change by one or two steps of the
+            // antialiasing (16 of 255). An item that moves by 1 px gives a larger difference.
+            let w = 596;
+            let diff: Vec<(usize, usize, [u8; 3], [u8; 3])> = (0..inner.len())
+                .filter(|&i| (0..3).any(|k| first[i][k].abs_diff(inner[i][k]) > 32))
+                .map(|i| (i % w + 2, i / w + 560, first[i], inner[i]))
+                .collect();
+            assert!(diff.is_empty(), "{at}: {} pixels are not the same as in the first layout (offset x, y, first, this): {:?}", diff.len(), &diff[..diff.len().min(12)]);
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_panel_with_no_checkpoint_shows_the_save_row_and_two_lines_of_text() {
+    // CKP-7, CKP-1: the exact text at the positions of R§9.3, and no row.
+    use sudoku::font::{Anchor, Weight};
+    use sudoku::render::gray;
+    let fonts = fonts();
+    let mut game = reference::checkpoints_game();
+    game.checkpoints.clear();
+    for (layout, pl) in LAYOUTS.into_iter().zip(CKP_LEFT) {
+        set_layout(layout);
+        let pm = draw_app(&fonts, &with_panel(&fonts, game.clone()));
+        let inside = pl + 2..pl + 598;
+        assert_text(&fonts, &pm, (Weight::Medium, 28.0, BLACK), (pl + 100, 625), Anchor::Start, "Save checkpoint", pl + 90..pl + 598);
+        assert_text(&fonts, &pm, (Weight::Regular, 28.0, gray(25)), (pl + 299, 760), Anchor::Middle, "No checkpoints", inside.clone());
+        assert_text(&fonts, &pm, (Weight::Regular, 25.0, gray(40)), (pl + 299, 800), Anchor::Middle, "Save the board before a difficult guess.", inside);
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_rows_show_the_clock_and_the_quantity_of_all_filled_cells() {
+    // CKP-7: the clock of the checkpoint (whole seconds, rounded down, in the format of CMP-4), and n
+    // counts all filled cells, also the starting numbers. ENTERED has two starting cells: these do not
+    // count two times.
+    use sudoku::font::{Anchor, Weight};
+    use sudoku::render::gray;
+    let fonts = fonts();
+    let mut game = reference::full_checkpoints_game();
+    game.checkpoints[4].elapsed_ms += 999;
+    let rows = [("20:14", 41), ("19:26", 46), ("18:32", 40), ("11:07", 36), ("4:15", 32)];
+    for (layout, pl) in LAYOUTS.into_iter().zip(CKP_LEFT) {
+        set_layout(layout);
+        let pm = draw_app(&fonts, &with_panel(&fonts, game.clone()));
+        for (i, (clock, cells)) in rows.into_iter().enumerate() {
+            let y0 = ckp_row_top(i as i32);
+            let style = (Weight::Regular, 25.0, gray(25));
+            let area = pl + 173..pl + 381;
+            assert_text(&fonts, &pm, style, (pl + 190, y0 + 81), Anchor::Start, &format!("{clock} played"), area.clone());
+            assert_text(&fonts, &pm, style, (pl + 190, y0 + 115), Anchor::Start, &format!("{cells} of 81 cells"), area);
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn a_clock_with_two_digits_for_the_hours_does_not_touch_the_button() {
+    // R§9.3, CKP-7: the first and the last clock with two digits for the hours, and a clock with wide
+    // digits. The pixel before the button stays white, and the border of the button does not change.
+    let fonts = fonts();
+    for (layout, pl) in LAYOUTS.into_iter().zip(CKP_LEFT) {
+        set_layout(layout);
+        for seconds in [36_000u64, 359_999, 288_888] {
+            let mut game = reference::checkpoints_game();
+            game.elapsed_ms = 400_000 * 1000;
+            game.checkpoints[0].elapsed_ms = seconds * 1000;
+            let pm = draw_app(&fonts, &with_panel(&fonts, game));
+            let y0 = ckp_row_top(0);
+            for y in y0 + 55..=y0 + 90 {
+                assert_eq!(rgb_at(&pm, pl + 380, y), WHITE, "{layout:?}, {seconds} s: the pixel before the button, y {y}");
+                assert_eq!(rgb_at(&pm, pl + 381, y), BLACK, "{layout:?}, {seconds} s: the border of the button, y {y}");
+            }
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_small_board_has_the_colors_of_the_rules_of_the_board() {
+    // CKP-7: the first of the clash color, the completed color (shows_completed), the starting color
+    // and white. The values of the checkpoint select it, not the values of the game. The rows of
+    // full_checkpoints_game: 0 has the clash of (5,1) and (2,1), 1 has complete box 0, column 4 and
+    // row 7, 2 has complete box 0.
+    use sudoku::app::App;
+    let fonts = fonts();
+    let draw = |change: fn(&mut App)| {
+        let mut a = with_panel(&fonts, reference::full_checkpoints_game());
+        change(&mut a);
+        draw_app(&fonts, &a)
+    };
+    for (layout, pl) in LAYOUTS.into_iter().zip(CKP_LEFT) {
+        set_layout(layout);
+        let (starting, clash, completed) = (Color::Gray.rgb(), Color::Red.rgb(), Color::Green.rgb());
+        let pm = draw(|_| {});
+        let row = |i| (pl, i);
+        // The clash color is first, also on a starting cell. A box with a clash is not complete.
+        assert_eq!(small_bg(&pm, row(0), (5, 1)), clash, "{layout:?}: a number with a clash");
+        assert_eq!(small_bg(&pm, row(0), (2, 1)), clash, "{layout:?}: a starting number with a clash");
+        assert_eq!(small_bg(&pm, row(0), (0, 0)), starting, "{layout:?}: a starting number of a box with a clash");
+        assert_eq!(small_bg(&pm, row(0), (0, 2)), WHITE, "{layout:?}: a number of a box with a clash");
+        // The completed color is on top of the starting color. The game itself has a clash there.
+        for i in [1, 2] {
+            assert_eq!(small_bg(&pm, row(i), (2, 1)), completed, "{layout:?}: row {i}: a starting number of box 0");
+            assert_eq!(small_bg(&pm, row(i), (0, 2)), completed, "{layout:?}: row {i}: a number of box 0");
+        }
+        assert_eq!(small_bg(&pm, row(1), (7, 0)), completed, "{layout:?}: a number of the complete row 7");
+        assert_eq!(small_bg(&pm, row(2), (7, 0)), WHITE, "{layout:?}: row 7 is not complete in this checkpoint");
+        assert_eq!(small_bg(&pm, row(2), (3, 0)), starting, "{layout:?}: a starting number");
+        assert_eq!(small_bg(&pm, row(2), (3, 1)), WHITE, "{layout:?}: a number");
+        assert_eq!(small_bg(&pm, row(2), (3, 3)), WHITE, "{layout:?}: an empty cell");
+
+        // The settings of the colors and the switch (COL-11, COL-12).
+        let pm = draw(|a| a.settings.color_clash = Color::Orange);
+        assert_eq!(small_bg(&pm, row(0), (5, 1)), Color::Orange.rgb(), "{layout:?}: the clash color follows the setting");
+        let pm = draw(|a| a.settings.color_starting = Color::Yellow);
+        assert_eq!(small_bg(&pm, row(2), (3, 0)), Color::Yellow.rgb(), "{layout:?}: the starting color follows the setting");
+        let pm = draw(|a| a.settings.color_completed = Color::Blue);
+        assert_eq!(small_bg(&pm, row(2), (0, 2)), Color::Blue.rgb(), "{layout:?}: the completed color follows the setting");
+        for change in [(|a: &mut App| a.settings.completed_color_on = false) as fn(&mut App), |a| a.settings.color_completed = Color::White] {
+            let pm = draw(change);
+            assert_eq!(small_bg(&pm, row(2), (2, 1)), starting, "{layout:?}: no completed color on a starting number");
+            assert_eq!(small_bg(&pm, row(2), (0, 2)), WHITE, "{layout:?}: no completed color on a number");
+        }
+
+        // No highlight: the panel does not change when the game has a highlighted digit.
+        let plain = draw(|_| {});
+        let high = draw(|a| a.ui.highlight = Some(5));
+        assert!(plain.data() != high.data(), "{layout:?}: the highlight does not show on the board");
+        for (x, y) in changed_pixels(&plain, &high) {
+            assert!(!(pl..pl + 600).contains(&x) || !(560..=1572).contains(&y), "{layout:?}: the highlight changes ({x}, {y}) in the panel");
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_digits_of_the_small_board_have_the_color_of_the_board() {
+    // CKP-7, BRD-8: black on a starting cell and #1E1E1E on a number of the player, at the center of
+    // the cell and on the baseline of R§9.3.
+    use sudoku::font::{Anchor, Weight};
+    use sudoku::render::Canvas;
+    let fonts = fonts();
+    let pm = draw_app(&fonts, &with_panel(&fonts, reference::full_checkpoints_game()));
+    let player = sudoku::settings::ENTRY_DIGIT;
+    let cases = [((3, 0), "8", BLACK, Color::Gray.rgb()), ((3, 1), "5", player, WHITE), ((5, 1), "9", player, Color::Red.rgb())];
+    for (cell, digit, color, bg) in cases {
+        let (x, y) = small_cell((908, 0), cell);
+        let mut want = tiny_skia::Pixmap::new(pm.width(), pm.height()).unwrap();
+        let mut canvas = Canvas::new(&mut want, &fonts);
+        canvas.rect(x as f32, y as f32, (x + 16) as f32, (y + 16) as f32, bg);
+        canvas.text(Weight::Regular, 14.0, x as f32 + 8.5, (y + 14) as f32, Anchor::Middle, digit, color);
+        for py in y + 1..y + 16 {
+            for px in x + 1..x + 16 {
+                assert_eq!(rgb_at(&pm, px, py), rgb_at(&want, px, py), "the digit {digit} of {cell:?} at ({px}, {py})");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_small_board_shows_a_dot_for_each_visible_mark() {
+    // CKP-7, MRK-4: a dot of 2x2 px, gray 40, at the keypad position, with the current setting. Only 3
+    // is free in (8, 0). The other digits have a peer: their marks show only with automatic hiding off.
+    use sudoku::render::gray;
+    let fonts = fonts();
+    let mut game = reference::sample_game();
+    for d in 1..=9 {
+        game.toggle_mark_with((8, 0), d, false);
+    }
+    assert!(game.save_checkpoint());
+    for (layout, pl) in LAYOUTS.into_iter().zip(CKP_LEFT) {
+        set_layout(layout);
+        for hide in [true, false] {
+            let mut app = with_panel(&fonts, game.clone());
+            app.settings.auto_hide_on = hide;
+            let pm = draw_app(&fonts, &app);
+            let (x, y) = small_cell((pl, 0), (8, 0));
+            for d in 1..=9 {
+                let (dx, dy) = (x + 3 + 5 * ((d - 1) % 3), y + 3 + 5 * ((d - 1) / 3));
+                let want = if !hide || d == 3 { gray(40) } else { WHITE };
+                for (px, py) in [(dx, dy), (dx + 1, dy), (dx, dy + 1), (dx + 1, dy + 1)] {
+                    assert_eq!(rgb_at(&pm, px, py), want, "{layout:?}, hide {hide}: the mark {d} at ({px}, {py})");
+                }
+                // The dot is 2x2 px: the pixels around it are white.
+                for (px, py) in [(dx - 1, dy), (dx + 2, dy), (dx, dy - 1), (dx, dy + 2)] {
+                    assert_eq!(rgb_at(&pm, px, py), WHITE, "{layout:?}, hide {hide}: around the mark {d} at ({px}, {py})");
+                }
+            }
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_small_board_has_its_lines_at_the_exact_pixels() {
+    // R§9.3, CKP-7, scripts/board-state.py: thin lines of 1 px, gray 60, on the first pixel of the cell.
+    // Black lines of 2 px at the box borders and the outside. The outer box is 155 px: portrait
+    // x 925-1079, y y0+13 to y0+167.
+    use sudoku::render::gray;
+    let fonts = fonts();
+    for (layout, pl) in LAYOUTS.into_iter().zip(CKP_LEFT) {
+        set_layout(layout);
+        let pm = draw_app(&fonts, &with_panel(&fonts, reference::checkpoints_game()));
+        for i in 0..3 {
+            let (bx, by) = (pl + 18, ckp_row_top(i) + 14);
+            for a in [1, 2, 4, 5, 7, 8].map(|k| k * 17) {
+                assert_eq!(rgb_at(&pm, bx + a, by + 1), gray(60), "{layout:?}: thin vertical line {a}");
+                assert_eq!(rgb_at(&pm, bx + 1, by + a), gray(60), "{layout:?}: thin horizontal line {a}");
+            }
+            for a in [0, 3, 6, 9].map(|k| k * 17) {
+                for d in [-1, 0] {
+                    assert_eq!(rgb_at(&pm, bx + a + d, by + 1), BLACK, "{layout:?}: black vertical line {a}");
+                    assert_eq!(rgb_at(&pm, bx + 1, by + a + d), BLACK, "{layout:?}: black horizontal line {a}");
+                }
+            }
+            for (x, y) in [(bx - 2, by + 8), (bx + 154, by + 8), (bx + 8, by - 2), (bx + 8, by + 154)] {
+                assert_eq!(rgb_at(&pm, x, y), WHITE, "{layout:?}: out of the outer box at ({x}, {y})");
+            }
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_save_row_and_the_buttons_follow_the_board_of_the_game() {
+    // CKP-1, CKP-2, CKP-7: the plus and the text are black exactly when can_save. A button is "Current"
+    // (black) exactly when the checkpoint has the same numbers and marks, also the hidden marks. The
+    // limits: a duplicate with a short list, a full list with no duplicate, and a difference only in a
+    // hidden mark.
+    use sudoku::font::{Anchor, Weight};
+    use sudoku::render::gray;
+    let fonts = fonts();
+
+    let mut duplicate = reference::sample_game();
+    assert!(duplicate.save_checkpoint());
+
+    let mut four = reference::checkpoints_game();
+    assert!(four.save_checkpoint());
+    four.toggle_mark((8, 0), 3); // The game now differs from each row.
+
+    let mut full = reference::full_checkpoints_game();
+    full.checkpoints[0].board.marks[8][0] = sudoku::game::mark_bit(3);
+
+    let mut hidden = reference::sample_game();
+    hidden.toggle_mark_with((8, 0), 1, false); // A peer has a 1, thus this mark does not show.
+    assert!(hidden.save_checkpoint());
+    hidden.toggle_mark_with((8, 0), 1, false);
+
+    let cases: [(&str, sudoku::game::Game, bool, &[bool]); 4] = [
+        ("one row with the same board", duplicate, false, &[true]),
+        ("four rows and a different board", four, true, &[false, false, false, false]),
+        ("five rows and a different board", full, false, &[false, false, false, false, false]),
+        ("a difference only in a hidden mark", hidden, true, &[false]),
+    ];
+    for (name, game, can_save, current) in cases {
+        for (layout, pl) in LAYOUTS.into_iter().zip(CKP_LEFT) {
+            set_layout(layout);
+            let at = format!("{name}, {layout:?}");
+            let pm = draw_app(&fonts, &with_panel(&fonts, game.clone()));
+            let save = if can_save { BLACK } else { gray(70) };
+            assert_eq!(game.can_save_checkpoint(), can_save, "{at}: can_save");
+            assert_eq!(rgb_at(&pm, pl + 58, 616), save, "{at}: the plus");
+            assert_text(&fonts, &pm, (Weight::Medium, 28.0, save), (pl + 100, 625), Anchor::Start, "Save checkpoint", pl + 90..pl + 598);
+            for (i, &current) in current.iter().enumerate() {
+                let y0 = ckp_row_top(i as i32);
+                let (inner, text, label) = if current { (BLACK, WHITE, "Current") } else { (WHITE, BLACK, "Restore") };
+                // The label on the color of the button, at the center of the button.
+                let mut want = tiny_skia::Pixmap::new(pm.width(), pm.height()).unwrap();
+                let mut canvas = sudoku::render::Canvas::new(&mut want, &fonts);
+                canvas.rect((pl + 383) as f32, (y0 + 57) as f32, (pl + 519) as f32, (y0 + 123) as f32, inner);
+                canvas.text(Weight::Medium, 25.0, (pl + 451) as f32, (y0 + 99) as f32, Anchor::Middle, label, text);
+                for y in y0 + 57..=y0 + 123 {
+                    for x in pl + 383..=pl + 519 {
+                        assert_eq!(rgb_at(&pm, x, y), rgb_at(&want, x, y), "{at}: the label {label} at ({x}, {y})");
+                    }
+                }
+                // The bin has its center at x 560, and the space before its tap area is white.
+                let bin = (pl + 546..pl + 575).any(|x| rgb_at(&pm, x, y0 + 90) != WHITE);
+                assert!(bin, "{at}: no bin in row {i}");
+                for x in pl + 522..pl + 533 {
+                    assert_eq!(rgb_at(&pm, x, y0 + 90), WHITE, "{at}: the space before the bin at x {x}");
+                }
+            }
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_bookmark_has_the_color_of_the_state_of_the_game() {
+    // NAV-8, CKP-9: black on a game in progress, white on a black slot while its panel is open, gray 70
+    // on a complete game, also when a different panel is open. The shape is the closed line of R§9.
+    use sudoku::app::{Menu, Panel};
+    use sudoku::render::gray;
+    let fonts = fonts();
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let tb = sudoku::layout::tb_x();
+        let (cx, cy) = (tb + 56, 616);
+        let cases = [
+            ("game", reference::sample_game(), Menu::Open(None), BLACK, WHITE),
+            ("game, other panel", reference::sample_game(), Menu::Open(Some(Panel::Settings)), BLACK, WHITE),
+            ("game, its panel", reference::sample_game(), Menu::Open(Some(Panel::Checkpoints)), WHITE, BLACK),
+            ("complete", reference::completed_game(), Menu::Open(None), gray(70), WHITE),
+            ("complete, other panel", reference::completed_game(), Menu::Open(Some(Panel::Colors)), gray(70), WHITE),
+        ];
+        for (name, game, menu, icon, slot) in cases {
+            let mut app = reference::app(&fonts);
+            app.game = game;
+            app.ui.menu = menu;
+            let pm = draw_app(&fonts, &app);
+            // Points on the line: the top side and the two long sides. Points out of it: the center,
+            // the space below the notch and the corners of the slot.
+            for (x, y) in [(cx, cy - 18), (cx - 12, cy), (cx + 12, cy)] {
+                assert_eq!(rgb_at(&pm, x, y), icon, "{layout:?}, {name}: the line at ({x}, {y})");
+            }
+            for (x, y) in [(cx, cy), (cx, cy + 14), (tb + 4, 564), (tb + 107, 667)] {
+                assert_eq!(rgb_at(&pm, x, y), slot, "{layout:?}, {name}: the slot at ({x}, {y})");
+            }
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_icon_sheet_has_the_three_looks_of_the_bookmark() {
+    // CKP-9, NAV-8: the sheet has the bookmark in black, in white on black and in gray 70. This test
+    // does not use images/icons.png.
+    use reference::IconLook;
+    use sudoku::render::{gray, Icon};
+    let fonts = fonts();
+    let tiles = reference::icon_tiles();
+    let bookmark: Vec<(usize, IconLook)> =
+        tiles.iter().enumerate().filter(|(_, t)| t.0 == Icon::Bookmark).map(|(i, t)| (i, t.1)).collect();
+    let looks: Vec<IconLook> = bookmark.iter().map(|b| b.1).collect();
+    assert_eq!(looks, [IconLook::Normal, IconLook::Active, IconLook::Unavailable(70)]);
+    let sheet = reference::icon_sheet(&fonts);
+    for (i, look) in bookmark {
+        let i = i as u32;
+        let cx = (i % reference::ICON_COLUMNS * reference::ICON_TILE_W + reference::ICON_TILE_W / 2) as i32;
+        let cy = (i / reference::ICON_COLUMNS * reference::ICON_TILE_H + reference::ICON_CENTER_Y) as i32;
+        let (icon, background) = match look {
+            IconLook::Normal => (BLACK, WHITE),
+            IconLook::Active => (WHITE, BLACK),
+            IconLook::Unavailable(n) => (gray(n), WHITE),
+        };
+        assert_eq!(rgb_at(&sheet, cx, cy - 18), icon, "{look:?}: the line of the icon");
+        assert_eq!(rgb_at(&sheet, cx, cy), background, "{look:?}: the center of the icon");
+    }
+}
+
+#[test]
+fn a_retained_frame_follows_each_change_of_the_checkpoints_panel() {
+    // CKP-1, CKP-2, CKP-3, CKP-9, NAV-8: each change of the list, of the board and of the settings shows
+    // on a retained frame. The first two steps change only the bookmark in the toolbar overlay: undo
+    // and redo are gray in the two games.
+    use sudoku::app::{App, Menu, Panel};
+    use sudoku::game::Game;
+    use sudoku::render::{draw, Canvas, FrameRecord};
+    use tiny_skia::Pixmap;
+    let fonts = fonts();
+    fn open(a: &mut App) {
+        a.ui.menu = Menu::Open(Some(Panel::Checkpoints));
+    }
+    let steps: [(&str, fn(&mut App)); 17] = [
+        ("no history", |a| {
+            a.game = Game::new(1, 2, [[1; 9]; 9], [[0; 9]; 9]);
+            a.ui.menu = Menu::Open(None)
+        }),
+        ("complete", |a| a.game = reference::completed_game()),
+        ("the game", |a| a.game = reference::sample_game()),
+        ("open", open),
+        ("save", |a| assert!(a.game.save_checkpoint())),
+        ("a mark", |a| {
+            a.game.toggle_mark((8, 0), 3);
+        }),
+        ("save again", |a| assert!(a.game.save_checkpoint())),
+        ("restore the older row", |a| {
+            a.game.restore_checkpoint(1);
+        }),
+        ("undo", |a| {
+            a.game.undo();
+        }),
+        ("redo", |a| {
+            a.game.redo();
+        }),
+        ("no hiding", |a| a.settings.auto_hide_on = false),
+        ("a color", |a| a.settings.color_clash = Color::Orange),
+        ("no completed color", |a| a.settings.completed_color_on = false),
+        ("delete the first row", |a| assert!(a.game.delete_checkpoint(0))),
+        ("delete the last row", |a| assert!(a.game.delete_checkpoint(0))),
+        ("close", |a| a.ui.menu = Menu::Open(None)),
+        ("the full list", |a| {
+            a.game = reference::full_checkpoints_game();
+            open(a)
+        }),
+    ];
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let (w, h) = (sudoku::layout::screen_w(), sudoku::layout::screen_h());
+        let mut pm = Pixmap::new(w, h).unwrap();
+        let mut record = FrameRecord::default();
+        let mut app = reference::app(&fonts);
+        for (name, step) in steps {
+            step(&mut app);
+            draw(&mut Canvas::retained(&mut pm, &mut record, &fonts), &app);
+            let full = draw_app(&fonts, &app);
+            assert!(pm.data() == full.data(), "{layout:?}, {name}: the retained frame is not the same as a full drawing");
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_cached_rows_of_the_checkpoints_panel_are_the_same_as_a_new_drawing() {
+    // CKP-7, R§9.3: the panel keeps the pixels of each row (put_box). The key must have all that the
+    // pixels depend on: each change here must show and must be the same as a drawing with no cache (a
+    // new thread). A deleted row moves the next rows to a new position.
+    use sudoku::app::{App, Menu, Panel};
+    let fonts = fonts();
+    fn base(a: &mut App) {
+        a.game = reference::full_checkpoints_game();
+        a.ui.menu = Menu::Open(Some(Panel::Checkpoints));
+    }
+    // A mark of row 1 that does not show: a peer has the digit in that checkpoint.
+    fn hidden(a: &mut App) {
+        base(a);
+        a.game.checkpoints[1].board.marks[8][0] = sudoku::game::mark_bit(1);
+    }
+    let changes: [(&str, reference::Setup, reference::Setup); 11] = [
+        ("the clock", base, |a| {
+            base(a);
+            a.game.checkpoints[1].elapsed_ms -= 1000
+        }),
+        ("a number", base, |a| {
+            base(a);
+            a.game.checkpoints[1].board.value[8][0] = 3
+        }),
+        ("a mark", base, |a| {
+            base(a);
+            a.game.checkpoints[1].board.marks[8][0] = sudoku::game::mark_bit(3)
+        }),
+        ("Current", base, |a| {
+            base(a);
+            a.game.toggle_mark((8, 0), 3);
+        }),
+        ("a starting cell", base, |a| {
+            base(a);
+            a.game.given[0][0] = false
+        }),
+        ("the starting color", base, |a| {
+            base(a);
+            a.settings.color_starting = Color::Yellow
+        }),
+        ("the clash color", base, |a| {
+            base(a);
+            a.settings.color_clash = Color::Orange
+        }),
+        ("the completed color", base, |a| {
+            base(a);
+            a.settings.color_completed = Color::Blue
+        }),
+        ("the completed switch", base, |a| {
+            base(a);
+            a.settings.completed_color_on = false
+        }),
+        ("automatic hiding", hidden, |a| {
+            hidden(a);
+            a.settings.auto_hide_on = false
+        }),
+        ("a delete", base, |a| {
+            base(a);
+            a.game.checkpoints.remove(1);
+        }),
+    ];
+    for layout in LAYOUTS {
+        set_layout(layout);
+        for (name, before, change) in changes {
+            let first = draw_setup(&fonts, before);
+            let cached = draw_setup(&fonts, change);
+            assert!(first.data() != cached.data(), "{layout:?}, {name}: the change does not show");
+            let fresh = std::thread::scope(|s| {
+                s.spawn(|| {
+                    set_layout(layout);
+                    draw_setup(&fonts, change)
+                })
+                .join()
+                .unwrap()
+            });
+            assert!(cached.data() == fresh.data(), "{layout:?}, {name}: the cached rows are not the same as a new drawing");
+        }
     }
     reset_layout();
 }

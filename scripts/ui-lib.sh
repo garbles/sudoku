@@ -41,6 +41,21 @@ CM_PL=$((TB_X-CM_W))         # 708: left-handed in portrait (x 708-1507)
 CM_PL_LANDSCAPE=1248         # left-handed in landscape (x 1248-2047)
 CM_PL_RIGHT=$TB_W            # right-handed in the two orientations (x 112-911)
 
+# The Checkpoints panel: 600 px wide, at y 560 in all layouts. It touches the toolbar. It has the row "Save checkpoint"
+# (y 560-671), then rows of 180 px, the newest first. The last y of the panel is CKP_EMPTY_BOTTOM with no checkpoint,
+# else CKP_ROW0 + 180 n (the bottom line is y-1 and y, as in the other panels).
+CKP_W=600; CKP_TOP=560; CKP_ROW0=672; CKP_STEP=180; CKP_EMPTY_BOTTOM=864
+CKP_PL=$((TB_X-CKP_W))       # 908: left-handed in portrait (x 908-1507)
+CKP_PL_LANDSCAPE=1448        # left-handed in landscape (x 1448-2047)
+CKP_PL_RIGHT=$TB_W           # right-handed in the two orientations (x 112-711)
+CKP_CX=1207                  # the center of the text of the panel with no checkpoint
+CKP_SAVE_ICON_X=966; CKP_SAVE_ICON_Y=616; CKP_SAVE_TEXT_X=1008; CKP_SAVE_BASE=625
+# In a row with its top at y0: the small board at (CKP_BOARD_X, y0+CKP_BOARD_DY), the text, the button and the bin.
+CKP_BOARD_X=926; CKP_BOARD_DY=14; CKP_CELL=17
+CKP_TEXT_X=1098; CKP_CLOCK_DY=81; CKP_CELLS_DY=115
+CKP_BTN_X0=1289; CKP_BTN_X1=1429; CKP_BTN_CX=1359; CKP_BTN_Y0=55; CKP_BTN_Y1=125; CKP_BTN_BASE=99
+CKP_BIN_X=1468; CKP_BIN_DY=90
+
 # Landscape (2160x1620). The items have the same size as in portrait. Each position is a full-pixel move of the
 # portrait position: the board and the meter move by (LS_DX, LS_DY), the toolbar to LS_TB_X, and the bottom toolbar
 # slots also by LS_BOTTOM_DY.
