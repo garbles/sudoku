@@ -7,8 +7,8 @@ use crate::generator::{FIRST_MODE, MODES};
 
 /// The color of the starting numbers (BRD-8, §15) and of the lines and the text of the interface.
 pub const BLACK: [u8; 3] = [0, 0, 0];
-/// The color of the digits of the player (BRD-8, §15): gray18, #2E2E2E.
-pub const ENTRY_DIGIT: [u8; 3] = [0x2E, 0x2E, 0x2E];
+/// The color of the digits of the player (BRD-8, §15): #1E1E1E.
+pub const ENTRY_DIGIT: [u8; 3] = [0x1E, 0x1E, 0x1E];
 
 /// The cell colors (REQUIREMENTS.md §15). Black is not available (COL-6).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -64,7 +64,7 @@ impl Color {
             Color::White => [0xFF, 0xFF, 0xFF],
             Color::Yellow => [0xFF, 0xD7, 0x40],
             Color::Blue => [0x40, 0x8C, 0xFF],
-            Color::Red => [0xFF, 0x8C, 0x8C],
+            Color::Red => [0xFF, 0x8E, 0x8E],
             Color::Green => [0x48, 0xD6, 0x30],
             Color::Cyan => [0x6F, 0xCF, 0xE6],
             Color::Magenta => [0xE6, 0x50, 0xE0],

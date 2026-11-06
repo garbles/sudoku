@@ -24,8 +24,8 @@ WRONG = {(5,1): 9}
 # "completed-group" has no mistake and these numbers more. Then box 0, column 4 and row 7 are complete.
 GROUP_ENTERED = [(2,4),(6,4),(7,1),(7,2),(7,6),(7,7)]
 # The colors of a cell (the defaults of the panel, the same values as ui-lib.sh) and the digits of the player.
-STARTING_BG, CLASH_BG, HIGHLIGHT_BG, COMPLETED_BG = "#AEAEAE", "#FF8C8C", "#6FCFE6", "#48D630"
-PLAYER_DIGIT = "#2E2E2E"  # gray18
+STARTING_BG, CLASH_BG, HIGHLIGHT_BG, COMPLETED_BG = "#AEAEAE", "#FF8E8E", "#6FCFE6", "#48D630"
+PLAYER_DIGIT = "#1E1E1E"
 HIGHLIGHT = 5             # the digit that the player taps in "highlight"
 UNRECOGNIZED = (4,1)      # the cell with the scribble in "unrecognized"
 INVALID_MARK = (1,6,6)    # the row, the column and the digit of the tap in "invalid-mark". (1,0) and (2,7) have a 6.
@@ -92,7 +92,7 @@ thin = " ".join(f"line {X0+i*C},{Y0} {X0+i*C},{Y0+9*C} line {X0},{Y0+i*C} {X0+9*
 thick = " ".join(f"line {X0+i*C},{Y0} {X0+i*C},{Y0+9*C} line {X0},{Y0+i*C} {X0+9*C},{Y0+i*C}" for i in range(0, 10, 3))
 out.append(f"fill none stroke black stroke-width 3 {thin}")
 out.append(f"stroke-width 12 stroke-linecap square {thick}")
-# numbers: starting numbers black, player numbers gray18
+# numbers: starting numbers black, player numbers #1E1E1E
 for r, c in filled:
     x, y = X0+c*C, Y0+r*C
     color = "black" if GIVENS[r][c] != "." else PLAYER_DIGIT

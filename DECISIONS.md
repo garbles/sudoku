@@ -626,3 +626,15 @@ Rejected, 2026-11-05:
 - A refresh of all preview cells for each change. Reason: only the color that changes must refresh.
 - A new start with the colors of the code and a file `history.jsonl` with a line for each change. Reason:
   the owner selected saved colors with a reset button in place of this.
+
+---
+
+Owner decision, 2026-11-05: Red changes from `#FF8C8C` to `#FF8E8E`, and the numbers of the player change
+from `gray18` (`#2E2E2E`) to `#1E1E1E`. The owner selected the values in `Sudoku (colors)` on the tablet,
+and examined them in a game on the tablet (dev build `dev/colors`). The other palette colors do not
+change.
+
+Rejected, 2026-11-05:
+
+- The number color `#001E1E`. The owner changed it on the tablet before the approval. This value was in
+  the first pull of `colors.json`.

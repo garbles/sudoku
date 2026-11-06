@@ -95,9 +95,9 @@ fn an_incorrect_number_without_a_clash_looks_like_a_correct_number() {
     sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &app);
     let (x, y) = layout::cell_origin(cell);
     assert_eq!(rgb_at(&pm, x + 8, y + 140), Color::White.rgb(), "no color for an incorrect number");
-    // BRD-8: the digit has the color of your numbers (gray18, #2E2E2E).
+    // BRD-8: the digit has the color of your numbers (#1E1E1E).
     let darkest = (x + 20..x + 127).flat_map(|px| (y + 20..y + 127).map(move |py| (px, py))).map(|(px, py)| rgb_at(&pm, px, py)).min().unwrap();
-    assert_eq!(darkest, [0x2E, 0x2E, 0x2E]);
+    assert_eq!(darkest, [0x1E, 0x1E, 0x1E]);
 }
 
 #[test]
@@ -497,7 +497,7 @@ fn the_palette_and_the_default_colors_have_the_approved_values() {
         (Color::White, [0xFF, 0xFF, 0xFF]),
         (Color::Yellow, [0xFF, 0xD7, 0x40]),
         (Color::Blue, [0x40, 0x8C, 0xFF]),
-        (Color::Red, [0xFF, 0x8C, 0x8C]),
+        (Color::Red, [0xFF, 0x8E, 0x8E]),
         (Color::Green, [0x48, 0xD6, 0x30]),
         (Color::Cyan, [0x6F, 0xCF, 0xE6]),
         (Color::Magenta, [0xE6, 0x50, 0xE0]),
@@ -517,7 +517,7 @@ fn the_palette_and_the_default_colors_have_the_approved_values() {
 
 #[test]
 fn the_digits_have_their_color_on_each_background() {
-    // BRD-8: starting digits are black and entry digits are gray18, also in a completed group
+    // BRD-8: starting digits are black and entry digits are #1E1E1E, also in a completed group
     // (BRD-7) and with the highlight.
     let fonts = fonts();
     let darkest = |pm: &tiny_skia::Pixmap, (r, c): Cell| {
@@ -533,8 +533,8 @@ fn the_digits_have_their_color_on_each_background() {
         let pm = draw_screen(&d.app, &fonts);
         assert_eq!(cell_background(&pm, (0, 8)), if highlight == Some(2) { Color::Cyan.rgb() } else { Color::Green.rgb() });
         assert_eq!(darkest(&pm, (0, 0)), [0, 0, 0], "a starting digit in a completed group");
-        assert_eq!(darkest(&pm, (0, 8)), [0x2E, 0x2E, 0x2E], "an entry digit in a completed group");
-        assert_eq!(darkest(&pm, (4, 4)), [0x2E, 0x2E, 0x2E], "an entry digit out of a group");
+        assert_eq!(darkest(&pm, (0, 8)), [0x1E, 0x1E, 0x1E], "an entry digit in a completed group");
+        assert_eq!(darkest(&pm, (4, 4)), [0x1E, 0x1E, 0x1E], "an entry digit out of a group");
     }
 }
 

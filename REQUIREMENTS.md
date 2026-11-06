@@ -213,7 +213,7 @@ If automatic hiding is on, a tap on a micro-cell whose digit is a number in a pe
 approximately one second in that micro-cell (owner approval 2026-11-04).
 
 Digits use reMarkable Sans Regular: 104 px for numbers and 31 px for pencil marks. Starting numbers
-are black. Your numbers are dark gray (`gray18`, `#2E2E2E`; owner approval 2026-11-04 and 2026-11-05).
+are black. Your numbers are dark gray (`#1E1E1E`; owner approval 2026-11-04 and 2026-11-05).
 
 ```mermaid
 stateDiagram-v2
@@ -1395,12 +1395,12 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Screen | 1620×2160, 229 DPI |
 | Board | Cells of 147 px, micro-cells of 49 px, origin (148, 418) |
 | Board lines | Box and border 13 px black; cell 3 px black; micro-cell 2 px, default `gray90` (§10) |
-| Numbers | reMarkable Sans Regular 104 px; starting numbers black, your numbers `gray18` (`#2E2E2E`; owner approval 2026-11-04 and 2026-11-05) |
+| Numbers | reMarkable Sans Regular 104 px; starting numbers black, your numbers dark gray (`#1E1E1E`; owner approval 2026-11-04 and 2026-11-05) |
 | Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell |
 | "?" | reMarkable Sans Regular 104 px, `gray40` |
 | x of a refused tap (§6.1) | Two straight lines with round ends, line width 3 px, `gray15` (the same as the pencil marks). Each line goes from -10 px to +10 px on the two axes around the center: 20×20 px between the line centers, visible extent of approximately 23×23 px. The center is the anchor point of the pencil mark of that digit: 24, 74 or 122 px from the cell origin on each axis, at the keypad position of the digit (1 at the top left, 9 at the bottom right). The x stays in its micro-cell and does not touch the cell lines. Time: the same value as the "?" (1000 ms) (owner approval 2026-11-04). |
-| Palette | Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue `#408CFF`, Red `#FF8C8C`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0`, Orange `#FF9A1F` (owner approval 2026-11-04 and 2026-11-05). The board, the panel dots, the manual and the images all use this palette. |
-| Default colors | Starting Gray `#AEAEAE`, clash Red `#FF8C8C`, highlight Cyan `#6FCFE6`, completed groups Green `#48D630` |
+| Palette | Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue `#408CFF`, Red `#FF8E8E`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0`, Orange `#FF9A1F` (owner approval 2026-11-04 and 2026-11-05). The board, the panel dots, the manual and the images all use this palette. |
+| Default colors | Starting Gray `#AEAEAE`, clash Red `#FF8E8E`, highlight Cyan `#6FCFE6`, completed groups Green `#48D630` |
 | Background of a filled cell | First rule that applies: clash, highlight, completed, starting number, white (§4.2) |
 | UI text | reMarkable Sans Medium 25 px (menus, meter labels, "Completed in …"). The version value and the text of an update state are reMarkable Sans Regular 25 px (§9.1, §9.2). |
 | Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |

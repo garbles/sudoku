@@ -47,7 +47,7 @@ rub() {
 }
 
 # Board colors. They are the same as in screen-in-progress.png.
-GIVEN_BG='#AEAEAE'; ENTRY_FG=gray18; CLASH_BG='#FF8C8C'; COMPLETED_BG='#48D630'
+GIVEN_BG='#AEAEAE'; ENTRY_FG='#1E1E1E'; CLASH_BG='#FF8E8E'; COMPLETED_BG='#48D630'
 UNIT_BG='#DCE9F7'   # only for the rules on page 1. It is not a color of the board.
 
 # The top of the Cell colors panel in color-menu.png with the toolbar: the Starting numbers and Completed groups

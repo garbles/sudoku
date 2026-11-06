@@ -38,8 +38,8 @@ fn text_only(fonts: &Fonts, units: Units, weight: Weight, size: f32, x: f32, y: 
     pm
 }
 
-/// BRD-8, §15: the value of the digits of the player (#2E2E2E).
-const ENTRY_DIGIT: u8 = 0x2E;
+/// BRD-8, §15: the value of the digits of the player (#1E1E1E).
+const ENTRY_DIGIT: u8 = 0x1E;
 
 /// The first pixel in the area (x1 and y1 not included) that is different in the two screens.
 fn first_difference(a: &Pixmap, b: &Pixmap, r: Rect) -> Option<(i32, i32)> {
@@ -119,8 +119,8 @@ fn the_micro_cell_lines_have_the_gray_of_the_setting() {
 
 #[test]
 fn starting_digits_are_black_and_entries_are_dark_gray() {
-    // BRD-8: the darkest pixel of a starting digit is black. The darkest pixel of an entry is gray18
-    // (#2E2E2E). The cell colors (also clash and highlight) do not change the digit color.
+    // BRD-8: the darkest pixel of a starting digit is black. The darkest pixel of an entry is #1E1E1E.
+    // The cell colors (also clash and highlight) do not change the digit color.
     let fonts = fonts();
     for (starting, highlight) in [(Color::Gray, None), (Color::Blue, Some(9)), (Color::White, Some(2))] {
         let mut app = reference::app(&fonts);

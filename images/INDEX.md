@@ -24,7 +24,7 @@ dimensions of the toolbar, the panels and the fonts come from screenshots of a r
 | Image | Content | Purpose |
 |---|---|---|
 | `screen.png` | Empty board, menu closed. It shows only the menu button (top right, closed icon: dot at the bottom left) and the difficulty meter below the board. | The base layout. The board has 9×9 cells of 147 px, at the center, from (148, 418) to (1471, 1741). Each cell has a faint 3×3 grid of 49 px micro-cells. The close button does not show when the menu is closed. |
-| `screen-in-progress.png` | A game in progress: starting numbers (gray background, black digits), your numbers (white background, `gray18` digits, `#2E2E2E`), pencil marks and one clash (two red 9s). Box 0 at the top left is full, but its 9 clashes with a 9 outside the box. Thus the box has no completed color. | The main state of the game. The pencil marks are the possible digits only, because the app hides the marks of the digits of peers. |
+| `screen-in-progress.png` | A game in progress: starting numbers (gray background, black digits), your numbers (white background, `#1E1E1E` digits), pencil marks and one clash (two red 9s). Box 0 at the top left is full, but its 9 clashes with a 9 outside the box. Thus the box has no completed color. | The main state of the game. The pencil marks are the possible digits only, because the app hides the marks of the digits of peers. |
 | `screen-highlight.png` | The same game after a tap on a 5. All 5s have the highlight color (Cyan). | Highlights. A tap on the same number again, or a different action, removes the highlight. |
 | `screen-unrecognized.png` | The same game immediately after a scribble that the app cannot read. A gray **?** shows in the cell for approximately one second. | The response to writing that is not a number from 1 to 9 (for example a scribble, 0 or 12). After the "?", the cell is the same as before. |
 | `screen-invalid-mark.png` | The same game immediately after a pen tap on the micro-cell of digit 6 in the empty cell at row 1, column 6 (from 0). A peer has a 6. A small gray **x** shows only in that micro-cell for approximately one second. The marks 3, 4 and 8 and the micro-cell lines of the cell stay. | The response to a pencil mark that a peer refuses, when "Hide pencil marks automatically" is on. The x has two lines with round ends, each from -10 px to +10 px on the two axes around the anchor point of the mark (20×20 px between the line centers), line width 3 px, `gray15`. After the x, the cell is the same as before. |
@@ -148,7 +148,7 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 - There are four cell colors: starting numbers (default: Gray), clashing numbers (default: Red),
   highlighted numbers (default: Cyan) and completed groups (default: Green). You select each color
   from nine colors in the Cell colors panel: Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue
-  `#408CFF`, Red `#FF8C8C`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0` and Orange `#FF9A1F`.
+  `#408CFF`, Red `#FF8E8E`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0` and Orange `#FF9A1F`.
   Black is not available.
 - The four colors must be different. White is the only exception: all four can be White. If a
   section uses a color, the other sections show a line through it.

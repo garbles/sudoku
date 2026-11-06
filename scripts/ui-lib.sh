@@ -22,8 +22,8 @@ DIFF_W=440
 NG_PL=$((1507-DIFF_W-65))   # the left edge of the New game panel (inner margins of 33 px and 32 px)
 
 # The palette of the cell colors, in panel order. board-state.py and manual-lib.sh have the same values. The digits
-# of the player are gray18 (#2E2E2E). Starting digits are black.
-COLOR_GRAY='#AEAEAE'; COLOR_YELLOW='#FFD740'; COLOR_BLUE='#408CFF'; COLOR_RED='#FF8C8C'; COLOR_GREEN='#48D630'
+# of the player are #1E1E1E. Starting digits are black.
+COLOR_GRAY='#AEAEAE'; COLOR_YELLOW='#FFD740'; COLOR_BLUE='#408CFF'; COLOR_RED='#FF8E8E'; COLOR_GREEN='#48D630'
 COLOR_CYAN='#6FCFE6'; COLOR_MAGENTA='#E650E0'; COLOR_ORANGE='#FF9A1F'
 # The default colors of the four color sections.
 STARTING_BG=$COLOR_GRAY; CLASH_BG=$COLOR_RED; HIGHLIGHT_BG=$COLOR_CYAN; COMPLETED_BG=$COLOR_GREEN

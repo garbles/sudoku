@@ -803,9 +803,9 @@ fn the_completed_group_image_shows_the_colors_of_each_cell() {
     // Box 0 (9 cells), column 4 (9 cells) and row 7 (9 cells), with the crossing cell (7, 4) one time.
     assert_eq!(green, 26);
     assert!(gray > 0 && white > 0);
-    // A digit keeps its color on the completed color: black for a starting number, gray18 for a
+    // A digit keeps its color on the completed color: black for a starting number, #1E1E1E for a
     // number of the player.
-    for (cell, want) in [((0, 0), [0, 0, 0]), ((0, 2), [0x2e, 0x2e, 0x2e]), ((7, 1), [0x2e, 0x2e, 0x2e]), ((7, 4), [0, 0, 0])] {
+    for (cell, want) in [((0, 0), [0, 0, 0]), ((0, 2), [0x1e, 0x1e, 0x1e]), ((7, 1), [0x1e, 0x1e, 0x1e]), ((7, 4), [0, 0, 0])] {
         assert_eq!(digit_color(&pm, cell), want, "app, cell {cell:?}");
         assert_eq!(digit_color(&image, cell), want, "image, cell {cell:?}");
     }

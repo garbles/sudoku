@@ -141,7 +141,7 @@ Terms:
 | BRD-5 | An entry can be incorrect. `value ≠ solution` is a correct state. The app gives no cell a color because of `value ≠ solution`: an incorrect entry gets a color only by the rules that also apply to a correct entry (BRD-7). | R§6.3, owner decision 2026-11-05 |
 | BRD-6 | Filled cells do not show the micro-cell grid or pencil marks. Empty cells show the micro-cell grid in the gray of `micro_line` (COL-7), or no grid if it is None. The only exception is an empty cell with a "?" (QST-1): it does not show the grid while the "?" shows. | R§4.1, R§5.1, R§10 |
 | BRD-7 | The background of a filled cell is the **first** of these: the clash color if clashing; the highlight color if `value = highlight`; the completed color if `shows_completed`; the starting color if given; white. Empty cells are white. Thus a cell with a "?" (QST-1) has no completed color. | R§4.2, owner decision 2026-11-05 |
-| BRD-8 | Starting digits are black. Entry digits are `gray18` (`#2E2E2E`). | R§4.1, R§15, owner decision 2026-11-05 |
+| BRD-8 | Starting digits are black. Entry digits are `#1E1E1E`. | R§4.1, R§15, owner decision 2026-11-05 |
 
 ## 3. Pencil marks
 

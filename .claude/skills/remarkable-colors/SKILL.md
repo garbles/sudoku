@@ -77,7 +77,7 @@ reason and stop.
 | `scripts/ui-lib.sh` | `COLOR_*`: the palette of the design images |
 | `scripts/manual-lib.sh` | `GIVEN_BG`, `ENTRY_FG`, `CLASH_BG`, `COMPLETED_BG` and the other manual colors |
 | `scripts/board-state.py` | `STARTING_BG`, `CLASH_BG`, `HIGHLIGHT_BG`, `COMPLETED_BG`, `PLAYER_DIGIT` |
-| `tests/rules.rs`, `tests/behavior.rs`, `tests/inv_groups/mod.rs`, `tests/inv_render.rs` | Expected values. They do not come from the source, so that a test can find an error. |
+| `tests/rules.rs`, `tests/behavior.rs`, `tests/inv_groups/mod.rs`, `tests/inv_render.rs`, `tests/render.rs` | Expected values. They do not come from the source, so that a test can find an error. |
 | `REQUIREMENTS.md` | §4.1 and §15 (Numbers, Palette, Default colors), with the owner approval and the date |
 | `INVARIANTS.md` | BRD-8 if the color of the numbers changes |
 | `images/INDEX.md` | The list of the nine colors |
@@ -87,11 +87,12 @@ This list can become old. For each old value, search in all forms, and change ea
 history in `DECISIONS.md` and `bench/`:
 
 ```bash
-git grep -nIiE '#?RRGGBB\b|0xRR, 0xGG, 0xBB|\[R, G, B\]' -- ':!DECISIONS.md' ':!bench'
+git grep -nIiE 'RRGGBB|0xRR, 0xGG, 0xBB|\[R, G, B\]' -- ':!DECISIONS.md' ':!bench' ':!.claude/skills/remarkable-colors'
 ```
 
-Also search for the name `gray18` when the color of the numbers changes. Add a new place to this
-table.
+Do not use `\b` in this pattern: `git grep -E` on macOS does not match it. When the color of the
+numbers changes, also search for its name (for example `gray18`) and for its one-byte value
+(`0x2E`), because a test can keep one gray level. Add a new place to this table.
 
 Record in `DECISIONS.md`: the old and the new values, that the owner selected them in `Sudoku
 (colors)` and examined them in a game on the tablet, and the rejected values.
