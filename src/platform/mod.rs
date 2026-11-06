@@ -1,5 +1,6 @@
 //! The device: AppLoad (qtfb) input and output, the save files and the main loop.
 
+pub mod colors;
 pub mod evdev;
 pub mod qtfb;
 

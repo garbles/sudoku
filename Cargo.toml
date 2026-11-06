@@ -13,6 +13,11 @@ path = "src/lib.rs"
 name = "sudoku"
 path = "src/bin/sudoku.rs"
 
+# The separate app Sudoku (colors), for development only: a color picker (src/colors.rs).
+[[bin]]
+name = "sudoku-colors"
+path = "src/bin/sudoku-colors.rs"
+
 [[bin]]
 name = "snapshot"
 path = "src/bin/snapshot.rs"

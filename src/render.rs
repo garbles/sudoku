@@ -19,6 +19,8 @@ use crate::update::{Update, UpdateButton};
 
 pub type Rgb = [u8; 3];
 
+pub use crate::settings::{BLACK, ENTRY_DIGIT};
+
 /// ImageMagick puts text a little to the left and higher than tiny-skia. This offset (px) gives the
 /// smallest difference to the reference images (the snapshot tool measures it).
 const TEXT_OFFSET: (f32, f32) = (-1.0, -1.0);
@@ -29,7 +31,6 @@ const TEXT_OFFSET_PAGE: (f32, f32) = (-0.5, -0.5);
 /// difference to the reference images.
 const STROKE_EXTRA: f32 = 0.25;
 
-pub const BLACK: Rgb = [0, 0, 0];
 /// The width of the ink of the pen (px).
 pub const INK_WIDTH: f32 = 5.0;
 const WHITE: Rgb = [255, 255, 255];
@@ -891,8 +892,6 @@ fn mark_anchor(xf: f32, yf: f32, digit: u8) -> (f32, f32) {
     (xf + MARK_POS[i % 3], yf + MARK_POS[i / 3])
 }
 
-/// The color of the digits of the player (BRD-8, §15): gray18, #2E2E2E.
-pub const ENTRY_DIGIT: Rgb = gray(18);
 /// The color of the pencil marks and of the x of a refused tap (§15).
 const MARK_COLOR: Rgb = gray(15);
 /// The x of a refused tap (§15, MRK-13): each line goes this distance on the two axes from the center.

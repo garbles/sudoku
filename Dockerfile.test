@@ -14,7 +14,7 @@ FROM --platform=linux/arm64 rust:1.97-alpine AS base
 RUN apk add --no-cache musl-dev bash
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir -p src/bin && for b in sudoku snapshot video bench; do echo 'fn main() {}' > src/bin/$b.rs; done \
+RUN mkdir -p src/bin && for b in sudoku sudoku-colors snapshot video bench; do echo 'fn main() {}' > src/bin/$b.rs; done \
  && echo '' > src/lib.rs
 
 # Download and compile the dependencies first, so that a change of the source does not do this again.

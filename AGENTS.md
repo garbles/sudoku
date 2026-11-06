@@ -23,6 +23,7 @@ All tests run on the computer. `Dockerfile.test` runs them again on aarch64 Linu
 | `Dockerfile`           | The static aarch64 build `dist/sudoku/`. No tests.                      |
 | `Dockerfile.dev`       | The fast development build of `dist/sudoku/`. No tests. Not for release |
 | `Dockerfile.corpus`    | The fast corpus build of `dist/sudoku-corpus/`. No tests. Not for release |
+| `Dockerfile.colors`    | The fast build of the color picker `dist/sudoku-colors/`. No tests. Not for release |
 | `Dockerfile.test`      | All tests on aarch64 Linux: the stages `release` and `debug` (parallel) |
 | `Dockerfile.images`    | The design images `images/*.png` (not `install-*.png`), the icon and the icon sheet `images/icons.png` |
 | `Dockerfile.installer` | The installer images `images/install-*.png`                             |
@@ -38,6 +39,7 @@ docker build --platform linux/arm64 -f Dockerfile.test .   # all tests on aarch6
 docker build --platform linux/arm64 --output type=local,dest=dist .   # static aarch64 build (no tests)
 docker build --platform linux/arm64 -f Dockerfile.dev --build-arg SUDOKU_VERSION=dev/update-icons --output type=local,dest=dist .   # fast development build (no tests)
 docker build --platform linux/arm64 -f Dockerfile.corpus --output type=local,dest=dist .   # corpus build (no tests)
+docker build --platform linux/arm64 -f Dockerfile.colors --output type=local,dest=dist .   # color picker build (no tests)
 docker build --platform linux/arm64 -f Dockerfile.images --output type=local,dest=. .      # images/ and the icon (commit these)
 docker build --platform linux/arm64 -f Dockerfile.installer --output type=local,dest=. .   # images/install-*.png (commit these)
 docker build --platform linux/arm64 -f Dockerfile.video --output type=local,dest=. .       # video/ (commit these)
@@ -51,7 +53,8 @@ on USB. `make install-dev DEV_NAME=update-icons` gives the build the version `de
 which the Settings panel shows (1 to 14 lowercase letters, digits or hyphens). Each time that you
 make a development build, give a name that tells the change. With no name, the version is `dev`. `make install-corpus` (`Dockerfile.corpus`, version `dev/corpus`) installs
 the corpus build (the `remarkable-corpus` skill) as the separate app `Sudoku (corpus)`, in the AppLoad folder `sudoku-corpus`. The usual
-Sudoku app does not change. `make media` makes the images, the icon and the videos (`make -j3 media` runs the three
+Sudoku app does not change. `make install-colors` (`Dockerfile.colors`) installs the color picker
+as the separate app `Sudoku (colors)`, in the AppLoad folder `sudoku-colors`. The usual Sudoku app does not change. `make media` makes the images, the icon and the videos (`make -j3 media` runs the three
 builds in parallel).
 
 `dist/sudoku/` is the AppLoad folder. Copy it to `/home/root/xovi/exthome/appload/` on the tablet.
@@ -185,6 +188,16 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   folder. `examples/corpus.rs` makes a
   review image and adds the approved examples to `assets/owner-handwriting.jsonl`. The
   `remarkable-corpus` skill gives the procedure.
+- `colors.rs`, `platform/colors.rs`, `bin/sudoku-colors.rs`: the color picker, a separate program for
+  development (not a Cargo feature). It is the separate app `Sudoku (colors)` on the tablet
+  (`Dockerfile.colors` gives the name and the folder, with no ink patch and no rotation). It shows
+  the palette colors at the same time, and sliders change them on the real display. A change
+  refreshes only the preview cells of that color (black, white, then the color). The colors stay
+  between starts in `~/.local/share/rm-sudoku-colors/colors.json`: `palette` is in the order of
+  `settings::Color::ALL`, and `number` is the color of the numbers of the player. The
+  `remarkable-colors` skill copies these colors to the usual app. The app itself does not change
+  the usual app. Its first colors and its reset use `settings::Color::rgb` and
+  `settings::ENTRY_DIGIT`, the same values as the usual app.
 - `app.rs`: screens, menu, panels, overlays, pen and touch input, the clock. No input or output.
 - `present.rs`: the output of the main loop: the drawing, the copy of the changes into the
   framebuffer and the ink updates. No input or output, thus the bench uses the same code. The
@@ -238,6 +251,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   revert the prototype, and give the description to a team of agents. The team updates the
   documents in parallel (REQUIREMENTS.md, INVARIANTS.md, README.md and the other affected
   documents), then the source, then the tests and the media in parallel.
+- A change of the palette or of the color of the numbers from the color picker uses the
+  `remarkable-colors` skill.
 - DECISIONS.md records how the app was examined (pixels, handwriting, device). If the code needs a
   detail that the requirements do not give, ask the owner before you add it to REQUIREMENTS.md or
   INVARIANTS.md.

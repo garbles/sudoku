@@ -607,3 +607,22 @@ Rejected values, 2026-11-05:
   Reason: the owner gave an image with a different look.
 - The tip of the head at the top of the circle, and 2.5 px to the right of the top. Reason: the head
   must be farther to the right.
+
+---
+
+Owner decision, 2026-11-05: the color picker `Sudoku (colors)` is a separate development app, to select
+the palette colors on the real display. The owner examined it on the tablet and approved it.
+
+- All 9 palette colors stay visible, each with an empty cell, a cell with a number of the player and a
+  cell with a starting number. One set of R, G and B sliders changes the selected color.
+- A change refreshes only the cells of that color when the pen or the finger lifts: black, white, then
+  the color, with 500 ms for the black step and for the white step.
+- The colors stay between starts. A reset button sets the colors of the code again.
+
+Rejected, 2026-11-05:
+
+- A Cargo feature that selects the app in `src/bin/sudoku.rs`. Reason: the owner did not find the source
+  clear, and asked for a separate `bin`.
+- A refresh of all preview cells for each change. Reason: only the color that changes must refresh.
+- A new start with the colors of the code and a file `history.jsonl` with a line for each change. Reason:
+  the owner selected saved colors with a reset button in place of this.

@@ -5,6 +5,11 @@ use serde::{Deserialize, Serialize};
 use crate::game::{Cell, Game};
 use crate::generator::{FIRST_MODE, MODES};
 
+/// The color of the starting numbers (BRD-8, §15) and of the lines and the text of the interface.
+pub const BLACK: [u8; 3] = [0, 0, 0];
+/// The color of the digits of the player (BRD-8, §15): gray18, #2E2E2E.
+pub const ENTRY_DIGIT: [u8; 3] = [0x2E, 0x2E, 0x2E];
+
 /// The cell colors (REQUIREMENTS.md §15). Black is not available (COL-6).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Color {

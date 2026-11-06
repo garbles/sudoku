@@ -65,7 +65,7 @@ endef
 
 .DEFAULT_GOAL := help
 .PHONY: help test build snapshot check video video-full media bench bench-save bench-linux \
-	bench-linux-save media-images media-installer media-video fonts-check test-linux tablet-build tablet-build-dev tablet-build-corpus dist install-dev install-sim install-corpus corpus-start corpus-pull fonts xovi-restart fmt clippy bump-patch bump-minor \
+	bench-linux-save media-images media-installer media-video fonts-check test-linux tablet-build tablet-build-dev tablet-build-corpus tablet-build-colors dist install-dev install-sim install-corpus install-colors colors-pull corpus-start corpus-pull fonts xovi-restart fmt clippy bump-patch bump-minor \
 	bump-major clean
 
 help: ## Show all targets
@@ -164,6 +164,23 @@ tablet-build-corpus: ## Build dist/sudoku-corpus/ fast, for development only (Do
 install-corpus: tablet-build-corpus ## Build and install the separate app Sudoku (corpus): a blank board, a log of each ink. The usual Sudoku app does not change
 	$(call install_app,sudoku-corpus,Sudoku (corpus))
 	$(call install_patch,sudoku-corpus,sudoku-corpus-penregion.qmd,true)
+
+## The color picker: select the colors of the palette on the display. It is the separate app
+## Sudoku (colors), with its own AppLoad folder and data folder. It has no ink patch.
+
+tablet-build-colors: ## Build dist/sudoku-colors/ fast, for development only (Dockerfile.colors)
+	rm -rf dist/sudoku-colors
+	$(DOCKER) build --platform linux/arm64 -f Dockerfile.colors --output type=local,dest=dist .
+
+install-colors: tablet-build-colors ## Build and install the separate app Sudoku (colors): a color picker. The usual Sudoku app does not change
+	$(call install_app,sudoku-colors,Sudoku (colors))
+
+colors-pull: ## Copy the colors of Sudoku (colors) from the tablet to target/colors/colors.json (the skill remarkable-colors)
+	@mkdir -p target/colors
+	@$(SSH) 'cat /home/root/.local/share/rm-sudoku-colors/colors.json' > target/colors/colors.json.tmp \
+		|| { rm -f target/colors/colors.json.tmp; echo "Cannot read colors.json on the tablet. Change a color in Sudoku (colors) first." >&2; exit 1; }
+	@mv target/colors/colors.json.tmp target/colors/colors.json
+	@echo "Wrote target/colors/colors.json"
 
 corpus-start: ## Start a new corpus session: delete the corpus board and the corpus log on the tablet, move old sets to target/corpus/old/ (close Sudoku (corpus) first)
 	$(SSH) 'rm -f $(CORPUS_DIR)/game.json $(CORPUS_DIR)/$(CORPUS_LOG)'

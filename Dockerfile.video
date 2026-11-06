@@ -11,7 +11,7 @@ RUN apk add --no-cache musl-dev ffmpeg
 WORKDIR /src
 # Download and compile the dependencies first, so that a change of the source does not do this again.
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir -p src/bin && for b in sudoku snapshot video bench; do echo 'fn main() {}' > src/bin/$b.rs; done \
+RUN mkdir -p src/bin && for b in sudoku sudoku-colors snapshot video bench; do echo 'fn main() {}' > src/bin/$b.rs; done \
  && echo '' > src/lib.rs && cargo build --release --locked --bin video && rm -rf src
 COPY src src
 # The files that the app contains (include_bytes! and include_str!) and the fonts.
