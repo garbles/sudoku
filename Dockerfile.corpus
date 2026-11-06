@@ -1,0 +1,45 @@
+# syntax=docker/dockerfile:1
+# check=skip=FromPlatformFlagConstDisallowed
+# The corpus build for the reMarkable Paper Pro (aarch64 Linux, musl), for development only (make
+# install-corpus, the skill `remarkable-corpus`). Do not use it for a release.
+#
+#   docker build --platform linux/arm64 -f Dockerfile.corpus --output type=local,dest=dist .
+#
+# It is the fast build of Dockerfile.dev (the same Cargo profile, linker and cache mounts), with these
+# differences:
+#
+# - The Cargo feature `corpus`.
+# - The version `dev/corpus` in the Settings panel.
+# - The name `Sudoku (corpus)` in AppLoad.
+# - The ink patch `appload/sudoku-corpus/sudoku-corpus-penregion.qmd` in place of the usual patch: a
+#   copy for this name, with its own QML id, because the two patches go into the same file of
+#   AppLoad. Only make install-corpus installs it. A release and install.sh do not use it.
+#
+# The result is dist/sudoku-corpus/: a separate AppLoad folder, thus the usual Sudoku app does not
+# change.
+FROM --platform=linux/arm64 rust:1.97-alpine AS build
+RUN apk add --no-cache musl-dev mold
+WORKDIR /src
+ENV RUSTFLAGS="-C link-arg=-fuse-ld=mold"
+# Only the files that the build reads (BuildKit sends only these files).
+COPY Cargo.toml Cargo.lock ./
+COPY src src
+COPY assets assets
+COPY images images
+COPY scripts/icons scripts/icons
+COPY tests/fixtures tests/fixtures
+COPY video/demo-full.txt video/demo-full.txt
+COPY appload/sudoku appload/sudoku
+COPY appload/sudoku-corpus appload/sudoku-corpus
+RUN --mount=type=cache,id=sudoku-dev-registry,target=/usr/local/cargo/registry \
+    --mount=type=cache,id=sudoku-dev-target,target=/src/target \
+    SUDOKU_VERSION=dev/corpus cargo build --profile tablet-dev --locked --features corpus --bin sudoku \
+ && mkdir -p /out && cp -R appload/sudoku /out/sudoku-corpus \
+ && sed -i 's/"name": "Sudoku"/"name": "Sudoku (corpus)"/' /out/sudoku-corpus/external.manifest.json \
+ && grep -qF '"name": "Sudoku (corpus)"' /out/sudoku-corpus/external.manifest.json \
+ && rm /out/sudoku-corpus/sudoku-penregion.qmd \
+ && cp appload/sudoku-corpus/sudoku-corpus-penregion.qmd /out/sudoku-corpus/ \
+ && cp target/tablet-dev/sudoku /out/sudoku-corpus/sudoku && chmod 755 /out/sudoku-corpus/sudoku
+
+FROM scratch AS export
+COPY --from=build /out /

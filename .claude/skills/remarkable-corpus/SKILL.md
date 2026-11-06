@@ -17,6 +17,11 @@ makes the review images, and the user reviews them.
 - **The corpus build**: the Cargo feature `corpus` (`src/corpus.rs`). The source uses
   `#[cfg(feature = "corpus")]` only at two places: `store::data_dir` and the call
   `corpus::setup` in `platform::run`. The build has these differences:
+  - It is a separate app: `Sudoku (corpus)` in AppLoad, in the folder `sudoku-corpus`. The usual
+    Sudoku app stays on the tablet and does not change.
+  - It has its own ink patch, `appload/sudoku-corpus/sudoku-corpus-penregion.qmd`, a copy of the
+    usual patch for its name. When you change the usual patch, change the copy also. The app also needs the usual patch on the tablet. A release
+    and `install.sh` do not use the copy.
   - The board is blank (no starting numbers), the menu is closed, and clashes, the highlight and the
     completed color do not show.
   - The data folder is `/home/root/.local/share/rm-sudoku-corpus`. Thus the build does not change
@@ -27,9 +32,8 @@ makes the review images, and the user reviews them.
     that cell. Thus a digit with two strokes (a 4, an 8) is one example, also when the app reads
     the ink between the two strokes.
 - **Make targets**:
-  - `make install-corpus`: build and install the corpus build.
-  - `make corpus-start`: delete the saved game of the player, the corpus board and the corpus log
-    on the tablet, and move the sets of earlier sessions to `target/corpus/old/`.
+  - `make install-corpus`: build and install the corpus build. The usual Sudoku app does not change.
+  - `make corpus-start`: delete the corpus board and the corpus log on the tablet, and move the sets of earlier sessions to `target/corpus/old/`.
   - `make corpus-pull DIGIT=n`: copy the corpus log to `target/corpus/corpus-ink-n.jsonl`, then
     delete the corpus log and the corpus board on the tablet. Thus the next set starts on a blank
     board with an empty log. It fails (and deletes nothing) if the log is empty, if it cannot read
@@ -57,13 +61,15 @@ images or ask for a review before all sets are collected.
    selected digit.
 
 3. **Install the corpus build.** Run `make install-corpus` (timeout 600000 ms). It uses
-   `Dockerfile.dev` with `CARGO_FEATURES=corpus` and the version name `dev/corpus`. If `docker` is not on `PATH`, the Makefile uses
-   OrbStack. If the build fails, show the error and stop.
+   `Dockerfile.corpus`, with the version name `dev/corpus`. If `docker` is not on `PATH`, the Makefile uses
+   OrbStack. If the build fails, show the error and stop. If the target tells that the ink patch
+   changed, ask the user to close all notebooks, then run `make xovi-restart`. Without this, the ink of the app has
+   gaps. If AppLoad does not show `Sudoku (corpus)`, tell the user to use the reload button of AppLoad.
 
-4. **Start a clean session.** Tell the user to close Sudoku on the tablet (the open app keeps the
-   old program, and it saves the game when it closes). When the user confirms, run
-   `make corpus-start`. This deletes the saved game of the player (the user agreed to lose the game
-   in progress), the corpus board and the old corpus log on the tablet. It also moves the sets
+4. **Start a clean session.** Tell the user to close Sudoku (corpus) on the tablet (the open app keeps the
+   old program, and it saves the board when it closes). When the user confirms, run
+   `make corpus-start`. This deletes the corpus board and the old corpus log on the tablet. The game of the
+   player does not change. It also moves the sets
    and images of earlier sessions (`target/corpus/corpus-ink-*.jsonl`, `sheet-*.png`) to
    `target/corpus/old/`. Do not use them: each run of this skill collects new data only.
 
@@ -73,7 +79,7 @@ Do steps 5 to 7 for each selected digit, in order. In these steps, DIGIT is the 
 
 5. **Ask the user to write.** Tell the user (one message):
    - Set N of M: the digit DIGIT.
-   - Open Sudoku from AppLoad. The board is blank.
+   - Open Sudoku (corpus) from AppLoad. The board is blank.
    - Write the digit DIGIT in as many cells as possible, one digit in each cell, with the pen.
      Write it in the usual manner, with some variation of size and slant.
    - Write only one digit in each cell. All strokes in a cell are one example, also when the app
@@ -81,25 +87,25 @@ Do steps 5 to 7 for each selected digit, in order. In these steps, DIGIT is the 
      same cell. You can exclude bad examples in the review at the end.
    - Do not erase, except to write more than 81 examples: then erase the cells with the eraser
      and write again. An erasure ends the example of that cell.
-   - When you are done, close Sudoku and tell me.
+   - When you are done, close Sudoku (corpus) and tell me.
 
    Wait for the answer of the user (AskUserQuestion with the options "Done", "Skip this digit"
    and "Stop"). "Skip this digit": go to the next digit (the log of this set stays on the tablet,
    thus run `make corpus-pull DIGIT=DIGIT` and move the result to `target/corpus/old/`, so that
    the next set starts clean). "Stop": go to phase 3 with the sets that you have.
 
-6. **Get the set.** Make sure that the user closed Sudoku. Then run:
+6. **Get the set.** Make sure that the user closed Sudoku (corpus). Then run:
 
    ```bash
    make corpus-pull DIGIT=DIGIT
    ```
 
    It copies the log to `target/corpus/corpus-ink-DIGIT.jsonl` and clears the log and the board on
-   the tablet. If it tells that the log is empty, ask the user to open Sudoku and write the digit,
+   the tablet. If it tells that the log is empty, ask the user to open Sudoku (corpus) and write the digit,
    and do step 5 again. The target tells the quantity of strokes. Do not make the image now:
    phase 3 gives the quantity of examples.
 
-7. **Next set.** If there is a next digit, go to step 5 with that digit. The user opens Sudoku
+7. **Next set.** If there is a next digit, go to step 5 with that digit. The user opens Sudoku (corpus)
    again: the board is blank.
 
 ### Phase 3: review and add
@@ -145,9 +151,9 @@ Do steps 5 to 7 for each selected digit, in order. In these steps, DIGIT is the 
       and the Linux baseline (`make bench-linux-save`), as AGENTS.md "Performance" tells.
 
 12. **End.**
-    - Tell the user to close Sudoku, and run `make install-dev DEV_NAME=<name>` (the usual dev build). Select a name that tells the
-      change in the working tree (the `remarkable-install-dev` skill gives the rule). Until then,
-      the tablet has the corpus build.
+    - Tell the user to close Sudoku (corpus). The app stays on the tablet for the next session.
+      The usual Sudoku app did not change, thus it does not have the new examples until the next
+      install (`make install-dev`, the `remarkable-install-dev` skill).
     - Report: for each digit, the quantity of examples that you added and the excluded numbers;
       the test result; and `count`.
 

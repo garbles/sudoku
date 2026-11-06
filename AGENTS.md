@@ -22,6 +22,7 @@ All tests run on the computer. `Dockerfile.test` runs them again on aarch64 Linu
 | ---------------------- | ----------------------------------------------------------------------- |
 | `Dockerfile`           | The static aarch64 build `dist/sudoku/`. No tests.                      |
 | `Dockerfile.dev`       | The fast development build of `dist/sudoku/`. No tests. Not for release |
+| `Dockerfile.corpus`    | The fast corpus build of `dist/sudoku-corpus/`. No tests. Not for release |
 | `Dockerfile.test`      | All tests on aarch64 Linux: the stages `release` and `debug` (parallel) |
 | `Dockerfile.images`    | The design images `images/*.png` (not `install-*.png`), the icon and the icon sheet `images/icons.png` |
 | `Dockerfile.installer` | The installer images `images/install-*.png`                             |
@@ -36,6 +37,7 @@ scripts/bench.sh                             # performance bench: compare with b
 docker build --platform linux/arm64 -f Dockerfile.test .   # all tests on aarch64 Linux (release and debug)
 docker build --platform linux/arm64 --output type=local,dest=dist .   # static aarch64 build (no tests)
 docker build --platform linux/arm64 -f Dockerfile.dev --build-arg SUDOKU_VERSION=dev/update-icons --output type=local,dest=dist .   # fast development build (no tests)
+docker build --platform linux/arm64 -f Dockerfile.corpus --output type=local,dest=dist .   # corpus build (no tests)
 docker build --platform linux/arm64 -f Dockerfile.images --output type=local,dest=. .      # images/ and the icon (commit these)
 docker build --platform linux/arm64 -f Dockerfile.installer --output type=local,dest=. .   # images/install-*.png (commit these)
 docker build --platform linux/arm64 -f Dockerfile.video --output type=local,dest=. .       # video/ (commit these)
@@ -47,8 +49,9 @@ The `Makefile` gives a target for each of these commands, and more (`make help` 
 tests (thus run `cargo test` first) and installs it on the tablet at `REMARKABLE_HOST` (`.env`), or
 on USB. `make install-dev DEV_NAME=update-icons` gives the build the version `dev/update-icons`,
 which the Settings panel shows (1 to 14 lowercase letters, digits or hyphens). Each time that you
-make a development build, give a name that tells the change. With no name, the version is `dev`. `make install-dev FEATURES=corpus` (or `make install-corpus`, version `dev/corpus`) installs
-the corpus build (the `remarkable-corpus` skill). `make media` makes the images, the icon and the videos (`make -j3 media` runs the three
+make a development build, give a name that tells the change. With no name, the version is `dev`. `make install-corpus` (`Dockerfile.corpus`, version `dev/corpus`) installs
+the corpus build (the `remarkable-corpus` skill) as the separate app `Sudoku (corpus)`, in the AppLoad folder `sudoku-corpus`. The usual
+Sudoku app does not change. `make media` makes the images, the icon and the videos (`make -j3 media` runs the three
 builds in parallel).
 
 `dist/sudoku/` is the AppLoad folder. Copy it to `/home/root/xovi/exthome/appload/` on the tablet.
@@ -176,7 +179,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `early.rs`: a calculation that starts on a background thread before the app needs its result
   (the reading of the ink at each pen lift, the puzzle of the next game). The result is a function
   of the key only, thus it is the same as a calculation at the time of need.
-- `corpus.rs`: only in the corpus build (Cargo feature `corpus`, a development build). A blank
+- `corpus.rs`: only in the corpus build (Cargo feature `corpus`, a development build). It is the
+  separate app `Sudoku (corpus)` on the tablet (`Dockerfile.corpus` gives the name and the folder, and installs `appload/sudoku-corpus/sudoku-corpus-penregion.qmd`, a copy of the ink patch for that name. When you change the ink patch, change the copy also. Only `make install-corpus` installs the copy: a release and `install.sh` do not use it). A blank
   board and a log of each stroke and erasure with its cell (`app::StrokeLog`), in a separate data
   folder. `examples/corpus.rs` makes a
   review image and adds the approved examples to `assets/owner-handwriting.jsonl`. The

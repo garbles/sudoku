@@ -11,8 +11,6 @@
 # - BuildKit cache mounts keep the Cargo registry and target/ from one build to the next build. Thus
 #   a change of the source compiles only the changed parts of the crate, not all of it again.
 # - The linker is mold.
-# - The build argument CARGO_FEATURES gives Cargo features, for example `corpus` (the corpus build:
-#   make install-corpus, the skill `remarkable-corpus`).
 # - The build argument SUDOKU_VERSION gives the version in the Settings panel: `dev`, or `dev/<name>`
 #   with the name of the change, for example `dev/update-icons` (make install-dev DEV_NAME=update-icons).
 #
@@ -31,10 +29,9 @@ COPY tests/fixtures tests/fixtures
 COPY video/demo-full.txt video/demo-full.txt
 COPY appload/sudoku appload/sudoku
 ARG SUDOKU_VERSION=dev
-ARG CARGO_FEATURES=
 RUN --mount=type=cache,id=sudoku-dev-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=sudoku-dev-target,target=/src/target \
-    SUDOKU_VERSION="$SUDOKU_VERSION" cargo build --profile tablet-dev --locked --features "$CARGO_FEATURES" --bin sudoku \
+    SUDOKU_VERSION="$SUDOKU_VERSION" cargo build --profile tablet-dev --locked --bin sudoku \
  && mkdir -p /out && cp -R appload/sudoku /out/sudoku \
  && cp target/tablet-dev/sudoku /out/sudoku/sudoku && chmod 755 /out/sudoku/sudoku
 

@@ -24,8 +24,6 @@ PATCH_NAME := sudoku-penregion.qmd
 PATCH_STAMP := sudoku-penregion.json
 
 SNAPSHOT_DIR ?= target/snapshots
-# Cargo features of the development build (Dockerfile.dev), for example FEATURES=corpus.
-FEATURES ?=
 # The name of the change in a development build, for example DEV_NAME=update-icons. The Settings
 # panel then shows the version dev/update-icons. Empty: the version dev.
 DEV_NAME ?=
@@ -37,9 +35,37 @@ DIGIT ?=
 NOTE ?=
 SCENARIO ?= first
 
+# Installs the AppLoad folder dist/$(1) on the tablet and examines its checksum. $(2) is the name of
+# the app in AppLoad.
+define install_app
+	@echo "Install on $(HOST)"
+	COPYFILE_DISABLE=1 tar -C dist -czf - $(1) | $(SSH) 'set -e; d=$(APPLOAD); a=$(1); t=$$d/.$$a-install; \
+		rm -rf "$$t"; mkdir -p "$$t"; tar -xzf - -C "$$t"; chmod 755 "$$t/$$a/sudoku"; \
+		rm -rf "$$d/$$a.old"; if [ -d "$$d/$$a" ]; then mv "$$d/$$a" "$$d/$$a.old"; fi; \
+		mv "$$t/$$a" "$$d/$$a"; rm -rf "$$d/$$a.old" "$$t"'
+	@local=$$(shasum -a 256 dist/$(1)/sudoku | cut -d' ' -f1); \
+		remote=$$($(SSH) 'sha256sum $(APPLOAD)/$(1)/sudoku' | cut -d' ' -f1); \
+		if [ "$$local" = "$$remote" ]; then echo "Installed: $$local. Close $(2) and open it again."; \
+		else echo "The checksums are not equal: $$local $$remote" >&2; exit 1; fi
+endef
+
+# The stamp file of the usual ink patch. A shell command on the tablet for install_patch.
+PATCH_STAMP_CMD = printf "{\"version\": \"$(DEV_VERSION)\", \"sha256\": \"%s\"}\n" '"$$want"' > "$$d/$(PATCH_STAMP)"
+
+# Installs the ink patch dist/$(1)/$(2) on the tablet if it changed. $(3) is a shell command on the
+# tablet after the copy ($$d is the folder of the patches, $$want is the checksum of the patch).
+define install_patch
+	@want=$$(shasum -a 256 dist/$(1)/$(2) | cut -d' ' -f1); \
+		have=$$($(SSH) 'sha256sum $(PATCH_DIR)/$(2) 2>/dev/null' | cut -d' ' -f1); \
+		if [ "$$want" = "$$have" ]; then echo "The ink patch $(2) is installed."; else \
+		$(SSH) 'set -e; d=$(PATCH_DIR); mkdir -p "$$d"; cat > "$$d/$(2).new"; mv "$$d/$(2).new" "$$d/$(2)"; $(3)' \
+			< dist/$(1)/$(2); \
+		echo "The ink patch $(2) changed. xovi applies it when it starts: run make xovi-restart."; fi
+endef
+
 .DEFAULT_GOAL := help
 .PHONY: help test build snapshot check video video-full media bench bench-save bench-linux \
-	bench-linux-save media-images media-installer media-video fonts-check test-linux tablet-build tablet-build-dev dist install-dev install-sim install-corpus corpus-start corpus-pull fonts xovi-restart fmt clippy bump-patch bump-minor \
+	bench-linux-save media-images media-installer media-video fonts-check test-linux tablet-build tablet-build-dev tablet-build-corpus dist install-dev install-sim install-corpus corpus-start corpus-pull fonts xovi-restart fmt clippy bump-patch bump-minor \
 	bump-major clean
 
 help: ## Show all targets
@@ -120,41 +146,33 @@ tablet-build-dev: ## Build dist/sudoku/ fast, for development only: no LTO, incr
 		|| { echo "DEV_NAME must have 1 to 14 lowercase letters, digits or hyphens, and start with a letter or a digit: $(DEV_NAME)" >&2; exit 1; }
 	@[ -n "$(strip $(DEV_NAME))" ] \
 		|| echo "No DEV_NAME: the version is dev. Give a name that tells the change, for example DEV_NAME=update-icons." >&2
-	$(DOCKER) build --platform linux/arm64 -f Dockerfile.dev --build-arg CARGO_FEATURES="$(FEATURES)" --build-arg SUDOKU_VERSION="$(DEV_VERSION)" --output type=local,dest=dist .
+	$(DOCKER) build --platform linux/arm64 -f Dockerfile.dev --build-arg SUDOKU_VERSION="$(DEV_VERSION)" --output type=local,dest=dist .
 
 dist: test-linux tablet-build ## Run all tests on aarch64 Linux, then build dist/sudoku/ (Docker)
 
 install-dev: tablet-build-dev ## Build fast (Dockerfile.dev, no tests: run make test first) and install dist/sudoku/ on the tablet (REMARKABLE_HOST in .env, or USB). Give DEV_NAME=<name of the change>
-	@echo "Install on $(HOST)"
-	COPYFILE_DISABLE=1 tar -C dist -czf - sudoku | $(SSH) 'set -e; d=$(APPLOAD); t=$$d/.sudoku-install; \
-		rm -rf "$$t"; mkdir -p "$$t"; tar -xzf - -C "$$t"; chmod 755 "$$t/sudoku/sudoku"; \
-		rm -rf "$$d/sudoku.old"; if [ -d "$$d/sudoku" ]; then mv "$$d/sudoku" "$$d/sudoku.old"; fi; \
-		mv "$$t/sudoku" "$$d/sudoku"; rm -rf "$$d/sudoku.old" "$$t"'
-	@local=$$(shasum -a 256 dist/sudoku/sudoku | cut -d' ' -f1); \
-		remote=$$($(SSH) 'sha256sum $(APPLOAD)/sudoku/sudoku' | cut -d' ' -f1); \
-		if [ "$$local" = "$$remote" ]; then echo "Installed: $$local. Close Sudoku and open it again."; \
-		else echo "The checksums are not equal: $$local $$remote" >&2; exit 1; fi
-	@want=$$(shasum -a 256 dist/sudoku/$(PATCH_NAME) | cut -d' ' -f1); \
-		have=$$($(SSH) 'sha256sum $(PATCH_DIR)/$(PATCH_NAME) 2>/dev/null' | cut -d' ' -f1); \
-		if [ "$$want" = "$$have" ]; then echo "The ink patch is installed."; else \
-		$(SSH) 'set -e; d=$(PATCH_DIR); mkdir -p "$$d"; cat > "$$d/$(PATCH_NAME).new"; mv "$$d/$(PATCH_NAME).new" "$$d/$(PATCH_NAME)"; \
-			printf "{\"version\": \"$(DEV_VERSION)\", \"sha256\": \"%s\"}\n" '"$$want"' > "$$d/$(PATCH_STAMP)"' \
-			< dist/sudoku/$(PATCH_NAME); \
-		echo "The ink patch changed. xovi applies it when it starts: run make xovi-restart."; fi
+	$(call install_app,sudoku,Sudoku)
+	$(call install_patch,sudoku,$(PATCH_NAME),$(PATCH_STAMP_CMD))
 
-## The corpus build: examples of handwriting for the recognizer (the skill remarkable-corpus).
+## The corpus build: examples of handwriting for the recognizer (the skill remarkable-corpus). It is
+## the separate app Sudoku (corpus), with its own AppLoad folder and data folder.
 
-install-corpus: ## Build and install the corpus build (a blank board, a log of each ink). make install-dev DEV_NAME=<name> installs the usual build again
-	$(MAKE) install-dev FEATURES=corpus DEV_NAME=corpus
+tablet-build-corpus: ## Build dist/sudoku-corpus/ fast, for development only (Dockerfile.corpus)
+	rm -rf dist/sudoku-corpus
+	$(DOCKER) build --platform linux/arm64 -f Dockerfile.corpus --output type=local,dest=dist .
 
-corpus-start: ## Start a new corpus session: delete the saved game and the corpus log on the tablet, move old sets to target/corpus/old/ (close Sudoku first)
-	$(SSH) 'rm -f /home/root/.local/share/rm-sudoku/game.json $(CORPUS_DIR)/game.json $(CORPUS_DIR)/$(CORPUS_LOG)'
+install-corpus: tablet-build-corpus ## Build and install the separate app Sudoku (corpus): a blank board, a log of each ink. The usual Sudoku app does not change
+	$(call install_app,sudoku-corpus,Sudoku (corpus))
+	$(call install_patch,sudoku-corpus,sudoku-corpus-penregion.qmd,true)
+
+corpus-start: ## Start a new corpus session: delete the corpus board and the corpus log on the tablet, move old sets to target/corpus/old/ (close Sudoku (corpus) first)
+	$(SSH) 'rm -f $(CORPUS_DIR)/game.json $(CORPUS_DIR)/$(CORPUS_LOG)'
 	@old=$(CORPUS_OUT)/old/$$(date +%Y%m%d-%H%M%S); for f in $(CORPUS_OUT)/corpus-ink-*.jsonl $(CORPUS_OUT)/sheet-*.png; do \
 		[ -e "$$f" ] || continue; mkdir -p "$$old"; mv "$$f" "$$old/"; done; \
 		if [ -d "$$old" ]; then echo "Old sets moved to $$old (not used)."; fi
-	@echo "The saved game and the corpus log are deleted. Open Sudoku on the tablet."
+	@echo "The corpus board and the corpus log are deleted. Open Sudoku (corpus) on the tablet."
 
-corpus-pull: ## Copy the corpus log of DIGIT=n to target/corpus/corpus-ink-n.jsonl, then clear the log and the board on the tablet (close Sudoku first)
+corpus-pull: ## Copy the corpus log of DIGIT=n to target/corpus/corpus-ink-n.jsonl, then clear the log and the board on the tablet (close Sudoku (corpus) first)
 	@test -n "$(DIGIT)" || { echo "Give the digit: make corpus-pull DIGIT=4" >&2; exit 1; }
 	@mkdir -p $(CORPUS_OUT)
 	@out=$(CORPUS_OUT)/corpus-ink-$(DIGIT).jsonl; \
