@@ -55,18 +55,21 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
   area one time. Thus the area must not touch the cells around the written cell.
 - **The Pen waveform cannot drive colors.** Gray and colored pixels that the Pen waveform changes get
   ghosts. Thus a redraw of the cell (the recognized digit) must wait until the Pen area stopped.
-- **The pen area and the tap.** The app knows that a touch is writing only when the pen leaves the
-  micro-cell. If the area starts at the pen down, each tap starts it, and the mark waits until the
-  area stops (approximately 60 ms, then a refresh of the full cell). Thus the area of the first
-  stroke of a session starts when the touch becomes writing (`App::writing_stroke`). The ink in
-  the micro-cell before that goes with the UI waveform. While the player writes (ink waits, or the
-  1 s idle time runs), a pen press on an empty cell starts the area at the pen down. This removes
-  the stop between cells (the area starts 2 to 12 ms after the pen down, not 58 to 241 ms). A tap
-  in that time also starts the area, and its mark comes after the area stops. A tap ends the chain.
-  If gaps at the start of a stroke come back, the cause is probably the area that starts over this
-  ink while its update is in progress.
-- **A tap shows ink, but not on a filled cell.** A tap on an empty cell that changes nothing (a
-  mark that a peer hides) shows a dot until a redraw removes it. A test build that hid the ink of a
+- **The pen area starts at each pen down on an empty cell, and it stays after the lift.** The
+  area starts 2 to 12 ms after the pen down (measured with the area at the pen down), and the first
+  ink waits until the patch applied it (45 ms). xochitl refreshes the full area when it starts, when
+  it stops and when it changes (also when no pixel in it changed), and the ink patch cannot avoid
+  this. Thus the area changes as rarely as possible: it follows the pen (`App::pen_cell`), it stays
+  on its cell when the pen lifts, and it stops only before a redraw that needs the UI waveform in its
+  cell (`FrameRecord::cell_change_shows_with_pen`: a number, a "?", other lines, a panel over the
+  cell), when its cell becomes filled, or at a turn. The mark or the x of a tap goes at the pen lift
+  inside the area, with the pen waveform, in the micro-cell only. An earlier version stopped the area
+  at the lift of a tap: the mark waited for the stop (approximately 60 ms), and the stop refreshed
+  the full cell with the ink dot of the tap on it. A move of the area gives two updates in the update
+  log: the old cell (`ui`) and the new cell (`pen (ui)`). If gaps at the start of a stroke come back, the cause is
+  probably the area that starts over ink while its update is in progress.
+- **A tap shows ink, but not on a filled cell.** A tap on an empty cell shows a dot until its mark
+  or its x removes it at the pen lift. A test build that hid the ink of a
   tap delayed the start of each stroke, and the owner selected the ink from the pen down. A pen
   touch that starts on a filled cell shows no ink and starts no area. The input log (`log-input`)
   shows if a touch was a tap: a pen down, few moves and a pen up in one micro-cell.

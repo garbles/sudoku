@@ -706,10 +706,10 @@ struct Reached {
     highlight_read: usize,
     /// A pen touch started on a filled cell (INP-22).
     filled_press: usize,
-    /// A pen press on an empty cell started the pen area, because the player writes (INP-24).
+    /// A pen press on an empty cell started the pen area while the player writes (INP-24).
     area_at_press: usize,
-    /// A pen press on an empty cell did not start the pen area (INP-2).
-    no_area_at_press: usize,
+    /// A pen press on an empty cell started the pen area while the player did not write (INP-24).
+    area_at_first_press: usize,
     /// A hand touch changed nothing (INP-20).
     hand: usize,
     /// A hand touch on a button kept the x (INP-20, MRK-15).
@@ -940,12 +940,12 @@ impl Hands {
                         if app.live_stroke.is_none() {
                             return Err(format!("INP-2: no ink at the press {input:?} on the empty cell {cell:?}"));
                         }
-                        // INP-2, INP-24: the area starts at the pen down only while the player writes.
-                        if !b.pen_down && app.writing_stroke().is_some() != b.writing {
-                            return Err(format!("INP-2, INP-24: the pen area at the press {input:?} is {:?}, and the player writes: {}", app.writing_stroke().is_some(), b.writing));
+                        // INP-24: the area starts at the pen down, also when the player did not write.
+                        if app.pen_cell() != Some(cell) {
+                            return Err(format!("INP-24: no pen area on {cell:?} at the press {input:?}"));
                         }
                         self.reached.area_at_press += usize::from(!b.pen_down && b.writing);
-                        self.reached.no_area_at_press += usize::from(!b.pen_down && !b.writing);
+                        self.reached.area_at_first_press += usize::from(!b.pen_down && !b.writing);
                     }
                 }
             }
@@ -1543,7 +1543,7 @@ fn the_two_hand_sequences_reach_each_rule_of_the_x() {
         all.highlight_read += h.reached.highlight_read;
         all.filled_press += h.reached.filled_press;
         all.area_at_press += h.reached.area_at_press;
-        all.no_area_at_press += h.reached.no_area_at_press;
+        all.area_at_first_press += h.reached.area_at_first_press;
         all.hand += h.reached.hand;
         all.hand_x += h.reached.hand_x;
         all.hand_second += h.reached.hand_second;
@@ -1551,8 +1551,8 @@ fn the_two_hand_sequences_reach_each_rule_of_the_x() {
     }
     println!("shown {}, with a finger {}, press {}, release {}, guard {}, second finger in the guard time {}, time {}, turn {}", all.shown, all.shown_with_finger, all.press, all.release, all.guard, all.guard_second_finger, all.time, all.turn);
     println!(
-        "highlight: finger {}, control {}, panel {}, eraser {}, lift {}, read {}; filled press {}, area at press {}, no area {}; hand {}, hand with x {}, hand second {}; finger keeps ink {}",
-        all.highlight_finger, all.highlight_control, all.highlight_panel, all.highlight_eraser, all.highlight_lift, all.highlight_read, all.filled_press, all.area_at_press, all.no_area_at_press, all.hand, all.hand_x, all.hand_second, all.finger_keeps_ink
+        "highlight: finger {}, control {}, panel {}, eraser {}, lift {}, read {}; filled press {}, area at press {}, area at a first press {}; hand {}, hand with x {}, hand second {}; finger keeps ink {}",
+        all.highlight_finger, all.highlight_control, all.highlight_panel, all.highlight_eraser, all.highlight_lift, all.highlight_read, all.filled_press, all.area_at_press, all.area_at_first_press, all.hand, all.hand_x, all.hand_second, all.finger_keeps_ink
     );
     assert!(all.shown > 0, "no x");
     assert!(all.shown_with_finger > 0, "no x while a finger stays on the screen");
@@ -1570,7 +1570,7 @@ fn the_two_hand_sequences_reach_each_rule_of_the_x() {
     assert!(all.highlight_read > 0, "HLT-2: no read removed a highlight");
     assert!(all.filled_press > 0, "INP-22: no pen press on a filled cell");
     assert!(all.area_at_press > 0, "INP-24: no pen press started the pen area");
-    assert!(all.no_area_at_press > 0, "INP-2: all pen presses started the pen area");
+    assert!(all.area_at_first_press > 0, "INP-24: no pen press of a player that did not write started the pen area");
     assert!(all.hand > 0, "INP-20: no hand touch");
     assert!(all.hand_x > 0, "INP-20: no hand touch on a button with the x");
     assert!(all.hand_second > 0, "INP-20: no hand touch with a finger on the screen");

@@ -84,6 +84,8 @@ pub struct Canvas<'a> {
     /// The screen row of the first row of `pm` (not 0 only for a stripe of the board, refer to
     /// `draw_board_stripes`).
     top: i32,
+    /// True while `ink` draws: the drawing is ink of the pen.
+    ink: bool,
 }
 
 /// An area of the screen in px (x1 and y1 are not included).
@@ -147,12 +149,26 @@ pub struct FrameRecord {
     /// None: the record does not know the pixels of the frame.
     known: Option<Known>,
     damage: Damage,
+    /// The board tiles that the screen shows: the slots at the last copy of the frame to the screen
+    /// (`take_damage`). None: not known.
+    shown_tiles: Option<ShownTiles>,
+    /// The areas of the drawings since the last copy that are not board tiles and not ink: a panel,
+    /// a dialog, or a screen that is not the game.
+    covers: Damage,
 }
 
 impl Default for FrameRecord {
     fn default() -> FrameRecord {
-        FrameRecord { known: None, damage: Damage::All }
+        FrameRecord { known: None, damage: Damage::All, shown_tiles: None, covers: Damage::All }
     }
+}
+
+/// The board tiles at a copy of the frame to the screen (refer to `FrameRecord::take_damage`).
+struct ShownTiles {
+    size: (u32, u32),
+    board: (i32, i32),
+    /// The tile of each board slot (refer to `Known::slots`).
+    tiles: Vec<Option<TileKey>>,
 }
 
 /// The pixels of a frame of the game screen.
@@ -168,30 +184,52 @@ struct Known {
 }
 
 impl FrameRecord {
-    /// The damage since the last call.
+    /// The damage since the last call. The caller copies the frame to the screen now: the record
+    /// keeps the board tiles of this frame as the tiles that the screen shows.
     pub fn take_damage(&mut self) -> Damage {
+        self.shown_tiles = self.known.as_ref().map(|k| ShownTiles { size: k.size, board: k.board, tiles: k.slots.iter().map(|(_, t)| *t).collect() });
+        self.covers = Damage::Areas(Vec::new());
         std::mem::replace(&mut self.damage, Damage::Areas(Vec::new()))
     }
 
-    fn damage(&mut self, a: Area) {
-        if let Damage::Areas(v) = &mut self.damage {
-            if v.len() >= MAX_DAMAGE {
-                self.damage = Damage::All;
-            } else if v.last().is_none_or(|l| !l.contains(&a)) {
-                v.push(a);
-            }
+    /// True if the pen waveform of the ink patch can show the change of the board cell `cell` since
+    /// the last copy of the frame to the screen (R§14.4): the cell is an empty cell on the screen and
+    /// in the frame, with the same micro-cell lines, thus only its pencil marks, its x or the ink
+    /// changed (black or gray15 on white, as the ink). False when the cell has a number or a "?"
+    /// (gray40), when the lines changed, when a panel, a dialog or a different screen covers it, or
+    /// when the record does not know the frame or the screen. Then the change needs the UI waveform.
+    pub fn cell_change_shows_with_pen(&self, cell: crate::game::Cell) -> bool {
+        let (Some(k), Some(shown)) = (&self.known, &self.shown_tiles) else { return false };
+        if shown.size != k.size || shown.board != k.board {
+            return false;
         }
+        let Some(i) = cells().position(|c| c == cell) else { return false };
+        let (slot, tile) = &k.slots[i];
+        let covered = match &self.covers {
+            Damage::All => true,
+            Damage::Areas(v) => v.iter().any(|a| a.overlaps(slot)),
+        };
+        !covered && CellLook::pen_waveform_shows(shown.tiles[i].and_then(|t| t.5), tile.and_then(|t| t.5))
+    }
+
+    fn damage(&mut self, a: Area) {
+        push_bounded(&mut self.damage, a);
     }
 
     /// The frame has pixels that the record does not know.
     fn forget(&mut self) {
         self.known = None;
         self.damage = Damage::All;
+        self.covers = Damage::All;
     }
 
-    /// A drawing (not a board tile) changed the pixels of `a`.
-    fn touch(&mut self, a: Area) {
+    /// A drawing (not a board tile) changed the pixels of `a`. `ink`: the drawing is ink of the pen,
+    /// which the pen waveform shows (refer to `cell_change_shows_with_pen`).
+    fn touch(&mut self, a: Area, ink: bool) {
         self.damage(a);
+        if !ink {
+            push_bounded(&mut self.covers, a);
+        }
         if let Some(k) = &mut self.known {
             if k.marks.last().is_none_or(|l| !l.contains(&a)) {
                 k.marks.push(a);
@@ -200,6 +238,17 @@ impl FrameRecord {
                 let all = k.marks.iter().skip(1).fold(k.marks[0], |b, m| b.union(m));
                 k.marks = vec![all];
             }
+        }
+    }
+}
+
+/// Adds `a` to the areas of `d`. With more than MAX_DAMAGE areas, `d` becomes `Damage::All`.
+fn push_bounded(d: &mut Damage, a: Area) {
+    if let Damage::Areas(v) = d {
+        if v.len() >= MAX_DAMAGE {
+            *d = Damage::All;
+        } else if v.last().is_none_or(|l| !l.contains(&a)) {
+            v.push(a);
         }
     }
 }
@@ -232,22 +281,36 @@ fn stroke(w: f32, round: bool) -> Stroke {
 
 impl<'a> Canvas<'a> {
     pub fn new(pm: &'a mut Pixmap, fonts: &'a Fonts) -> Canvas<'a> {
-        Canvas { pm, fonts, units: Units::Screen, record: None, top: 0 }
+        Canvas { pm, fonts, units: Units::Screen, record: None, top: 0, ink: false }
     }
 
     /// A canvas that keeps `record` (refer to [`FrameRecord`]). All drawings on `pm` after the first
     /// drawing with `record` must use the same record.
     pub fn retained(pm: &'a mut Pixmap, record: &'a mut FrameRecord, fonts: &'a Fonts) -> Canvas<'a> {
-        Canvas { pm, fonts, units: Units::Screen, record: Some(record), top: 0 }
+        Canvas { pm, fonts, units: Units::Screen, record: Some(record), top: 0, ink: false }
     }
 
     /// Records that a drawing in the box `b` (screen px), with `margin` px more on each side, can
     /// change pixels.
     fn touched(&mut self, b: SkRect, margin: f32) {
         let (w, h) = (self.pm.width(), self.pm.height());
+        let ink = self.ink;
         if let (Some(rec), Some(a)) = (self.record.as_deref_mut(), Area::around(b, margin, w, h)) {
-            rec.touch(a);
+            rec.touch(a, ink);
         }
+    }
+
+    /// Draws one stroke of the ink of the pen (`INK_WIDTH`, black): a dot for one point, else a line
+    /// with round ends. The ink is not a drawing that covers a board cell (refer to
+    /// `FrameRecord::cell_change_shows_with_pen`).
+    pub fn ink(&mut self, stroke: &[(f32, f32)]) {
+        self.ink = true;
+        match stroke {
+            [] => {}
+            [(x, y)] => self.circle(*x, *y, 2.5, Some(BLACK), None),
+            _ => self.polyline(stroke, INK_WIDTH, BLACK, true),
+        }
+        self.ink = false;
     }
 
     /// Records that a drawing can change all pixels.
@@ -662,11 +725,7 @@ fn draw_game(c: &mut Canvas, app: &App) {
     // Ink that waits for the recognition pause, and the stroke that the pen draws now.
     let ink = app.ui.pending_ink.iter().flat_map(|i| i.strokes.iter()).chain(app.live_stroke.iter());
     for s in ink {
-        if s.len() == 1 {
-            c.circle(s[0].0, s[0].1, 2.5, Some(BLACK), None);
-        } else if s.len() > 1 {
-            c.polyline(s, INK_WIDTH, BLACK, true);
-        }
+        c.ink(s);
     }
 
     // The difficulty meter, or "Completed in" (CMP-4, DIF-6).
@@ -744,7 +803,7 @@ fn put_overlay(c: &mut Canvas, look: OverlayLook, draw: impl FnOnce(&mut Canvas)
     if let Some(areas) = copied {
         let rec = c.record.as_deref_mut().unwrap();
         for a in areas {
-            rec.touch(a);
+            rec.touch(a, false);
         }
         return;
     }
@@ -789,6 +848,16 @@ enum CellLook {
     /// An empty cell with its pencil marks, the color of its micro-cell lines (None: no lines) and the
     /// digit of the micro-cell that shows the x of a refused tap (None: no x).
     Empty(crate::game::Marks, Option<Rgb>, Option<u8>),
+}
+
+impl CellLook {
+    /// True if the pen waveform of the ink patch can show the change of a cell from the look `from`
+    /// to the look `to` (R§14.4): the two are empty cells with the same micro-cell lines, thus only
+    /// the pencil marks and the x differ (gray15 on white, as the ink). A number with its color, the
+    /// "?" (gray40) and a change of the lines need the UI waveform. None is the band of the board.
+    fn pen_waveform_shows(from: Option<CellLook>, to: Option<CellLook>) -> bool {
+        matches!((from, to), (Some(CellLook::Empty(_, a, _)), Some(CellLook::Empty(_, b, _))) if a == b)
+    }
 }
 
 /// The temporary items on the board (§3.2): the digit of the highlight, the cell of the "?", and the
@@ -1125,7 +1194,7 @@ fn draw_board_stripes(c: &mut Canvas, (ax, ay, aw, ah): (usize, usize, usize, us
                     let top = y0 - STRIPE_MARGIN.min(y0);
                     let mut pm = Pixmap::new(fw, (y0 - top + h + STRIPE_MARGIN) as u32).unwrap();
                     pm.fill(tiny_skia::Color::WHITE);
-                    let mut s = Canvas { pm: &mut pm, fonts, units: Units::Screen, record: None, top: top as i32 };
+                    let mut s = Canvas { pm: &mut pm, fonts, units: Units::Screen, record: None, top: top as i32, ink: false };
                     for &(cell, look) in looks {
                         let (x, y) = cell_origin(cell);
                         draw_cell(&mut s, look, x as f32, y as f32);

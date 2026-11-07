@@ -896,3 +896,58 @@ The owner then asked: "yes please update the manual. include a note that states 
 the pen so that resting your hand on the device doesn't close it by accident". Page 1 of the manual now has the
 note "Only the pen closes the game. Thus your hand cannot close it by accident." below the close button. The owner
 examined the page on the tablet, in portrait and in landscape, and approved it.
+
+### Owner request: the re-render policy and the pen area at each pen down, 2026-11-07
+
+The owner asked (autonomous work, no questions, no install on the tablet): "lets refactor how
+re-renders happen." Immediate: "adding/removing a pencil mark", "writing the pen ink", "opening/closing
+the menu or sub menus". Batched until the 1 s idle timeout: "writing numbers in cells". Highlights "as
+it currently is". "re-rendering should _not_ block ink writing." "the ink must be smooth from the
+moment the pen touches the cell ... start the pen area at every pen down on an empty cell, also for a
+tap". "a pencil mark tap must be fast: the mark or the x goes to the screen at the pen lift with the
+pen waveform, inside the pen area, not after the area stopped". "after a tap, only the micro-cell of
+the mark may refresh, not the entire cell. xochitl refreshes the full pen area when the area stops or
+changes size, so do not try a smaller area at the lift". "the ink of a tap must go away when the mark
+shows". Beads issue: remarkable-sudoku-c2m. The change is in REQUIREMENTS.md (§5.1, §14.4) and
+INVARIANTS.md (INP-2, INP-24).
+
+**The owner has not examined this change on the tablet.** No item below is a device result.
+
+What changed:
+
+| Item | Before | After |
+|---|---|---|
+| The start of the pen area | The first stroke of a session: when the pen left the micro-cell. A tap at that time: no area. While the player wrote: at the pen down. | Each pen press on an empty cell: at the pen down, also a tap and also the first stroke. |
+| The area after a pen lift | It stopped when no ink waited and the pen did not write (a tap: at the lift). | It stays on its cell. It moves at a press on a different empty cell. It stops only before a redraw that needs the UI waveform in its cell (a number, a "?", other micro-cell lines, a panel, a dialog or a different screen over the cell), when its cell becomes filled, or at a turn. |
+| The mark or the x of a tap | After the area stopped (45 ms), with a refresh of the full cell that showed the ink dot of the tap. | At the pen lift, inside the area, with the pen waveform, only the changed pixels of the micro-cell, together with the removal of the ink dot. A tap shorter than 45 ms: the mark waits until the patch applied the area. |
+| The end of the x | A redraw with the UI waveform. | Inside the area, in the micro-cell, if the area is still on that cell. |
+| The number of a written cell | After the writing stops: the area stops, 45 ms, then the redraw. | The same. |
+| The menu and the panels | At once. | At once. A panel over the cell of the area: the area stops first (45 ms). |
+
+How the area avoids a refresh of the full cell after a tap: the area does not change at the lift.
+xochitl refreshes the old area and the new area of the pen area at each start, stop or move, also
+when no pixel in them changed, and the ink patch cannot avoid this. Thus the only way to avoid the
+refresh is to change the area as rarely as possible. The refresh of the full cell still occurs when
+the area moves to the next cell or stops before a number: these refreshes existed before this change.
+
+The rule for the stop before a redraw: the pen waveform shows black and gray15 on white (the ink, the
+pencil marks and the x). A number with its color, the "?" (gray40), other micro-cell lines, and a
+panel over the cell need the UI waveform. `render::FrameRecord::cell_change_shows_with_pen` compares the
+board tile of the cell on the screen with the tile in the frame, and it looks for a drawing that is
+not ink over the cell since the last copy of the frame to the screen.
+
+Tests changed because the behavior changed: the first stroke of a session and a tap start the area at
+the pen down (`tests/inv_input.rs`, `tests/behavior.rs`, `tests/properties.rs`, `src/present.rs`); the
+mark of a fast tap waits for the area (`src/present.rs`); a tap with the pen area not in use
+(`tests/inv_render.rs`: the assertion that the app starts no area is removed). `Presenter::reset` takes
+the time (`tests/render.rs`).
+
+Not done: the bench baselines are not saved (the owner asked that the bench runs only on request). The
+output hashes of the updates of the bench script change with this change. `make test-linux` passed.
+
+Items to examine on the tablet: the first ink of a stroke (no lag at the start of a stroke, also the
+first stroke of a session); a tap on a mark and on a hidden mark (the mark or the x at the lift, only
+the micro-cell refreshes, no ink dot stays); a tap, then writing in a different cell (the old cell
+refreshes when the area moves); the end of the x; a tap, then a panel that covers the cell; a number
+after a tap in the same cell; a turn of the tablet with the area on; the update log of xochitl for the
+`pen (ui)` updates of the marks.

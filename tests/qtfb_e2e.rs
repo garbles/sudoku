@@ -166,8 +166,8 @@ fn the_executable_operates_through_qtfb() {
     server.touch_tap(1563, 55);
     assert!(wait_until(|| server.pixel(38, 55) != [255, 255, 255]), "the close button shows");
 
-    // The close button: the app saves and stops.
-    server.touch_tap(55, 55);
+    // The close button: only the pen operates it (NAV-6). The app saves and stops.
+    server.pen_tap(55, 55);
     let status = loop {
         if let Some(s) = child.try_wait().unwrap() {
             break s;

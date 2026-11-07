@@ -308,9 +308,9 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
   that starts on a **filled cell** shows no ink and starts no pen area ([§14.4](#144-launcher)). This
   includes a tap on a number and a stroke that starts on a number. A stroke that starts on an empty cell
   and crosses a filled cell still shows ink. The corpus build still logs the strokes that do not show
-  (owner approval 2026-11-07). After a tap that has no effect (for example a
-  mark that a peer hides), a redraw removes the ink (owner decision 2026-11-02). If §6.1 refuses the
-  tap, the x shows at the pen lift, not at the pen down (owner approval 2026-11-04).
+  (owner approval 2026-11-07). The ink of a tap goes away when its mark or its x shows, at the pen
+  lift (owner request 2026-11-07). If §6.1 refuses the tap, the x shows at the pen lift, not at the pen
+  down (owner approval 2026-11-04).
 - **Writing** is a pen stroke that is not a tap. The app collects the strokes in one cell until the
   pen is lifted for the **recognition pause of 1 s**. The pause starts at the pen lift, and a new stroke
   in the same cell stops it. Thus a number with more than one stroke (for example 4, 5 or 7) is correct
@@ -1529,19 +1529,30 @@ reads it each 15 ms:
 - While the player writes in a cell, the area is the inside of that cell, aligned inward to 4 px.
   It does not touch the cells around it, because xochitl refreshes the full area when it starts and
   when it stops.
-- The first stroke of a session: the area starts when the pen leaves the micro-cell. A tap at this
-  time does not start the area: its ink goes with the UI waveform, and its pencil mark shows immediately
-  (owner request 2026-11-02).
-- While the player writes (ink waits, or the 1 s idle time runs), a pen press on an empty cell starts
-  the area at the pen down, with no stop between the cells. A tap on an empty cell in this time also
-  starts the area. Its mark or x comes after the area stops (45 ms, then a refresh of the cell). A tap
-  ends the chain: no idle time starts, thus the next press has the normal start (owner approval 2026-11-07). The
-  owner tried taps and did not reject this. Measured with the update log of xochitl: 52 to 56 ms from the
-  pen down to the first ink of a later stroke, with the pen waveform; approximately 135 ms for the first
-  stroke of a session (DECISIONS.md).
+- Each pen press on an empty cell starts the area at the pen down, also a tap and also the first
+  stroke of a session: the ink is smooth from the moment the pen touches the cell. A press on a
+  different empty cell moves the area to that cell at the pen down, with no stop between the cells
+  (owner request 2026-11-07; before, the first stroke of a session started the area when the pen left
+  the micro-cell, and a tap at that time did not start it). Measured with the update log of xochitl
+  before this change: 52 to 56 ms from the pen down to the first ink of a stroke that starts the area
+  at the pen down, with the pen waveform (DECISIONS.md).
+- A tap on an empty cell: its mark or its x goes to the screen at the pen lift, inside the area, with
+  the pen waveform, and the ink of the tap goes away with it. Only the changed pixels go, inside the
+  micro-cell. The area does not stop and does not change at the lift: xochitl refreshes the full area
+  when it stops or when it changes, and this would refresh the full cell and show the ink of the tap
+  again (owner request 2026-11-07). A tap that is shorter than the time that the patch needs to apply
+  the area (45 ms): the mark waits for that time.
+- The area stays on its cell when the pen lifts. It changes only in these cases: a pen press on a
+  different empty cell moves it (above); a redraw that needs the UI waveform inside the cell stops it
+  first (a number or a "?" in the cell, a change of the micro-cell lines, a panel, a dialog or a
+  different screen over the cell): the redraw goes when the patch applied the stop (45 ms); the cell
+  becomes filled (a Redo or a Restore): the area stops at once; a turn of the tablet stops it. The pen
+  waveform shows the pencil marks, the x and the ink of the cell (black or gray15 on white): a redraw
+  with only these changes in the cell goes with the area on. Thus the end of the x also goes inside
+  the area, in the micro-cell. The area never covers a filled cell (owner request 2026-11-07).
 - A pen touch that starts on a filled cell starts no area ([§5.1](#51-rules); owner approval 2026-11-07).
-- The ink waits until the patch can apply a new area (45 ms). A redraw waits until the area stopped
-  (45 ms), so that colored cells get the UI waveform.
+- The ink waits until the patch can apply a new area (45 ms). A redraw also waits for it, so that a mark
+  gets the pen waveform and colored cells get the UI waveform.
 - While the player writes, a redraw waits. The writing starts with the first stroke on the board.
   It stops when the app has read the last ink and the pen has written nothing on the board for
   **1 s** after the last stroke (one timer for all cells: each new stroke starts it again). This

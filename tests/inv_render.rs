@@ -1106,8 +1106,8 @@ fn the_x_stays_on_its_cell_and_digit_after_a_turn() {
 fn the_framebuffer_shows_the_x_and_then_the_old_pixels() {
     // MRK-13, MRK-14, §15: the real output (`present.rs`) in all layouts. After the lift, only the pixels
     // of the x change in the framebuffer, with an update that covers them. After the time of the x,
-    // the framebuffer is the same as before, with an update. The pen region is not active: a tap
-    // does not start it, thus the redraw does not wait.
+    // the framebuffer is the same as before, with an update. The pen region is not in use here
+    // (the ink patch is not active), thus the redraw does not wait for it.
     use sudoku::present::{Presenter, Update};
     let fonts = fonts();
     let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
@@ -1135,7 +1135,6 @@ fn the_framebuffer_shows_the_x_and_then_the_old_pixels() {
             let (x, y) = micro_center(cell, digit);
             d.send(Input::PenDown { x, y, tool: Tool::Pen });
             p.present(&mut d.app, &fonts, &mut fb, d.now, |u| updates.push(u));
-            assert!(d.app.writing_stroke().is_none(), "{what}: a tap started the pen region");
             d.send(Input::PenUp { x, y });
             let lift = d.now;
             assert_eq!(d.app.ui.refused, Some((cell, digit, lift)), "{what}");

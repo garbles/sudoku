@@ -414,7 +414,7 @@ pub fn run() -> Result<(), String> {
                     if r.clamp(0, 3) != crate::layout::rotation() {
                         crate::layout::set_rotation(r);
                         app.rotate(render::ng_stops(&fonts));
-                        presenter.reset();
+                        presenter.reset(now_ms());
                     }
                 }
                 Ok(Some(qtfb::Event::Input(m))) => {

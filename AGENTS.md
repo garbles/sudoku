@@ -206,7 +206,10 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   board tiles that changed and the areas of the other drawings, and the copy compares only the
   damaged rows. Each drawing on the frame must use `Canvas::retained` with the same record (debug
   builds examine it after each copy). In portrait, a large copy goes in bands of rows on up to 4
-  threads. The rotation is a value of each thread: the code of a band must not use it.
+  threads. The rotation is a value of each thread: the code of a band must not use it. The pen area
+  of the ink patch (R§14.4) follows `App::pen_cell` and stays on its cell after a pen lift; it stops
+  only before a redraw that needs the UI waveform in its cell (`FrameRecord::cell_change_shows_with_pen`),
+  when its cell becomes filled, or at a turn.
 - `invariants.rs`: checks of the rules in INVARIANTS.md. Debug builds check them after each input.
 - `layout.rs`, `render.rs`, `font.rs`: positions, drawing (tiny-skia) and the font of the tablet.
   `render.rs` keeps the pixels of each board cell in a cache (tiles at their true position). Each

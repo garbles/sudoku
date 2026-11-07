@@ -195,11 +195,10 @@ enum Gesture {
     Ignored,
     /// A press on a control. The action occurs on the release if the touch is still on the control.
     Control(Target),
-    /// A pen press on an empty cell. It is a tap while it stays in the micro-cell. It shows ink.
-    /// `starts_area`: the player was writing at the press, thus the pen area starts at the pen down
-    /// (INP-24). Else the area starts when the touch becomes writing (INP-2). `highlight_at_press`: refer
-    /// to `App::board_tap`.
-    BoardTap { cell: Cell, digit: u8, starts_area: bool, highlight_at_press: Option<u8> },
+    /// A pen press on an empty cell. It is a tap while it stays in the micro-cell. It shows ink, and
+    /// the pen area covers its cell from the pen down (INP-24). `highlight_at_press`: refer to
+    /// `App::board_tap`.
+    BoardTap { cell: Cell, digit: u8, highlight_at_press: Option<u8> },
     /// Writing in an empty cell. The stroke goes into the pending ink.
     Writing,
     /// The touch started on an empty cell, and a finger Redo filled that cell before the pen left the
@@ -448,19 +447,22 @@ impl App {
         matches!(self.pen, Some(Gesture::FilledTap { .. } | Gesture::FilledStroke { .. }))
     }
 
-    /// The live stroke if it starts the pen region (`present::wanted_region`). This is a stroke that is
-    /// writing, or a press at a time when the player writes (INP-24). While the pen stays in the
-    /// micro-cell where it touched the board, the touch can still be a tap (INP-2): then None if the
-    /// player did not write at the press. The ink of the live stroke shows also during a tap. The
-    /// region never starts on a filled cell (INP-22), also when a finger Redo fills the cell of the
-    /// touch.
+    /// The cell that the pen area must cover now (R§14.4, `present::Presenter`): the cell of the
+    /// waiting ink, or the empty cell of the pen touch in progress, from the pen down (INP-24), also
+    /// while the touch can still be a tap (INP-2). None when the pen is not on an empty cell and no
+    /// ink waits: then the presenter decides what the area does. The area never covers a filled cell
+    /// (INP-22), also when a finger Redo fills the cell of the touch.
+    pub fn pen_cell(&self) -> Option<Cell> {
+        match &self.pen {
+            Some(Gesture::BoardTap { cell, .. }) if !self.game.is_filled(*cell) => Some(*cell),
+            _ => self.ui.pending_ink.as_ref().map(|i| i.cell),
+        }
+    }
+
+    /// The live stroke while it is in the cell of the pen area (`pen_cell`): the ink that gets the
+    /// pen waveform. The ink of the live stroke shows also during a tap.
     pub fn writing_stroke(&self) -> Option<&Stroke> {
-        let starts_region = match &self.pen {
-            Some(Gesture::Writing) => true,
-            Some(Gesture::BoardTap { cell, starts_area, .. }) => *starts_area && !self.game.is_filled(*cell),
-            _ => false,
-        };
-        self.live_stroke.as_ref().filter(|_| starts_region)
+        self.live_stroke.as_ref().filter(|_| self.pen_cell().is_some())
     }
 
     /// The tablet turned. The positions of ink and of touches are not correct now: the app removes the
@@ -618,9 +620,8 @@ impl App {
             };
         }
 
-        // These values are from before the press reads the ink and stops the writing timer: INP-24, and
-        // the toggle of a tap on a number (`board_tap`).
-        let player_writes = self.player_writes();
+        // This value is from before the press reads the ink: the toggle of a tap on a number
+        // (`board_tap`).
         let highlight_at_press = self.ui.highlight;
 
         // A press on the cell of the waiting ink, on the game screen with no panel.
@@ -657,7 +658,7 @@ impl App {
         }
 
         match self.screen {
-            Screen::Game => self.press_game(x, y, tool, player_writes, highlight_at_press),
+            Screen::Game => self.press_game(x, y, tool, highlight_at_press),
             Screen::Manual | Screen::Statistics | Screen::GamesList => {
                 let target = self.page_target(x, y);
                 if tool.is_none() && self.screen != Screen::Statistics {
@@ -669,7 +670,7 @@ impl App {
         }
     }
 
-    fn press_game(&mut self, x: f32, y: f32, tool: Option<Tool>, player_writes: bool, highlight_at_press: Option<u8>) -> Gesture {
+    fn press_game(&mut self, x: f32, y: f32, tool: Option<Tool>, highlight_at_press: Option<u8>) -> Gesture {
         let button = layout::game_button(x, y, self.ui.menu.is_open());
 
         // A panel is open: a tap outside the panel only closes the panel (NAV-11). The panel buttons (the
@@ -738,7 +739,7 @@ impl App {
             Tool::Pen if self.game.is_filled(cell) => Gesture::FilledTap { cell, digit, stroke: vec![(x, y)], highlight_at_press },
             Tool::Pen => {
                 self.start_live_stroke(x, y);
-                Gesture::BoardTap { cell, digit, starts_area: player_writes, highlight_at_press }
+                Gesture::BoardTap { cell, digit, highlight_at_press }
             }
         }
     }

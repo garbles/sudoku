@@ -269,7 +269,7 @@ fn a_turn_from_portrait_to_landscape_shows_the_landscape_screen() {
     // presenter starts with a new frame.
     sudoku::layout::set_orientation(sudoku::layout::Orientation::Landscape);
     app.rotate(sudoku::render::ng_stops(&fonts));
-    presenter.reset();
+    presenter.reset(100);
     let mut updates = Vec::new();
     for step in 0..100 {
         presenter.present(&mut app, &fonts, &mut fb, 100 + step * 30, |u| updates.push(u));

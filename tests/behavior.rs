@@ -5543,7 +5543,7 @@ fn a_stroke_from_an_empty_cell_over_a_filled_cell_shows_ink() {
         let (x0, y0) = micro_center(from, 5);
         let (x1, y1) = micro_center(over, 5);
         d.send(Input::PenDown { x: x0, y: y0, tool: Tool::Pen });
-        assert!(d.app.writing_stroke().is_none(), "INP-2: the first stroke of a session ({case})");
+        assert_eq!(d.app.pen_cell(), Some(from), "INP-24: the pen area from the pen down ({case})");
         for k in 1..=10 {
             let t = k as f32 / 10.0;
             d.send(Input::PenMove { x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t });
@@ -5614,10 +5614,10 @@ fn a_finger_redo_that_fills_the_cell_of_the_touch_stops_the_pen_area() {
 // ---- INP-2, INP-24: the ink start.
 
 #[test]
-fn while_the_player_writes_a_press_on_an_empty_cell_starts_the_pen_area_at_the_pen_down() {
-    // INP-2, INP-24, INP-16, INP-21. The first stroke of a session: the area starts when the pen leaves
-    // the micro-cell. Later strokes: at the pen down, with ink waiting or with the timer. A tap ends the
-    // chain. All layouts.
+fn a_press_on_an_empty_cell_starts_the_pen_area_at_the_pen_down() {
+    // INP-2, INP-24, INP-16, INP-21. Each pen press on an empty cell starts the area at the pen down:
+    // the first stroke of a session, a stroke with ink waiting or with the timer, a tap, and a press
+    // after a tap. All layouts.
     for_each_layout(|case| {
         let mut d = Driver::new(470);
         let empties: Vec<Cell> = cells().filter(|&c| !d.app.game.is_filled(c)).collect();
@@ -5627,20 +5627,20 @@ fn while_the_player_writes_a_press_on_an_empty_cell_starts_the_pen_area_at_the_p
         // The first stroke.
         let (x, y) = micro_center(a, 1);
         d.send(Input::PenDown { x, y, tool: Tool::Pen });
-        assert!(d.app.writing_stroke().is_none(), "INP-2: the first stroke ({case})");
+        assert_eq!(d.app.pen_cell(), Some(a), "INP-24: the first stroke ({case})");
+        assert_eq!(d.app.live_stroke.as_ref().map(|s| s[0]), Some((x, y)), "INP-24: from the pen down ({case})");
         let (x1, y1) = micro_center(a, 9);
         d.send(Input::PenMove { x: x1, y: y1 });
         assert!(d.app.writing_stroke().is_some(), "INP-2: the pen left the micro-cell ({case})");
         d.send(Input::PenUp { x: x1, y: y1 });
+        assert_eq!(d.app.pen_cell(), Some(a), "INP-24: the cell of the waiting ink ({case})");
 
         // Ink waits: the next press on a different empty cell. The press reads the ink of `a`.
         let (x, y) = micro_center(b, 1);
         d.send(Input::PenDown { x, y, tool: Tool::Pen });
-        assert!(d.app.writing_stroke().is_some(), "INP-24: with ink ({case})");
-        assert_eq!(d.app.live_stroke.as_ref().map(|s| s[0]), Some((x, y)), "INP-24: from the pen down ({case})");
+        assert_eq!(d.app.pen_cell(), Some(b), "INP-24: with ink ({case})");
         let (x1, y1) = micro_center(b, 9);
         d.send(Input::PenMove { x: x1, y: y1 });
-        assert!(d.app.writing_stroke().is_some(), "INP-24 ({case})");
         d.send(Input::PenUp { x: x1, y: y1 });
         assert!(d.app.ui.pending_ink.is_some(), "{case}");
 
@@ -5650,15 +5650,16 @@ fn while_the_player_writes_a_press_on_an_empty_cell_starts_the_pen_area_at_the_p
         d.send(Input::TouchUp { id: 1, x: fx, y: fy });
         let (x, y) = micro_center(c, 5);
         d.send(Input::PenDown { x, y, tool: Tool::Pen });
-        assert!(d.app.writing_stroke().is_some(), "INP-24, INP-21: after a finger ({case})");
+        assert_eq!(d.app.pen_cell(), Some(c), "INP-24, INP-21: after a finger ({case})");
 
-        // A tap in this time also starts the area. Its mark comes at the lift, and it ends the chain.
+        // A tap: its mark or x comes at the lift, and it starts no timer. The next press starts the
+        // area again at its pen down.
         d.send(Input::PenUp { x, y });
-        assert!(d.app.writing_stroke().is_none(), "{case}");
+        assert!(d.app.pen_cell().is_none(), "{case}");
         assert!(d.app.game.marks_at(c) == mark_bit(5) || d.app.ui.refused.is_some(), "INP-24: the mark or the x at the lift ({case})");
         assert!(!d.app.is_writing(), "INP-24: a tap starts no timer ({case})");
         d.send(Input::PenDown { x, y, tool: Tool::Pen });
-        assert!(d.app.writing_stroke().is_none(), "INP-24, INP-2: the start after a tap ({case})");
+        assert_eq!(d.app.pen_cell(), Some(c), "INP-24: the press after a tap ({case})");
         d.send(Input::PenUp { x, y });
 
         // The timer with no ink: a stroke from a filled cell. A press on an empty cell starts the area.
@@ -5667,17 +5668,17 @@ fn while_the_player_writes_a_press_on_an_empty_cell_starts_the_pen_area_at_the_p
         assert!(d.app.ui.pending_ink.is_none() && d.app.is_writing(), "{case}");
         let (x, y) = micro_center(empties[3], 1);
         d.send(Input::PenDown { x, y, tool: Tool::Pen });
-        assert!(d.app.writing_stroke().is_some(), "INP-24: with the timer ({case})");
+        assert_eq!(d.app.pen_cell(), Some(empties[3]), "INP-24: with the timer ({case})");
         let (x1, y1) = micro_center(empties[3], 9);
         d.send(Input::PenMove { x: x1, y: y1 });
         d.send(Input::PenUp { x: x1, y: y1 });
 
-        // After the end of the pause and of the timer: the start of a first stroke.
+        // After the end of the pause and of the timer: the same start.
         d.wait(d.app.pause_ms);
         assert!(!d.app.is_writing(), "INP-16 ({case})");
         let (x, y) = micro_center(empties[4], 1);
         d.send(Input::PenDown { x, y, tool: Tool::Pen });
-        assert!(d.app.writing_stroke().is_none(), "INP-2: a new session ({case})");
+        assert_eq!(d.app.pen_cell(), Some(empties[4]), "INP-24: a new session ({case})");
         d.send(Input::PenUp { x, y });
     });
 }
