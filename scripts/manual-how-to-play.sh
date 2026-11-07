@@ -28,10 +28,11 @@ filled 742 1120 4 "" $ENTRY_FG
 text 539 1425 34 gray25 middle "Starting number"
 text 864 1425 34 gray25 middle "Your number"
 
-text 72 1540 50 black start "Buttons"
-echo "fill none stroke black stroke-width 5 stroke-linecap round line 103,1599 121,1617 line 121,1599 103,1617" >> $M
-echo "fill none stroke black stroke-width 5 circle 112,1608 140,1608" >> $M
-text 180 1622 38 gray25 start "Close the game (top left, only when the menu is open)"
+text 72 1505 50 black start "Buttons"
+echo "fill none stroke black stroke-width 5 stroke-linecap round line 103,1564 121,1582 line 121,1564 103,1582" >> $M
+echo "fill none stroke black stroke-width 5 circle 112,1573 140,1573" >> $M
+text 180 1587 38 gray25 start "Close the game (top left, only when the menu is open)"
+text 180 1634 34 gray25 start "Only the pen closes the game. Thus your hand cannot close it by accident."
 echo "fill none stroke black stroke-width 5 circle 112,1698 140,1698 fill black stroke none circle 103,1707 109,1707" >> $M
 text 180 1712 38 gray25 start "Open the menu (top right). Page 7 tells about the menu."
 

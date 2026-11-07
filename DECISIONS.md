@@ -877,3 +877,22 @@ Rejected values and alternatives, 2026-11-07:
 | Source of the pause | Keep it in the manifest | Not selected. |
 
 The older sections stay as a record. Their pause of 0.5 s and their highlight rules are history.
+
+### Owner request: only the pen operates the close button, 2026-11-06
+
+The owner asked: "only allow the app close button to be triggered by the pen".
+
+The owner examined the dev build `dev/close-pen-only` on the tablet and approved it: a finger on the close
+button does not close the app, the pen closes the app, and a finger on the close button with an open panel
+only closes the panel.
+
+Details that follow from the existing rules, not examined one by one on the tablet:
+
+- The eraser end is a part of the pen, thus it also closes the app.
+- A finger press on the close button removes the "?" and the x, as each press does (QST-4, MRK-15).
+- The close button of the color picker (`Sudoku (colors)`) does not change. It is a separate development tool.
+
+The owner then asked: "yes please update the manual. include a note that states that you can only close it with
+the pen so that resting your hand on the device doesn't close it by accident". Page 1 of the manual now has the
+note "Only the pen closes the game. Thus your hand cannot close it by accident." below the close button. The owner
+examined the page on the tablet, in portrait and in landscape, and approved it.

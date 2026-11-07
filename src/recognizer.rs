@@ -230,8 +230,6 @@ struct Recognizer {
     /// The features of block b, value j, lane l are at (b * DIM + j) * LANES + l. The lanes after the
     /// last example are zero.
     blocks: Vec<f32>,
-    /// Refer to ALPHA.
-    pub alpha: f32,
 }
 
 /// The result of the match.
@@ -282,7 +280,7 @@ impl Recognizer {
                 blocks[(b * DIM + j) * LANES + l] = v;
             }
         }
-        Recognizer { classes, blocks, alpha: ALPHA }
+        Recognizer { classes, blocks }
     }
 
     pub fn read(&self, strokes: &[Stroke]) -> Option<u8> {
@@ -292,7 +290,7 @@ impl Recognizer {
     /// `read` with `threads` ranges of the examples (the same result for each quantity).
     fn read_in(&self, strokes: &[Stroke], threads: usize) -> Option<u8> {
         let m = self.matches_in(strokes, threads)?;
-        (m.digit_distance <= self.alpha * m.other_distance).then_some(m.digit)
+        (m.digit_distance <= ALPHA * m.other_distance).then_some(m.digit)
     }
 
     /// The nearest examples, or None if the ink is not one character (too small, two characters side
@@ -952,7 +950,7 @@ mod tests {
                 blocks[(i / LANES * DIM + j) * LANES + i % LANES] = v;
             }
         }
-        Recognizer { classes: items.iter().map(|i| i.0).collect(), blocks, alpha: ALPHA }
+        Recognizer { classes: items.iter().map(|i| i.0).collect(), blocks }
     }
 
     #[test]
@@ -1013,46 +1011,6 @@ mod tests {
                 assert_eq!((m.digit, m.digit_distance), (s.class, 0.0), "position {position}, {threads} ranges");
                 assert!(m.other_distance > 0.0, "position {position}, {threads} ranges");
             }
-        }
-    }
-
-    #[test]
-    #[ignore]
-    fn per_digit() {
-        let (r, test) = split();
-        let mut table = [[0usize; 11]; 10];
-        for s in test.iter().filter(|s| s.class != 0) {
-            let got = r.read(&place(s)).map(|d| d as usize).unwrap_or(10);
-            table[s.class as usize][got] += 1;
-        }
-        for (d, row) in table.iter().enumerate().skip(1) {
-            let n: usize = row.iter().sum();
-            let misses: Vec<String> = (1..=10)
-                .filter(|&g| g != d && row[g] > 0)
-                .map(|g| format!("{}x{}", row[g], if g == 10 { "?".into() } else { g.to_string() }))
-                .collect();
-            println!("{d}: {}/{n} {}", row[d], misses.join(" "));
-        }
-    }
-
-    #[test]
-    #[ignore]
-    fn tune_alpha() {
-        let (mut r, test) = split();
-        for alpha in [1.2f32, 1.3, 1.4, 1.5, 1.6, 1.8] {
-            r.alpha = alpha;
-            let (mut n, mut ok, mut wrong, mut on, mut rej) = (0, 0, 0, 0, 0);
-            for s in &test {
-                let got = r.read(&place(s));
-                if s.class != 0 {
-                    n += 1;
-                    if got == Some(s.class) { ok += 1 } else if got.is_some() { wrong += 1 }
-                } else {
-                    on += 1;
-                    if got.is_none() { rej += 1 }
-                }
-            }
-            println!("alpha {alpha}: {:.1}% correct, {:.1}% wrong digit, {:.1}% others rejected", 100.0 * ok as f64 / n as f64, 100.0 * wrong as f64 / n as f64, 100.0 * rej as f64 / on as f64);
         }
     }
 

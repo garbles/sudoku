@@ -295,7 +295,8 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
   operates the board. A finger touch removes the "?" and the x at the press, except for a hand touch
   (below). A finger touch does not remove a highlight ([§6.2](#62-highlights); owner approval 2026-11-07).
 - A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs
-  and the screen buttons (for example "< Back"). The pen can also operate these items.
+  and the screen buttons (for example "< Back"). The pen can also operate these items. The close button
+  is the exception: a finger does not close the app ([§9](#9-the-menu); owner approval 2026-11-06).
 - In the manual and the games list, a finger swipe turns the page. Refer to [§12](#12-manual-help) and
   [§13](#13-statistics). A swipe is a horizontal finger movement of 120 px or more, with more
   horizontal than vertical movement.
@@ -791,14 +792,16 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
   under an x. The release removes only the x, not a "?" in a different cell (this follows from the
   owner approval 2026-11-04).
 - When the menu is open, the **close button** shows at the top left (at the top right for a
-  right-handed player, [§3.1](#31-layout)). When no panel is open, a tap on it closes the app. The
-  app then shows the launcher ([§14.4](#144-launcher)). When a panel is open, a tap on it only closes
-  the panel (owner decision 2026-11-02).
+  right-handed player, [§3.1](#31-layout)). When no panel is open, a tap of the pen or of its eraser
+  end on it closes the app. The app then shows the launcher ([§14.4](#144-launcher)). A finger press on
+  it does not operate it: the press only removes the "?" and the x, as each press does, and the app
+  stays open. Reason: a hand on the screen must not close the app (owner approval 2026-11-06). When a
+  panel is open, a tap of the pen or of a finger on it only closes the panel (owner decision 2026-11-02).
 - When a panel is open, its button is white on a black square. The panel touches the button. The
   pop-up menus of the device do the same.
 - A finger operates the menu buttons, the panels, the dialogs and the screen buttons while the app
-  is open. There are two exceptions. When a dialog shows, only its two buttons operate
-  ([§9.2](#92-updates)). A second finger, while the first finger moves or presses (an event less
+  is open. There are three exceptions. A finger does not close the app with the close button (above).
+  When a dialog shows, only its two buttons operate ([§9.2](#92-updates)). A second finger, while the first finger moves or presses (an event less
   than 0.15 s before), operates no item, but it removes the "?" (owner decision 2026-11-02) and the x
   (owner approval 2026-11-04). It does not remove a highlight (owner approval 2026-11-07).
 - A touch that starts less than 150 ms after a pen lift operates no item, and a finger press does not
@@ -1303,7 +1306,7 @@ stateDiagram-v2
 
 | Page | Image | Content |
 |---|---|---|
-| 1 | [`manual-how-to-play.png`](images/manual-how-to-play.png) | The rules (rows, columns, boxes), starting numbers and your numbers, the close and menu buttons, how to turn the pages. |
+| 1 | [`manual-how-to-play.png`](images/manual-how-to-play.png) | The rules (rows, columns, boxes), starting numbers and your numbers, the close and menu buttons, the note that only the pen closes the game, how to turn the pages. |
 | 2 | [`manual-candidates.png`](images/manual-candidates.png) | Micro-cells and pencil marks: how to add and remove them. |
 | 3 | [`manual-pen.png`](images/manual-pen.png) | How to write and erase a number. |
 | 4 | [`manual-pen-rules.png`](images/manual-pen-rules.png) | Taps, finger touches, one number for each cell, writing with no effect, the "?". |

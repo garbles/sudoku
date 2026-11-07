@@ -610,47 +610,6 @@ fn touch_with_two_fingers_uses_only_the_first() {
     assert!(d.app.ui.menu.is_open());
 }
 
-#[test]
-#[ignore]
-fn coverage_of_states() {
-    use proptest::strategy::ValueTree;
-    use proptest::test_runner::TestRunner;
-    let mut runner = TestRunner::deterministic();
-    let mut seen = std::collections::BTreeMap::<&str, usize>::new();
-    for case in 0..96 {
-        let acts = proptest::collection::vec(act(), 1..90).new_tree(&mut runner).unwrap().current();
-        let mut d = Driver::new(case);
-        for a in &acts {
-            run(&mut d, a);
-            d.app.quit = false;
-            let a = &d.app;
-            let mut mark = |k: &'static str, b: bool| if b { *seen.entry(k).or_default() += 1 };
-            mark("completed", a.game.completed);
-            mark("highlight", a.ui.highlight.is_some());
-            mark("highlight+panel", a.ui.highlight.is_some() && a.ui.menu.panel().is_some());
-            mark("highlight+ink", a.ui.highlight.is_some() && a.ui.pending_ink.is_some());
-            mark("ink", a.ui.pending_ink.is_some());
-            mark("question", a.ui.question.is_some());
-            mark("refused", a.ui.refused.is_some());
-            mark("menu", a.ui.menu.is_open());
-            mark("colors", a.ui.menu.panel() == Some(Panel::Colors));
-            mark("newgame", a.ui.menu.panel() == Some(Panel::NewGame));
-            mark("manual", a.screen == Screen::Manual);
-            mark("manual>1", a.manual_page > 1);
-            mark("analytics", a.screen == Screen::Statistics);
-            mark("list", a.screen == Screen::GamesList);
-            mark("confirm", a.list.confirm.is_some());
-            mark("results", !a.results.is_empty());
-            mark("clash", sudoku::game::cells().any(|c| a.game.is_clashing(c)));
-            mark("redo", !a.game.redo.is_empty());
-            mark("mode!=2", a.game.mode != 2);
-            mark("color!=default", a.settings != Default::default());
-            mark("list page>1", a.list.page > 1);
-        }
-    }
-    println!("{seen:#?}");
-}
-
 /// The screen without the ink (the platform draws the ink in parts while the pen writes).
 fn render_without_ink(app: &mut sudoku::app::App, fonts: &sudoku::font::Fonts) -> tiny_skia::Pixmap {
     let pending = app.ui.pending_ink.take();
@@ -1711,7 +1670,7 @@ fn the_release_of_a_button_that_opens_a_panel_or_a_screen_leaves_no_x() {
     // MRK-15, MRK-12, NAV-11: an open panel and a different screen never show an x. The Menu button
     // also does an action: it closes the menu.
     for (landscape, right_handed) in [(false, false), (false, true), (true, false), (true, true)] {
-        for button in [Button::Menu, Button::Colors, Button::Settings, Button::NewGame, Button::Help, Button::Statistics, Button::Close] {
+        for button in [Button::Menu, Button::Colors, Button::Settings, Button::NewGame, Button::Help, Button::Statistics] {
             let _layout = InLayout::set(landscape, right_handed);
             let mut h = Hands::new(Driver::new(403));
             h.d.button(Button::Menu);
@@ -1728,7 +1687,7 @@ fn the_release_of_a_button_that_opens_a_panel_or_a_screen_leaves_no_x() {
                 Button::Colors | Button::Settings | Button::NewGame => h.d.app.ui.menu.panel().is_some(),
                 Button::Help => h.d.app.screen == Screen::Manual,
                 Button::Statistics => h.d.app.screen == Screen::Statistics,
-                _ => h.d.app.quit,
+                _ => unreachable!("this test does not press {button:?}"),
             };
             assert!(opened, "the release of {button:?} does its action");
             assert_eq!(h.d.app.ui.refused, None, "MRK-15, MRK-12: {button:?}");

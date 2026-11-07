@@ -35,10 +35,12 @@ echo "fill none stroke black stroke-width 5 stroke-linecap round line 1003,969 1
 echo "fill none stroke black stroke-width 5 circle 1012,978 1040,978" >> $M
 text 1080 992 38 gray25 start "Close the game (top left, only when"
 text 1080 1042 38 gray25 start "the menu is open)"
-echo "fill none stroke black stroke-width 5 circle 1012,1118 1040,1118 fill black stroke none circle 1003,1127 1009,1127" >> $M
-text 1080 1132 38 gray25 start "Open the menu (top right). Page 7"
-text 1080 1182 38 gray25 start "tells about the menu."
+text 1080 1089 34 gray25 start "Only the pen closes the game. Thus your"
+text 1080 1134 34 gray25 start "hand cannot close it by accident."
+echo "fill none stroke black stroke-width 5 circle 1012,1186 1040,1186 fill black stroke none circle 1003,1195 1009,1195" >> $M
+text 1080 1200 38 gray25 start "Open the menu (top right). Page 7"
+text 1080 1250 38 gray25 start "tells about the menu."
 
-text 1340 1290 30 gray40 middle "To turn the page, swipe left or right with your finger, or tap an arrow."
+text 1340 1305 30 gray40 middle "To turn the page, swipe left or right with your finger, or tap an arrow."
 pagenum 1 9
 render "$1/manual-how-to-play-landscape.png"

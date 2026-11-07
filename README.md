@@ -17,7 +17,8 @@ paper, and it does the work that paper cannot do.
   for a moment. If you turn the pencil mark hiding off, the tap adds or removes the mark, and no x
   shows.
 - Rub one of your numbers with the eraser end of the pen to remove it.
-- Your finger operates the menu and the panels. A finger touch on the board does not add or remove
+- Your finger operates the menu and the panels. Only the pen operates the close button, thus your
+  hand cannot close the app. A finger touch on the board does not add or remove
   a number or a pencil mark.
 
 **Helpers**

@@ -362,6 +362,9 @@ fn menu_and_panels() {
     assert!(!d.app.quit);
     d.button(Button::Menu);
     d.button(Button::Close);
+    assert!(!d.app.quit, "NAV-6: a finger does not close the app");
+    let (x, y) = button_center(Button::Close);
+    d.pen_tap(x, y);
     assert!(d.app.quit && d.app.game_dirty);
 }
 
@@ -721,8 +724,10 @@ fn a_fast_double_tap_on_back_does_not_close_the_app_or_the_menu() {
                 tap_back(&mut d, pen);
                 if right_handed {
                     assert!(!d.app.quit && d.app.ui.menu == Menu::Closed, "NAV-16: the menu button operates again ({case})");
-                } else {
+                } else if pen {
                     assert!(d.app.quit, "NAV-16: the close button operates again ({case})");
+                } else {
+                    assert!(!d.app.quit, "NAV-6: a finger does not close the app ({case})");
                 }
             }
         }
@@ -754,7 +759,13 @@ fn the_toolbar_ignores_all_buttons_shortly_after_back() {
             assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-16 ({case})");
             assert_eq!(board(&d.app.game), board(&game), "NAV-16 ({case})");
             d.wait(50);
-            d.button(b);
+            // Only the pen operates the close button (NAV-6).
+            if b == Button::Close {
+                let (x, y) = button_center(b);
+                d.pen_tap(x, y);
+            } else {
+                d.button(b);
+            }
             let changed = d.app.quit || d.app.screen != Screen::Game || d.app.ui.menu != Menu::Open(None) || board(&d.app.game) != board(&game);
             assert!(changed, "NAV-16: the button operates after the time ({case})");
         }
@@ -1731,7 +1742,7 @@ fn the_release_of_a_control_removes_the_x() {
     // MRK-15, MRK-12: a finger stays on a control while the pen does a refused tap. The release does the
     // action of the control and removes the x. All controls of the toolbar, in all layouts.
     for_each_layout(|case| {
-        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame, Button::Undo, Button::Redo, Button::Help, Button::Statistics, Button::Close] {
+        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame, Button::Undo, Button::Redo, Button::Help, Button::Statistics] {
             let case = format!("{case}, control: {b:?}");
             let mut d = Driver::new(121);
             fill_stacks(&mut d);
@@ -1751,9 +1762,50 @@ fn the_release_of_a_control_removes_the_x() {
                 Button::Undo | Button::Redo => board(&d.app.game) != before,
                 Button::Help => d.app.screen == Screen::Manual,
                 Button::Statistics => d.app.screen == Screen::Statistics,
-                Button::Close => d.app.quit,
+                Button::Close => unreachable!("NAV-6: a finger does not operate the close button"),
             };
             assert!(done, "the release does the action of the control ({case})");
+        }
+    });
+}
+
+#[test]
+fn only_the_pen_operates_the_close_button() {
+    // NAV-6, INP-1, INP-15, INP-21, MRK-15: all layouts, with no panel open.
+    for_each_layout(|case| {
+        let mut d = Driver::new(121);
+        fill_stacks(&mut d);
+        let before = control_state(&d);
+
+        // A finger stays on the button while the pen does a refused tap. The release has no action,
+        // thus the x stays.
+        let (x, y) = hold(&mut d, Button::Close);
+        refused_tap(&mut d);
+        d.send(Input::TouchUp { id: 1, x, y });
+        assert_eq!(control_state(&d), before, "NAV-6 ({case})");
+        assert!(d.app.ui.refused.is_some(), "NAV-6: the release has no action ({case})");
+
+        // A new finger press removes the x, and it has no other effect.
+        d.finger_tap(x, y);
+        assert_eq!(d.app.ui.refused, None, "MRK-15 ({case})");
+        assert_eq!(control_state(&d), before, "NAV-6 ({case})");
+
+        // A finger does not read waiting ink, at the press and at the release (INP-21).
+        let cell = free_cell(&d.app, &[1]);
+        d.write_strokes(&digit_ink(cell, 1));
+        assert!(d.app.ui.pending_ink.is_some(), "INP-5 ({case})");
+        d.finger_tap(x, y);
+        assert!(d.app.ui.pending_ink.is_some(), "INP-21 ({case})");
+        assert!(!d.app.quit, "NAV-6 ({case})");
+
+        // The two ends of the pen close the app.
+        for tool in [Tool::Pen, Tool::Eraser] {
+            let mut d = Driver::new(121);
+            fill_stacks(&mut d);
+            d.send(Input::PenDown { x, y, tool });
+            assert!(!d.app.quit, "a control acts at the release ({case})");
+            d.send(Input::PenUp { x, y });
+            assert!(d.app.quit && d.app.game_dirty, "NAV-6: {tool:?} ({case})");
         }
     });
 }
@@ -5043,7 +5095,11 @@ fn a_hand_touch_operates_no_toolbar_button_and_a_touch_at_150_ms_does() {
             let before = control_state(&d);
             d.touch_down_after_lift(150, x, y);
             d.send_at_once(Input::TouchUp { id: 1, x, y });
-            assert_ne!(control_state(&d), before, "INP-20: a touch at 150 ms operates ({case})");
+            if b == Button::Close {
+                assert_eq!(control_state(&d), before, "NAV-6: a finger does not close the app ({case})");
+            } else {
+                assert_ne!(control_state(&d), before, "INP-20: a touch at 150 ms operates ({case})");
+            }
         }
     });
 }
@@ -5653,10 +5709,11 @@ fn a_touch_on_a_complete_game_changes_nothing_and_starts_no_timer() {
     d.send(Input::PenUp { x, y });
     assert!(!d.app.is_writing(), "INP-16: no timer on a complete game");
     assert_eq!(d.app.ui.highlight, None, "HLT-1");
-    let (bx, by) = button_center(Button::Close);
+    let menu = d.app.ui.menu;
+    let (bx, by) = button_center(Button::Menu);
     d.touch_down_after_lift(100, bx, by);
     d.send_at_once(Input::TouchUp { id: 1, x: bx, y: by });
-    assert!(!d.app.quit, "INP-20");
+    assert_eq!(d.app.ui.menu, menu, "INP-20");
     assert_eq!(board(&d.app.game), before, "INP-9");
 }
 

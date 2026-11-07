@@ -714,6 +714,10 @@ impl App {
             }
         }
 
+        // A finger does not operate the close button (NAV-6): a hand must not close the app.
+        if button == Some(Button::Close) && tool.is_none() {
+            return Gesture::Ignored;
+        }
         if let Some(b) = button {
             return Gesture::Control(Target::Game(b));
         }

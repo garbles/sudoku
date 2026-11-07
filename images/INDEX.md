@@ -97,7 +97,7 @@ next page, next to the page number.
 
 | Page | Image | Content |
 |---|---|---|
-| 1 | `manual-how-to-play.png` | The rules, starting numbers and your numbers, the close button and the menu button. |
+| 1 | `manual-how-to-play.png` | The rules, starting numbers and your numbers, the close button with the note that only the pen closes the game, and the menu button. |
 | 2 | `manual-candidates.png` | Pencil marks: how to tap micro-cells to add and remove them. |
 | 3 | `manual-pen.png` | How to write a number (the app reads it and shows a typed number) and how to erase it (the pencil marks show again). |
 | 4 | `manual-pen-rules.png` | What a tap is. Finger touches have no effect. One number for each cell. Writing that starts on a number shows no ink. Writing that the app cannot read shows **?**. |
