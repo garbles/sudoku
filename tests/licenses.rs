@@ -102,3 +102,43 @@ fn the_licenses_file_agrees_with_cargo_metadata() {
         .expect("python3 must be on PATH");
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
 }
+
+#[test]
+fn a_turn_keeps_the_first_entry_and_the_first_line_of_the_page() {
+    // NAV-13, LIC-2, LIC-3: the page after a turn shows the first entry (list) or the first line
+    // (text) of the page before the turn, and the pages stay in their ranges.
+    use sudoku::layout::Orientation;
+    let turn = |d: &mut Driver, o: Orientation| {
+        layout::set_orientation(o);
+        d.app.rotate(sudoku::app::App::placeholder_ng_stops());
+        sudoku::invariants::check_app(&d.app).unwrap();
+    };
+    let mut d = Driver::new(34);
+    open_licenses(&mut d);
+    let last = d.app.licenses_page_count();
+    for _ in 1..last {
+        d.swipe(true);
+    }
+    for o in [Orientation::Landscape, Orientation::Portrait] {
+        let first = d.app.licenses_page_rows().start;
+        turn(&mut d, o);
+        assert!(d.app.licenses_page_rows().contains(&first), "LIC-2: {o:?}: the first entry stays on the page");
+    }
+
+    // The text of the entry with the most pages, at its last page.
+    let open = (0..licenses::count()).max_by_key(|&i| licenses::lines(i).len()).unwrap();
+    d.app.licenses = sudoku::app::LicensesUi { page: 1, open, text_page: 1 };
+    d.app.screen = Screen::LicenseText;
+    let pages = d.app.license_text_pages();
+    for _ in 1..pages {
+        d.swipe(true);
+    }
+    assert_eq!(d.app.licenses.text_page, pages);
+    for o in [Orientation::Landscape, Orientation::Portrait] {
+        let first_line = (d.app.licenses.text_page - 1) * layout::license_lines();
+        turn(&mut d, o);
+        let p = d.app.licenses.text_page;
+        let shown = (p - 1) * layout::license_lines()..p * layout::license_lines();
+        assert!(shown.contains(&first_line), "LIC-3: {o:?}: the first line stays on the page");
+    }
+}

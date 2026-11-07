@@ -16,7 +16,7 @@ The path of the handoff folder (`description.md` in it is the description of the
 files that you own. The agent that starts you gives you one of these two groups:
 
 - **Design images:** `scripts/ui-lib.sh`, `scripts/render.sh`, `scripts/toolbar.sh`,
-  `scripts/board-state.py`, `scripts/analytics.py`, `scripts/icons/`, `icon.svg` and
+  `scripts/board-state.py`, `scripts/analytics.py`, `icon.svg` and
   `images/INDEX.md`.
 - **Manual:** `scripts/manual-*.sh` and `scripts/manual-lib.sh`.
 

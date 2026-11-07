@@ -1382,7 +1382,7 @@ impl App {
                 }
             }
             Screen::Licenses => {
-                let pages = crate::licenses::pages(crate::licenses::count(), self.licenses_per_page);
+                let pages = self.licenses_page_count();
                 if next && self.licenses.page < pages {
                     self.licenses.page += 1;
                 } else if !next && self.licenses.page > 1 {
@@ -1437,6 +1437,11 @@ impl App {
     pub fn licenses_page_rows(&self) -> std::ops::Range<usize> {
         let first = (self.licenses.page - 1) * self.licenses_per_page;
         first.min(crate::licenses::count())..(first + self.licenses_per_page).min(crate::licenses::count())
+    }
+
+    /// The quantity of pages of the Licenses list (LIC-2).
+    pub fn licenses_page_count(&self) -> usize {
+        crate::licenses::pages(crate::licenses::count(), self.licenses_per_page)
     }
 
     /// The quantity of pages of the license text of the open crate.

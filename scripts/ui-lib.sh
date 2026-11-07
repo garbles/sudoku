@@ -6,6 +6,14 @@ UI_SIZE=25                                 # size of the menu text
 TB_X=1508; TB_W=112; TB_CX=1563.5          # the toolbar column on the right; one item each 112 px
 tb_cy() { echo "$1" | awk '{ printf "%.1f", 55.5 + $1*112 }'; }   # the y center of toolbar slot k (from the top)
 TB_BOTTOM_Y=2048                           # the top of the bottom toolbar slot
+# menu_icon open|closed : the MVG of the icon of the menu button (top toolbar slot), as render.rs `menu_icon`.
+# A ring (radius 18 px, line of 3 px) and a dot (radius 4.5 px), 5.5 px to the left of the center and 5.5 px
+# above it (open) or below it (closed).
+menu_icon() {
+  dy=5.5; [ "$1" = open ] && dy=-5.5
+  echo "push graphic-context translate $TB_CX,$(tb_cy 0) fill none stroke black stroke-width 3 circle 0,0 18,0" \
+    "stroke none fill black circle -5.5,$dy -1,$dy pop graphic-context"
+}
 
 # Board: 9x9 cells of 147 px (micro-cells of 49 px), at the center of the screen. With this size, the open menu
 # (x>=1508) does not cover the board (gap of 37 px).

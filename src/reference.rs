@@ -320,6 +320,13 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             a.screen = Screen::GamesList;
             a.list.confirm = Some(a.results[1].clone())
         }),
+        // R§9.4: the first page of the Licenses list, and the first page of the license text of the
+        // UJI data (its text does not change when the dependencies change).
+        ("licenses.png", |a| a.screen = Screen::Licenses),
+        ("licenses-text.png", |a| {
+            a.screen = Screen::LicenseText;
+            a.licenses.open = crate::licenses::all().crates.iter().position(|c| c.name == "UJI Pen Characters").expect("UJI entry")
+        }),
         ("manual-how-to-play.png", |a| {
             a.screen = Screen::Manual;
             a.manual_page = 1

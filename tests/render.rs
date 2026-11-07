@@ -13,6 +13,14 @@ use sudoku::reference;
 use sudoku::render::{decode_png, rgb_at};
 use sudoku::settings::Color;
 
+/// The limits of `reference::compare` for an image: the mean difference and the part of the pixels that
+/// differ by more than 64. The text of ImageMagick and of tiny-skia has different anti-aliasing at the
+/// edges of the glyphs. The license text page (R§9.4) has much more text than the other screens, thus
+/// it has higher limits. The checks of the pixels away from the edges are the same for all images.
+fn limits(name: &str) -> (f64, f64) {
+    if name.starts_with("licenses-text") { (2.5, 0.015) } else { (1.5, 0.008) }
+}
+
 #[test]
 fn screens_agree_with_the_reference_images() {
     reference::use_utc();
@@ -22,7 +30,8 @@ fn screens_agree_with_the_reference_images() {
         let pm = reference::render(&fonts, setup);
         let want = decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
         let (mean, big) = reference::compare(&pm, &want);
-        assert!(mean < 1.5 && big < 0.008, "{name}: mean difference {mean:.2}, {:.3}% of pixels differ", big * 100.0);
+        let (max_mean, max_big) = limits(name);
+        assert!(mean < max_mean && big < max_big, "{name}: mean difference {mean:.2}, {:.3}% of pixels differ", big * 100.0);
         // Each pixel that differs is at the edge of an item: no item is missing, extra or moved.
         let off2 = reference::differences_off_edges(&pm, &want, 2);
         assert!(off2.is_empty(), "{name}: pixels that differ away from all edges: {:?}", &off2[..off2.len().min(10)]);
@@ -145,12 +154,14 @@ fn landscape_analytics_agrees_with_the_reference_images() {
     let fonts = fonts();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     sudoku::layout::set_orientation(sudoku::layout::Orientation::Landscape);
-    for (name, setup) in reference::states().into_iter().filter(|(n, _)| n.starts_with("analytics")) {
+    // R§9.4: also the Licenses screens.
+    for (name, setup) in reference::states().into_iter().filter(|(n, _)| n.starts_with("analytics") || n.starts_with("licenses")) {
         let pm = reference::render(&fonts, setup);
         let file = name.replace(".png", "-landscape.png");
         let want = decode_png(&std::fs::read(root.join("images").join(&file)).unwrap());
         let (mean, big) = reference::compare(&pm, &want);
-        assert!(mean < 1.5 && big < 0.008, "{file}: mean difference {mean:.2}, {:.3}% of pixels differ", big * 100.0);
+        let (max_mean, max_big) = limits(&file);
+        assert!(mean < max_mean && big < max_big, "{file}: mean difference {mean:.2}, {:.3}% of pixels differ", big * 100.0);
         let off2 = reference::differences_off_edges(&pm, &want, 2);
         assert!(off2.is_empty(), "{file}: pixels that differ away from all edges: {:?}", &off2[..off2.len().min(10)]);
     }

@@ -77,6 +77,17 @@ use one list of sample results. Thus their numbers agree.
 | `analytics-delete.png` | The list after a tap on a bin. A dialog shows "Delete this game?", the date and time of the game, and Cancel and Delete. | A deletion is permanent. Thus the app asks for a confirmation first. Delete removes the result, and the summary shows the change. |
 | `analytics-delete-all.png` | The summary after a tap on "Delete all games". A dialog shows "Delete all games?", the quantity of games, and Cancel and Delete. | Delete all removes all results. The app asks for a confirmation first. |
 
+## Licenses
+
+`scripts/analytics.py` draws these screens from `assets/licenses.json`. When the file changes (a
+change of `Cargo.lock`), run `make media-images`. Each image has a landscape version
+(`licenses-landscape.png`, `licenses-text-landscape.png`, 2160×1620: 9 rows and 27 lines).
+
+| Image | Content | Purpose |
+|---|---|---|
+| `licenses.png` | The first page of the Licenses list: "< Back", the title "Licenses", one line of gray text, then 14 rows. Each row has the name (Medium), the version (gray, at the right) and a ›. | The list of the third-party components (REQUIREMENTS.md §9.4). The rows do not show the license. |
+| `licenses-text.png` | The first page of the license text of "UJI Pen Characters": the title, "Version 2 · CC-BY-4.0" (gray), the file name and the text, wrapped at 80 characters. | The license text of one entry (REQUIREMENTS.md §9.4). This entry does not change when the dependencies change. |
+
 ## Parts
 
 | Image | Content |
@@ -103,7 +114,7 @@ next page, next to the page number.
 | 4 | `manual-pen-rules.png` | What a tap is. Finger touches have no effect. One number for each cell. Writing that starts on a number shows no ink. Writing that the app cannot read shows **?**. |
 | 5 | `manual-helpers.png` | Automatic pencil mark hiding, highlights and completed groups: a full group with no clash gets the completed color, a clash with a cell outside the group stops the color, and the color is not a check against the solution. Settings can turn each one off. |
 | 6 | `manual-mistakes.png` | Numbers in a clash get the clash color. How to correct them. The section "The app does not find all mistakes": the app does not compare the numbers with the solution, and a completed group can have an incorrect number. |
-| 7 | `manual-menu.png` | All menu buttons, with the three settings of the gear, and how to select a color in the five sections of the Cell colors panel. White in Completed groups gives no completed color. |
+| 7 | `manual-menu.png` | All menu buttons (the gear: the helpers, the version and the licenses), and how to select a color in the five sections of the Cell colors panel. White in Completed groups gives no completed color. |
 | 8 | `manual-new-game.png` | How to start a new game, step by step. The difficulty meter, which you cannot change. |
 | 9 | `manual-finished.png` | How a puzzle becomes complete, the lock, the clock and the saved results. |
 

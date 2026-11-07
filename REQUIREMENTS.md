@@ -82,7 +82,7 @@ stateDiagram-v2
 | Manual | [`manual-how-to-play.png`](images/manual-how-to-play.png) to [`manual-finished.png`](images/manual-finished.png) (§12) |
 | Statistics summary | [`analytics.png`](images/analytics.png), [`analytics-delete-all.png`](images/analytics-delete-all.png) |
 | Completed games list | [`analytics-games.png`](images/analytics-games.png), [`analytics-delete.png`](images/analytics-delete.png) |
-| Licenses list, License text | No image ([§9.4](#94-third-party-licenses)) |
+| Licenses list, License text | [`licenses.png`](images/licenses.png), [`licenses-text.png`](images/licenses-text.png) (§9.4) |
 
 ## 3. The game screen
 
@@ -96,7 +96,7 @@ open ([§9](#9-the-menu)): refer to [`screen-toolbar.png`](images/screen-toolbar
 | Board | 9×9 cells of **147 px**; x 148–1471, y 418–1741 (at the center of the screen) | Lines of 13 px are around the board and the 3×3 boxes. Lines of 3 px are between the cells. |
 | Micro-cells | Each cell has a very faint 3×3 grid of **49 px** micro-cells (2 px lines, default `gray90`; the player can select a different gray or no lines, §10) | Each micro-cell is for one digit. The positions are the same as a keypad: 1 2 3 / 4 5 6 / 7 8 9. |
 | Difficulty meter | Below the board, at the center, 50 px from the board | The player cannot change it. It shows "Easy", seven stops and "Hard". The large knob shows the mode of the current puzzle. When the puzzle is complete, "Completed in …" replaces the meter. |
-| Menu button | Top right, circle of 38 px, center at (1563.5, 55.5) | Closed icon: dot at the bottom left. Open icon: dot at the top left. Both icons are copies from the device. |
+| Menu button | Top right, circle of 38 px, center at (1563.5, 55.5) | Closed icon: dot at the bottom left. Open icon: dot at the top left. Each icon is a ring (radius 18 px, line of 3 px) and a dot (radius 4.5 px), 5.5 px left of the center and 5.5 px below it (closed) or above it (open). |
 | Close button | Top left, circle of 38 px with ×, center at (55.5, 55.5) | The close button shows **only when the menu is open**. The device does the same. |
 
 The open menu starts at x 1508. The board ends at x 1471. Thus the open menu does not cover the board
@@ -1210,6 +1210,10 @@ request 2026-11-07).
 - A turn of the tablet keeps the first entry (list) or the first line (text) of the page on the new
   page. The app does not keep the state of these screens: after a close, it starts on the game.
 
+Images: [`licenses.png`](images/licenses.png) (the first page of the list) and
+[`licenses-text.png`](images/licenses-text.png) (the first page of the UJI Pen Characters text), and
+their landscape versions.
+
 ## 10. Cell colors panel
 
 Images: [`images/color-menu.png`](images/color-menu.png),
@@ -1357,7 +1361,7 @@ stateDiagram-v2
 | 4 | [`manual-pen-rules.png`](images/manual-pen-rules.png) | Taps, finger touches, one number for each cell, writing with no effect, the "?". |
 | 5 | [`manual-helpers.png`](images/manual-helpers.png) | Automatic pencil mark hiding, highlights and completed groups. A full group with no clash gets the completed color. The color is not a check against the solution. A clash with a cell outside the group stops the color (owner approval 2026-11-04 and 2026-11-05). You can turn each helper off in the Settings panel. One sentence, in portrait and in landscape, tells about the x of a refused tap ([§6.1](#61-automatic-pencil-mark-hiding); owner decision 2026-11-04). The text is exactly: "If you tap the micro-cell of a hidden digit, the tap has no effect and a small x shows there for a moment." |
 | 6 | [`manual-mistakes.png`](images/manual-mistakes.png) | Clashes and how to correct them. |
-| 7 | [`manual-menu.png`](images/manual-menu.png) | All the menu buttons, how to select colors and the three settings. |
+| 7 | [`manual-menu.png`](images/manual-menu.png) | All the menu buttons, how to select colors, and the Settings panel: the helpers, the version and the third-party licenses ([§9.4](#94-third-party-licenses)). |
 | 8 | [`manual-new-game.png`](images/manual-new-game.png) | How to start a new game, and the meter of the current difficulty. |
 | 9 | [`manual-finished.png`](images/manual-finished.png) | Completion, the lock, the clock and the saved results. A completed game shows no completed color. |
 
@@ -1837,6 +1841,7 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`analytics.png`](images/analytics.png) | [§13.1](#131-summary) |
 | [`analytics-games.png`](images/analytics-games.png) | [§13.2](#132-completed-games-list) |
 | [`analytics-delete.png`](images/analytics-delete.png) | [§13.2](#132-completed-games-list) |
+| [`licenses.png`](images/licenses.png), [`licenses-text.png`](images/licenses-text.png) (and `-landscape`) | [§9.4](#94-third-party-licenses) |
 | [`manual-how-to-play.png`](images/manual-how-to-play.png) | [§12](#12-manual-help) |
 | [`manual-candidates.png`](images/manual-candidates.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
 | [`manual-pen.png`](images/manual-pen.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |

@@ -3,6 +3,8 @@
 #   analytics-games.png  table of completed games (with a difficulty filter). Each game has a delete button.
 #   analytics-delete.png the same list after a tap on a bin: a confirmation dialog
 #   analytics-delete-all.png the summary after a tap on "Delete all games": a confirmation dialog
+#   licenses.png         the first page of the Licenses list (REQUIREMENTS.md §9.4)
+#   licenses-text.png    the first page of the license text of the UJI data
 #   update-restart.png   settings-restart.png (toolbar.sh) with the dialog "Restart the interface?" of
 #                        an update that replaced the ink patch (REQUIREMENTS.md §9.2)
 # and the same four screens for landscape (analytics-landscape.png, analytics-games-landscape.png,
@@ -10,7 +12,7 @@
 # are the same as in src/layout.rs.
 # All screens use one list of sample games (the same data as the SQLite results table). Thus the
 # summary and the table agree. The layout uses the 1404x1872 units of the manual, with a scale to 1620x2160.
-import os, random, subprocess, sys, datetime
+import datetime, json, os, random, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = sys.argv[1]
@@ -37,6 +39,7 @@ def clock(seconds):
     return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 def text(out, x, y, size, color, anchor, s, font=FONT):
+    s = s.replace("\\", "\\\\").replace('"', '\\"')
     out.append(f"stroke none fill {color} font '{font}' font-size {size} text-anchor {anchor} text {x},{y} \"{s}\"")
 
 def meter(out, xa, y, level, step=34, on="black", off="gray60", hollow="white"):
@@ -199,8 +202,78 @@ def dialog(out, P, title, line, line2="You cannot undo this action.", buttons=("
     text(out, (dx0*3+dx1)//4, dy1-ROW//2+12, 34, "black", "middle", buttons[0], HEAD)
     text(out, (dx0+dx1*3)//4, dy1-ROW//2+12, 34, "white", "middle", buttons[1], HEAD)
 
+# --- the Licenses screens (REQUIREMENTS.md §9.4, src/licenses.rs). The data is assets/licenses.json.
+with open(os.path.join(HERE, "..", "assets", "licenses.json"), encoding="utf-8") as f:
+    LICENSES = json.load(f)
+LICENSES_Y = 300          # the top of the list (src/layout.rs)
+WRAP = 80                 # the maximum characters in a line of license text (src/licenses.rs)
+
+def wrap(line, width=WRAP):
+    """The same cuts as licenses::wrap: at the last space before the limit, or at the limit."""
+    parts, rest = [], line
+    while len(rest) > width:
+        if rest[width] == " ":
+            cut = width
+        else:
+            i = rest[:width].rfind(" ")
+            cut = i if i > 0 else width
+        parts.append(rest[:cut].rstrip()); rest = rest[cut:].lstrip()
+    if rest or not parts:
+        parts.append(rest)
+    return parts
+
+def license_lines(entry):
+    """The lines of licenses::lines: (kind, text) with kind "head", "body" or "blank"."""
+    out = []
+    for k, f in enumerate(entry["files"]):
+        if k > 0:
+            out.append(("blank", ""))
+        out += [("head", f["name"]), ("blank", "")]
+        for line in LICENSES["texts"][f["text"]].split("\n"):
+            out += [("blank", "")] if not line else [("body", part) for part in wrap(line)]
+    return out
+
+def chevron(out, cx, cy):
+    """The › of render::Icon::OpenList."""
+    out.append(f"fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round "
+               f"polyline {n(cx-6)},{n(cy-12)} {n(cx+6)},{n(cy)} {n(cx-6)},{n(cy+12)}")
+
+def licenses(P):
+    crates = LICENSES["crates"]
+    rows = 9 if P.landscape else 14
+    x, w = 72, P.col_w
+    out = []
+    chrome(out, P, "Licenses", (1, (len(crates) + rows - 1) // rows))
+    text(out, x, 270, 30, "gray40", "start", "The app contains these open source components.")
+    hline(out, LICENSES_Y, x, x + w)
+    for i, c in enumerate(crates[:rows]):
+        y = LICENSES_Y + i*ROW
+        base = n(y + ROW/2 + 11)
+        text(out, x, base, 32, "black", "start", c["name"], HEAD)
+        text(out, n(x + w - 60), base, 30, "gray40", "end", c["version"])
+        chevron(out, x + w - 15, y + ROW/2)
+        hline(out, y + ROW, x, x + w)
+    render(out, P, "licenses.png")
+
+    # The first page of the text of the UJI data.
+    c = next(c for c in crates if c["name"] == "UJI Pen Characters")
+    lines, per_page = license_lines(c), 27 if P.landscape else 40
+    out = []
+    chrome(out, P, c["name"], (1, (len(lines) + per_page - 1) // per_page))
+    text(out, x, 232, 30, "gray40", "start", f"Version {c['version']} · {c['license'].replace(' OR ', ' / ')}")
+    hline(out, 260, x, x + w)
+    for i, (kind, s) in enumerate(lines[:per_page]):
+        y = 320 + i*36
+        if kind == "head":
+            text(out, x, y, 28, "black", "start", s, HEAD)
+        elif kind == "body":
+            text(out, x, y, 25, "black", "start", s)
+    render(out, P, "licenses-text.png")
+
 screens(Page(False))
 screens(Page(True))
+licenses(Page(False))
+licenses(Page(True))
 
 # --- the dialog of an update that replaced the ink patch, over the Settings panel (src/render.rs)
 out = []

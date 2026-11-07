@@ -968,6 +968,14 @@ The owner examined the prototype on the tablet (`dev/licenses`) and approved it 
 
 Added after the review of the prototype: an entry for the UJI Pen Characters data (CC BY 4.0 requires
 attribution). The owner asked for light tests only, with no team (`tests/licenses.rs` and the changed
-Settings tests). Not done: the bench baselines (the reference-state hashes of the Settings images
-change); reference states and images of the two new screens.
+Settings tests).
+
+Follow-up (remarkable-sudoku-ed6, same day): the reference states and the images `licenses.png` and
+`licenses-text.png` (and landscape), drawn by `scripts/analytics.py` from `assets/licenses.json`; the
+page-range checks LIC-2 and LIC-3 in `invariants.rs`; a test of a turn on the two screens; manual page
+7 ("Turns the helpers on or off. Shows the version and the licenses."); the bench baselines. The
+license text page has much more text than the other reference images. The anti-aliasing of the glyph
+edges of ImageMagick and tiny-skia is different, thus its mean difference is 1.72 (limit 1.5). That
+image has higher limits (mean 2.5, 1.5% of the pixels) in `tests/render.rs`. The checks of the pixels
+away from the edges are the same as for all images (no difference).
 

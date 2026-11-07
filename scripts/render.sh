@@ -32,12 +32,11 @@ render() { # out c0 c1 r0 r1 thinkind extra_args... ; crop given via CROP env
   magick "$@" -units PixelsPerInch -density 229 "$OUT/$out"
 }
 
-# screen (menu closed): the board, the menu button at the top right (closed icon, from the device) and the
+# screen (menu closed): the board, the menu button at the top right (closed icon) and the
 # difficulty meter below the board. The close button shows only when the menu is open, as on the device (refer to toolbar.sh).
 B=$((C*9)); DY=$((Y0+B+50)); DXL=$((X0+B/2-DIFF_W/2)); DXR=$((DXL+DIFF_W))   # the player cannot change it: it shows the difficulty of the current puzzle
 CROP= render screen.png 0 9 0 9 thin
-magick "$OUT/screen.png" -draw "$(labeled_slider $DXL $DXR $DY $LEVEL)" \
-  "$UI_DIR/icons/ic-toggle-closed.png" -geometry +$TB_X+0 -composite \
+magick "$OUT/screen.png" -draw "$(labeled_slider $DXL $DXR $DY $LEVEL)" -draw "$(menu_icon closed)" \
   -units PixelsPerInch -density 229 "$OUT/screen.png"
 # box: the top-left 3x3 box, with 20 px of space around it
 CROP=$((3*C+40))x$((3*C+40))+$((X0-20))+$((Y0-20)) render box.png 0 3 0 3 thin

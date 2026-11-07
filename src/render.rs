@@ -576,9 +576,6 @@ impl<'a> Canvas<'a> {
 
 // ---- Images in the app
 
-static TOGGLE_CLOSED: &[u8] = include_bytes!("../scripts/icons/ic-toggle-closed.png");
-static TOGGLE_OPEN: &[u8] = include_bytes!("../scripts/icons/ic-toggle.png");
-
 /// The manual pages (REQUIREMENTS.md §12), in order.
 static MANUAL: [&[u8]; MANUAL_PAGES as usize] = [
     include_bytes!("../images/manual-how-to-play.png"),
@@ -634,16 +631,6 @@ pub fn decode_png(data: &[u8]) -> Pixmap {
         png::ColorType::Indexed => unreachable!("expanded by the decoder"),
     }
     pm
-}
-
-fn toggle_icon(open: bool) -> &'static Pixmap {
-    static OPEN: OnceLock<Pixmap> = OnceLock::new();
-    static CLOSED: OnceLock<Pixmap> = OnceLock::new();
-    if open {
-        OPEN.get_or_init(|| decode_png(TOGGLE_OPEN))
-    } else {
-        CLOSED.get_or_init(|| decode_png(TOGGLE_CLOSED))
-    }
 }
 
 /// A manual page, and true if all its pixels are opaque.
@@ -748,7 +735,7 @@ fn draw_game(c: &mut Canvas, app: &App) {
         bookmark: !app.game.completed,
     };
     put_overlay(c, menu, |c| {
-        c.image(toggle_icon(app.ui.menu.is_open()), tb_x(), 0, layout::right_handed());
+        menu_icon(c, tb_cx(), tb_cy(0), app.ui.menu.is_open(), layout::right_handed(), BLACK);
         if let Menu::Open(panel) = app.ui.menu {
             draw_toolbar(c, app, panel);
         }
@@ -2013,7 +2000,7 @@ fn draw_license_text(c: &mut Canvas, app: &App) {
 
 /// An icon of the app. The app and the icon sheet of the snapshot tool (`reference::icon_sheet`) use
 /// `Icon::draw`, thus the sheet shows the same icons as the app. Only the menu button of the game
-/// screen draws its image directly, because the image can be a mirror image.
+/// screen calls `menu_icon` directly, because its icon can be a mirror image.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Icon {
     MenuClosed,
@@ -2036,6 +2023,17 @@ pub enum Icon {
     PageNext,
     OpenList,
     Bin,
+}
+
+/// The icon of the menu button (NAV-7), with its center at (cx, cy): a ring (radius 18 px, line of
+/// 3 px) and a dot (radius 4.5 px), 5.5 px to the left of the center and 5.5 px above it (open) or
+/// below it (closed). `mirror` puts the dot to the right of the center (NAV-15). The same values
+/// as `menu_icon` in scripts/ui-lib.sh.
+fn menu_icon(c: &mut Canvas, cx: f32, cy: f32, open: bool, mirror: bool, col: Rgb) {
+    let dx = if mirror { 5.5 } else { -5.5 };
+    let dy = if open { -5.5 } else { 5.5 };
+    c.circle(cx, cy, 18.0, None, Some((col, 3.0)));
+    c.circle(cx + dx, cy + dy, 4.5, Some(col), None);
 }
 
 impl Icon {
@@ -2068,14 +2066,11 @@ impl Icon {
         matches!(self, Icon::Back | Icon::PagePrevious | Icon::PageNext | Icon::OpenList | Icon::Bin)
     }
 
-    /// Draws the icon with its center at (cx, cy). The menu icons are images: they do not use `col`.
-    /// The caution icon uses `col` for its border and its mark.
+    /// Draws the icon with its center at (cx, cy). The caution icon uses `col` for its border and its
+    /// mark.
     pub fn draw(self, c: &mut Canvas, cx: f32, cy: f32, col: Rgb) {
         match self {
-            Icon::MenuClosed | Icon::MenuOpen => {
-                let img = toggle_icon(self == Icon::MenuOpen);
-                c.image(img, cx as i32 - img.width() as i32 / 2, cy as i32 - img.height() as i32 / 2, false);
-            }
+            Icon::MenuClosed | Icon::MenuOpen => menu_icon(c, cx, cy, self == Icon::MenuOpen, false, col),
             Icon::Close => {
                 c.circle(cx, cy, 17.5, None, Some((col, 3.0)));
                 c.line(cx - 5.5, cy - 5.5, cx + 5.5, cy + 5.5, 3.0, col);

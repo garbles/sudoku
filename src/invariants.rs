@@ -338,6 +338,16 @@ pub fn check_app(app: &App) -> Result<(), String> {
         ensure!(app.screen == Screen::GamesList, "ANA-7", "the delete dialog on screen {:?}", app.screen);
     }
 
+    // The Licenses screens (LIC-2, LIC-3): the pages and the open entry are in their ranges.
+    let lic = &app.licenses;
+    let pages = app.licenses_page_count();
+    ensure!(lic.page >= 1 && lic.page <= pages, "LIC-2", "licenses page {} of {}", lic.page, pages);
+    ensure!(lic.open < crate::licenses::count(), "LIC-3", "open entry {} of {}", lic.open, crate::licenses::count());
+    if app.screen == Screen::LicenseText {
+        let pages = app.license_text_pages();
+        ensure!(lic.text_page >= 1 && lic.text_page <= pages, "LIC-3", "text page {} of {}", lic.text_page, pages);
+    }
+
     // Updates (UPD-1, UPD-2, UPD-7, UPD-8, UPD-9, UPD-10).
     let u = &app.update;
     ensure!((u.state == UpdateState::Off) == !has_updates(&u.current), "UPD-1", "state {:?} for version {}", u.state, u.current);

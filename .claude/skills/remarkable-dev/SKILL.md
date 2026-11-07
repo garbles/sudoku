@@ -301,7 +301,7 @@ step 8.
       changes, it reports "no change".
    4. **Design images** (`dev-image-scripts`, only if the change is visible on a screen, a panel or a dialog). It owns the
       scripts that make the design images (`scripts/ui-lib.sh`, `render.sh`, `toolbar.sh`,
-      `board-state.py`, `analytics.py`, `scripts/icons/`, `icon.svg`) and `images/INDEX.md`. The
+      `board-state.py`, `analytics.py`, `icon.svg`) and `images/INDEX.md`. The
       images are the exact reference for the app, thus they change before the code.
    5. **Manual** (`dev-image-scripts`, only if a manual page tells about or shows the changed behavior). It owns
       `scripts/manual-*.sh` and `scripts/manual-lib.sh`. Change the portrait page and its

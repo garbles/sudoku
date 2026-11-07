@@ -145,10 +145,10 @@ color_section() {
 }
 
 # compose BASE OUTFILE : draw the MVG on BASE
-# The menu button shows its open icon (both icons are copies from the device).
+# The menu button shows its open icon. BASE shows the closed icon: a white square removes it first.
 # The close button shows at the top left (circle of 38 px, stroke of 3 px, measured on the device).
 CLOSE="fill none stroke black stroke-width 3 circle 55.5,55.5 73,55.5 stroke-linecap round line 50,50 61,61 line 61,50 50,61"
-compose() { magick "$OUT/$1" "$UI_DIR/icons/ic-toggle.png" -geometry +$TB_X+0 -composite -draw "$CLOSE" -draw @$M -units PixelsPerInch -density 229 "$OUT/$2"; : > $M; }
+compose() { magick "$OUT/$1" -draw "stroke none fill white rectangle $TB_X,0 1619,111" -draw "$(menu_icon open)" -draw "$CLOSE" -draw @$M -units PixelsPerInch -density 229 "$OUT/$2"; : > $M; }
 
 # --- menu open on a new game
 toolbar gray70 ""

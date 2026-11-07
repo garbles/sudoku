@@ -18,7 +18,6 @@ COPY src src
 # The files that the executable contains (include_bytes! and include_str!).
 COPY assets assets
 COPY images images
-COPY scripts/icons scripts/icons
 COPY tests/fixtures tests/fixtures
 COPY video/demo-full.txt video/demo-full.txt
 RUN touch src/lib.rs src/bin/*.rs
