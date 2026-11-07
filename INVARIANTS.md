@@ -44,12 +44,13 @@ names if it has an equivalent state.
 
 ```
 App
-  screen          ∈ {Game, Manual, Statistics, GamesList}
+  screen          ∈ {Game, Manual, Statistics, GamesList, Licenses, LicenseText}
   game            : Game
   ui              : GameUI
   manual_page     ∈ 1..9                       (used when screen = Manual)
   list            : ListUI                     (used when screen = GamesList)
   confirm_all     ∈ {false, true}              (used when screen = Statistics: the "Delete all games" dialog)
+  licenses        : (page ≥ 1, open, text_page ≥ 1)   (used when screen ∈ {Licenses, LicenseText}; not saved)
   settings        : Settings
   results         : set of Result               (the SQLite table)
   update          : Update
@@ -285,9 +286,9 @@ Terms:
 
 | ID | Rule | Source |
 |---|---|---|
-| NAV-1 | The app shows one screen at a time: Game, Manual, Statistics or GamesList. The app starts on Game, with `menu = Open` (PER-2). | R§2 |
-| NAV-2 | Only the open menu opens Manual and Statistics. Only Statistics opens GamesList. "< Back" goes from Manual to Game, from Statistics to Game, and from GamesList to Statistics. | R§2 |
-| NAV-3 | When Manual or Statistics shows Game again, `menu = Open` and `panel = None`. | R§9, R§12, R§13.1 (owner decision 2026-11-02) |
+| NAV-1 | The app shows one screen at a time: Game, Manual, Statistics, GamesList, Licenses or LicenseText. The app starts on Game, with `menu = Open` (PER-2). | R§2 |
+| NAV-2 | Only the open menu opens Manual and Statistics. Only Statistics opens GamesList. Only the Settings panel opens Licenses, and only Licenses opens LicenseText. "< Back" goes from Manual to Game, from Statistics to Game, from GamesList to Statistics, from Licenses to Game and from LicenseText to Licenses. | R§2, R§9.4 |
+| NAV-3 | When Manual, Statistics or Licenses shows Game again, `menu = Open` and `panel = None`. | R§9, R§12, R§13.1 (owner decision 2026-11-02) |
 | NAV-4 | `panel ≠ None ⇒ menu = Open`. Only one panel can be open at a time. | R§9 |
 | NAV-5 | `screen ≠ Game ⇒ menu = Closed, panel = None`. The menu is a part of the game screen. When the game screen shows again, the menu opens (NAV-3). | R§9 |
 | NAV-6 | The close button shows only when `screen = Game` and `menu = Open`. When `panel = None`, a tap of the pen or of its eraser end on it closes the app after the app saves the game (PER-1). A finger never closes the app: a finger press on it, and its release, have no action, and the press only removes the "?" and the x (QST-4, MRK-15). When `panel ≠ None`, a tap of the pen or of a finger on it only closes the panel (NAV-12). | R§3.1, R§9 (owner decision 2026-11-02, owner approval 2026-11-06) |
@@ -297,10 +298,10 @@ Terms:
 | NAV-10 | The closed menu never covers the board. The open toolbar (portrait x ≥ 1508, landscape x ≥ 2048) never covers the board (portrait x ≤ 1471, landscape x ≤ 1741). An open panel can cover a part of the board. For a right-handed player, the toolbar is at the left edge (x 0–112) and the board does not change (NAV-15). | R§3.1, R§3.3 |
 | NAV-15 | When the device is right-handed, the game screen shows the toolbar, the menu button, the close button and the panels as a mirror image of the left-handed screen: the toolbar is at the left edge (x 0–112), the close button is at the top right, and the panels touch the toolbar at x 112. The icons other than the menu button and the contents of the panels are the same. The hit areas move with the buttons. | R§3.1 (owner request 2026-10-26) |
 | NAV-13 | A turn of the tablet does not change the game, the settings or the screen. It removes the pending ink and the touches in progress, and it changes only the page of the games list: the list shows the page with the first game of the page before the turn (R§3.3). | R§3.3 (confirmed 2026-10-25) |
-| NAV-14 | The Settings panel opens from the gear (top slot 2). It is 400 px wide (x 1108–1507 for a left-handed player in portrait). Rows 1 to 3 have the switches `highlight_on`, `auto_hide_on` and `completed_color_on`, in this order. A tap on one of these rows changes only its switch, immediately; the panel stays open. The only exception: turning off `highlight_on` also removes a highlight (HLT-6). A tap on the version row (row 4) changes nothing, and the panel stays open. A change of a switch does not change the game or the undo and redo stacks, and it does not change the changes that are already in the stacks. The switches also operate when `completed` (CMP-6). | R§9.1 (version row: owner decision 2026-10-26; third switch and width: owner decision 2026-11-05; highlight: owner decision 2026-11-07) |
+| NAV-14 | The Settings panel opens from the gear (top slot 2). It is 400 px wide (x 1108–1507 for a left-handed player in portrait). Rows 1 to 3 have the switches `highlight_on`, `auto_hide_on` and `completed_color_on`, in this order. A tap on one of these rows changes only its switch, immediately; the panel stays open. The only exception: turning off `highlight_on` also removes a highlight (HLT-6). A tap on the version row (row 4) changes nothing, and the panel stays open. A tap on row 5 opens Licenses (LIC-1). A change of a switch does not change the game or the undo and redo stacks, and it does not change the changes that are already in the stacks. The switches also operate when `completed` (CMP-6). | R§9.1 (version row: owner decision 2026-10-26; third switch and width: owner decision 2026-11-05; highlight: owner decision 2026-11-07) |
 | NAV-11 | When `panel ≠ None`, a tap outside the panel only sets `panel = None`. It does not change the game, also when the tap is on the board. A pen press on the board while a panel is open also only closes the panel, also if the pen then moves: it is not a tap or a stroke on the board, and it keeps `highlight` (HLT-7). The only exception is the guard after a delete (CKP-8). When `menu = Open` and `panel = None`, the board operates as usual. | R§9, R§9.3, owner decision 2026-11-06 and 2026-11-07 |
 | NAV-12 | When `panel ≠ None`, a tap on a toolbar button that is not the paint bucket, the gear, the bookmark or the + only closes the panel. This includes the menu button, the close button, undo and redo: with an open panel, the first tap on undo only closes the panel, and a second tap does the undo. A tap on the button of a different panel opens that panel. The only exception is the gray bookmark: a tap on it changes nothing, and an open panel stays open (CKP-9). | R§9 (confirmed 2026-10-25), R§9.3, owner decision 2026-11-06 |
-| NAV-16 | For 0.5 s after "< Back" from Manual or Statistics shows Game, a press on a toolbar button (also the menu button and the bookmark in top slot 5) or on the close button changes nothing: `menu`, `panel`, `screen` and the game do not change, and the app does not close. A first press that the app ignores in this time does not remove the x or the "?" (the exception to MRK-15 and QST-4). A second finger on one of these items, while another finger stays on the screen, operates no item, but it removes the x and the "?" (INP-15). A press on the board operates as usual. This is true for the left-handed and the right-handed layout. | R§9, R§12, R§13.1 (owner decisions 2026-11-02, 2026-11-04 and 2026-11-05), R§9.3, review finding 2026-11-06 |
+| NAV-16 | For 0.5 s after "< Back" from Manual, Statistics or Licenses shows Game, a press on a toolbar button (also the menu button and the bookmark in top slot 5) or on the close button changes nothing: `menu`, `panel`, `screen` and the game do not change, and the app does not close. A first press that the app ignores in this time does not remove the x or the "?" (the exception to MRK-15 and QST-4). A second finger on one of these items, while another finger stays on the screen, operates no item, but it removes the x and the "?" (INP-15). A press on the board operates as usual. This is true for the left-handed and the right-handed layout. | R§9, R§12, R§13.1 (owner decisions 2026-11-02, 2026-11-04 and 2026-11-05), R§9.3, review finding 2026-11-06 |
 | NAV-17 | The Cell colors panel is 800 px wide and covers y 112 to 1192, with the two ends included (1081 rows: three rows of 360 px and the last border row). Its x range, also with the two ends included, is 708–1507 for a left-handed player in portrait, 1248–2047 for a left-handed player in landscape, and 112–911 for a right-handed player in the two orientations. It has two columns of 400 px, in the same order for the two hands. The left column has, from the top, Starting numbers, Clashing numbers and Highlighted numbers. The right column has, from the top, Completed groups, Micro-cell lines and empty space. In all four layouts, the panel does not cover a toolbar button, the close button, the meter or "Completed in". A tap on the empty space or on a title changes nothing, and the panel stays open. | R§3.1, R§10, owner decision 2026-11-05 |
 | NAV-18 | The Checkpoints panel opens from the bookmark (top slot 5, y 560–671). A second tap on the bookmark closes it. It is 600 px wide. Its x range, with the two ends included, is 908–1507 for a left-handed player in portrait, 1448–2047 for a left-handed player in landscape, and 112–711 for a right-handed player in the two orientations. It starts at y 560 in all layouts. It ends at y 864 with no checkpoint, and at y `672 + 180 × n` with n checkpoints, n ≥ 1 (y 1572 with 5). The contents have the same order in all layouts. In all four layouts, the panel does not cover a toolbar button, the close button, the meter or "Completed in". `panel = Checkpoints ⇒ pending_ink = None` and no stroke is live. The pen, the eraser and a finger operate the panel in the same way. A tap in the panel on no control changes nothing, and the panel stays open. | R§3.1, R§3.3, R§9.3, owner approval 2026-11-06 |
 
@@ -358,6 +359,16 @@ The x values in this table are for a left-handed player in portrait. In the othe
 | MAN-3 | "< Back" is on each page and shows Game again. | R§12 |
 | MAN-4 | The manual does not change the game. The clock continues to operate (CLK-1). | R§8.4 |
 
+### 13.1 Third-party licenses
+
+| ID | Rule | Source |
+|---|---|---|
+| LIC-1 | A tap on the row "Third-party licenses" (row 5 of the Settings panel) sets `screen = Licenses`, `licenses.page = 1`, `menu = Closed`. It does not change the game or the settings. | R§9.4 |
+| LIC-2 | On Licenses, `licenses.page ∈ 1..pages`, with `pages = ⌈entries / rows⌉` (14 rows in portrait, 9 in landscape). Next and previous (arrows, finger swipe) do not go past the first or the last page. | R§9.4 |
+| LIC-3 | A tap on row i of page p sets `screen = LicenseText`, `open` = the entry of that row, `text_page = 1`. On LicenseText, `text_page ∈ 1..text_pages(open)`. "< Back" sets `screen = Licenses` and keeps `licenses.page`. | R§9.4 |
+| LIC-4 | Each line of license text has 80 characters or fewer. Each entry has at least one license file with text. | R§9.4 |
+| LIC-5 | `assets/licenses.json` agrees with `scripts/licenses.py` (the crates of `cargo metadata` for the tablet target, and their license files). | R§9.4 |
+
 ## 14. Statistics and the results database
 
 | ID | Rule | Source |
@@ -392,7 +403,7 @@ The x values in this table are for a left-handed player in portrait. In the othe
 
 | ID | Rule | Source |
 |---|---|---|
-| UPD-1 | `state = Off` exactly when `current` is not a stable version (`v<major>.<minor>.<patch>`) and not a preview version (`pre-` and 7 to 40 hexadecimal digits), for example `dev` or `dev/update-icons`. When `state = Off`, the app never sends a request, and the Settings panel has only four rows. In all other states, the Settings panel has five rows. | R§9.1, R§9.2, owner decision 2026-11-05 |
+| UPD-1 | `state = Off` exactly when `current` is not a stable version (`v<major>.<minor>.<patch>`) and not a preview version (`pre-` and 7 to 40 hexadecimal digits), for example `dev` or `dev/update-icons`. When `state = Off`, the app never sends a request, and the Settings panel has only five rows. In all other states, the Settings panel has six rows. | R§9.1, R§9.2, owner decision 2026-11-05 |
 | UPD-2 | `Available(v)`, `Installing(v)` and `Failed(v, at)` only when `v` is a stable version that is an update for `current`: newer than `current` for a stable build, any stable version for a preview build. | R§9.2 (owner decision 2026-11-01) |
 | UPD-3 | The gear has the caution icon exactly when `state ∈ {Available, Installing, Failed, Installed}`. | R§9.2 |
 | UPD-4 | The app uses a `version.json` only when its ed25519 signature is correct for the public key of the app. It installs an archive only when its SHA-256 checksum is equal to the checksum in that `version.json`. When `version.json` has `patch_sha256`, it changes no file unless the checksum of the downloaded ink patch is equal to `patch_sha256`. | R§9.2 |

@@ -49,7 +49,7 @@ document does not include unknown behavior.
 
 ## 2. Screens
 
-The app has four screens. The game screen also has a menu with four panels. Refer to
+The app has six screens. The game screen also has a menu with four panels. Refer to
 [§9](#9-the-menu).
 
 ```mermaid
@@ -67,6 +67,12 @@ stateDiagram-v2
     Statistics --> Game: < Back (menu open)
     Statistics --> Games: All completed games
     Games --> Statistics: < Back
+    state "Licenses list" as Licenses
+    state "License text" as LicenseText
+    Game --> Licenses: Third-party licenses (Settings panel)
+    Licenses --> Game: < Back (menu open)
+    Licenses --> LicenseText: tap a row
+    LicenseText --> Licenses: < Back (same page)
     Game --> [*]: close button (menu open)
 ```
 
@@ -76,6 +82,7 @@ stateDiagram-v2
 | Manual | [`manual-how-to-play.png`](images/manual-how-to-play.png) to [`manual-finished.png`](images/manual-finished.png) (§12) |
 | Statistics summary | [`analytics.png`](images/analytics.png), [`analytics-delete-all.png`](images/analytics-delete-all.png) |
 | Completed games list | [`analytics-games.png`](images/analytics-games.png), [`analytics-delete.png`](images/analytics-delete.png) |
+| Licenses list, License text | No image ([§9.4](#94-third-party-licenses)) |
 
 ## 3. The game screen
 
@@ -862,11 +869,11 @@ redo and the bookmark gray), [`manual-menu.png`](images/manual-menu.png).
 The gear (top slot 2) opens the Settings panel. The panel is next to the gear, its top aligns with
 the button, it is 400 px wide (x 1108–1507 for a left-handed player in portrait) and it has a 2 px
 border. The Settings panel does not have the width of the Cell colors panel (owner approval 2026-11-04 and 2026-11-05).
-It has four rows of 112 px with a 2 px line between them. The first three rows each have a name
+It has five rows of 112 px with a 2 px line between them. The first three rows each have a name
 (reMarkable Sans Medium, 25 px) and a switch at the right. The name in the third row has two lines of
 text: **Color completed** and **groups** (owner approval 2026-11-04 and 2026-11-05). The fourth row
-shows the version of the app.
-A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a fifth row for updates
+shows the version of the app. The fifth row is **Third-party licenses** ([§9.4](#94-third-party-licenses)).
+A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a sixth row for updates
 ([§9.2](#92-updates)).
 
 | Row | Default | When the switch is off |
@@ -939,7 +946,7 @@ center of the circle is 16 px to the right of and 16 px above the center of the 
 stays until the app closes (also while the update installs and after it is installed). Image:
 [`screen-toolbar-update.png`](images/screen-toolbar-update.png).
 
-**Update row.** The fifth row of the Settings panel has the same height, lines and border as the
+**Update row.** The sixth row of the Settings panel has the same height, lines and border as the
 other rows. It shows one of these:
 
 | State | Row |
@@ -1164,6 +1171,44 @@ Restore item in the undo and redo history when it reads the saved game:
 - A checkpoint on a complete game is permitted. It stays in the file until a new game.
 - A file that breaks these rules is incorrect saved data, as for the other rules of the saved game (PER-5):
   the app makes a new game.
+
+### 9.4 Third-party licenses
+
+The app shows the third-party components that the tablet program contains, and their licenses (owner
+request 2026-11-07).
+
+- **Data.** `scripts/licenses.py` makes `assets/licenses.json` from `cargo metadata` for the tablet
+  target (`aarch64-unknown-linux-musl`). It starts at the crate of the app and follows only the normal
+  dependencies. It does not follow the build dependencies, the dev dependencies and the proc-macro
+  crates, because their code is not in the program. For each crate, the file keeps the name, the
+  version, the SPDX license expression and the text of each license file of the package (`LICENSE*`,
+  `LICENCE*`, `COPYING*`, `NOTICE*`, `UNLICENSE*`). A crate with no license file gets one sentence with
+  the license of its Cargo.toml and its authors. The file also has two entries with no crate: the SQLite
+  source in `libsqlite3-sys` (public domain, the version from `sqlite3.h`) and the UJI Pen Characters data
+  of the recognizer (CC BY 4.0, [assets/README.md](assets/README.md)). The entries are in alphabetical
+  order (no difference between capital and small letters), then in the order of the versions. The app
+  contains the file. When `Cargo.lock` changes, run `python3 scripts/licenses.py`. A test fails when the
+  file does not agree with `cargo metadata` (`--check`).
+- **Settings row.** The fifth row of the Settings panel has the name **Third-party licenses**
+  (reMarkable Sans Medium, 25 px, black) and a › (the icon of **All completed games**) with its center
+  45 px from the right edge of the panel. A tap with the pen or a finger opens the Licenses list at
+  page 1. The menu closes.
+- **Licenses list.** The page units of the analytics screens ([§13](#13-statistics)). **< Back** and
+  the title **Licenses**, then the gray text "The app contains these open source components." Each
+  row (97 units) has the name of the entry (Medium, 32) and its version (Regular, 30, gray40, at the
+  right), and a › at the right end. The row does not show the license (owner decision 2026-11-07).
+  Each page shows 14 rows in portrait and 9 rows in landscape. The ‹ › arrows and a finger swipe change
+  the page. A tap on a row opens its license text at page 1. **< Back** shows the game with the menu open
+  and no panel, and the toolbar ignores a press for 0.5 s ([§9](#9-the-menu)).
+- **License text.** The title is the name of the entry. Below it is the line "Version <version> ·
+  <license>" (Regular, 30, gray40). In the license expression, each ` OR ` shows as ` / `, for example
+  `MIT / Apache-2.0` (owner decision 2026-11-07). `AND` and `WITH` do not change. Then, for each license
+  file: its name (Medium, 28), an empty line, and its text (Regular, 25), with lines of 36 units. A line
+  of more than 80 characters breaks at the last space before the limit (or at the limit if there is no
+  space). Each page shows 40 lines in portrait and 27 lines in landscape. The ‹ › arrows and a finger
+  swipe change the page. **< Back** shows the Licenses list at the same page.
+- A turn of the tablet keeps the first entry (list) or the first line (text) of the page on the new
+  page. The app does not keep the state of these screens: after a close, it starts on the game.
 
 ## 10. Cell colors panel
 

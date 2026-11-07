@@ -50,6 +50,8 @@ paper, and it does the work that paper cannot do.
 - The app saves your game all the time. When you open the app again, you continue at the same point.
 - The app uses the reMarkable Sans font of the tablet.
 - The Settings panel shows the version of the app (`dev` or `dev/<name>` for a build on your computer).
+- Third-party licenses: Settings > Third-party licenses shows each open source component in the app
+  and the full text of its licenses.
 - Updates from within the app.
 - An installer that does all the installation steps for you.
 
@@ -229,6 +231,11 @@ Contributions are welcome, especially:
 ## License
 
 MIT
+
+The app contains open source components with their own licenses. `scripts/licenses.py` collects them
+from `cargo metadata` into `assets/licenses.json`, and the app shows them (Settings > Third-party
+licenses). After a change of `Cargo.lock`, run `python3 scripts/licenses.py` (a test fails if the file is
+not up to date).
 
 ---
 

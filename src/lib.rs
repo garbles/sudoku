@@ -10,6 +10,7 @@ pub mod game;
 pub mod generator;
 pub mod invariants;
 pub mod layout;
+pub mod licenses;
 pub mod recognizer;
 pub mod settings;
 pub mod solver;

@@ -193,8 +193,9 @@ for g in 90 40; do
 done
 
 # settings_panel VERSION BOTTOM : the Settings panel: three rows with a switch (highlight numbers, hide pencil marks
-# automatically, color completed groups), all on, then the version in reMarkable Sans Regular, black, at the right.
-# A stable build has a fifth row for updates (BOTTOM SET_BOTTOM_STABLE, REQUIREMENTS.md §9.2).
+# automatically, color completed groups), all on, then the version in reMarkable Sans Regular, black, at the right,
+# then "Third-party licenses" with a › 45 px from the right edge (REQUIREMENTS.md §9.4).
+# A stable build has a sixth row for updates (BOTTOM SET_BOTTOM_STABLE, REQUIREMENTS.md §9.2).
 settings_panel() {
   panel $SET_TOP $2; divider 338; divider 452; divider 566
   label $TX $((226+65)) start black "Highlight numbers"; switch $((PR-33)) $((226+56)) on
@@ -202,6 +203,10 @@ settings_panel() {
   label $TX $((454+49)) start black "Color completed"; label $TX $((454+81)) start black "groups"; switch $((PR-33)) $((454+56)) on
   label $TX $((SET_VERSION_Y+65)) start black "Version"
   regular_text end $((PR-33)) $((SET_VERSION_Y+65)) "$1"
+  divider $((SET_LICENSES_Y-2))
+  label $TX $((SET_LICENSES_Y+65)) start black "Third-party licenses"
+  ax=$((PR-45)); ay=$((SET_LICENSES_Y+56))
+  echo "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round polyline $((ax-6)),$((ay-12)) $((ax+6)),$ay $((ax-6)),$((ay+12))" >> $M
   [ $2 -gt $SET_BOTTOM_DEV ] && divider $((SET_UPDATE_Y-2))
   return 0
 }
@@ -218,7 +223,7 @@ caution() {
     printf "stroke none fill white circle %.1f,%.1f %.1f,%.1f\n", x, y+5.5, x+1.6, y+5.5 }' >> $M
 }
 
-# update_button TEXT [check|restart] : the button in the fifth row (top SET_UPDATE_Y): a box with a 2 px border, 33 px from
+# update_button TEXT [check|restart] : the button in the sixth row (top SET_UPDATE_Y): a box with a 2 px border, 33 px from
 # the sides of the panel and from 22 px to 90 px below the top of the row, the icon 40 px from the left of the
 # box, and the text 72 px from the left of the box. The icon of "Update to v<version>" is a down arrow into a
 # tray. The icon of "Check for updates" (check) is a circular arrow: an arc (radius 12 px) clockwise from

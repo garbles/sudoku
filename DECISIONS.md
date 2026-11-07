@@ -951,3 +951,23 @@ the micro-cell refreshes, no ink dot stays); a tap, then writing in a different 
 refreshes when the area moves); the end of the x; a tap, then a panel that covers the cell; a number
 after a tap in the same cell; a turn of the tablet with the area on; the update log of xochitl for the
 `pen (ui)` updates of the marks.
+
+### Owner request: a screen with the third-party licenses, 2026-11-07
+
+Request: a screen with all third-party dependencies and their licenses, collected by a program.
+
+Decisions of the owner (before the prototype): the entry is a row of the Settings panel; the screen
+is a list with pages, and a tap on a row shows the full license texts; the list contains only the code
+in the tablet program (no proc macros, no build or dev dependencies).
+
+The owner examined the prototype on the tablet (`dev/licenses`) and approved it after two changes:
+
+- Rejected: a second line in each row of the list with the SPDX license. The owner asked to remove
+  it. The license shows only on the text page.
+- Changed: on the text page, ` OR ` in the license expression shows as ` / `.
+
+Added after the review of the prototype: an entry for the UJI Pen Characters data (CC BY 4.0 requires
+attribution). The owner asked for light tests only, with no team (`tests/licenses.rs` and the changed
+Settings tests). Not done: the bench baselines (the reference-state hashes of the Settings images
+change); reference states and images of the two new screens.
+

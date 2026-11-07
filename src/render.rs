@@ -686,6 +686,8 @@ pub fn draw(c: &mut Canvas, app: &App) {
         }
         Screen::Statistics => c.in_page_units(|c| draw_summary(c, &app.results, app.confirm_all)),
         Screen::GamesList => c.in_page_units(|c| draw_list(c, app)),
+        Screen::Licenses => c.in_page_units(|c| draw_licenses(c, app)),
+        Screen::LicenseText => c.in_page_units(|c| draw_license_text(c, app)),
     }
     if app.update.dialog_shown() {
         c.in_page_units(restart_dialog);
@@ -1411,6 +1413,10 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
     let y = (r.y0 + 65) as f32;
     c.text(Weight::Medium, 25.0, (pl + 33) as f32, y, Anchor::Start, "Version", BLACK);
     c.text(Weight::Regular, 25.0, (pr - 33) as f32, y, Anchor::End, &update.current, BLACK);
+    let r = layout::settings_row(layout::LICENSES_ROW);
+    c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
+    c.text(Weight::Medium, 25.0, (pl + 33) as f32, (r.y0 + 65) as f32, Anchor::Start, "Third-party licenses", BLACK);
+    Icon::OpenList.draw(c, (pr - 45) as f32, (r.y0 + 56) as f32, BLACK);
     if !update.has_row() {
         return;
     }
@@ -1961,6 +1967,45 @@ fn draw_list(c: &mut Canvas, app: &App) {
     if let Some(r) = &app.list.confirm {
         let when = format!("{}, completed in {}.", format_date(r.finished_at), format_clock(r.seconds));
         confirm_dialog(c, "Delete this game?", &when);
+    }
+}
+
+/// The Licenses list (in page units): one row for each crate, with its name and its version. A tap
+/// on a row shows its license texts.
+fn draw_licenses(c: &mut Canvas, app: &App) {
+    let all = crate::licenses::all();
+    let pages = crate::licenses::pages(all.crates.len(), layout::licenses_rows());
+    chrome(c, "Licenses", Some((app.licenses.page, pages)));
+    let (x, w) = list_column();
+    c.text(Weight::Regular, 30.0, x, 270.0, Anchor::Start, "The app contains these open source components.", gray(40));
+    hline(c, LICENSES_Y, x, x + w);
+    for (i, index) in app.licenses_page_rows().enumerate() {
+        let k = &all.crates[index];
+        let y = layout::licenses_row(i);
+        let baseline = y + ROW / 2.0 + 11.0;
+        c.text(Weight::Medium, 32.0, x, baseline, Anchor::Start, &k.name, BLACK);
+        c.text(Weight::Regular, 30.0, x + w - 60.0, baseline, Anchor::End, &k.version, gray(40));
+        Icon::OpenList.draw(c, x + w - 15.0, y + ROW / 2.0, BLACK);
+        hline(c, y + ROW, x, x + w);
+    }
+}
+
+/// The license texts of one crate (in page units), a page at a time.
+fn draw_license_text(c: &mut Canvas, app: &App) {
+    use crate::licenses::Line;
+    let k = &crate::licenses::all().crates[app.licenses.open];
+    let (lines, pages) = app.license_text_page();
+    chrome(c, &k.name, Some((app.licenses.text_page, pages)));
+    let (x, w) = list_column();
+    c.text(Weight::Regular, 30.0, x, 232.0, Anchor::Start, &format!("Version {} · {}", k.version, k.license.replace(" OR ", " / ")), gray(40));
+    hline(c, 260.0, x, x + w);
+    for (i, line) in lines.iter().enumerate() {
+        let y = layout::LICENSE_TEXT_Y + i as f32 * layout::LICENSE_LINE;
+        match line {
+            Line::Heading(s) => c.text(Weight::Medium, 28.0, x, y, Anchor::Start, s, BLACK),
+            Line::Body(s) => c.text(Weight::Regular, 25.0, x, y, Anchor::Start, s, BLACK),
+            Line::Blank => {}
+        }
     }
 }
 

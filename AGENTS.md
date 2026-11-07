@@ -210,6 +210,11 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   of the ink patch (R§14.4) follows `App::pen_cell` and stays on its cell after a pen lift; it stops
   only before a redraw that needs the UI waveform in its cell (`FrameRecord::cell_change_shows_with_pen`),
   when its cell becomes filled, or at a turn.
+- `licenses.rs`: the Licenses screens (REQUIREMENTS.md §9.4). It reads `assets/licenses.json`
+  (compiled into the app), wraps the license texts at 80 characters and divides them into pages.
+  `scripts/licenses.py` makes the file from `cargo metadata` (only the crates in the tablet program,
+  plus SQLite and the UJI data). After a change of `Cargo.lock`, run `python3 scripts/licenses.py`
+  and commit the file: `tests/licenses.rs` runs `--check` (thus `Dockerfile.test` has `python3`).
 - `invariants.rs`: checks of the rules in INVARIANTS.md. Debug builds check them after each input.
 - `layout.rs`, `render.rs`, `font.rs`: positions, drawing (tiny-skia) and the font of the tablet.
   `render.rs` keeps the pixels of each board cell in a cache (tiles at their true position). Each

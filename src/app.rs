@@ -43,6 +43,10 @@ pub enum Screen {
     Manual,
     Statistics,
     GamesList,
+    /// The list of the third-party crates and their licenses.
+    Licenses,
+    /// The license texts of one crate.
+    LicenseText,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -159,6 +163,23 @@ impl ListUi {
     }
 }
 
+/// The state of the Licenses screens.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct LicensesUi {
+    /// The page of the list (from 1).
+    pub page: usize,
+    /// The crate that the license text screen shows (an index of `licenses::all().crates`).
+    pub open: usize,
+    /// The page of the license text (from 1).
+    pub text_page: usize,
+}
+
+impl LicensesUi {
+    fn start() -> LicensesUi {
+        LicensesUi { page: 1, open: 0, text_page: 1 }
+    }
+}
+
 /// Saves a game immediately; true if the save is done.
 type SaveGame = Box<dyn FnMut(&Game) -> bool>;
 
@@ -252,6 +273,10 @@ enum Target {
     /// A filter segment of the games list: All (`None`) or one mode.
     Filter(Option<u8>),
     Bin(usize),
+    /// The row "Third-party licenses" of the Settings panel.
+    Licenses,
+    /// Row i of a page of the Licenses list.
+    LicenseRow(usize),
     DialogCancel,
     DialogDelete,
     /// A switch row of the Settings panel.
@@ -273,6 +298,7 @@ pub struct App {
     pub ui: GameUi,
     pub manual_page: u8,
     pub list: ListUi,
+    pub licenses: LicensesUi,
     /// The "Delete all games" dialog shows on the summary (ANA-12).
     pub confirm_all: bool,
     pub settings: Settings,
@@ -289,6 +315,10 @@ pub struct App {
     pub ng_stops: [f32; layout::STOPS as usize],
     /// The quantity of games on a page of the list in the current layout (`layout::list_rows`).
     per_page: usize,
+    /// The quantity of crates on a page of the Licenses list (`layout::licenses_rows`).
+    licenses_per_page: usize,
+    /// The quantity of lines on a page of license text (`layout::license_lines`).
+    license_lines: usize,
     /// The stroke that the pen draws now (to show the ink).
     pub live_stroke: Option<Stroke>,
     /// The quantity of live strokes that began. The platform uses it to know that `live_stroke` is a
@@ -346,7 +376,10 @@ impl App {
             ui: GameUi::shown(slider),
             manual_page: 1,
             list: ListUi::start(),
+            licenses: LicensesUi::start(),
             per_page: crate::layout::list_rows(),
+            licenses_per_page: layout::licenses_rows(),
+            license_lines: layout::license_lines(),
             confirm_all: false,
             settings,
             results,
@@ -476,6 +509,13 @@ impl App {
         let first = (self.list.page - 1) * self.per_page;
         self.per_page = crate::layout::list_rows();
         self.list.page = (first / self.per_page + 1).min(self.page_count());
+        // The first crate and the first line of the page stay on the new page.
+        let first = (self.licenses.page - 1) * self.licenses_per_page;
+        self.licenses_per_page = layout::licenses_rows();
+        self.licenses.page = first / self.licenses_per_page + 1;
+        let first = (self.licenses.text_page - 1) * self.license_lines;
+        self.license_lines = layout::license_lines();
+        self.licenses.text_page = (first / self.license_lines + 1).min(self.license_text_pages());
         self.ui.pending_ink = None;
         self.live_stroke = None;
         self.writing_until = None;
@@ -659,7 +699,7 @@ impl App {
 
         match self.screen {
             Screen::Game => self.press_game(x, y, tool, highlight_at_press),
-            Screen::Manual | Screen::Statistics | Screen::GamesList => {
+            Screen::Manual | Screen::Statistics | Screen::GamesList | Screen::Licenses | Screen::LicenseText => {
                 let target = self.page_target(x, y);
                 if tool.is_none() && self.screen != Screen::Statistics {
                     Gesture::Swipe { x0: x, y0: y, target }
@@ -683,6 +723,9 @@ impl App {
                 Panel::Settings if layout::settings_panel(self.update.has_row()).contains(x, y) => {
                     if self.update.button().is_some() && layout::update_button_area().contains(x, y) {
                         return Gesture::Control(Target::Update);
+                    }
+                    if layout::settings_row(layout::LICENSES_ROW).contains(x, y) {
+                        return Gesture::Control(Target::Licenses);
                     }
                     return layout::settings_at(x, y).map(|s| Gesture::Control(Target::Switch(s))).unwrap_or(Gesture::Ignored);
                 }
@@ -1033,6 +1076,19 @@ impl App {
                     None
                 }
             }
+            Screen::Licenses | Screen::LicenseText => {
+                if hit(layout::back_button()) {
+                    Some(Target::Back)
+                } else if hit(layout::prev_arrow()) {
+                    Some(Target::Prev)
+                } else if hit(layout::next_arrow()) {
+                    Some(Target::Next)
+                } else if self.screen == Screen::Licenses {
+                    (0..self.licenses_page_rows().len()).find(|&i| hit(layout::licenses_row_rect(i))).map(Target::LicenseRow)
+                } else {
+                    None
+                }
+            }
             Screen::GamesList => {
                 // The dialog accepts only its two buttons (ANA-7).
                 if self.list.confirm.is_some() {
@@ -1071,6 +1127,7 @@ impl App {
             Target::StartNewGame => layout::ng_start_row().contains(x, y),
             Target::Switch(s) => layout::settings_at(x, y) == Some(s),
             Target::Update => layout::update_button_area().contains(x, y),
+            Target::Licenses => layout::settings_row(layout::LICENSES_ROW).contains(x, y),
             Target::RestartLater => layout::dialog_cancel().contains(x, y),
             Target::RestartNow => layout::dialog_delete().contains(x, y),
             // The controls of the manual, the statistics and the games list.
@@ -1080,6 +1137,7 @@ impl App {
             | Target::AllGames
             | Target::Filter(_)
             | Target::Bin(_)
+            | Target::LicenseRow(_)
             | Target::DialogCancel
             | Target::DialogDelete
             | Target::DeleteAll
@@ -1119,10 +1177,24 @@ impl App {
             Target::StartNewGame => self.start_new_game(),
             Target::Back => match self.screen {
                 Screen::GamesList => self.screen = Screen::Statistics,
+                Screen::LicenseText => self.screen = Screen::Licenses,
                 _ => self.show_game(now),
             },
             Target::Prev => self.swipe(false),
             Target::Next => self.swipe(true),
+            Target::Licenses => {
+                self.leave_game();
+                self.screen = Screen::Licenses;
+                self.licenses = LicensesUi::start();
+            }
+            Target::LicenseRow(i) => {
+                let index = (self.licenses.page - 1) * self.licenses_per_page + i;
+                if index < crate::licenses::count() {
+                    self.licenses.open = index;
+                    self.licenses.text_page = 1;
+                    self.screen = Screen::LicenseText;
+                }
+            }
             Target::AllGames => {
                 self.screen = Screen::GamesList;
                 self.list = ListUi::start();
@@ -1309,6 +1381,21 @@ impl App {
                     self.manual_page -= 1;
                 }
             }
+            Screen::Licenses => {
+                let pages = crate::licenses::pages(crate::licenses::count(), self.licenses_per_page);
+                if next && self.licenses.page < pages {
+                    self.licenses.page += 1;
+                } else if !next && self.licenses.page > 1 {
+                    self.licenses.page -= 1;
+                }
+            }
+            Screen::LicenseText => {
+                if next && self.licenses.text_page < self.license_text_pages() {
+                    self.licenses.text_page += 1;
+                } else if !next && self.licenses.text_page > 1 {
+                    self.licenses.text_page -= 1;
+                }
+            }
             Screen::GamesList if self.list.confirm.is_none() => {
                 if next && self.list.page < self.page_count() {
                     self.list.page += 1;
@@ -1346,6 +1433,25 @@ impl App {
         self.filtered().len().div_ceil(self.per_page).max(1)
     }
 
+    /// The indexes of the crates on the current page of the Licenses list.
+    pub fn licenses_page_rows(&self) -> std::ops::Range<usize> {
+        let first = (self.licenses.page - 1) * self.licenses_per_page;
+        first.min(crate::licenses::count())..(first + self.licenses_per_page).min(crate::licenses::count())
+    }
+
+    /// The quantity of pages of the license text of the open crate.
+    pub fn license_text_pages(&self) -> usize {
+        crate::licenses::pages(crate::licenses::lines(self.licenses.open).len(), self.license_lines)
+    }
+
+    /// The lines of the current page of the license text, and the page count.
+    pub fn license_text_page(&self) -> (Vec<crate::licenses::Line>, usize) {
+        let all = crate::licenses::lines(self.licenses.open);
+        let pages = crate::licenses::pages(all.len(), self.license_lines);
+        let page = all.into_iter().skip((self.licenses.text_page - 1) * self.license_lines).take(self.license_lines).collect();
+        (page, pages)
+    }
+
     pub fn page_rows(&self) -> Vec<&ResultRow> {
         self.filtered().into_iter().skip((self.list.page - 1) * self.per_page).take(self.per_page).collect()
     }
@@ -1368,6 +1474,7 @@ impl App {
         let live = usize::from(self.live_stroke.as_ref().is_some_and(|s| s.len() >= 2));
         (pending + live).hash(&mut h);
         (self.manual_page, self.list.filter, self.list.page, self.list.confirm.as_ref().map(|r| r.id)).hash(&mut h);
+        self.licenses.hash(&mut h);
         (self.settings.color_starting, self.settings.color_clash, self.settings.color_highlight, self.settings.color_completed).hash(&mut h);
         (self.settings.highlight_on, self.settings.auto_hide_on, self.settings.completed_color_on, self.settings.micro_line, self.confirm_all).hash(&mut h);
         (&self.update.current, &self.update.state, self.update.row_text()).hash(&mut h);

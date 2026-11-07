@@ -1780,7 +1780,7 @@ fn a_tap_on_the_empty_space_or_on_a_title_changes_nothing() {
 fn the_settings_panel_stays_400_px_wide_with_the_new_row() {
     // NAV-14, UPD-1, R§9.1: all layouts. Rows 1 to 3 have the switches, in this order. A tap changes only
     // the switch of the row, immediately, and the panel stays open. The third row has two lines of text.
-    // A tap on the version row (row 4) changes nothing.
+    // A tap on the version row (row 4) changes nothing. Row 5 is "Third-party licenses" (LIC-1).
     let fonts = fonts();
     for (o, right_handed) in LAYOUTS {
         let _layout = InLayout::set(o, right_handed);
@@ -1792,8 +1792,8 @@ fn the_settings_panel_stays_400_px_wide_with_the_new_row() {
         };
         let p = layout::settings_panel(false);
         assert_eq!((p.x0, p.x1), (x0, x0 + 400), "NAV-14: {what}");
-        assert_eq!((p.y0, p.y1 - 1), (224, 224 + 4 * 114 + 1), "UPD-1: {what}: four rows");
-        assert_eq!(layout::settings_panel(true).y1 - 1, 224 + 5 * 114 + 1, "UPD-1: {what}: five rows");
+        assert_eq!((p.y0, p.y1 - 1), (224, 224 + 5 * 114 + 1), "UPD-1, LIC-1: {what}: five rows");
+        assert_eq!(layout::settings_panel(true).y1 - 1, 224 + 6 * 114 + 1, "UPD-1: {what}: six rows");
         let mut d = Driver::new(133);
         d.button(Button::Menu);
         d.button(Button::Settings);

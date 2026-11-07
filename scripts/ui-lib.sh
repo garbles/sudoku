@@ -29,10 +29,10 @@ COLOR_CYAN='#6FCFE6'; COLOR_MAGENTA='#E650E0'; COLOR_ORANGE='#FF9A1F'
 STARTING_BG=$COLOR_GRAY; CLASH_BG=$COLOR_RED; HIGHLIGHT_BG=$COLOR_CYAN; COMPLETED_BG=$COLOR_GREEN
 
 # The Settings panel: 400 px wide (x 1108-1507). The rows start at y 226, one each 114 px (112 px and a line of
-# 2 px): the three switches, the version, and the update row of a stable build.
+# 2 px): the three switches, the version, "Third-party licenses", and the update row of a stable build.
 SET_PL=1108; SET_PR=1507; SET_TOP=224; SET_ROW0=226; SET_STEP=114
-SET_VERSION_Y=$((SET_ROW0+3*SET_STEP)); SET_UPDATE_Y=$((SET_ROW0+4*SET_STEP))
-SET_BOTTOM_DEV=$((SET_UPDATE_Y-1)); SET_BOTTOM_STABLE=$((SET_UPDATE_Y+SET_STEP-1))   # y 681 and 795
+SET_VERSION_Y=$((SET_ROW0+3*SET_STEP)); SET_LICENSES_Y=$((SET_ROW0+4*SET_STEP)); SET_UPDATE_Y=$((SET_ROW0+5*SET_STEP))
+SET_BOTTOM_DEV=$((SET_UPDATE_Y-1)); SET_BOTTOM_STABLE=$((SET_UPDATE_Y+SET_STEP-1))   # y 795 and 909
 
 # The Cell colors panel: two columns of 400 px and three rows of 360 px (y 112 to 1192). It touches the toolbar.
 # Left column, from the top: starting, clashing, highlighted. Right column: completed, micro-cell lines, empty space.

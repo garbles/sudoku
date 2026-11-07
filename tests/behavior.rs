@@ -2889,20 +2889,21 @@ fn the_settings_panel_has_three_switches_and_the_version_row_in_row_four() {
 }
 
 #[test]
-fn the_settings_panel_has_a_fifth_row_only_in_a_build_that_can_update() {
-    // UPD-1, §9.1: four rows when `state = Off`, else five. A tap in the last row keeps the panel open,
-    // and a tap one row lower only closes it.
+fn the_settings_panel_has_an_update_row_only_in_a_build_that_can_update() {
+    // UPD-1, LIC-1, §9.1: five rows when `state = Off`, else six. A tap in the update row keeps the
+    // panel open, a tap in the licenses row opens the Licenses screen, and a tap below the panel only
+    // closes it.
     use sudoku::update::Update;
     let fonts = fonts();
     let hex40 = "0123456789abcdef0123456789abcdef01234567";
     let cases = [
-        ("dev".to_string(), 4),
-        ("v1".to_string(), 4),
-        ("pre-abc".to_string(), 4),
-        (format!("pre-{hex40}0"), 4),
-        ("v0.1.0".to_string(), 5),
-        ("pre-abcdef0".to_string(), 5),
-        (format!("pre-{hex40}"), 5),
+        ("dev".to_string(), 5),
+        ("v1".to_string(), 5),
+        ("pre-abc".to_string(), 5),
+        (format!("pre-{hex40}0"), 5),
+        ("v0.1.0".to_string(), 6),
+        ("pre-abcdef0".to_string(), 6),
+        (format!("pre-{hex40}"), 6),
     ];
     for_each_layout(|layout_case| {
         for (version, rows) in &cases {
@@ -2910,7 +2911,7 @@ fn the_settings_panel_has_a_fifth_row_only_in_a_build_that_can_update() {
             let mut d = Driver::new(217);
             d.app.update = Update::new(version);
             d.app.update.request = None;
-            assert_eq!(d.app.update.has_row(), *rows == 5, "{case}");
+            assert_eq!(d.app.update.has_row(), *rows == 6, "{case}");
             d.button(Button::Menu);
             d.button(Button::Settings);
             let (x0, _) = documented_settings_x();
@@ -2922,8 +2923,10 @@ fn the_settings_panel_has_a_fifth_row_only_in_a_build_that_can_update() {
             assert_eq!(rgb_at(&pm, x, border - 1), [0, 0, 0], "{case}");
             let before = d.app.settings.clone();
             let margin = (x0 + 10) as f32;
-            d.finger_tap(margin, (documented_settings_row_y(*rows - 1) + 56) as f32);
-            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{case}: the last row");
+            if *rows == 6 {
+                d.finger_tap(margin, (documented_settings_row_y(5) + 56) as f32);
+                assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{case}: the update row");
+            }
             d.finger_tap(margin, (documented_settings_row_y(*rows) + 56) as f32);
             assert_eq!(d.app.ui.menu, Menu::Open(None), "{case}: below the panel");
             assert_eq!(d.app.settings, before, "{case}");

@@ -366,8 +366,10 @@ const SETTINGS_TOP: i32 = 2 * TB_SLOT;
 const SETTINGS_W: i32 = 400;
 /// The row of the version, below the switches.
 pub const VERSION_ROW: usize = Switch::ALL.len();
+/// The row "Third-party licenses", below the version. A tap opens the Licenses screen.
+pub const LICENSES_ROW: usize = VERSION_ROW + 1;
 /// The row for updates (only when `Update::has_row`).
-pub const UPDATE_ROW: usize = VERSION_ROW + 1;
+pub const UPDATE_ROW: usize = LICENSES_ROW + 1;
 
 pub fn settings_pl() -> i32 {
     panel_x(SETTINGS_W).0 // 1108 in portrait
@@ -744,6 +746,36 @@ pub fn dialog_delete() -> Rect {
     page_rect((x0 + x1) / 2.0, y1 - ROW, x1, y1)
 }
 
+// ---- Licenses screens (page units)
+
+/// The top of the list of crates: below the title and the header line.
+pub const LICENSES_Y: f32 = 300.0;
+
+/// The quantity of crates on a page of the Licenses list: 14 in portrait, 9 in landscape.
+pub fn licenses_rows() -> usize {
+    if landscape() { 9 } else { 14 }
+}
+
+/// The top y of the row of crate i of a page of the Licenses list.
+pub fn licenses_row(i: usize) -> f32 {
+    LICENSES_Y + i as f32 * ROW
+}
+
+/// The tap area of row i of the Licenses list: the full width of the page.
+pub fn licenses_row_rect(i: usize) -> Rect {
+    let y = licenses_row(i);
+    page_rect(0.0, y, page_w(), y + ROW)
+}
+
+/// The baseline of the first line of license text, and the distance between two lines.
+pub const LICENSE_TEXT_Y: f32 = 320.0;
+pub const LICENSE_LINE: f32 = 36.0;
+
+/// The quantity of lines of license text on a page: 40 in portrait, 27 in landscape.
+pub fn license_lines() -> usize {
+    if landscape() { 27 } else { 40 }
+}
+
 /// A horizontal finger movement of this length or more is a swipe.
 pub const SWIPE_MIN: f32 = 120.0;
 
@@ -913,16 +945,18 @@ mod tests {
 
     #[test]
     fn the_settings_panel_stays_400_px_wide_with_its_rows() {
-        // NAV-14, UPD-1
+        // NAV-14, UPD-1, LIC-1
         assert_eq!(VERSION_ROW, 3);
-        assert_eq!(UPDATE_ROW, 4);
+        assert_eq!(LICENSES_ROW, 4);
+        assert_eq!(UPDATE_ROW, 5);
         let (dev, stable) = (settings_panel(false), settings_panel(true));
-        assert_eq!((dev.x0, dev.x1 - 1, dev.y0, dev.y1 - 1), (1108, 1507, 224, 681));
-        assert_eq!(stable.y1 - 1, 795);
+        assert_eq!((dev.x0, dev.x1 - 1, dev.y0, dev.y1 - 1), (1108, 1507, 224, 795));
+        assert_eq!(stable.y1 - 1, 909);
+        assert_eq!(settings_row(LICENSES_ROW).y0, 682);
         assert_eq!(settings_row(2).y0, 454);
         assert_eq!(settings_at(1200.0, 500.0), Some(Switch::ColorCompletedGroups));
         assert_eq!(settings_at(1200.0, 600.0), None, "the version row is not a switch");
         let b = update_button();
-        assert_eq!((b.x0, b.x1, b.y0, b.y1), (1141, 1474, 704, 772));
+        assert_eq!((b.x0, b.x1, b.y0, b.y1), (1141, 1474, 818, 886));
     }
 }
