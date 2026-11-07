@@ -685,3 +685,195 @@ Items to examine on the tablet at the final build. The computer cannot prove the
 examined them at that build: open the menu, tap the bookmark below redo, tap Save checkpoint, write numbers
 and marks, open the panel and tap Restore, tap outside the panel, tap undo, double-tap a bin, and complete
 a puzzle (the bookmark is gray).
+
+### Recognizer, fourth version: the examples in both pen directions, 2026-11-06
+
+The owner asked: "can you update @src/recognizer.rs so that it calculates all symbols both forward and
+backward of their paths?" Beads issue: remarkable-sudoku-d4i. The change is now in REQUIREMENTS.md (§5.1,
+§16). No screen, panel, image, setting, saved value or input changes.
+
+Examination on the tablet, 2026-11-06 (the prototype, version `dev/ink-both-ways`). The owner approved the
+behavior below and these values. This record has no separate result for each written digit.
+
+| Item | Result |
+|---|---|
+| Each example, in all classes and sources, and each copy of a digit example, is stored as written and fully reversed | Approved. |
+| The ink of the player is not reversed, and the app calculates its features one time | Approved. |
+| The app calculates the example features at each start, in the background, in memory only | Approved. |
+| Acceptance factor 1.4 | Approved. No change. |
+| Test limit for other characters rejected: 90.0 % | Approved. |
+| Test limits for digits: 97.5 % correct or more, 1.2 % wrong or less. Target of R§5.1: 96 % correct, 1.2 % wrong | Approved. No change. |
+
+This replaces the separate reversal of the typeface shapes (third version, above). The older sections stay
+as a record.
+
+Measured values on the computer (macOS, one run). The examples of writers 1 to 40 read writers 41 to 60. Each
+row has 360 digits and 3000 other characters.
+
+| Ink | Digits correct | Wrong digit | Others rejected |
+|---|---|---|---|
+| Usual direction, before the change | 98.6 % (355) | 0.6 % (2) | 90.8 % (2723) |
+| Usual direction, after the change | 98.6 % (355) | 0.6 % (2) | 90.5 % (2715) |
+| Fully reversed ink, before | 69.4 % (250) | 28.1 % (101) | 18.7 % (561) |
+| Fully reversed ink, after | 98.6 % (355) | 0.6 % (2) | 90.5 % (2715) |
+| Only strokes, or only order reversed | 98.6 % (355) | 0.6 % (2) | 72.6 % (2177) |
+
+The older values 97.8 %, 0.8 % and 91.3 % in the sections above were already old before this change. For ink
+in the usual direction, this change gives no gain for digits and a small loss of rejection. The gain is for
+reversed ink.
+
+Cost on the computer (macOS, one run), before and after:
+
+| Item | Before | After |
+|---|---|---|
+| Examples | 20 124 | 40 122 |
+| Feature data | 45 MB | 89 MB |
+| Mean reading | 0.79 ms | 1.50 ms |
+| Start calculation | 47 ms | 78 ms |
+
+Bench on the computer (macOS), A/B with the old code on the same day. The start calculation of this bench is
+not the same value as the one run above:
+
+| Item | Before | After |
+|---|---|---|
+| Mean reading | 797 us | 1515 us |
+| Start calculation | 29.6 ms | 57.1 ms |
+| `draw` | 449 us | 444 us (no change above the noise) |
+| `input_to_pixels` | 642 us | 627 us (no change above the noise) |
+
+Cost on the tablet (Paper Pro, 2026-11-06). `sudoku --self-test`, the final dev build against the old code at
+ec28c13, alternated, 15 runs each, one ink for the reading, dev profile:
+
+| Item | Before | After |
+|---|---|---|
+| Ready time, normal runs | Approximately 320 ms | Approximately 590 ms |
+| One reading, normal runs | Approximately 5.3 ms | Approximately 9.2 ms |
+| Runs with a ready time over 1 s | 6 of 15 (maximum 1.99 s) | 8 of 15 (maximum 3.32 s) |
+| Runs with one reading over 20 ms | 5 of 15 (maximum 159 ms) | 6 of 15 (maximum 368 ms) |
+| Median ready time of all runs | 327 ms | 1372 ms |
+| Peak memory of the process (VmHWM, one run each) | 145 MB | 235 MB |
+
+Slow runs occur on both builds, and the cause is not known. Because more than half of the runs after the change
+are slow, the median of all runs is 1372 ms, not the normal value. The reading starts at the pen lift, and the
+recognition pause is approximately 0.5 s.
+
+The last tablet bench before this change (commit c3b03d9) gives 12.2 ms for one reading and 314 ms for the start
+calculation. That bench is a different measurement. The other tablet values in this document (1.7 s, 14 ms) are
+history from an older version.
+
+aarch64 Linux: `make test-linux` (musl, release and debug) passes. This includes the accuracy tests and the rule
+that each ink and its full reversal give the same result on 3360 inks. The test did not print the accuracy values
+on aarch64, thus this record gives only that the tests pass with their limits.
+
+Review results. These are not results of a device test:
+
+- Writers 41 to 60 give the same result for the ink and its full reversal on all 3360 test inks. This is
+  measured on this set, and it is not proved for all ink. Thus it is a test on this set, not an absolute rule.
+- Partly reversed ink is not in the rule. For only the stroke directions or only the stroke order reversed,
+  rejection is 72.6 %. Ink with only some strokes reversed is not measured. The owner knows this and approved
+  the change.
+- A reading that comes before the end of the start calculation waits for it, and this time is now longer. The
+  behavior is the same.
+- The accuracy test also uses the owner examples, thus a corpus addition can change its result.
+
+Rejected values and alternatives, 2026-11-06:
+
+| Item | Value | Reason |
+|---|---|---|
+| Test limit for other characters rejected | 90.5 % | The measured value is 90.5 %, thus there is no margin for a corpus addition. |
+| Direction of the ink | Reverse the ink of the player at write time, and keep only forward examples | Considered, not selected. The owner kept the approved build. |
+| Size of the examples | Remove near-duplicate examples | Measured, not selected. The owner does not want a follow-up issue. |
+| Size of the examples | Remove the reversed copies as "duplicates" | A backward example is typically 5 to 30 times farther from its nearest forward example than two forward examples are from each other. |
+
+Items to examine on the tablet at the final build. The computer cannot prove them: close Sudoku and open it
+again from AppLoad, write digits in the usual direction and from the bottom up, write a letter or a scribble
+(the app shows the "?"), and write quickly in many cells (the ink and the response must stay fast).
+
+### Owner request: the ink pause, ink on filled cells, the highlight, hand touches and the ink start, 2026-11-07
+
+The owner asked, in this order:
+
+1. "can you please bump the ink delay from 1s to 1.5s as i'm finding that 1s is not long enough. the timer
+   should only start after the pen is no longer touching the tablet." Later: "now that we know its set from the
+   appload folder, can you make it 1s?"
+2. "i can ink on completely squares which i do not want. it is visible when i tap a number to highlight all of
+   them on the screen. should not show ink in this case"
+3. "touching my hand on the screen should not remove the number highlight. only pen strokes should remove it.
+   toggling the menu or selecting options should not remove the highlight."
+4. "doing anything while a number is highlighted triggers an immediate re-render to remove the highlight. for
+   example, 7 is highlighted and then i try to write something while it's highlighted, or 7 is highlighted and
+   then i tap to highlight 8. in those cases we should wait until the action is completed before we re-render.
+   i.e. batch the re-renders together instead of one after another"
+5. "i see that when i write multiple numbers (in separate cells) there is significant lag on the later numbers"
+   (the owner said: the start of the ink).
+
+Beads issue: remarkable-sudoku-lm1. The change is now in REQUIREMENTS.md (§3.2, §3.3, §5.1, §5.2, §6.2, §7, §9,
+§9.1, §9.2, §14.4, §15, §16).
+
+Examination on the tablet, 2026-11-07 UTC (the prototype, version `dev/highlight-keep`). The owner approved the
+behavior in the requirements. This record has no separate result for each item, except where it tells so.
+
+| Item | Result |
+|---|---|
+| Recognition pause of 1 s from the pen lift, one fixed value in the source. Redraw wait of 1 s | Approved. |
+| No ink and no pen area for a touch that starts on a filled cell | Approved. |
+| The list of items that remove a highlight, and the list of items that do not (R§6.2) | Approved. |
+| One redraw for each action. Two updates remain in two known cases (R§5.2) | Approved. The owner accepts the two cases. |
+| A touch that starts less than 150 ms after a pen lift has no effect | Approved. The owner knows the risk: a hand touch more than 150 ms after a pen lift, on a toolbar button, still operates it. |
+| A finger press does not read waiting ink and does not stop the writing | Approved. |
+| The pen area starts at the pen down while the player writes | Approved. |
+| A tap on an empty cell while the player writes starts the area, and its mark or x comes after the area stops | The owner tried taps and did not reject this. |
+
+Measured on the tablet (input log, 2026-11-07): the tablet sends a touch from the hand approximately 97 ms after
+each pen lift, and that touch ends a few ms before the next pen down.
+
+Measured with the update log of xochitl:
+
+| Measure | Before | After |
+|---|---|---|
+| Pen down to first ink, later strokes | 73 to 164 ms | 52 to 56 ms, pen waveform |
+| Area start after pen down, later strokes | 58 to 241 ms | 2 to 12 ms |
+| First stroke of a session | Not compared | Approximately 135 ms |
+
+Time line for one number: the read at 1 s, the digit goes to the screen approximately 45 ms after that, and the
+display completes it at approximately 1.45 s. The last value is an estimate from the 400 ms that the app gives a
+screen update. It is not measured on the panel. The owner approved a new bench baseline for the computer and
+Linux (2026-11-07). There is no tablet baseline.
+
+History of the examination:
+
+- The owner's first request said "1s". The manifest set the pause to 0.5 s, and it overrode the source. The log
+  showed the read at about 505 ms and the redraw at about 1018 ms. That is the "1 s" that the owner saw, and the
+  digit was fully visible at about 1.4 s.
+- A first prototype changed only the source constant. The owner tested it without the new pause, and the agent
+  wrongly reported 1.5 s. A log found the override.
+- The pen area was off on the tablet: the patch file was newer than the start of xochitl. A restart of xochitl
+  turned it on. This was the cause of a part of the ink lag. The app gives only one line in the log for this state.
+- AppLoad keeps the manifest in memory until xochitl restarts (observed: the running process had the old value
+  until the restart).
+- One of the xochitl restarts (`xovi/start`, 2026-11-07 02:20 UTC) gave a segmentation fault of xochitl and a
+  reboot of the tablet. The cause is not known. Four other restarts in the same session did not do this. After the
+  reboot, xovi, the patch and AppLoad operated.
+- The update log showed no backlog in xochitl: each app update gets to the panel call in approximately 8 ms. The
+  theory that refreshes build up has no support at that level.
+
+Review results. These are not results of a device test:
+
+- A stroke on a filled cell removes the highlight in the state, but the pixels can stay up to 1 s. A tap on that
+  number in this time makes a highlight, and the player can see this as a failed removal. The owner did not ask
+  for a change.
+- A press on an empty cell where a finger Redo fills that cell in the same touch: the pen area may start on a
+  filled cell. This is not proved visible.
+
+Rejected values and alternatives, 2026-11-07:
+
+| Item | Value | Reason |
+|---|---|---|
+| Recognition pause | 1.5 s | The owner rejected it after the owner saw that the digit is fully visible approximately 0.45 s after the read. |
+| Recognition pause and idle time | 0.55 s (a digit that is fully visible at 1 s) | Offered, not selected. It gives less time for a second stroke. |
+| Recognition pause | 0.75 s | Offered, not selected. It gives less time for a second stroke. |
+| Highlight | It comes back on return from another screen | Not selected. |
+| Hand touches | Leave them as they are | Not selected. |
+| Source of the pause | Keep it in the manifest | Not selected. |
+
+The older sections stay as a record. Their pause of 0.5 s and their highlight rules are history.

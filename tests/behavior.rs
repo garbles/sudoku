@@ -5,7 +5,7 @@
 mod common;
 
 use common::*;
-use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, BACK_GUARD_MS, OVERLAY_MS};
+use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, BACK_GUARD_MS, HAND_TOUCH_MS, OVERLAY_MS, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
 use sudoku::game::{cells, mark_bit, peers, Cell};
 use sudoku::layout::{self, Button};
 use sudoku::reference;
@@ -180,7 +180,7 @@ fn finger_on_board_has_no_effect() {
 
 #[test]
 fn highlights() {
-    // HLT-1 to HLT-5
+    // HLT-1 to HLT-5, HLT-7. The other tests of the highlight are at the end of this file.
     let mut d = Driver::new(9);
     let given = given_cell(&d.app.game);
     let v = d.app.game.value_at(given);
@@ -195,14 +195,15 @@ fn highlights() {
     d.tap_cell(given);
     let (x, y) = micro_center(empty_cell(&d.app.game), 5);
     d.finger_tap(x, y);
-    assert_eq!(d.app.ui.highlight, None, "a finger touch removes it");
-    d.tap_cell(given);
+    assert_eq!(d.app.ui.highlight, Some(v), "HLT-7: a finger touch keeps it");
     d.button(Button::Menu);
-    assert_eq!(d.app.ui.highlight, None, "the menu button removes it");
+    assert_eq!(d.app.ui.highlight, Some(v), "HLT-7: the menu button keeps it");
     d.tap_cell(given);
-    assert_eq!(d.app.ui.highlight, Some(v), "the board operates while the menu is open");
+    assert_eq!(d.app.ui.highlight, None, "HLT-4: the board operates while the menu is open");
+    d.tap_cell(given);
+    assert_eq!(d.app.ui.highlight, Some(v), "HLT-4: the board operates while the menu is open");
     d.button(Button::Colors);
-    assert_eq!(d.app.ui.highlight, None);
+    assert_eq!(d.app.ui.highlight, Some(v), "HLT-4: a highlight shows with a panel");
     assert_eq!((d.app.game.value, d.app.game.marks, d.app.game.undo.len()), before, "HLT-5");
 }
 
@@ -906,19 +907,30 @@ fn only_ink_changes_while_the_pen_writes() {
     d.wait(d.app.pause_ms + 50);
     assert!(d.app.redraw, "reading the ink changes the board");
 
-    // A highlight that the pen-down removes, and ink that the app removes, need a full drawing.
+    // HLT-9: a pen press does not change the highlight. The tap removes it at the pen lift, with its
+    // mark. INP-22: a stroke from a number shows no ink, thus only a highlight needs a drawing.
     let given = cells().find(|&c| d.app.game.is_given(c)).unwrap();
     d.tap_cell(given);
+    let empty = cells().find(|&c| !d.app.game.is_filled(c)).unwrap();
+    let (x, y) = micro_center(empty, 1);
     d.app.redraw = false;
     d.send(Input::PenDown { x, y, tool: Tool::Pen });
-    assert!(d.app.redraw, "the highlight goes away");
+    assert!(!d.app.redraw, "HLT-9: the highlight does not go at the press");
+    assert!(d.app.ui.highlight.is_some(), "HLT-9");
     d.send(Input::PenUp { x, y });
+    assert!(d.app.redraw, "HLT-2: the mark and the removal of the highlight");
+    assert_eq!(d.app.ui.highlight, None, "HLT-2");
+    // The tap above can show an x, and a press removes an x (MRK-15).
+    d.wait(OVERLAY_MS);
     let (gx, gy) = micro_center(given, 1);
+    d.app.redraw = false;
     d.send(Input::PenDown { x: gx, y: gy, tool: Tool::Pen });
     d.send(Input::PenMove { x: gx + 60.0, y: gy + 60.0 });
-    d.app.redraw = false;
+    assert!(!d.app.redraw, "INP-22: no ink on a starting number");
     d.send(Input::PenUp { x: gx + 60.0, y: gy + 60.0 });
-    assert!(d.app.redraw, "ink on a starting number is removed");
+    assert!(!d.app.redraw, "INP-7: the stroke changes nothing when no highlight shows");
+    d.wait(d.app.pause_ms + 50);
+    assert!(!d.app.is_writing(), "INP-16");
 }
 
 #[test]
@@ -1382,7 +1394,9 @@ fn a_tap_on_a_filled_cell_shows_no_x() {
     assert_eq!(d.app.game.value_at(cell), v);
     let before = board(&d.app.game);
     for highlight_on in [true, false] {
+        // HLT-6: the switch off removes the highlight, as a tap on the switch does.
         d.app.settings.highlight_on = highlight_on;
+        d.app.ui.highlight = None;
         for c in [given, cell] {
             for digit in 1..=9u8 {
                 d.tap_micro(c, digit);
@@ -1592,6 +1606,10 @@ fn a_second_finger_removes_the_x() {
     // On the board.
     d.send(Input::TouchDown { id: 5, x: px, y: py });
     refused_tap(&mut d);
+    // The second finger is not a hand touch (INP-20), and the first touch is active (INP-15).
+    d.wait(HAND_TOUCH_MS);
+    d.send(Input::TouchMove { id: 5, x: px, y: py });
+    assert!(d.app.ui.refused.is_some());
     let (x, y) = micro_center(given_cell(&d.app.game), 5);
     d.send(Input::TouchDown { id: 6, x, y });
     assert_eq!(d.app.ui.refused, None, "MRK-15: a second finger on the board");
@@ -1600,7 +1618,9 @@ fn a_second_finger_removes_the_x() {
     // On a toolbar button, outside the guard time of NAV-16.
     d.send(Input::TouchMove { id: 5, x: px, y: py });
     refused_tap(&mut d);
+    d.wait(HAND_TOUCH_MS);
     d.send(Input::TouchMove { id: 5, x: px, y: py });
+    assert!(d.app.ui.refused.is_some());
     let menu = d.app.ui.menu;
     let (x, y) = button_center(Button::Menu);
     d.send(Input::TouchDown { id: 6, x, y });
@@ -1669,11 +1689,15 @@ fn a_press_that_the_guard_time_ignores_does_not_remove_the_x() {
         assert_eq!(x, Some((cell, digit, d.now)), "{case}");
         assert_eq!(question.map(|q| q.0), Some(other), "{case}");
 
+        // The presses are not hand touches (INP-20). They are 1 ms apart, thus all are in the guard time.
+        d.wait(HAND_TOUCH_MS);
         for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
             let (px, py) = button_center(b);
-            d.send(Input::TouchDown { id: 1, x: px, y: py });
+            d.now += 1;
+            d.app.handle(Input::TouchDown { id: 1, x: px, y: py }, d.now);
             assert_eq!((d.app.ui.refused, d.app.ui.question), (x, question), "NAV-16: finger press ({case}, {b:?})");
-            d.send(Input::TouchUp { id: 1, x: px, y: py });
+            d.now += 1;
+            d.app.handle(Input::TouchUp { id: 1, x: px, y: py }, d.now);
             assert_eq!((d.app.ui.refused, d.app.ui.question), (x, question), "NAV-16: finger lift ({case}, {b:?})");
         }
         let (px, py) = button_center(Button::Close);
@@ -4091,5 +4115,1602 @@ fn the_panel_covers_no_toolbar_button_close_button_or_meter() {
         for x in [layout::meter_xl(), layout::meter_xr()] {
             assert!(!r.contains(x as f32, layout::meter_y() as f32), "NAV-18: the meter ({case})");
         }
+    });
+}
+
+// ---- The highlight, hand touches and the ink start (owner decision 2026-11-07): HLT-2 to HLT-9,
+// INP-5, INP-7, INP-12, INP-16, INP-20 to INP-24, QST-4, MRK-15, NAV-11, NAV-14.
+
+/// Taps the first starting number and returns its cell and its value (HLT-3).
+fn highlight_a_number(d: &mut Driver) -> (Cell, u8) {
+    let given = given_cell(&d.app.game);
+    let v = d.app.game.value_at(given);
+    d.tap_cell(given);
+    assert_eq!(d.app.ui.highlight, Some(v), "HLT-3");
+    (given, v)
+}
+
+/// A filled cell with a value that is not `v`.
+fn other_number(d: &Driver, v: u8) -> (Cell, u8) {
+    let c = cells().find(|&c| d.app.game.is_filled(c) && d.app.game.value_at(c) != v).unwrap();
+    (c, d.app.game.value_at(c))
+}
+
+/// A point off the board that is on no control, in the current layout.
+fn no_control_point(menu_open: bool) -> (f32, f32) {
+    for y in (4..layout::screen_h() as i32).step_by(8) {
+        for x in (4..layout::screen_w() as i32).step_by(8) {
+            let (x, y) = (x as f32, y as f32);
+            if layout::board_cell(x, y).is_none() && layout::board_micro(x, y).is_none() && layout::game_button(x, y, menu_open).is_none() {
+                return (x, y);
+            }
+        }
+    }
+    panic!("no point off the board");
+}
+
+/// A pen stroke from micro-cell 1 to micro-cell 9 of a cell. The test sends the pen lift.
+fn stroke_down(d: &mut Driver, cell: Cell) -> (f32, f32) {
+    let (x0, y0) = micro_center(cell, 1);
+    let (x1, y1) = micro_center(cell, 9);
+    d.send(Input::PenDown { x: x0, y: y0, tool: Tool::Pen });
+    d.send(Input::PenMove { x: (x0 + x1) / 2.0, y: (y0 + y1) / 2.0 });
+    d.send(Input::PenMove { x: x1, y: y1 });
+    (x1, y1)
+}
+
+/// `PUZZLE`'s solution with all numbers given except the digit `digit`: only one solution, and no
+/// cell has `digit`.
+fn board_without(digit: u8) -> sudoku::game::Game {
+    let rows: Vec<String> = SOLUTION.iter().map(|r| r.replace(char::from(b'0' + digit), ".")).collect();
+    let rows: [&str; 9] = std::array::from_fn(|i| rows[i].as_str());
+    board_of(&rows)
+}
+
+#[test]
+fn a_pen_tap_on_a_number_changes_the_highlight_only_at_the_pen_lift() {
+    // HLT-2, HLT-3, HLT-9: the toggle and the move are at the pen lift, and the press changes nothing.
+    for_each_layout(|case| {
+        let mut d = Driver::new(401);
+        let (given, v) = highlight_a_number(&mut d);
+        let (other, w) = other_number(&d, v);
+        let (x, y) = micro_center(other, 5);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert_eq!(d.app.ui.highlight, Some(v), "HLT-9: a press on a different number ({case})");
+        d.send(Input::PenUp { x, y });
+        assert_eq!(d.app.ui.highlight, Some(w), "HLT-3: the move at the lift ({case})");
+        let (x, y) = micro_center(other, 9);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert_eq!(d.app.ui.highlight, Some(w), "HLT-9: a press on the same number ({case})");
+        d.send(Input::PenUp { x, y });
+        assert_eq!(d.app.ui.highlight, None, "HLT-3: the toggle at the lift ({case})");
+        // A different cell with the same value also toggles.
+        d.tap_cell(given);
+        let same = cells().find(|&c| c != given && d.app.game.value_at(c) == v);
+        if let Some(same) = same {
+            d.tap_cell(same);
+            assert_eq!(d.app.ui.highlight, None, "HLT-3: the same value in a different cell ({case})");
+        }
+    });
+}
+
+#[test]
+fn a_pen_tap_on_an_empty_cell_removes_the_highlight_at_the_lift_with_its_mark_or_x() {
+    // HLT-2 (item 2), HLT-9, MRK-12: the removal and the mark, or the x, are in the same step.
+    for_each_layout(|case| {
+        let mut d = Driver::new(402);
+        highlight_a_number(&mut d);
+        let (cell, digit) = cells()
+            .filter(|&c| !d.app.game.is_filled(c))
+            .find_map(|c| (1..=9u8).find(|&v| !peer_has(&d.app.game, c, v)).map(|v| (c, v)))
+            .unwrap();
+        let (x, y) = micro_center(cell, digit);
+        d.app.redraw = false;
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert!(d.app.ui.highlight.is_some() && !d.app.redraw, "HLT-9: the press ({case})");
+        assert_eq!(d.app.game.marks_at(cell), 0, "HLT-9 ({case})");
+        d.send(Input::PenUp { x, y });
+        assert_eq!(d.app.ui.highlight, None, "HLT-2 ({case})");
+        assert_eq!(d.app.game.marks_at(cell), mark_bit(digit), "the mark at the lift ({case})");
+        assert!(d.app.redraw, "{case}");
+
+        highlight_a_number(&mut d);
+        let (cell, digit) = refused_pair(&d.app.game);
+        let (x, y) = micro_center(cell, digit);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert!(d.app.ui.highlight.is_some(), "HLT-9: the press of a refused tap ({case})");
+        assert_eq!(d.app.ui.refused, None, "{case}");
+        d.send(Input::PenUp { x, y });
+        assert_eq!(d.app.ui.highlight, None, "HLT-2 ({case})");
+        assert_eq!(d.app.ui.refused, Some((cell, digit, d.now)), "the x at the lift ({case})");
+    });
+}
+
+#[test]
+fn a_stroke_from_a_filled_cell_removes_the_highlight_at_the_pen_lift() {
+    // HLT-2 (item 3), HLT-9, INP-7, INP-16, INP-22: a starting number and an entry. The stroke changes
+    // only the highlight. The redraw can wait up to the idle time, and a tap in this time makes a
+    // highlight.
+    for_each_layout(|case| {
+        let mut d = Driver::new(403);
+        let entry = empty_cell(&d.app.game);
+        let value = d.app.game.solution[entry.0 as usize][entry.1 as usize];
+        d.write(entry, value);
+        assert_eq!(d.app.game.value_at(entry), value, "{case}");
+        let given = given_cell(&d.app.game);
+        for cell in [given, entry] {
+            let case = format!("{case}, cell {cell:?}");
+            d.wait(d.app.pause_ms);
+            d.tap_cell(cell);
+            let v = d.app.game.value_at(cell);
+            assert_eq!(d.app.ui.highlight, Some(v), "{case}");
+            let before = board(&d.app.game);
+            let (x, y) = stroke_down(&mut d, cell);
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-9: during the stroke ({case})");
+            d.send(Input::PenUp { x, y });
+            assert_eq!(d.app.ui.highlight, None, "INP-7: at the pen lift ({case})");
+            assert!(d.app.ui.pending_ink.is_none(), "INP-7: no read ({case})");
+            assert_eq!(play_state(&d.app.game), play_state(&before), "INP-7 ({case})");
+            assert!(d.app.is_writing(), "INP-16: the timer runs ({case})");
+            let lift = d.now;
+            tick_to(&mut d, lift + WRITING_IDLE_MS - 1);
+            assert!(d.app.is_writing(), "INP-16: 1 s ({case})");
+            tick_to(&mut d, lift + WRITING_IDLE_MS);
+            assert!(!d.app.is_writing(), "INP-16: 1 s ({case})");
+            // A tap on that number in the idle time.
+            let (x, y) = stroke_down(&mut d, cell);
+            d.send(Input::PenUp { x, y });
+            d.tap_cell(cell);
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-9: a tap in the idle time ({case})");
+            d.tap_cell(cell);
+            assert_eq!(d.app.ui.highlight, None, "{case}");
+        }
+    });
+}
+
+#[test]
+fn each_read_of_waiting_ink_removes_the_highlight_with_the_result() {
+    // HLT-2 (item 4), HLT-9, INP-5, INP-12, INP-21: all causes of a read, with a number and with a "?".
+    // While the ink waits, the highlight stays.
+    #[derive(Clone, Copy, Debug)]
+    enum Cause {
+        Pause,
+        PenOnEmptyCell,
+        PenOnNumber,
+        PenOffBoard,
+        PenOnControl,
+        FingerOnControl,
+    }
+    for_each_layout(|case| {
+        for cause in [Cause::Pause, Cause::PenOnEmptyCell, Cause::PenOnNumber, Cause::PenOffBoard, Cause::PenOnControl, Cause::FingerOnControl] {
+            for number in [true, false] {
+                let case = format!("{case}, {cause:?}, number: {number}");
+                let mut d = Driver::new(404);
+                let (given, v) = highlight_a_number(&mut d);
+                let (cell, second) = {
+                    let mut e = cells().filter(|&c| !d.app.game.is_filled(c));
+                    (e.next().unwrap(), e.next().unwrap())
+                };
+                let value = 4;
+                let ink = if number { digit_ink(cell, value) } else { scribble_ink(cell) };
+                d.write_strokes(&ink);
+                assert_eq!(d.app.ui.highlight, Some(v), "HLT-9: the highlight stays with waiting ink ({case})");
+                assert!(d.app.ui.pending_ink.is_some(), "{case}");
+                let expect_read = |d: &Driver, what: &str| {
+                    assert!(d.app.ui.pending_ink.is_none(), "{what}: the ink is read ({case})");
+                    if number {
+                        assert_eq!(d.app.game.value_at(cell), value, "{what} ({case})");
+                    } else {
+                        assert_eq!(d.app.ui.question.map(|q| q.0), Some(cell), "{what} ({case})");
+                    }
+                };
+                match cause {
+                    Cause::Pause => {
+                        d.wait(d.app.pause_ms);
+                        expect_read(&d, "the pause");
+                        assert_eq!(d.app.ui.highlight, None, "HLT-2 ({case})");
+                    }
+                    Cause::PenOnEmptyCell | Cause::PenOnNumber | Cause::PenOffBoard | Cause::PenOnControl => {
+                        let (x, y) = match cause {
+                            Cause::PenOnEmptyCell => micro_center(second, 5),
+                            Cause::PenOnNumber => micro_center(given, 5),
+                            Cause::PenOffBoard => no_control_point(false),
+                            _ => button_center(Button::Menu),
+                        };
+                        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+                        expect_read(&d, "the pen press");
+                        assert_eq!(d.app.ui.highlight, None, "HLT-2 ({case})");
+                        d.send(Input::PenUp { x, y });
+                        if !matches!(cause, Cause::PenOnNumber) {
+                            assert_eq!(d.app.ui.highlight, None, "HLT-2 ({case})");
+                        }
+                    }
+                    Cause::FingerOnControl => {
+                        let (x, y) = button_center(Button::Menu);
+                        d.send(Input::TouchDown { id: 1, x, y });
+                        assert_eq!(d.app.ui.highlight, Some(v), "INP-21: no read at the finger press ({case})");
+                        assert!(d.app.ui.pending_ink.is_some(), "INP-21 ({case})");
+                        d.send(Input::TouchUp { id: 1, x, y });
+                        expect_read(&d, "the release");
+                        assert_eq!(d.app.ui.highlight, None, "HLT-2 ({case})");
+                        assert!(d.app.ui.menu.is_open(), "{case}");
+                    }
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn a_tap_on_a_number_with_ink_elsewhere_uses_the_highlight_of_the_press() {
+    // HLT-3, HLT-9, INP-12: highlight v and ink in a different cell. The press reads the ink. At the
+    // lift, a tap on v gives no highlight, and a tap on w gives w. A "?" can show with w.
+    for_each_layout(|case| {
+        let mut d = Driver::new(405);
+        let (given, v) = highlight_a_number(&mut d);
+        let cell = empty_cell(&d.app.game);
+        d.write_strokes(&scribble_ink(cell));
+        let (x, y) = micro_center(given, 5);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert_eq!(d.app.ui.highlight, None, "HLT-2 (item 4): the read at the press ({case})");
+        assert!(d.app.ui.pending_ink.is_none(), "INP-12 ({case})");
+        d.send(Input::PenUp { x, y });
+        assert_eq!(d.app.ui.highlight, None, "HLT-9: a tap on v ({case})");
+        assert_eq!(d.app.ui.question.map(|q| q.0), Some(cell), "{case}");
+
+        let mut d = Driver::new(405);
+        let (_, v2) = highlight_a_number(&mut d);
+        assert_eq!(v2, v);
+        let (other, w) = other_number(&d, v);
+        let cell = empty_cell(&d.app.game);
+        d.write_strokes(&scribble_ink(cell));
+        d.tap_cell(other);
+        assert_eq!(d.app.ui.highlight, Some(w), "HLT-9: a tap on w ({case})");
+        assert_eq!(d.app.ui.question.map(|q| q.0), Some(cell), "HLT-9: the \"?\" shows with w ({case})");
+
+        // No highlight at the press: a tap on a number makes a highlight, also with ink elsewhere.
+        let mut d = Driver::new(405);
+        let cell = empty_cell(&d.app.game);
+        let (other, w) = other_number(&d, 0);
+        d.write_strokes(&digit_ink(cell, 4));
+        d.tap_cell(other);
+        assert_eq!(d.app.ui.highlight, Some(w), "HLT-3 ({case})");
+        assert_eq!(d.app.game.value_at(cell), 4, "INP-12 ({case})");
+    });
+}
+
+#[test]
+fn a_new_game_a_restart_and_a_completed_puzzle_remove_the_highlight() {
+    // HLT-1, HLT-2 (item 5).
+    for_each_layout(|case| {
+        // A new game, with the panel of the menu.
+        let mut d = Driver::new(406);
+        let (_, v) = highlight_a_number(&mut d);
+        d.button(Button::Menu);
+        d.button(Button::NewGame);
+        assert_eq!(d.app.ui.highlight, Some(v), "HLT-7: the panel keeps it ({case})");
+        let (x, y) = exact_center(layout::ng_start_row());
+        d.finger_tap(x, y);
+        assert_eq!(d.app.ui.menu.panel(), None, "the game started ({case})");
+        assert_eq!(d.app.ui.highlight, None, "HLT-2: a new game ({case})");
+
+        // A restart of the app: the highlight is not saved.
+        let mut d = Driver::new(407);
+        highlight_a_number(&mut d);
+        let again = app_with_game(d.app.game.clone(), START_TIME, 1);
+        assert_eq!(again.game.seed, d.app.game.seed, "the saved game opens ({case})");
+        assert_eq!(again.ui.highlight, None, "HLT-2: a restart ({case})");
+
+        // A completed puzzle, with a number that the pause reads and with one that a pen press reads.
+        for press in [false, true] {
+            let mut d = Driver::from(app_with_game(puzzle_with(&[]), START_TIME, 1));
+            let last = empty_cell(&d.app.game);
+            fill_except(&mut d, last);
+            highlight_a_number(&mut d);
+            let value = d.app.game.solution[last.0 as usize][last.1 as usize];
+            d.write_strokes(&digit_ink(last, value));
+            assert!(d.app.ui.highlight.is_some(), "HLT-9 ({case})");
+            if press {
+                let (x, y) = no_control_point(false);
+                d.pen_tap(x, y);
+            } else {
+                d.wait(d.app.pause_ms);
+            }
+            assert!(d.app.game.completed, "{case}");
+            assert_eq!(d.app.ui.highlight, None, "HLT-1, HLT-2: a completed puzzle ({case})");
+        }
+    });
+}
+
+#[test]
+fn help_and_statistics_remove_the_highlight_and_it_does_not_come_back() {
+    // HLT-2 (item 6), HLT-4: with the pen and with a finger.
+    for_each_layout(|case| {
+        for page in [Button::Help, Button::Statistics] {
+            for pen in [false, true] {
+                let case = format!("{case}, {page:?}, pen: {pen}");
+                let mut d = Driver::new(408);
+                let (_, v) = highlight_a_number(&mut d);
+                d.button(Button::Menu);
+                assert_eq!(d.app.ui.highlight, Some(v), "{case}");
+                let (x, y) = button_center(page);
+                if pen { d.pen_tap(x, y) } else { d.finger_tap(x, y) }
+                assert_ne!(d.app.screen, Screen::Game, "{case}");
+                assert_eq!(d.app.ui.highlight, None, "HLT-4 ({case})");
+                tap_back(&mut d, pen);
+                assert_eq!(d.app.screen, Screen::Game, "{case}");
+                assert_eq!(d.app.ui.highlight, None, "HLT-4: not on return ({case})");
+            }
+        }
+    });
+}
+
+#[test]
+fn the_update_dialog_removes_the_highlight_and_it_does_not_come_back() {
+    // HLT-2 (item 7), UPD-10.
+    for_each_layout(|case| {
+        let mut d = Driver::new(409);
+        d.app.update = reference::update_state(true);
+        d.app.update.tap();
+        d.app.update.request = None;
+        highlight_a_number(&mut d);
+        let now = d.now;
+        d.app.update_installed(Ok(true), now);
+        assert!(d.app.update.dialog_shown(), "{case}");
+        assert_eq!(d.app.ui.highlight, None, "HLT-2 ({case})");
+        let (x, y) = exact_center(layout::dialog_cancel());
+        d.finger_tap(x, y);
+        assert!(!d.app.update.dialog_shown(), "{case}");
+        assert_eq!(d.app.ui.highlight, None, "HLT-2: not after Later ({case})");
+    });
+}
+
+#[test]
+fn turning_off_the_highlight_switch_removes_the_highlight_in_that_redraw() {
+    // HLT-2 (item 8), HLT-6, NAV-14: the panel stays open. The other switches and the version row keep
+    // the highlight. Turning it on again makes no highlight.
+    for_each_layout(|case| {
+        for pen in [false, true] {
+            let case = format!("{case}, pen: {pen}");
+            let mut d = Driver::new(410);
+            let (given, v) = highlight_a_number(&mut d);
+            d.button(Button::Menu);
+            d.button(Button::Settings);
+            let tap = |d: &mut Driver, (x, y): (f32, f32)| if pen { d.pen_tap(x, y) } else { d.finger_tap(x, y) };
+            for s in [Switch::HideMarksAutomatically, Switch::ColorCompletedGroups] {
+                tap(&mut d, switch_point(s));
+                assert_eq!(d.app.ui.highlight, Some(v), "NAV-14: {s:?} ({case})");
+            }
+            tap(&mut d, exact_center(layout::settings_row(3)));
+            assert_eq!(d.app.ui.highlight, Some(v), "NAV-14: the version row ({case})");
+            let (x, y) = switch_point(Switch::HighlightNumbers);
+            d.app.redraw = false;
+            d.send(if pen { Input::PenDown { x, y, tool: Tool::Pen } } else { Input::TouchDown { id: 1, x, y } });
+            assert_eq!(d.app.ui.highlight, Some(v), "the action is at the release ({case})");
+            d.send(if pen { Input::PenUp { x, y } } else { Input::TouchUp { id: 1, x, y } });
+            assert!(!d.app.settings.highlight_on, "{case}");
+            assert_eq!(d.app.ui.highlight, None, "HLT-6 ({case})");
+            assert!(d.app.redraw, "HLT-6: that redraw ({case})");
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "HLT-6: the panel stays open ({case})");
+            tap(&mut d, switch_point(Switch::HighlightNumbers));
+            assert!(d.app.settings.highlight_on, "{case}");
+            assert_eq!(d.app.ui.highlight, None, "HLT-3: only a tap makes a highlight ({case})");
+            d.button(Button::Settings);
+            d.tap_cell(given);
+            assert_eq!(d.app.ui.highlight, Some(v), "{case}");
+        }
+    });
+}
+
+#[test]
+fn a_finger_or_a_hand_keeps_the_highlight() {
+    // HLT-7, INP-1, INP-15, INP-20: on an empty cell, on a number, off the board, on the toolbar, a
+    // second finger, and a hand touch. The finger removes a "?" and an x (QST-4, MRK-15).
+    for_each_layout(|case| {
+        let mut d = Driver::new(411);
+        let (given, v) = highlight_a_number(&mut d);
+        let empty = empty_cell(&d.app.game);
+        for (x, y) in [micro_center(empty, 5), micro_center(given, 5), no_control_point(false)] {
+            d.send(Input::TouchDown { id: 1, x, y });
+            d.send(Input::TouchMove { id: 1, x: x + 90.0, y });
+            d.send(Input::TouchUp { id: 1, x: x + 90.0, y });
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-7: ({x}, {y}) ({case})");
+        }
+        // A second finger.
+        d.send(Input::TouchDown { id: 1, x: 300.0, y: 900.0 });
+        d.send(Input::TouchDown { id: 2, x: 400.0, y: 900.0 });
+        d.send(Input::TouchUp { id: 2, x: 400.0, y: 900.0 });
+        d.send(Input::TouchUp { id: 1, x: 300.0, y: 900.0 });
+        assert_eq!(d.app.ui.highlight, Some(v), "HLT-7: a second finger ({case})");
+        // A hand touch after a press that keeps the highlight.
+        let (x, y) = no_control_point(false);
+        d.pen_tap(x, y);
+        d.hand_tap(300.0, 900.0);
+        assert_eq!(d.app.ui.highlight, Some(v), "HLT-7: a hand touch ({case})");
+    });
+}
+
+#[test]
+fn the_menu_the_panels_and_their_options_keep_the_highlight() {
+    // HLT-4, HLT-7, NAV-11: a highlight shows with the menu and each panel. Each option keeps it, with
+    // the pen and with a finger. The drawing agrees with the model of the colors (BRD-7).
+    let fonts = fonts();
+    for_each_layout(|case| {
+        for pen in [false, true] {
+            let case = format!("{case}, pen: {pen}");
+            let mut d = Driver::new(412);
+            let (_, v) = highlight_a_number(&mut d);
+            let tap = |d: &mut Driver, (x, y): (f32, f32)| if pen { d.pen_tap(x, y) } else { d.finger_tap(x, y) };
+            let check = |d: &Driver, what: &str| {
+                assert_eq!(d.app.ui.highlight, Some(v), "HLT-7: {what} ({case})");
+                sudoku::invariants::check_app(&d.app).unwrap_or_else(|e| panic!("{e} ({case})"));
+            };
+            tap(&mut d, button_center(Button::Menu));
+            assert!(d.app.ui.menu.is_open(), "{case}");
+            check(&d, "the menu");
+
+            tap(&mut d, button_center(Button::Colors));
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors), "{case}");
+            check(&d, "the Cell colors panel");
+            tap(&mut d, color_point(Section::Starting, Color::Yellow));
+            check(&d, "a color");
+            tap(&mut d, line_gray_point(sudoku::settings::LineGray::ALL[0]));
+            check(&d, "a line gray");
+            assert_board(&d.app, &fonts, &case);
+
+            tap(&mut d, button_center(Button::Settings));
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{case}");
+            check(&d, "the Settings panel");
+
+            tap(&mut d, button_center(Button::NewGame));
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::NewGame), "{case}");
+            check(&d, "the New game panel");
+            let (x, y) = exact_center(layout::ng_slider_row());
+            tap(&mut d, (x, y));
+            check(&d, "the slider");
+
+            tap(&mut d, button_center(Button::Checkpoints));
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Checkpoints), "{case}");
+            check(&d, "the Checkpoints panel");
+            tap(&mut d, save_point());
+            assert_eq!(d.app.game.checkpoints.len(), 1, "{case}");
+            check(&d, "the save of a checkpoint");
+            assert_board(&d.app, &fonts, &case);
+
+            tap(&mut d, button_center(Button::Checkpoints));
+            assert_eq!(d.app.ui.menu.panel(), None, "{case}");
+            check(&d, "the close of a panel");
+            tap(&mut d, button_center(Button::Menu));
+            assert!(!d.app.ui.menu.is_open(), "{case}");
+            check(&d, "the close of the menu");
+        }
+    });
+}
+
+#[test]
+fn a_pen_press_on_the_board_with_a_panel_open_only_closes_the_panel() {
+    // NAV-11, HLT-7, INP-22: also if the pen moves, and on an empty cell or on a number. The game and
+    // the highlight do not change, no ink shows, and the lift does nothing.
+    for_each_layout(|case| {
+        let mut d = Driver::new(413);
+        let (_, v) = highlight_a_number(&mut d);
+        // Cells that the panel does not cover.
+        let free = |c: &Cell| {
+            let (x, y) = micro_center(*c, 1);
+            let (x1, y1) = micro_center(*c, 9);
+            !layout::settings_panel(false).contains(x, y) && !layout::settings_panel(false).contains(x1, y1)
+        };
+        let other = cells().filter(free).find(|&c| d.app.game.is_filled(c) && d.app.game.value_at(c) != v).unwrap();
+        let empty = cells().filter(free).find(|&c| !d.app.game.is_filled(c)).unwrap();
+        d.button(Button::Menu);
+        for (start, moves) in [(empty, false), (empty, true), (other, false), (other, true)] {
+            let case = format!("{case}, {start:?}, moves: {moves}");
+            d.button(Button::Settings);
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{case}");
+            let before = board(&d.app.game);
+            let (x, y) = micro_center(start, 1);
+            let (x1, y1) = micro_center(start, 9);
+            d.send(Input::PenDown { x, y, tool: Tool::Pen });
+            assert_eq!(d.app.ui.menu.panel(), None, "NAV-11 ({case})");
+            if moves {
+                d.send(Input::PenMove { x: x1, y: y1 });
+            }
+            assert!(d.app.live_stroke.is_none() && d.app.writing_stroke().is_none(), "NAV-11: no ink ({case})");
+            d.send(Input::PenUp { x: x1, y: y1 });
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-7 ({case})");
+            assert_eq!(board(&d.app.game), before, "NAV-11 ({case})");
+            assert!(d.app.ui.pending_ink.is_none() && !d.app.is_writing(), "NAV-11 ({case})");
+            assert_eq!(d.app.ui.refused, None, "NAV-11 ({case})");
+        }
+    });
+}
+
+#[test]
+fn undo_redo_and_restore_keep_the_highlight_also_when_its_digit_goes() {
+    // HLT-7, HLT-8, UND-9, BRD-7: no cell has the digit, the highlight stays, and it shows again when
+    // the digit comes back. A tap on that digit then removes it.
+    let fonts = fonts();
+    for_each_layout(|case| {
+        for by in [By::Finger, By::Pen] {
+            let case = format!("{case}, {by:?}");
+            let mut d = Driver::new(414);
+            d.app.game = board_without(7);
+            let cell = empty_cell(&d.app.game);
+            d.button(Button::Menu);
+            open_checkpoints(&mut d);
+            tap_by(&mut d, By::Finger, save_point());
+            close_checkpoints(&mut d);
+            d.write(cell, 7);
+            assert_eq!(d.app.game.value_at(cell), 7, "{case}");
+            d.tap_cell(cell);
+            assert_eq!(d.app.ui.highlight, Some(7), "{case}");
+
+            // Undo removes the last 7.
+            tap_by(&mut d, by, button_center(Button::Undo));
+            assert_eq!(d.app.game.value_at(cell), 0, "{case}");
+            assert_eq!(d.app.ui.highlight, Some(7), "HLT-8: Undo ({case})");
+            assert_board(&d.app, &fonts, &case);
+            // Redo brings it back, and the cell has the highlight color.
+            tap_by(&mut d, by, button_center(Button::Redo));
+            assert_eq!(d.app.game.value_at(cell), 7, "{case}");
+            assert_eq!(d.app.ui.highlight, Some(7), "HLT-8: Redo ({case})");
+            let pm = draw_screen(&d.app, &fonts);
+            assert_eq!(cell_background(&pm, cell), d.app.settings.color_highlight.rgb(), "HLT-8: it shows again ({case})");
+
+            // Restore removes it.
+            open_checkpoints(&mut d);
+            tap_by(&mut d, by, restore_point(0));
+            assert_eq!(d.app.game.value_at(cell), 0, "CKP-2 ({case})");
+            assert_eq!(d.app.ui.highlight, Some(7), "HLT-8: Restore ({case})");
+            close_checkpoints(&mut d);
+            assert_eq!(d.app.ui.highlight, Some(7), "HLT-7 ({case})");
+            // A number of the same digit comes back with Undo.
+            tap_by(&mut d, by, button_center(Button::Undo));
+            assert_eq!(d.app.game.value_at(cell), 7, "UND-9 ({case})");
+            let pm = draw_screen(&d.app, &fonts);
+            assert_eq!(cell_background(&pm, cell), d.app.settings.color_highlight.rgb(), "HLT-8 ({case})");
+            d.tap_cell(cell);
+            assert_eq!(d.app.ui.highlight, None, "HLT-8: a tap on the digit removes it ({case})");
+        }
+    });
+}
+
+#[test]
+fn undo_with_ink_waiting_reads_the_ink_and_that_removes_the_highlight() {
+    // HLT-7, INP-21: the last sentence of HLT-7. A finger control reads the ink at its release.
+    for_each_layout(|case| {
+        let mut d = Driver::new(415);
+        d.button(Button::Menu);
+        let (cell, _) = new_mark(&mut d);
+        let (_, v) = highlight_a_number(&mut d);
+        let other = cells().find(|&c| !d.app.game.is_filled(c) && c != cell).unwrap();
+        d.write_strokes(&scribble_ink(other));
+        let (x, y) = button_center(Button::Undo);
+        d.send(Input::TouchDown { id: 1, x, y });
+        assert_eq!(d.app.ui.highlight, Some(v), "INP-21 ({case})");
+        d.send(Input::TouchUp { id: 1, x, y });
+        assert_eq!(d.app.ui.highlight, None, "HLT-7 ({case})");
+        assert!(d.app.ui.pending_ink.is_none(), "INP-21 ({case})");
+    });
+}
+
+#[test]
+fn the_eraser_keeps_the_highlight() {
+    // HLT-7, INP-8, HLT-8: on an entry (also the last number with the digit), on a starting number, on
+    // an empty cell and on waiting ink in its own cell. On waiting ink in a different cell, it reads
+    // that ink and the read removes the highlight (INP-12).
+    for_each_layout(|case| {
+        let mut d = Driver::new(416);
+        d.app.game = board_without(7);
+        let cell = empty_cell(&d.app.game);
+        let empty = cells().find(|&c| !d.app.game.is_filled(c) && c != cell).unwrap();
+        d.write(cell, 7);
+        d.tap_cell(cell);
+        assert_eq!(d.app.ui.highlight, Some(7), "{case}");
+        d.erase(given_cell(&d.app.game));
+        d.erase(empty);
+        assert_eq!(d.app.ui.highlight, Some(7), "HLT-7: no effect ({case})");
+        d.erase(cell);
+        assert_eq!(d.app.game.value_at(cell), 0, "{case}");
+        assert_eq!(d.app.ui.highlight, Some(7), "HLT-8: the eraser removes the last 7 ({case})");
+
+        // On waiting ink in its own cell: the app does not read it.
+        d.write_strokes(&scribble_ink(cell));
+        assert_eq!(d.app.ui.highlight, Some(7), "{case}");
+        d.erase(cell);
+        assert!(d.app.ui.pending_ink.is_none() && d.app.ui.question.is_none(), "INP-8 ({case})");
+        assert_eq!(d.app.ui.highlight, Some(7), "HLT-7: the eraser on its ink ({case})");
+
+        // On waiting ink in a different cell: the read removes it.
+        d.write_strokes(&scribble_ink(cell));
+        d.erase(empty);
+        assert!(d.app.ui.pending_ink.is_none() && d.app.ui.question.is_some(), "INP-12 ({case})");
+        assert_eq!(d.app.ui.highlight, None, "HLT-2: the read ({case})");
+    });
+}
+
+#[test]
+fn a_pen_press_off_the_board_keeps_the_highlight_when_no_ink_waits() {
+    // HLT-7, HLT-9, INP-12: menu closed and open. If ink waits, the press reads it (HLT-2, item 4).
+    for_each_layout(|case| {
+        for menu in [false, true] {
+            let case = format!("{case}, menu: {menu}");
+            let mut d = Driver::new(417);
+            let (_, v) = highlight_a_number(&mut d);
+            if menu {
+                d.button(Button::Menu);
+            }
+            let (x, y) = no_control_point(menu);
+            d.send(Input::PenDown { x, y, tool: Tool::Pen });
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-9 ({case})");
+            d.send(Input::PenMove { x: x + 1.0, y: y + 1.0 });
+            d.send(Input::PenUp { x: x + 1.0, y: y + 1.0 });
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-7 ({case})");
+            assert_eq!(d.app.ui.menu.is_open(), menu, "{case}");
+
+            d.write_strokes(&scribble_ink(empty_cell(&d.app.game)));
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-9 ({case})");
+            d.send(Input::PenDown { x, y, tool: Tool::Pen });
+            assert!(d.app.ui.pending_ink.is_none(), "INP-12 ({case})");
+            assert_eq!(d.app.ui.highlight, None, "HLT-2 ({case})");
+            d.send(Input::PenUp { x, y });
+        }
+    });
+}
+
+#[test]
+fn a_turn_and_a_suspension_remove_the_ink_and_keep_the_highlight() {
+    // HLT-7, NAV-13, PER-6.
+    let stops = sudoku::render::ng_stops(&fonts());
+    for suspend in [false, true] {
+        let mut d = Driver::new(418);
+        let (_, v) = highlight_a_number(&mut d);
+        let cell = empty_cell(&d.app.game);
+        d.write_strokes(&scribble_ink(cell));
+        assert_eq!(d.app.ui.highlight, Some(v));
+        if suspend {
+            d.app.suspend();
+        } else {
+            layout::set_orientation(layout::Orientation::Landscape);
+            d.app.rotate(stops);
+        }
+        assert!(d.app.ui.pending_ink.is_none(), "NAV-13, PER-6: suspend: {suspend}");
+        assert_eq!(d.app.ui.highlight, Some(v), "HLT-7: suspend: {suspend}");
+        assert_eq!(d.app.ui.question, None, "the app did not read the ink: suspend: {suspend}");
+        layout::set_orientation(layout::Orientation::Portrait);
+    }
+}
+
+// ---- One redraw for each action (HLT-9). The test counts the steps of the main loop that change the
+// framebuffer, with the same output code as the device.
+
+struct Shown {
+    d: Driver,
+    p: sudoku::present::Presenter,
+    fonts: sudoku::font::Fonts,
+    fb: Vec<u8>,
+    last: Vec<u8>,
+    changes: usize,
+}
+
+impl Shown {
+    fn new(seed: u64) -> Shown {
+        let size = layout::PHYSICAL_W as usize * layout::PHYSICAL_H as usize * 3;
+        let mut p = sudoku::present::Presenter::new();
+        p.use_pen_region = true;
+        let mut s = Shown { d: Driver::new(seed), p, fonts: fonts(), fb: vec![0; size], last: vec![0; size], changes: 0 };
+        s.pass(120);
+        s
+    }
+
+    fn show(&mut self) {
+        self.p.present(&mut self.d.app, &self.fonts, &mut self.fb, self.d.now, |_| {});
+        if self.fb != self.last {
+            self.changes += 1;
+            self.last.clone_from(&self.fb);
+        }
+    }
+
+    fn send(&mut self, i: Input) {
+        self.d.send(i);
+        self.show();
+    }
+
+    /// The main loop runs for `ms`, with steps of 15 ms.
+    fn pass(&mut self, ms: u64) {
+        let end = self.d.now + ms;
+        while self.d.now < end {
+            self.d.now = (self.d.now + 15).min(end);
+            self.d.app.tick(self.d.now);
+            self.show();
+        }
+    }
+
+    fn pen_tap(&mut self, (x, y): (f32, f32)) {
+        self.send(Input::PenDown { x, y, tool: Tool::Pen });
+        self.send(Input::PenUp { x, y });
+    }
+
+    /// The color of a point of the background of a cell in the framebuffer.
+    fn background(&self, cell: Cell) -> [u8; 3] {
+        let (x, y) = layout::cell_origin(cell);
+        let (px, py, _, _) = layout::physical_rect((x + 10, y + 135, x + 10, y + 135));
+        let i = (py as usize * layout::PHYSICAL_W as usize + px as usize) * 3;
+        [self.fb[i], self.fb[i + 1], self.fb[i + 2]]
+    }
+
+    /// The framebuffer shows all of the state of the app (no old pixels and no part of a change).
+    fn assert_complete(&self, case: &str) {
+        let mut fresh = vec![0; self.fb.len()];
+        sudoku::present::Presenter::new().draw_all(&self.d.app, &self.fonts, &mut fresh);
+        assert!(fresh == self.fb, "the framebuffer does not show the state ({case})");
+    }
+}
+
+#[test]
+fn a_tap_changes_the_highlight_in_one_redraw() {
+    // HLT-2, HLT-3, HLT-9: the toggle, the move, a mark and an x. Nothing changes at the press. All
+    // layouts.
+    for_each_layout(|case| {
+        let mut s = Shown::new(420);
+        let given = given_cell(&s.d.app.game);
+        let v = s.d.app.game.value_at(given);
+        let (other, w) = other_number(&s.d, v);
+        let (mark_cell, mark) = cells()
+            .filter(|&c| !s.d.app.game.is_filled(c))
+            .find_map(|c| (1..=9u8).find(|&m| !peer_has(&s.d.app.game, c, m)).map(|m| (c, m)))
+            .unwrap();
+        let (x_cell, x_digit) = refused_pair(&s.d.app.game);
+        let plain = s.background(given);
+
+        // (what, the cell of the tap, the micro-cell of the tap, the highlight after the tap)
+        let steps: Vec<(&str, Cell, u8, Option<u8>)> = vec![
+            ("a new highlight", given, 5, Some(v)),
+            ("the move", other, 5, Some(w)),
+            ("the toggle", other, 5, None),
+            ("a new highlight", given, 5, Some(v)),
+            ("a mark", mark_cell, mark, None),
+            ("a new highlight", given, 5, Some(v)),
+            ("an x", x_cell, x_digit, None),
+        ];
+        for (what, cell, digit, want) in steps {
+            let case = format!("{case}, {what}");
+            s.pass(120);
+            s.changes = 0;
+            let (x, y) = micro_center(cell, digit);
+            s.send(Input::PenDown { x, y, tool: Tool::Pen });
+            s.pass(60);
+            assert_eq!(s.changes, 0, "HLT-9: no change at the press ({case})");
+            s.send(Input::PenUp { x, y });
+            s.pass(120);
+            assert_eq!(s.d.app.ui.highlight, want, "{case}");
+            assert_eq!(s.changes, 1, "HLT-9: one redraw ({case})");
+            s.assert_complete(&case);
+            if want.is_none() {
+                assert_eq!(s.background(given), plain, "the highlight went ({case})");
+            }
+        }
+    });
+}
+
+#[test]
+fn writing_changes_the_highlight_in_one_redraw_with_the_number() {
+    // HLT-2 (item 4), HLT-9, INP-5: the highlight shows during the writing and until the read. Then
+    // the number and the removal go in one redraw. All layouts, and also with a "?".
+    for_each_layout(|case| {
+        for number in [true, false] {
+            let case = format!("{case}, number: {number}");
+            let mut s = Shown::new(421);
+            let given = given_cell(&s.d.app.game);
+            let plain = s.background(given);
+            s.pen_tap(micro_center(given, 5));
+            s.pass(120);
+            let lit = s.background(given);
+            assert_ne!(lit, plain, "{case}");
+            let cell = empty_cell(&s.d.app.game);
+            let ink = if number { digit_ink(cell, 4) } else { scribble_ink(cell) };
+            for stroke in &ink {
+                s.send(Input::PenDown { x: stroke[0].0, y: stroke[0].1, tool: Tool::Pen });
+                assert_eq!(s.background(given), lit, "HLT-9: the press ({case})");
+                for p in &stroke[1..] {
+                    s.send(Input::PenMove { x: p.0, y: p.1 });
+                }
+                let last = stroke[stroke.len() - 1];
+                s.send(Input::PenUp { x: last.0, y: last.1 });
+                assert_eq!(s.background(given), lit, "HLT-9: the lift ({case})");
+            }
+            let lift = s.d.now;
+            s.pass(RECOGNITION_PAUSE_MS - 30);
+            assert_eq!(s.background(given), lit, "HLT-9: during the pause ({case})");
+            assert!(s.d.app.ui.pending_ink.is_some(), "{case}");
+            s.changes = 0;
+            let until = lift + RECOGNITION_PAUSE_MS + 300;
+            s.pass(until - s.d.now);
+            assert!(s.d.app.ui.pending_ink.is_none(), "{case}");
+            assert_eq!(s.changes, 1, "HLT-9: one redraw with the result ({case})");
+            assert_eq!(s.background(given), plain, "{case}");
+            s.assert_complete(&case);
+        }
+    });
+}
+
+#[test]
+fn a_tap_on_a_number_with_ink_elsewhere_goes_in_one_redraw() {
+    // HLT-9: the read at the press and the result of the lift go in one redraw, also with a pen area
+    // that stops. A tap on v gives no highlight, and a tap on w gives w with the "?".
+    for_each_layout(|case| {
+        let mut s = Shown::new(422);
+        let given = given_cell(&s.d.app.game);
+        let v = s.d.app.game.value_at(given);
+        let (other, w) = other_number(&s.d, v);
+        for (target, want) in [(given, None), (other, Some(w))] {
+            let case = format!("{case}, {target:?}");
+            s.pen_tap(micro_center(given, 5));
+            s.pass(120);
+            let cell = cells().find(|&c| !s.d.app.game.is_filled(c) && s.d.app.ui.question.is_none_or(|q| q.0 != c)).unwrap();
+            for stroke in &scribble_ink(cell) {
+                s.send(Input::PenDown { x: stroke[0].0, y: stroke[0].1, tool: Tool::Pen });
+                for p in &stroke[1..] {
+                    s.send(Input::PenMove { x: p.0, y: p.1 });
+                }
+                let last = stroke[stroke.len() - 1];
+                s.send(Input::PenUp { x: last.0, y: last.1 });
+            }
+            s.pass(150);
+            s.changes = 0;
+            let (x, y) = micro_center(target, 5);
+            s.send(Input::PenDown { x, y, tool: Tool::Pen });
+            s.pass(90);
+            assert_eq!(s.changes, 0, "HLT-9: the press waits for the lift ({case})");
+            assert!(s.d.app.ui.question.is_some(), "INP-12: the state changed at the press ({case})");
+            s.send(Input::PenUp { x, y });
+            s.pass(120);
+            assert_eq!(s.d.app.ui.highlight, want, "HLT-9 ({case})");
+            assert_eq!(s.changes, 1, "HLT-9: one redraw ({case})");
+            s.assert_complete(&case);
+            s.pass(OVERLAY_MS);
+            if want.is_some() {
+                s.pen_tap(micro_center(other, 5));
+                s.pass(120);
+            }
+        }
+    });
+}
+
+#[test]
+fn a_press_on_a_control_while_ink_waits_is_one_of_the_two_accepted_cases() {
+    // HLT-9: a pen press on a control while ink waits: the number at the press, the action at the
+    // release. Two updates, and the first one shows the number and not the action.
+    for_each_layout(|case| {
+        let mut s = Shown::new(423);
+        let cell = empty_cell(&s.d.app.game);
+        let given = given_cell(&s.d.app.game);
+        s.pen_tap(micro_center(given, 5));
+        s.pass(120);
+        for stroke in &digit_ink(cell, 4) {
+            s.send(Input::PenDown { x: stroke[0].0, y: stroke[0].1, tool: Tool::Pen });
+            for p in &stroke[1..] {
+                s.send(Input::PenMove { x: p.0, y: p.1 });
+            }
+            let last = stroke[stroke.len() - 1];
+            s.send(Input::PenUp { x: last.0, y: last.1 });
+        }
+        s.pass(150);
+        s.changes = 0;
+        let (x, y) = button_center(Button::Menu);
+        s.send(Input::PenDown { x, y, tool: Tool::Pen });
+        s.pass(90);
+        assert_eq!(s.d.app.game.value_at(cell), 4, "{case}");
+        assert_eq!(s.changes, 1, "HLT-9: the number at the press ({case})");
+        s.assert_complete(&case);
+        s.send(Input::PenUp { x, y });
+        s.pass(90);
+        assert!(s.d.app.ui.menu.is_open(), "{case}");
+        assert_eq!(s.changes, 2, "HLT-9: the action at the release ({case})");
+        s.assert_complete(&case);
+    });
+}
+
+// ---- INP-20: a hand touch.
+
+/// All that a control can change.
+fn control_state(d: &Driver) -> (Screen, Menu, bool, sudoku::game::Game) {
+    (d.app.screen, d.app.ui.menu, d.app.quit, play_state(&d.app.game))
+}
+
+#[test]
+fn a_hand_touch_operates_no_toolbar_button_and_a_touch_at_150_ms_does() {
+    // INP-15, INP-20: on each button of the toolbar. The limit: 149 ms and 150 ms after the pen lift.
+    // The move and the release of a hand touch also have no effect. All layouts.
+    assert_eq!(HAND_TOUCH_MS, 150, "INP-20");
+    for_each_layout(|case| {
+        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+            let case = format!("{case}, {b:?}");
+            let mut d = Driver::new(430);
+            fill_stacks(&mut d);
+            let (x, y) = button_center(b);
+            let (px, py) = no_control_point(true);
+            for ms in [0, 97, 149] {
+                d.pen_tap(px, py);
+                let before = control_state(&d);
+                d.touch_down_after_lift(ms, x, y);
+                d.send_at_once(Input::TouchMove { id: 1, x: x + 1.0, y });
+                assert_eq!(control_state(&d), before, "INP-20: press at {ms} ms ({case})");
+                d.send_at_once(Input::TouchUp { id: 1, x, y });
+                assert_eq!(control_state(&d), before, "INP-20: release at {ms} ms ({case})");
+            }
+            d.pen_tap(px, py);
+            let before = control_state(&d);
+            d.touch_down_after_lift(150, x, y);
+            d.send_at_once(Input::TouchUp { id: 1, x, y });
+            assert_ne!(control_state(&d), before, "INP-20: a touch at 150 ms operates ({case})");
+        }
+    });
+}
+
+#[test]
+fn the_lift_of_each_tool_starts_the_time_of_a_hand_touch() {
+    // INP-20: the eraser is a pen on the other end. A pen lift off the board also starts the time. The
+    // time starts again at each pen lift, thus the second lift counts and the first one does not.
+    let mut d = Driver::new(431);
+    let (x, y) = button_center(Button::Menu);
+    d.send(Input::PenDown { x: 10.0, y: 1000.0, tool: Tool::Eraser });
+    d.send(Input::PenUp { x: 10.0, y: 1000.0 });
+    d.touch_down_after_lift(100, x, y);
+    d.send_at_once(Input::TouchUp { id: 1, x, y });
+    assert_eq!(d.app.ui.menu, Menu::Closed, "INP-20: the eraser");
+
+    d.wait(1000);
+    let (px, py) = no_control_point(false);
+    d.pen_tap(px, py);
+    d.wait(100);
+    d.pen_tap(px, py);
+    d.touch_down_after_lift(100, x, y);
+    d.send_at_once(Input::TouchUp { id: 1, x, y });
+    assert_eq!(d.app.ui.menu, Menu::Closed, "INP-20: the time of the last lift");
+
+    // A touch with no pen lift before it operates: the time of the start of the app does not count.
+    let mut d = Driver::new(431);
+    d.now = 0;
+    d.send_at_once(Input::TouchDown { id: 1, x, y });
+    d.send_at_once(Input::TouchUp { id: 1, x, y });
+    assert!(d.app.ui.menu.is_open(), "INP-20: no pen lift");
+}
+
+#[test]
+fn a_hand_touch_does_not_remove_an_x_or_a_question_mark_and_a_touch_at_150_ms_does() {
+    // INP-20, QST-4, MRK-15: on the board, off the board and on a control. All layouts.
+    for_each_layout(|case| {
+        for at in [micro_center((4, 4), 5), no_control_point(false), button_center(Button::Menu)] {
+            let case = format!("{case}, {at:?}");
+            let (x, y) = at;
+            // The x.
+            let mut d = Driver::new(432);
+            let (cell, digit) = refused_tap(&mut d);
+            d.touch_down_after_lift(149, x, y);
+            assert!(d.app.ui.refused.is_some(), "MRK-15: a hand touch, press ({case})");
+            d.send_at_once(Input::TouchMove { id: 1, x: x + 1.0, y });
+            d.send_at_once(Input::TouchUp { id: 1, x, y });
+            assert!(d.app.ui.refused.is_some(), "MRK-15: a hand touch, release ({case})");
+            assert_eq!(d.app.ui.menu, Menu::Closed, "INP-20 ({case})");
+            d.tap_micro(cell, digit);
+            d.touch_down_after_lift(150, x, y);
+            assert_eq!(d.app.ui.refused, None, "MRK-15: a touch at 150 ms ({case})");
+            d.send_at_once(Input::TouchUp { id: 1, x, y });
+
+            // The "?". The press of the pen on a number reads the ink, thus the "?" shows just
+            // before the pen lift.
+            let mut d = Driver::new(432);
+            let ink_cell = cells().find(|&c| !d.app.game.is_filled(c) && c != (4, 4)).unwrap();
+            let given = given_cell(&d.app.game);
+            d.write_strokes(&scribble_ink(ink_cell));
+            d.tap_cell(given);
+            assert!(d.app.ui.question.is_some(), "{case}");
+            d.touch_down_after_lift(149, x, y);
+            assert!(d.app.ui.question.is_some(), "QST-4: a hand touch, press ({case})");
+            d.send_at_once(Input::TouchUp { id: 1, x, y });
+            assert!(d.app.ui.question.is_some(), "QST-4: a hand touch, release ({case})");
+            d.write_strokes(&scribble_ink(ink_cell));
+            d.tap_cell(given);
+            assert!(d.app.ui.question.is_some(), "{case}");
+            d.touch_down_after_lift(150, x, y);
+            assert_eq!(d.app.ui.question, None, "QST-4: a touch at 150 ms ({case})");
+        }
+    });
+}
+
+#[test]
+fn a_hand_touch_as_a_second_touch_has_no_effect() {
+    // INP-20, INP-15: a finger is on a control and the pen does a refused tap. A hand touch does not
+    // remove the x, and a second finger at 150 ms does. The first finger still operates its control.
+    let mut d = Driver::new(433);
+    let (bx, by) = hold(&mut d, Button::Menu);
+    refused_tap(&mut d);
+    d.send_at_once(Input::TouchDown { id: 7, x: 800.0, y: 900.0 });
+    assert!(d.app.ui.refused.is_some(), "INP-20");
+    d.send_at_once(Input::TouchUp { id: 7, x: 800.0, y: 900.0 });
+    assert!(d.app.ui.refused.is_some(), "INP-20");
+    d.wait(HAND_TOUCH_MS - 30);
+    d.send(Input::TouchMove { id: 1, x: bx, y: by });
+    d.send(Input::TouchDown { id: 7, x: 800.0, y: 900.0 });
+    assert_eq!(d.app.ui.refused, None, "MRK-15, INP-15: a second finger at 150 ms");
+    d.send(Input::TouchUp { id: 7, x: 800.0, y: 900.0 });
+    d.send(Input::TouchUp { id: 1, x: bx, y: by });
+    assert!(d.app.ui.menu.is_open(), "the first finger operates");
+}
+
+#[test]
+fn a_hand_touch_operates_nothing_on_a_panel_a_dialog_or_a_page() {
+    // INP-20, INP-15, UPD-10: an option of a panel, the buttons of the dialog, "< Back" and a swipe in
+    // the manual. At 150 ms, each of these operates.
+    for_each_layout(|case| {
+        // A panel.
+        let mut d = Driver::new(434);
+        d.button(Button::Menu);
+        d.button(Button::Settings);
+        let (x, y) = switch_point(Switch::ColorCompletedGroups);
+        let on = d.app.settings.completed_color_on;
+        // A pen tap outside closes the panel: thus the pen tap is on the row of the version.
+        let (vx, vy) = exact_center(layout::settings_row(3));
+        d.pen_tap(vx, vy);
+        assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{case}");
+        d.touch_down_after_lift(149, x, y);
+        d.send_at_once(Input::TouchUp { id: 1, x, y });
+        assert_eq!(d.app.settings.completed_color_on, on, "INP-20: a switch ({case})");
+        d.pen_tap(vx, vy);
+        d.touch_down_after_lift(150, x, y);
+        d.send_at_once(Input::TouchUp { id: 1, x, y });
+        assert_eq!(d.app.settings.completed_color_on, !on, "INP-20: a switch at 150 ms ({case})");
+        // A hand touch outside the panel does not close it.
+        d.pen_tap(vx, vy);
+        d.touch_down_after_lift(149, 400.0, 1000.0);
+        d.send_at_once(Input::TouchUp { id: 1, x: 400.0, y: 1000.0 });
+        assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "INP-20: outside the panel ({case})");
+
+        // The dialog.
+        let mut d = Driver::new(435);
+        d.app.update = reference::update_state(true);
+        d.app.update.tap();
+        d.app.update.request = None;
+        let now = d.now;
+        d.app.update_installed(Ok(true), now);
+        let (x, y) = exact_center(layout::dialog_cancel());
+        d.pen_tap(5.0, 5.0);
+        assert!(d.app.update.dialog_shown(), "{case}");
+        d.touch_down_after_lift(149, x, y);
+        d.send_at_once(Input::TouchUp { id: 1, x, y });
+        assert!(d.app.update.dialog_shown(), "INP-20: \"Later\" ({case})");
+        d.pen_tap(5.0, 5.0);
+        d.touch_down_after_lift(150, x, y);
+        d.send_at_once(Input::TouchUp { id: 1, x, y });
+        assert!(!d.app.update.dialog_shown(), "INP-20: \"Later\" at 150 ms ({case})");
+
+        // The manual.
+        let mut d = Driver::new(436);
+        d.button(Button::Menu);
+        d.button(Button::Help);
+        assert_eq!(d.app.screen, Screen::Manual, "{case}");
+        let (bx, by) = back_center();
+        let (sx, sy) = (layout::screen_w() as f32 / 2.0, layout::screen_h() as f32 / 2.0);
+        d.pen_tap(sx, sy);
+        d.touch_down_after_lift(149, bx, by);
+        d.send_at_once(Input::TouchUp { id: 1, x: bx, y: by });
+        assert_eq!(d.app.screen, Screen::Manual, "INP-20: \"< Back\" ({case})");
+        d.pen_tap(sx, sy);
+        d.touch_down_after_lift(149, sx + 300.0, sy);
+        d.send_at_once(Input::TouchMove { id: 1, x: sx, y: sy });
+        d.send_at_once(Input::TouchUp { id: 1, x: sx - 300.0, y: sy });
+        assert_eq!(d.app.manual_page, 1, "INP-20: a swipe ({case})");
+        d.pen_tap(sx, sy);
+        d.touch_down_after_lift(150, sx + 300.0, sy);
+        d.send_at_once(Input::TouchUp { id: 1, x: sx - 300.0, y: sy });
+        assert_eq!(d.app.manual_page, 2, "INP-20: a swipe at 150 ms ({case})");
+    });
+}
+
+// ---- INP-21: a finger and waiting ink.
+
+#[test]
+fn a_finger_press_does_not_read_ink_or_stop_the_writing_and_a_control_does_at_its_release() {
+    // INP-1, INP-12, INP-16, INP-21: on the board, off the board and on a control. A release off the
+    // control does nothing. All layouts.
+    for_each_layout(|case| {
+        let on_board = micro_center((4, 4), 5);
+        for (what, (x, y)) in [("the board", on_board), ("no control", no_control_point(false)), ("a control", button_center(Button::Menu))] {
+            let case = format!("{case}, {what}");
+            let mut d = Driver::new(440);
+            let cell = cells().find(|&c| !d.app.game.is_filled(c) && c != (4, 4)).unwrap();
+            d.write_strokes(&digit_ink(cell, 4));
+            let lift = d.now;
+            let before = board(&d.app.game);
+            // The press is a real touch, and it stays down.
+            d.send(Input::TouchDown { id: 1, x, y });
+            assert!(d.now >= lift + HAND_TOUCH_MS, "{case}");
+            assert!(d.app.ui.pending_ink.is_some(), "INP-21: no read at the press ({case})");
+            assert!(d.app.is_writing(), "INP-21: the writing does not stop ({case})");
+            assert_eq!(play_state(&d.app.game), play_state(&before), "{case}");
+            // A release far from the press: on no control (off the control).
+            let (ox, oy) = micro_center((8, 8), 5);
+            d.send(Input::TouchMove { id: 1, x: ox, y: oy });
+            d.send(Input::TouchUp { id: 1, x: ox, y: oy });
+            assert!(d.app.ui.pending_ink.is_some(), "INP-21: a release off the control ({case})");
+            assert!(d.app.is_writing(), "INP-21: a release off the control ({case})");
+            assert_eq!(d.app.ui.menu, Menu::Closed, "{case}");
+            // The pause does not change, and the app reads the ink at its time.
+            tick_to(&mut d, lift + RECOGNITION_PAUSE_MS - 1);
+            assert!(d.app.ui.pending_ink.is_some(), "INP-5 ({case})");
+            tick_to(&mut d, lift + RECOGNITION_PAUSE_MS);
+            assert_eq!(d.app.game.value_at(cell), 4, "INP-5 ({case})");
+        }
+    });
+}
+
+#[test]
+fn a_finger_control_reads_the_ink_and_stops_the_writing_at_its_release() {
+    // INP-12, INP-16, INP-21, HLT-2: the ink and the timer with no ink. A pen press does this at the press.
+    for_each_layout(|case| {
+        let (x, y) = button_center(Button::Menu);
+        // The ink.
+        let mut d = Driver::new(441);
+        let cell = empty_cell(&d.app.game);
+        d.write_strokes(&digit_ink(cell, 4));
+        d.send(Input::TouchDown { id: 1, x, y });
+        assert!(d.app.is_writing() && d.app.ui.pending_ink.is_some(), "INP-21 ({case})");
+        d.send(Input::TouchUp { id: 1, x, y });
+        assert!(d.app.ui.pending_ink.is_none(), "INP-21 ({case})");
+        assert_eq!(d.app.game.value_at(cell), 4, "INP-21 ({case})");
+        assert!(!d.app.is_writing(), "INP-21: the timer stops ({case})");
+        assert!(d.app.ui.menu.is_open(), "{case}");
+
+        // The timer with no ink: a stroke from a filled cell started it.
+        let mut d = Driver::new(442);
+        let given = given_cell(&d.app.game);
+        let (x1, y1) = stroke_down(&mut d, given);
+        d.send(Input::PenUp { x: x1, y: y1 });
+        assert!(d.app.is_writing(), "INP-16 ({case})");
+        d.send(Input::TouchDown { id: 1, x, y });
+        assert!(d.app.is_writing(), "INP-21: a finger press does not stop it ({case})");
+        d.send(Input::TouchUp { id: 1, x, y });
+        assert!(!d.app.is_writing(), "INP-21: the release stops it ({case})");
+
+        // A pen press stops it at the press, also off the board.
+        let mut d = Driver::new(443);
+        let given = given_cell(&d.app.game);
+        let (x1, y1) = stroke_down(&mut d, given);
+        d.send(Input::PenUp { x: x1, y: y1 });
+        assert!(d.app.is_writing(), "INP-16 ({case})");
+        let (px, py) = no_control_point(false);
+        d.send(Input::PenDown { x: px, y: py, tool: Tool::Pen });
+        assert!(!d.app.is_writing(), "INP-16, INP-12: a pen press ({case})");
+        d.send(Input::PenUp { x: px, y: py });
+    });
+}
+
+#[test]
+fn the_release_of_a_control_removes_the_x_and_keeps_the_highlight() {
+    // MRK-15, HLT-7: a finger stays on a control. The release of a control removes an x, and it does not
+    // remove the highlight. A pen press removes the x before the pen makes a highlight (HLT-3).
+    let mut d = Driver::new(444);
+    let (given, v) = highlight_a_number(&mut d);
+    let (x, y) = hold(&mut d, Button::Menu);
+    refused_tap(&mut d);
+    assert_eq!(d.app.ui.highlight, None, "HLT-2: the refused tap");
+    d.tap_cell(given);
+    assert_eq!(d.app.ui.highlight, Some(v));
+    assert_eq!(d.app.ui.refused, None, "MRK-15: the pen press");
+    d.send(Input::TouchUp { id: 1, x, y });
+    assert_eq!(d.app.ui.highlight, Some(v), "HLT-7");
+    assert!(d.app.ui.menu.is_open());
+
+    // The "?" and a highlight with a finger on a control: the release does not remove a "?" in a
+    // different cell, and keeps the highlight.
+    let mut d = Driver::new(445);
+    let (given, v) = highlight_a_number(&mut d);
+    let cell = empty_cell(&d.app.game);
+    let (x, y) = hold(&mut d, Button::Menu);
+    d.write_strokes(&scribble_ink(cell));
+    d.tap_cell(given);
+    assert_eq!(d.app.ui.highlight, None, "HLT-9: the tap on v");
+    d.tap_cell(given);
+    assert_eq!(d.app.ui.highlight, Some(v), "HLT-3");
+    assert!(d.app.ui.question.is_none(), "QST-4: the pen press of the second tap");
+    d.send(Input::TouchUp { id: 1, x, y });
+    assert_eq!(d.app.ui.highlight, Some(v), "HLT-7");
+}
+
+// ---- INP-5, INP-16, INP-23: the pause.
+
+#[test]
+fn the_pause_is_1_s_from_the_pen_lift_and_a_new_stroke_stops_it() {
+    // INP-2, INP-5, INP-16, INP-23: a stroke that takes longer than the pause. The app reads at exactly
+    // 1000 ms after the lift of the last stroke, not before. A new stroke stops the pause, and the
+    // pause starts again at its lift.
+    assert_eq!(RECOGNITION_PAUSE_MS, 1000, "INP-23");
+    assert_eq!(WRITING_IDLE_MS, RECOGNITION_PAUSE_MS, "INP-16");
+    for_each_layout(|case| {
+        let mut d = Driver::new(450);
+        assert_eq!(d.app.pause_ms, 1000, "INP-23 ({case})");
+        let cell = empty_cell(&d.app.game);
+        let ink = digit_ink(cell, 4);
+        assert!(ink.len() >= 2, "a 4 with two strokes");
+        // The first stroke: 3 s with the pen on the screen.
+        let first = &ink[0];
+        d.send(Input::PenDown { x: first[0].0, y: first[0].1, tool: Tool::Pen });
+        for p in &first[1..] {
+            d.send(Input::PenMove { x: p.0, y: p.1 });
+        }
+        let t = d.now + 3000;
+        tick_to(&mut d, t);
+        assert_eq!(d.app.game.value_at(cell), 0, "INP-5: no read while the pen is down ({case})");
+        assert!(d.app.ui.pending_ink.is_some() && d.app.is_writing(), "INP-5 ({case})");
+        let last = first[first.len() - 1];
+        d.send(Input::PenUp { x: last.0, y: last.1 });
+        let lift = d.now;
+        assert_eq!(d.app.next_deadline(), Some(lift + 1000), "INP-5: the timer starts at the lift ({case})");
+        tick_to(&mut d, lift + 999);
+        assert!(d.app.ui.pending_ink.is_some(), "INP-5: 999 ms ({case})");
+
+        // The second stroke at 999 ms: 3 s with the pen on the screen.
+        let second = &ink[1];
+        d.app.handle(Input::PenDown { x: second[0].0, y: second[0].1, tool: Tool::Pen }, d.now);
+        tick_to(&mut d, lift + 4000);
+        assert!(d.app.ui.pending_ink.is_some(), "INP-5: the new stroke stops the pause ({case})");
+        for p in &second[1..] {
+            d.send(Input::PenMove { x: p.0, y: p.1 });
+        }
+        let last = second[second.len() - 1];
+        d.send(Input::PenUp { x: last.0, y: last.1 });
+        let lift = d.now;
+        tick_to(&mut d, lift + 999);
+        assert!(d.app.ui.pending_ink.is_some(), "INP-5: the pause starts again ({case})");
+        assert!(d.app.is_writing(), "INP-16 ({case})");
+        tick_to(&mut d, lift + 1000);
+        assert!(d.app.ui.pending_ink.is_none(), "INP-5: 1000 ms ({case})");
+        assert_eq!(d.app.game.value_at(cell), 4, "INP-5: all the ink is one item ({case})");
+        assert!(!d.app.is_writing(), "INP-16: the timer ends with the pause ({case})");
+    });
+}
+
+#[test]
+fn the_pause_has_one_source_and_the_manifest_does_not_set_it() {
+    // INP-23: the manifest has no pause setting and no environment block. The source reads no
+    // environment variable for the pause.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let text = std::fs::read_to_string(root.join("appload/sudoku/external.manifest.json")).unwrap();
+    let manifest: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let object = manifest.as_object().expect("the manifest is an object");
+    assert_eq!(object.get("application").and_then(|v| v.as_str()), Some("sudoku"), "INP-23: this is the manifest");
+    assert!(!object.contains_key("environment"), "INP-23: an environment block");
+    assert!(!text.to_uppercase().contains("PAUSE"), "INP-23: a pause in the manifest");
+
+    let name = concat!("SUDOKU_", "RECOGNITION_", "PAUSE");
+    let mut files: Vec<std::path::PathBuf> = Vec::new();
+    let mut dirs = vec![root.join("src"), root.join("appload")];
+    while let Some(dir) = dirs.pop() {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = e.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.extension().is_some_and(|x| x == "rs" || x == "json" || x == "qmd") {
+                files.push(path);
+            }
+        }
+    }
+    for e in std::fs::read_dir(root).unwrap().flatten() {
+        if e.file_name().to_string_lossy().starts_with("Dockerfile") {
+            files.push(e.path());
+        }
+    }
+    assert!(files.len() > 20, "{} files", files.len());
+    for f in &files {
+        let text = std::fs::read_to_string(f).unwrap();
+        assert!(!text.contains(name), "INP-23: {f:?} has the old environment variable");
+        for line in text.lines() {
+            let lower = line.to_lowercase();
+            let reads_env = line.contains("env::var") || line.contains("test_setting(") || line.contains("test_switch(") || line.contains("ENV ") || line.contains("\"environment\"");
+            assert!(!(reads_env && lower.contains("pause")), "INP-23: {f:?}: {line}");
+        }
+    }
+}
+
+// ---- INP-22: ink on a filled cell.
+
+/// The quantity of pixels in the inside of a cell that are not the same in two drawings.
+fn changed_in_cell(a: &tiny_skia::Pixmap, b: &tiny_skia::Pixmap, cell: Cell) -> usize {
+    let (x0, y0) = layout::cell_origin(cell);
+    let mut n = 0;
+    for y in y0 + 4..y0 + layout::CELL - 4 {
+        for x in x0 + 4..x0 + layout::CELL - 4 {
+            n += usize::from(rgb_at(a, x, y) != rgb_at(b, x, y));
+        }
+    }
+    n
+}
+
+#[test]
+fn a_touch_on_a_filled_cell_shows_no_ink() {
+    // INP-22, INP-7, INP-4: a tap on each micro-cell and a stroke, on a starting number and on an entry.
+    // No live stroke, no pen area and no change of the pixels. All layouts.
+    let fonts = fonts();
+    for_each_layout(|case| {
+        let mut d = Driver::new(460);
+        let entry = empty_cell(&d.app.game);
+        let value = d.app.game.solution[entry.0 as usize][entry.1 as usize];
+        d.write(entry, value);
+        assert_eq!(d.app.game.value_at(entry), value, "{case}");
+        let given = given_cell(&d.app.game);
+        for cell in [given, entry] {
+            let case = format!("{case}, cell {cell:?}");
+            let count = d.app.live_stroke_count;
+            let before = draw_screen(&d.app, &fonts);
+            for digit in [1, 5, 9] {
+                let (x, y) = micro_center(cell, digit);
+                d.send(Input::PenDown { x, y, tool: Tool::Pen });
+                assert!(d.app.live_stroke.is_none(), "INP-22: a tap, micro-cell {digit} ({case})");
+                assert!(d.app.writing_stroke().is_none(), "INP-22: no pen area ({case})");
+                assert!(d.app.ui.pending_ink.is_none(), "INP-22 ({case})");
+                d.send(Input::PenUp { x, y });
+                assert!(d.app.live_stroke.is_none() && d.app.ui.pending_ink.is_none(), "INP-22 ({case})");
+                d.app.ui.highlight = None;
+            }
+            // A stroke, also while the player writes (INP-24 does not apply to a filled cell).
+            for _ in 0..2 {
+                let (x, y) = stroke_down(&mut d, cell);
+                assert!(d.app.live_stroke.is_none(), "INP-22: a stroke ({case})");
+                assert!(d.app.writing_stroke().is_none(), "INP-22: no pen area ({case})");
+                assert!(d.app.ui.pending_ink.is_none(), "INP-22 ({case})");
+                assert_eq!(changed_in_cell(&draw_screen(&d.app, &fonts), &before, cell), 0, "INP-22: pixels ({case})");
+                d.send(Input::PenUp { x, y });
+                assert!(d.app.live_stroke.is_none() && d.app.ui.pending_ink.is_none(), "INP-22 ({case})");
+            }
+            assert_eq!(d.app.live_stroke_count, count, "INP-22: no live stroke ({case})");
+            d.wait(d.app.pause_ms);
+        }
+    });
+}
+
+#[test]
+fn a_stroke_from_an_empty_cell_over_a_filled_cell_shows_ink() {
+    // INP-22, INP-12: the ink belongs to the cell where the stroke started. All layouts.
+    let fonts = fonts();
+    for_each_layout(|case| {
+        let mut d = Driver::new(461);
+        let g = d.app.game.clone();
+        let (from, over) = cells()
+            .filter(|&c| !g.is_filled(c))
+            .find_map(|c| {
+                let right = (c.0, c.1 + 1);
+                (c.1 < 8 && g.is_filled(right)).then_some((c, right))
+            })
+            .unwrap();
+        let before = draw_screen(&d.app, &fonts);
+        let (x0, y0) = micro_center(from, 5);
+        let (x1, y1) = micro_center(over, 5);
+        d.send(Input::PenDown { x: x0, y: y0, tool: Tool::Pen });
+        assert!(d.app.writing_stroke().is_none(), "INP-2: the first stroke of a session ({case})");
+        for k in 1..=10 {
+            let t = k as f32 / 10.0;
+            d.send(Input::PenMove { x: x0 + (x1 - x0) * t, y: y0 + (y1 - y0) * t });
+        }
+        assert!(d.app.writing_stroke().is_some(), "INP-22: the pen area ({case})");
+        assert!(changed_in_cell(&draw_screen(&d.app, &fonts), &before, over) > 0, "INP-22: ink on the filled cell, live ({case})");
+        d.send(Input::PenUp { x: x1, y: y1 });
+        assert_eq!(d.app.ui.pending_ink.as_ref().map(|i| i.cell), Some(from), "INP-12 ({case})");
+        assert!(changed_in_cell(&draw_screen(&d.app, &fonts), &before, over) > 0, "INP-22: ink on the filled cell, waiting ({case})");
+    });
+}
+
+#[test]
+fn the_corpus_log_gets_the_strokes_that_do_not_show() {
+    // INP-22: the log gets a tap and a stroke on a filled cell, also when no ink shows.
+    use std::{cell::RefCell, rc::Rc};
+    use sudoku::app::BoardInput;
+    let mut d = Driver::new(462);
+    let log: Rc<RefCell<Vec<(Cell, usize)>>> = Rc::default();
+    let sink = log.clone();
+    d.app.stroke_log = Some(Box::new(move |i| {
+        if let BoardInput::Stroke(cell, points) = i {
+            sink.borrow_mut().push((cell, points.len()));
+        }
+    }));
+    let given = given_cell(&d.app.game);
+    d.tap_cell(given);
+    let (x, y) = stroke_down(&mut d, given);
+    d.send(Input::PenUp { x, y });
+    let log = log.borrow();
+    assert_eq!(log.len(), 2, "INP-22: {log:?}");
+    assert!(log.iter().all(|e| e.0 == given), "INP-22: {log:?}");
+    assert!(log[0].1 >= 1 && log[1].1 >= 3, "INP-22: {log:?}");
+}
+
+#[test]
+fn a_finger_redo_that_fills_the_cell_of_the_touch_stops_the_pen_area() {
+    // INP-22, INP-5: a finger holds Redo and the pen is on an empty cell while the player writes. Redo
+    // fills that cell. Then no pen area and no ink stay on the filled cell.
+    for_each_layout(|case| {
+        let mut d = Driver::new(463);
+        d.button(Button::Menu);
+        let (cell, other) = {
+            let mut e = cells().filter(|&c| !d.app.game.is_filled(c));
+            (e.next().unwrap(), e.next().unwrap())
+        };
+        d.write(cell, 4);
+        assert_eq!(d.app.game.value_at(cell), 4, "{case}");
+        d.button(Button::Undo);
+        assert_eq!(d.app.game.value_at(cell), 0, "{case}");
+        let (bx, by) = hold(&mut d, Button::Redo);
+        d.write_strokes(&scribble_ink(other));
+        let (x, y) = micro_center(cell, 5);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert!(d.app.writing_stroke().is_some(), "INP-24 ({case})");
+        d.send(Input::TouchUp { id: 1, x: bx, y: by });
+        assert_eq!(d.app.game.value_at(cell), 4, "the redo ({case})");
+        assert!(d.app.writing_stroke().is_none(), "INP-22: no area on a filled cell ({case})");
+        let (x1, y1) = micro_center(cell, 9);
+        d.send(Input::PenMove { x: x1, y: y1 });
+        assert!(d.app.writing_stroke().is_none(), "INP-22 ({case})");
+        d.send(Input::PenUp { x: x1, y: y1 });
+        assert!(d.app.ui.pending_ink.is_none(), "INP-5 ({case})");
+        assert!(d.app.live_stroke.is_none(), "INP-5 ({case})");
+    });
+}
+
+// ---- INP-2, INP-24: the ink start.
+
+#[test]
+fn while_the_player_writes_a_press_on_an_empty_cell_starts_the_pen_area_at_the_pen_down() {
+    // INP-2, INP-24, INP-16, INP-21. The first stroke of a session: the area starts when the pen leaves
+    // the micro-cell. Later strokes: at the pen down, with ink waiting or with the timer. A tap ends the
+    // chain. All layouts.
+    for_each_layout(|case| {
+        let mut d = Driver::new(470);
+        let empties: Vec<Cell> = cells().filter(|&c| !d.app.game.is_filled(c)).collect();
+        let (a, b, c) = (empties[0], empties[1], empties[2]);
+        let given = given_cell(&d.app.game);
+
+        // The first stroke.
+        let (x, y) = micro_center(a, 1);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert!(d.app.writing_stroke().is_none(), "INP-2: the first stroke ({case})");
+        let (x1, y1) = micro_center(a, 9);
+        d.send(Input::PenMove { x: x1, y: y1 });
+        assert!(d.app.writing_stroke().is_some(), "INP-2: the pen left the micro-cell ({case})");
+        d.send(Input::PenUp { x: x1, y: y1 });
+
+        // Ink waits: the next press on a different empty cell. The press reads the ink of `a`.
+        let (x, y) = micro_center(b, 1);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert!(d.app.writing_stroke().is_some(), "INP-24: with ink ({case})");
+        assert_eq!(d.app.live_stroke.as_ref().map(|s| s[0]), Some((x, y)), "INP-24: from the pen down ({case})");
+        let (x1, y1) = micro_center(b, 9);
+        d.send(Input::PenMove { x: x1, y: y1 });
+        assert!(d.app.writing_stroke().is_some(), "INP-24 ({case})");
+        d.send(Input::PenUp { x: x1, y: y1 });
+        assert!(d.app.ui.pending_ink.is_some(), "{case}");
+
+        // A finger press does not stop this (INP-21).
+        let (fx, fy) = no_control_point(false);
+        d.send(Input::TouchDown { id: 1, x: fx, y: fy });
+        d.send(Input::TouchUp { id: 1, x: fx, y: fy });
+        let (x, y) = micro_center(c, 5);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert!(d.app.writing_stroke().is_some(), "INP-24, INP-21: after a finger ({case})");
+
+        // A tap in this time also starts the area. Its mark comes at the lift, and it ends the chain.
+        d.send(Input::PenUp { x, y });
+        assert!(d.app.writing_stroke().is_none(), "{case}");
+        assert!(d.app.game.marks_at(c) == mark_bit(5) || d.app.ui.refused.is_some(), "INP-24: the mark or the x at the lift ({case})");
+        assert!(!d.app.is_writing(), "INP-24: a tap starts no timer ({case})");
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert!(d.app.writing_stroke().is_none(), "INP-24, INP-2: the start after a tap ({case})");
+        d.send(Input::PenUp { x, y });
+
+        // The timer with no ink: a stroke from a filled cell. A press on an empty cell starts the area.
+        let (x1, y1) = stroke_down(&mut d, given);
+        d.send(Input::PenUp { x: x1, y: y1 });
+        assert!(d.app.ui.pending_ink.is_none() && d.app.is_writing(), "{case}");
+        let (x, y) = micro_center(empties[3], 1);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert!(d.app.writing_stroke().is_some(), "INP-24: with the timer ({case})");
+        let (x1, y1) = micro_center(empties[3], 9);
+        d.send(Input::PenMove { x: x1, y: y1 });
+        d.send(Input::PenUp { x: x1, y: y1 });
+
+        // After the end of the pause and of the timer: the start of a first stroke.
+        d.wait(d.app.pause_ms);
+        assert!(!d.app.is_writing(), "INP-16 ({case})");
+        let (x, y) = micro_center(empties[4], 1);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert!(d.app.writing_stroke().is_none(), "INP-2: a new session ({case})");
+        d.send(Input::PenUp { x, y });
+    });
+}
+
+#[test]
+fn a_touch_on_a_filled_cell_while_the_player_writes_starts_no_pen_area() {
+    // INP-22, INP-24: only an empty cell starts the area at the pen down. The press reads the ink.
+    for_each_layout(|case| {
+        let mut d = Driver::new(471);
+        let cell = empty_cell(&d.app.game);
+        d.write_strokes(&digit_ink(cell, 4));
+        let (x, y) = micro_center(given_cell(&d.app.game), 5);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert!(d.app.writing_stroke().is_none() && d.app.live_stroke.is_none(), "INP-22 ({case})");
+        d.send(Input::PenUp { x, y });
+    });
+}
+
+#[test]
+fn a_touch_on_a_complete_game_changes_nothing_and_starts_no_timer() {
+    // INP-9, INP-16, INP-20, INP-22, HLT-1: the completed game. A hand touch and a stroke have no effect.
+    let mut d = Driver::new(472);
+    solve(&mut d);
+    assert!(d.app.game.completed);
+    d.wait(d.app.pause_ms);
+    let before = board(&d.app.game);
+    let (x, y) = stroke_down(&mut d, (4, 4));
+    assert!(d.app.live_stroke.is_none(), "INP-22");
+    d.send(Input::PenUp { x, y });
+    assert!(!d.app.is_writing(), "INP-16: no timer on a complete game");
+    assert_eq!(d.app.ui.highlight, None, "HLT-1");
+    let (bx, by) = button_center(Button::Close);
+    d.touch_down_after_lift(100, bx, by);
+    d.send_at_once(Input::TouchUp { id: 1, x: bx, y: by });
+    assert!(!d.app.quit, "INP-20");
+    assert_eq!(board(&d.app.game), before, "INP-9");
+}
+
+#[test]
+fn a_tap_on_an_empty_cell_with_ink_elsewhere_keeps_the_pixels_until_the_lift() {
+    // HLT-9, INP-24: the press reads the ink and starts the pen area. The highlight and the number of
+    // the read do not go to the screen before the lift. Then the screen shows the full state.
+    for_each_layout(|case| {
+        let mut s = Shown::new(424);
+        let given = given_cell(&s.d.app.game);
+        let (a, b) = {
+            let mut e = cells().filter(|&c| !s.d.app.game.is_filled(c));
+            (e.next().unwrap(), e.next().unwrap())
+        };
+        s.pen_tap(micro_center(given, 5));
+        s.pass(120);
+        let lit = s.background(given);
+        for stroke in &digit_ink(a, 4) {
+            s.send(Input::PenDown { x: stroke[0].0, y: stroke[0].1, tool: Tool::Pen });
+            for p in &stroke[1..] {
+                s.send(Input::PenMove { x: p.0, y: p.1 });
+            }
+            let last = stroke[stroke.len() - 1];
+            s.send(Input::PenUp { x: last.0, y: last.1 });
+        }
+        s.pass(150);
+        let (x, y) = micro_center(b, 5);
+        s.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert!(s.d.app.writing_stroke().is_some(), "INP-24 ({case})");
+        assert_eq!(s.d.app.game.value_at(a), 4, "INP-12 ({case})");
+        assert_eq!(s.d.app.ui.highlight, None, "HLT-2 ({case})");
+        s.pass(90);
+        assert_eq!(s.background(given), lit, "HLT-9: the pixels wait for the lift ({case})");
+        s.changes = 0;
+        s.send(Input::PenUp { x, y });
+        s.pass(120);
+        assert_ne!(s.background(given), lit, "HLT-2 ({case})");
+        assert_eq!(s.changes, 1, "HLT-9: one redraw after the lift ({case})");
+        s.assert_complete(&case);
+    });
+}
+
+#[test]
+fn a_stroke_from_a_number_with_the_menu_open_removes_the_highlight() {
+    // HLT-2 (item 3), NAV-11: the item applies while `panel = None`, also with the menu open. The test
+    // `a_pen_press_on_the_board_with_a_panel_open_only_closes_the_panel` has the case of a panel.
+    for_each_layout(|case| {
+        let mut d = Driver::new(419);
+        let (given, v) = highlight_a_number(&mut d);
+        d.button(Button::Menu);
+        let (x, y) = stroke_down(&mut d, given);
+        assert_eq!(d.app.ui.highlight, Some(v), "HLT-9 ({case})");
+        d.send(Input::PenUp { x, y });
+        assert_eq!(d.app.ui.highlight, None, "HLT-2 ({case})");
+        assert!(d.app.ui.menu.is_open(), "{case}");
     });
 }

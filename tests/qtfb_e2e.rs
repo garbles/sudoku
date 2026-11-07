@@ -160,6 +160,8 @@ fn the_executable_operates_through_qtfb() {
 
     // A pen tap on micro-cell 5 adds a pencil mark.
     server.pen_tap(x + 73, y + 73);
+    // INP-20: a touch just after a pen lift is the hand. A finger comes after that time.
+    std::thread::sleep(Duration::from_millis(sudoku::app::HAND_TOUCH_MS + 50));
     // A finger opens the menu again: the close button shows.
     server.touch_tap(1563, 55);
     assert!(wait_until(|| server.pixel(38, 55) != [255, 255, 255]), "the close button shows");

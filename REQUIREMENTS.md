@@ -124,8 +124,10 @@ The game screen has three independent parts:
   ([§6.1](#61-automatic-pencil-mark-hiding)).
 
 Overlays occur only when the puzzle is in progress. A completed puzzle does not show overlays.
-**All actions** remove a highlight. Actions include a pen tap or stroke, a finger touch and a tap on a
-menu button.
+A highlight can show while the menu or a panel is open. Only the items in [§6.2](#62-highlights) remove
+a highlight. A finger or a hand on the screen does not remove it (owner approval 2026-11-07). A "?" can
+show with a highlight in a different cell: a pen tap on a number while ink waits in a different cell reads
+the ink at the press and makes the highlight at the lift (approved prototype 2026-11-07).
 
 The "?" and the x can show at the same time in different cells, each with its own time. Example: a
 scribble waits in cell A, and the player does a refused tap in cell B. The app reads the ink first,
@@ -137,8 +139,8 @@ These rules for the x are true at all times (they follow from the owner approval
 - An x implies all of these: the game screen shows, no panel is open, the game is not complete, its
   cell is empty, "Hide pencil marks automatically" is on, a peer has its digit, no highlight shows
   and no ink waits. The x is never on the same cell as a "?".
-- These remove the x: the end of its time, a press of the pen or of a finger (§5.1), the release of
-  a control that does an action (§9), completion, a change of screen, a new game and the update
+- These remove the x: the end of its time, a press of the pen or of a finger (§5.1; not a touch that
+  starts less than 150 ms after a pen lift, owner approval 2026-11-07), the release of a control that does an action (§9), completion, a change of screen, a new game and the update
   dialog (§9.2). The release of a control removes only the x, not a "?" in a different cell.
 
 ```mermaid
@@ -151,22 +153,34 @@ stateDiagram-v2
         state "? shown" as Question
         state "x shown" as Refused
         state "? and x shown (different cells)" as Both
-        Plain --> Highlighted: pen tap on a number
-        Highlighted --> Highlighted: pen tap on a different number
-        Highlighted --> Plain: tap the same number again
-        Highlighted --> Plain: a different action
+        state "? and highlight shown (different cells)" as QuestionHighlight
+        Plain --> Highlighted: pen tap on a number, at the pen lift
+        Highlighted --> Highlighted: pen tap on a different number, at the pen lift
+        Highlighted --> Highlighted: finger, hand, menu, panel, undo, redo, Restore, eraser, pen press off the board on no control with no waiting ink
+        Highlighted --> Plain: pen tap on the same number, at the pen lift
+        Highlighted --> Plain: pen tap on an empty cell that changes a mark, at the pen lift
+        Highlighted --> Plain: pen stroke that starts on a filled cell, at the pen lift
+        Highlighted --> Plain: read of waiting ink that gives a number
+        Highlighted --> Plain: new game, restart or completion
+        Highlighted --> Plain: Help, Statistics or update dialog
+        Highlighted --> Plain: the switch Highlight numbers goes off
+        Highlighted --> Question: read of waiting ink that is not 1 to 9
+        Highlighted --> Refused: refused pen tap, at the pen lift
         Plain --> Question: writing that is not 1 to 9
         Question --> Plain: after approximately one second
-        Question --> Plain: a press of the pen or of a finger
+        Question --> Plain: a press of the pen or of a finger (not a touch less than 150 ms after a pen lift)
         Plain --> Refused: refused pen tap, at the pen lift
         Refused --> Plain: after approximately one second
-        Refused --> Plain: a press of the pen or of a finger
+        Refused --> Plain: a press of the pen or of a finger (not a touch less than 150 ms after a pen lift)
         Refused --> Plain: release of a control that does an action
         Refused --> Plain: completion, change of screen, new game or update dialog
         Question --> Both: refused pen tap whose press read the waiting ink, at the pen lift
+        Plain --> QuestionHighlight: pen tap on a number whose press read the waiting ink, at the pen lift
+        Highlighted --> QuestionHighlight: pen tap on a different number whose press read the waiting ink, at the pen lift
+        QuestionHighlight --> Highlighted: after approximately one second (the time of the ?)
         Both --> Refused: after approximately one second (the time of the ?)
         Both --> Question: release of a control that does an action (only the x goes)
-        Both --> Plain: a press of the pen or of a finger
+        Both --> Plain: a press of the pen or of a finger (not a touch less than 150 ms after a pen lift)
         Both --> Plain: change of screen, new game or update dialog
     }
 ```
@@ -194,7 +208,7 @@ When the tablet turns, the game does not change. Ink that waits for the recognit
 in progress are removed, because their positions are not correct after the turn. The "?" and the x
 stay on the same cell (and the x on the same digit) for the rest of their time. A pen tap in progress
 at the turn makes no x, because the pen gesture stops (this follows from the owner approval
-2026-11-04).
+2026-11-04). A highlight stays (owner approval 2026-11-07).
 
 ## 4. Cells
 
@@ -278,7 +292,8 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
 ### 5.1 Rules
 
 - **Finger touches on the board change no number and no pencil mark.** Only the reMarkable pen
-  operates the board. A finger touch removes a highlight (§6.2), the "?" and the x.
+  operates the board. A finger touch removes the "?" and the x at the press, except for a hand touch
+  (below). A finger touch does not remove a highlight ([§6.2](#62-highlights); owner approval 2026-11-07).
 - A finger can operate all items that are not on the board: the menu buttons, the panels, the dialogs
   and the screen buttons (for example "< Back"). The pen can also operate these items.
 - In the manual and the games list, a finger swipe turns the page. Refer to [§12](#12-manual-help) and
@@ -288,21 +303,70 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
   micro-cell before it lifts, the touch is writing, not a tap. While ink waits in a cell, each pen
   touch that starts in that cell is writing, also if it stays in one micro-cell. Thus a short stroke
   of a number (for example the bar of a 7) does not become a pencil mark (confirmed 2026-10-25).
-- The ink shows from the pen down, also for a tap. After a tap that has no effect (for example a
+- A pen touch that starts on an **empty cell** shows ink from the pen down, also for a tap. A pen touch
+  that starts on a **filled cell** shows no ink and starts no pen area ([§14.4](#144-launcher)). This
+  includes a tap on a number and a stroke that starts on a number. A stroke that starts on an empty cell
+  and crosses a filled cell still shows ink. The corpus build still logs the strokes that do not show
+  (owner approval 2026-11-07). After a tap that has no effect (for example a
   mark that a peer hides), a redraw removes the ink (owner decision 2026-11-02). If §6.1 refuses the
   tap, the x shows at the pen lift, not at the pen down (owner approval 2026-11-04).
 - **Writing** is a pen stroke that is not a tap. The app collects the strokes in one cell until the
-  pen is lifted for a **short pause (approximately 0.5 s, adjustable)**. Thus a number with more than
-  one stroke (for example 4, 5 or 7) is correct.
+  pen is lifted for the **recognition pause of 1 s**. The pause starts at the pen lift, and a new stroke
+  in the same cell stops it. Thus a number with more than one stroke (for example 4, 5 or 7) is correct
+  (owner approval 2026-11-07).
+- The pause is one fixed value in the source. The AppLoad manifest does not set it, and no environment
+  variable changes it. Thus an update gives the new pause at the next start of Sudoku, with no restart
+  of xochitl, also when AppLoad keeps an old manifest in memory (owner approval 2026-11-07).
+- Time line for one number, in normal use: the app reads the ink at 1 s after the pen lift, the digit
+  goes to the screen approximately 45 ms after that, and the display completes it at approximately
+  1.45 s. The last value is an estimate from the 400 ms that the app gives a screen update. It is not
+  measured on the panel (owner approval 2026-11-07).
 - After the pause, the app reads all of the strokes as one item. Neat handwriting is not necessary.
   The app removes the ink and shows the typed number.
 - The writing belongs to the cell where the pen touch started. A pen touch that starts in a
-  different cell, or a press on a different item (for example a menu button), makes the app read the
-  waiting ink immediately (confirmed 2026-10-25).
+  different cell, or a pen press on a control (for example a menu button), makes the app read the
+  waiting ink immediately (confirmed 2026-10-25). A pen press off the board on no control also reads
+  it, as each pen press does (approved prototype 2026-11-07).
+- **A finger press never reads waiting ink and never stops the writing**, also outside the board. A
+  control that a finger operates reads waiting ink and stops the writing at its release, on the
+  control. A release outside the control does nothing (owner approval 2026-11-07).
+- **Hand touches** (owner approval 2026-11-07). The tablet sends a touch from the hand approximately 97 ms after each pen
+  lift, and that touch ends a few ms before the next pen down (measured on the tablet, input log,
+  2026-11-07). A touch that starts less than 150 ms after a pen lift has no effect at all: it does not
+  operate a control, and it does not remove an x or a "?". Its move and its release also have no
+  effect. The owner knows this risk: a touch from the hand more than 150 ms after a pen lift, on a
+  toolbar button, still operates it.
 - **Accuracy target** (confirmed 2026-10-25): for writers that are not in the examples of the
   recognizer, the app reads 96 % or more of the digits correctly and reads 1.2 % or less as a
   different digit. The other digits show the "?". The test `writer_independent_accuracy` examines this
-  target.
+  target. Its limits are 97.5 % or more of the digits correct, 1.2 % or less a different digit, and
+  90.0 % or more of the other characters rejected (owner approval 2026-11-06). The test also uses the
+  examples of the owner, thus an added example can change its result. This is the reason for the
+  margin between the limits and the measured values ([§16](#16-open-questions)).
+- **Accuracy for reversed ink** (review of the change, 2026-11-06): the accuracy target also applies
+  to fully reversed ink. A test examines this on the writers 41 to 60 of the database. For these
+  writers, the ink and its full reversal gave the same result on all 3360 test inks. This is a
+  measurement on this set. It is not a rule for all ink. Ink with only the stroke directions or only
+  the stroke order reversed, or with only some strokes reversed, is not in the target
+  ([§16](#16-open-questions)). The owner knows this and approved the change (2026-11-06).
+- **Pen directions of the examples** (owner approval 2026-11-06): each example of the recognizer is
+  stored in two pen directions: as written, and fully reversed. Fully reversed means that the last
+  stroke is first, and each stroke goes from its end to its start.
+  - This applies to all classes: the digits and "not 1-9" (0, letters, symbols).
+  - This applies to all sources: the database of 60 writers, the typeface shapes and the handwriting
+    of the owner.
+  - This applies to each copy of a digit example (each slant, rotation and width copy). Thus one
+    sample gives 2 stored examples for "not 1-9" and 18 stored examples for a digit.
+  - An example in only one direction must not occur. A shape must not be stored in the same direction
+    two times, because duplicates can give one shape more of the 3 votes. Thus the typeface shapes
+    are not reversed separately.
+- **The ink of the player is not reversed** (owner approval 2026-11-06). The app calculates its
+  features one time, as written, and compares them with all stored examples. The reading continues to
+  start at the pen lift.
+- **Features of the examples** (owner approval 2026-11-06): the app calculates all the example features
+  one time at each start, in the background, and keeps them in memory. It does not keep them on disk.
+  A reading that comes before the end of this calculation waits for it (review of the change,
+  2026-11-06). The acceptance factor of the recognizer stays 1.4 (owner approval 2026-11-06).
 - If the writing is **not a number from 1 to 9**, the app shows a gray **?** in the cell for
   **approximately one second**. Examples are a scribble, a letter, 0 or a number more than 9, such as
   12. After the "?", the cell is the same as before.
@@ -311,7 +375,8 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
   the app does the action of that press. A second finger also removes them (owner approval
   2026-11-04). Exception: a first press that the app ignores in the 0.5 s after **< Back**
   ([§9](#9-the-menu), NAV-16) does not remove the "?" or the x (this follows from the owner approval
-  2026-11-04).
+  2026-11-04). A touch that starts less than 150 ms after a pen lift also does not remove them
+  (owner approval 2026-11-07).
 - Only a pen tap that §6.1 refuses makes an x. A finger, the eraser and writing never make an x. A
   short touch in the cell of ink that waits is writing, thus it makes no x (owner approval
   2026-11-04).
@@ -319,14 +384,16 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
   redraw occurs. While the player writes, a redraw waits ([§14.4](#144-launcher)). Thus the pixels of
   the x or of the "?" can stay on the screen, under the ink of the player, until the writing stops:
   approximately one second after the last stroke (owner decision 2026-11-04).
-- Writing on a **starting number** or on **your number** has no effect. The app removes the ink. To
-  change your number, erase it first.
+- Writing on a **starting number** or on **your number** changes no number and no mark, and it shows
+  no ink. It only removes a highlight ([§6.2](#62-highlights); owner approval 2026-11-07). To change your number, erase it
+  first.
 - The **eraser** is the other end of the pen. When you rub it on your number, the app removes the
   number. The micro-cells and the pencil marks of that cell show again.
 - The eraser has no effect on other cells. It does not change starting numbers. It does not change
   empty cells. Only a tap (or a Restore, §9.3) removes a pencil mark. A number only hides the marks of its peers (§6.1).
 - The eraser on the cell of ink that waits for the recognition pause removes that ink. The app does
-  not read it, thus the board and the undo history do not change (owner decision 2026-11-02).
+  not read it, thus the board and the undo history do not change (owner decision 2026-11-02). A
+  highlight stays (owner approval 2026-11-07).
 - A **Restore** in the Checkpoints panel ([§9.3](#93-checkpoints-panel)) replaces all numbers and all
   marks, also your numbers, without the pen on the board (owner approval 2026-11-06).
 - Pen input on the board of a completed puzzle has no effect
@@ -342,7 +409,9 @@ Images: [`manual-candidates.png`](images/manual-candidates.png),
 ```mermaid
 flowchart TD
     A[Touch on the board] --> B{Pen or finger?}
-    B -- finger --> X[No change to the board; remove the highlight, the ? and the x]
+    B -- finger --> BH{Did the touch start less than 150 ms after a pen lift?}
+    BH -- yes --> X0[No effect]
+    BH -- no --> X[No change to the board and the highlight; remove the ? and the x at the press]
     B -- pen --> C{Puzzle complete?}
     C -- yes --> X2[No change to the board]
     C -- no --> D{Eraser end?}
@@ -355,23 +424,32 @@ flowchart TD
     F -- yes, tap --> G{Does the cell have a number?}
     G -- yes --> GS{Is Highlight numbers on?}
     GS -- no --> X5[No highlight]
-    GS -- yes --> G0{Is that digit highlighted now?}
+    GS -- yes --> G0{Was that digit highlighted at the press?}
     G0 -- yes --> G3[Remove the highlight]
     G0 -- no --> G1[Highlight all cells with that digit]
     G -- no --> GR{Is Hide pencil marks automatically on, and does a peer have that digit?}
-    GR -- yes --> GX[No change to the game; at the pen lift, show the x in that micro-cell for approximately one second]
-    GR -- no --> G2[Add or remove the pencil mark of that micro-cell]
+    GR -- yes --> GX[No change to the game; at the pen lift, remove the highlight and show the x in that micro-cell for approximately one second]
+    GR -- no --> G2[At the pen lift, add or remove the pencil mark of that micro-cell and remove the highlight]
     F -- no, writing --> H{Does the cell have a number?}
-    H -- yes --> X4[Remove the ink, no other effect]
-    H -- no --> I[Collect the strokes until a short pause after the pen lifts, then read them]
+    H -- yes, the touch started on the filled cell --> X4[No ink; at the pen lift, remove the highlight; no other effect]
+    H -- no --> I[Collect the strokes until the pause of 1 s after the pen lifts, then read them and remove the highlight]
     I --> J{Is it a number from 1 to 9?}
     J -- yes --> K[Add the number, hide the marks of the cell, if Hide pencil marks automatically is on, hide the digit in the marks of the peer cells, find clashes and complete groups, find completion]
     J -- no --> L[Show ? for approximately one second, then show the cell as before]
 ```
 
-Each action also removes a highlight before the app does the action. A tap on a different number
-then makes a new highlight. Each press also removes the "?" and the x before the app does the action
-of that press, with the exception in [§5.1](#51-rules).
+The highlight does not change at the pen press. Its removal or move goes to the screen in one redraw
+with the result of the action: a tap at the pen lift, and writing when the app reads the ink. Two updates
+remain in these known cases, which the owner accepts: a pen press on a control while ink waits (the
+number at the press, the action at the release), and a press on a control that removes an x or a "?"
+(the removal at the press, the action at the release) (owner approval 2026-11-07). A pen tap on a number
+while ink waits in a different cell is not a third case: the pen touch keeps the writing state until the
+lift, thus the redraw waits, and the read and the highlight go in one redraw (approved prototype 2026-11-07).
+This applies when the pen area is in use. When the ink patch is not active, redraws do not wait for the
+writing, thus this tap gives two updates: the read at the press and the highlight at the lift (review of the change, 2026-11-07). A tap on a number
+compares with the highlight as it was at the press, before the read of waiting ink: refer to
+[§6.2](#62-highlights) (approved prototype 2026-11-07). Each press also removes the "?" and the x
+before the app does the action of that press, with the exceptions in [§5.1](#51-rules).
 
 ## 6. Helpers: pencil mark hiding, highlights, clashes, completed groups
 
@@ -427,13 +505,48 @@ Tap a number with the pen (a starting number or your number). The app then gives
 complete group that has that digit shows the highlight color, not the completed color
 ([§4.2](#42-cell-background-color); owner approval 2026-11-04 and 2026-11-05).
 
-- If you tap the same digit again, the app removes the highlight.
-- If you tap a different number, the highlight moves to the new digit.
-- **All other actions** remove the highlight: a pen tap or stroke, a finger touch, or a tap on the
-  menu button.
-- A completed puzzle does not show highlights.
-- The player can turn highlights off in the Settings panel ([§9.1](#91-settings-panel)). Then a tap on
-  a number does not make a highlight.
+**Only these remove a highlight** (owner approval 2026-11-07):
+
+- A pen tap on the same number (it toggles), or a tap on a different number (it moves), at the pen lift.
+- A pen tap on an empty cell, at the pen lift, in the same redraw as the mark or the x.
+- A pen stroke that starts on a filled cell, at the pen lift. The redraw can wait up to the 1 s idle time
+  ([§14.4](#144-launcher)).
+- A read of waiting ink, by any cause, in the same redraw as the number or the "?".
+- A new game, a restart of the app (the app does not save the highlight, approved prototype 2026-11-07) and a completed puzzle. A completed puzzle does not show highlights.
+- Leaving the board for Help or Statistics. The highlight does not come back on return.
+- The update dialog ([§9.2](#92-updates)). The highlight does not come back after **Later**.
+- Turning off the switch "Highlight numbers" ([§9.1](#91-settings-panel)). The highlight goes in that
+  redraw. While the switch is off, a tap on a number does not make a highlight.
+
+**These do not remove a highlight** (owner approval 2026-11-07):
+
+- A finger or a hand on the board or anywhere else, and a second finger.
+- The menu, the panels and their options. A highlight can show while the menu or a panel is open.
+- Undo, Redo and Restore. If they remove the last number with that digit, the highlight stays, and it
+  shows again when that digit comes back. A tap on that digit then removes the highlight.
+- The eraser.
+- A pen press off the board on no control, if no ink waits (approved prototype 2026-11-07).
+
+Consequences (owner approval 2026-11-07):
+
+- A pen press on a control while ink waits reads the ink, and that read removes the highlight.
+- A pen press off the board on no control while ink waits reads the ink, and that read removes the
+  highlight (approved prototype 2026-11-07).
+- A pen tap on a number while ink waits in a different cell reads the ink at the press and makes the
+  highlight at the lift, in one redraw when the pen area is in use. When the ink patch is not active, the
+  tap gives two updates ([§5.2](#52-input-decisions); review of the change, 2026-11-07). A "?" of that read can show with that highlight (approved prototype 2026-11-07).
+- A tap on a number compares with the highlight as it was at the press, not with the highlight after
+  the read. With highlight v and ink waiting in a different cell, a tap on v reads the ink at the press
+  and gives no highlight at the lift. A tap on a different digit w gives highlight w (approved prototype 2026-11-07).
+- A control that a finger operates reads waiting ink at its release, and that read removes the highlight.
+- The eraser on waiting ink in its own cell, a turn of the tablet and a suspension remove the ink but keep
+  the highlight.
+
+A highlight occurs only on the game screen. The redraw rules are in [§5.2](#52-input-decisions).
+
+A stroke on a filled cell removes the highlight in the state, but its pixels can stay up to 1 s. A tap on
+that number in this time makes a highlight. The player can see this as a failed removal. The owner did not
+ask for a change (review of the change, 2026-11-07).
 
 Images: [`screen-highlight.png`](images/screen-highlight.png),
 [`manual-helpers.png`](images/manual-helpers.png) (bottom).
@@ -533,6 +646,7 @@ stateDiagram-v2
   (§6.4), color changes, switch changes, the panels and screens that you open, and the save and the
   delete of a checkpoint (§9.3; owner approval 2026-11-06). Thus these do not remove the redo history. A
   tap on **Current** has no effect, and it also does not remove the redo history.
+- Undo, redo and a Restore do not remove a highlight ([§6.2](#62-highlights); owner approval 2026-11-07).
 - A new change after an undo removes the redo history. A refused tap is not a change, thus it does
   not remove the redo history (owner approval 2026-11-04).
 - A new game removes the undo history, the redo history and all checkpoints (owner approval 2026-11-06).
@@ -662,7 +776,8 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
   ignores in this time does not remove the "?" or the x (this follows from the owner approval
   2026-11-04). A second finger on a toolbar button in this time does not operate the button, but it
   removes them, as at all other times (owner decision 2026-11-05).
-- When the menu opens, the app removes the highlight.
+- The menu and the panels do not remove the highlight. It can show while the menu or a panel is open
+  ([§6.2](#62-highlights); owner approval 2026-11-07).
 - The board continues to operate while the menu is open. For example, you can write a number or
   tap a number to make a highlight. With the menu open and no panel, a refused tap shows the x
   ([§6.1](#61-automatic-pencil-mark-hiding); owner approval 2026-11-04).
@@ -671,7 +786,7 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
   bookmark changes nothing, and the open panel stays open ([§9.3](#93-checkpoints-panel); approved
   prototype 2026-11-06).
 - A finger can stay on a control while the pen does a refused tap. When that finger lifts, the release
-  of a control that does an action removes the x, as it removes the highlight. Thus an open panel
+  of a control that does an action removes the x. Thus an open panel
   never shows an x, an undo that removes the peer number never leaves an x, and a mark never shows
   under an x. The release removes only the x, not a "?" in a different cell (this follows from the
   owner approval 2026-11-04).
@@ -684,8 +799,11 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
 - A finger operates the menu buttons, the panels, the dialogs and the screen buttons while the app
   is open. There are two exceptions. When a dialog shows, only its two buttons operate
   ([§9.2](#92-updates)). A second finger, while the first finger moves or presses (an event less
-  than 0.15 s before), operates no item, but it removes a highlight, the "?" (owner decision
-  2026-11-02) and the x (owner approval 2026-11-04).
+  than 0.15 s before), operates no item, but it removes the "?" (owner decision 2026-11-02) and the x
+  (owner approval 2026-11-04). It does not remove a highlight (owner approval 2026-11-07).
+- A touch that starts less than 150 ms after a pen lift operates no item, and a finger press does not
+  read waiting ink. A control that a finger operates reads waiting ink at its release, on the control
+  ([§5.1](#51-rules); owner approval 2026-11-07).
 - A touch for which the app does not get a release (for example a palm touch that the system
   cancels) does not stop the next touches. The app forgets that touch when a new press with the same
   touch id starts, or when a new touch starts and that touch has had no event for 0.15 s.
@@ -750,7 +868,7 @@ A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a fifth row
 
 | Row | Default | When the switch is off |
 |---|---|---|
-| **Highlight numbers** | On | A tap on a number does not make a highlight ([§6.2](#62-highlights)). |
+| **Highlight numbers** | On | A tap on a number does not make a highlight. A highlight that shows goes in the redraw of the change ([§6.2](#62-highlights); owner approval 2026-11-07). |
 | **Hide pencil marks automatically** | On | All pencil marks of the empty cells show, also the digits that are numbers in the peers ([§6.1](#61-automatic-pencil-mark-hiding)). A tap on each micro-cell adds or removes its mark, and no x shows. |
 | **Color completed groups** | On | No cell gets the completed color ([§6.4](#64-completed-groups)). A starting number keeps its starting color. The Completed groups section of the Cell colors panel stays operative, and its color stays not available for the other sections (owner approval 2026-11-04 and 2026-11-05). |
 
@@ -761,8 +879,8 @@ A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a fifth row
   with the version of Cargo.toml). A development install with a name for the change shows
   `dev/<name>`, for example `dev/update-icons` (owner decision 2026-11-05). All other builds show `dev`. A tap on the version row has no effect, and the panel stays open
   (owner decision 2026-10-26).
-- A change of a switch does not change the numbers or the marks and is not a part of undo. The
-  highlight switch has an effect only on the next actions. The hiding switch changes immediately which
+- A change of a switch does not change the numbers or the marks and is not a part of undo. When the
+  highlight switch goes off, the highlight that shows goes in that redraw (owner approval 2026-11-07). The hiding switch changes immediately which
   pencil marks show. The completed-groups switch changes the colors of the board immediately. It also
   operates in the panel of a completed game, but a completed game shows no completed color
   ([§6.4](#64-completed-groups); owner approval 2026-11-04 and 2026-11-05). Changes that are already in the undo history do not change.
@@ -771,9 +889,9 @@ A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a fifth row
   track with a black border and a black knob at the left. The track is 72×36 px with a 3 px border, and
   the knob has a diameter of 28 px. The switch ends 33 px from the right edge of the panel.
 - While the panel is open, the gear is white on a black square (as the button of each panel).
-- The switches are in a panel, and the menu removes the highlight when it opens. Thus a change of a
-  switch never changes a highlight that shows. A change of the hiding switch changes only which marks
-  show ([§6.1](#61-automatic-pencil-mark-hiding)). It does not change the marks.
+- The switches are in a panel, and a highlight can show while the panel is open (owner approval 2026-11-07). When the
+  highlight switch goes on, no highlight shows until the next tap on a number. A change of the hiding
+  switch changes only which marks show ([§6.1](#61-automatic-pencil-mark-hiding)). It does not change the marks.
 - The Highlighted numbers color stays available in the Cell colors panel when highlights are off.
 
 Image: [`settings-menu.png`](images/settings-menu.png).
@@ -876,7 +994,8 @@ design and position as the delete dialogs of the statistics ([§13](#13-statisti
   reMarkable interface must start again.".
 - Buttons: **Later** (black on white, left) and **Restart** (white on black, right).
 - Before the dialog shows, the app reads the waiting ink. The highlight, the "?" and the x go away
-  (the x: owner approval 2026-11-04). A pen or a finger that is on the screen has no more effect.
+  (the x: owner approval 2026-11-04). The highlight does not come back after **Later** (owner approval 2026-11-07). A pen or
+  a finger that is on the screen has no more effect.
 - While the dialog shows, only its two buttons operate (with the pen or a finger). All other taps
   and strokes have no effect.
 - **Later** closes the dialog. The update row shows the button **Restart interface**.
@@ -1405,17 +1524,27 @@ The app gives the area in `/tmp/sudoku-pen-region` ("x y width height", or empty
 reads it each 15 ms:
 
 - While the player writes in a cell, the area is the inside of that cell, aligned inward to 4 px.
-  The area starts when the touch becomes writing (the pen leaves the micro-cell, or the pen
-  touches the cell of the ink that waits). A tap does not start the area: its ink goes with the UI
-  waveform, and its pencil mark shows immediately (owner request 2026-11-02).
   It does not touch the cells around it, because xochitl refreshes the full area when it starts and
   when it stops.
+- The first stroke of a session: the area starts when the pen leaves the micro-cell. A tap at this
+  time does not start the area: its ink goes with the UI waveform, and its pencil mark shows immediately
+  (owner request 2026-11-02).
+- While the player writes (ink waits, or the 1 s idle time runs), a pen press on an empty cell starts
+  the area at the pen down, with no stop between the cells. A tap on an empty cell in this time also
+  starts the area. Its mark or x comes after the area stops (45 ms, then a refresh of the cell). A tap
+  ends the chain: no idle time starts, thus the next press has the normal start (owner approval 2026-11-07). The
+  owner tried taps and did not reject this. Measured with the update log of xochitl: 52 to 56 ms from the
+  pen down to the first ink of a later stroke, with the pen waveform; approximately 135 ms for the first
+  stroke of a session (DECISIONS.md).
+- A pen touch that starts on a filled cell starts no area ([§5.1](#51-rules); owner approval 2026-11-07).
 - The ink waits until the patch can apply a new area (45 ms). A redraw waits until the area stopped
   (45 ms), so that colored cells get the UI waveform.
 - While the player writes, a redraw waits. The writing starts with the first stroke on the board.
   It stops when the app has read the last ink and the pen has written nothing on the board for
-  **1 s** after the last stroke (one timer for all cells: each new stroke starts it again). A
-  press that does not write (a tap, the eraser, a button) stops the writing immediately. The app
+  **1 s** after the last stroke (one timer for all cells: each new stroke starts it again). This
+  time is equal to the recognition pause (§5.1; owner approval 2026-11-07). A pen press that does not write (a tap, the
+  eraser, a button) stops the writing immediately. A finger press does not stop it. A control that a
+  finger operates stops it at its release, on the control (owner approval 2026-11-07). The app
   reads each number after the recognition pause (§5.1), but the typed numbers show only when the
   writing stops. Thus the player can write in many cells, one after the other, also with a slow
   movement to the next cell: only the ink changes on the screen, and an update with the UI waveform
@@ -1573,6 +1702,8 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell |
 | "?" | reMarkable Sans Regular 104 px, `gray40` |
 | x of a refused tap (§6.1) | Two straight lines with round ends, line width 3 px, `gray15` (the same as the pencil marks). Each line goes from -10 px to +10 px on the two axes around the center: 20×20 px between the line centers, visible extent of approximately 23×23 px. The center is the anchor point of the pencil mark of that digit: 24, 74 or 122 px from the cell origin on each axis, at the keypad position of the digit (1 at the top left, 9 at the bottom right). The x stays in its micro-cell and does not touch the cell lines. Time: the same value as the "?" (1000 ms) (owner approval 2026-11-04). |
+| Highlight | The same color rules as before (§4.2). It can also show while the menu or a panel is open, on the part of the board that the panel does not cover (§6.2; owner approval 2026-11-07) |
+| Times of writing | Recognition pause 1000 ms from the pen lift. Redraw wait 1000 ms after the last stroke. A touch that starts less than 150 ms after a pen lift has no effect (§5.1, §14.4; owner approval 2026-11-07) |
 | Palette | Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue `#408CFF`, Red `#FF8E8E`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0`, Orange `#FF9A1F` (owner approval 2026-11-04 and 2026-11-05). The board, the panel dots, the manual and the images all use this palette. |
 | Default colors | Starting Gray `#AEAEAE`, clash Red `#FF8E8E`, highlight Cyan `#6FCFE6`, completed groups Green `#48D630` |
 | Background of a filled cell | First rule that applies: clash, highlight, completed, starting number, white (§4.2) |
@@ -1595,9 +1726,14 @@ The values are in [`scripts/ui-lib.sh`](scripts/ui-lib.sh), in the other scripts
 
 1. **Handwriting recognition.** The recognizer (`src/recognizer.rs`) compares the ink with the
    handwriting of 60 writers (UJI Pen Characters; refer to `assets/README.md`). For writers that are
-   not in its examples, it reads 97.8 % of the digits correctly, reads 0.8 % as a different digit and
-   rejects 91.3 % of the letters and symbols. It also has examples of 4 and 9 with the shapes of the
-   typeface, and of 1 as a straight vertical line, in both directions of writing. Characters with the shape of a 1 (for example `l` and
+   not in its examples, it reads 98.6 % of the digits correctly, reads 0.6 % as a different digit and
+   rejects 90.5 % of the letters and symbols (360 digits and 3000 other characters; macOS, one run,
+   2026-11-06). Fully reversed ink gives the same values. Ink with only the stroke directions or only
+   the stroke order reversed gives the same values for digits, but the app rejects only 72.6 % of
+   the other characters. Ink with only some strokes reversed is not measured. On aarch64 Linux
+   (musl), the accuracy tests pass with their limits (2026-11-06). The test did not print the
+   accuracy values there. It also has examples of 4 and 9 with the shapes of the typeface, and of 1
+   as a straight vertical line. All examples are in the two pen directions (§5.1). Characters with the shape of a 1 (for example `l` and
    `I`) are read as 1. On the device, the owner's 4s and 9s in the shape of the typeface (written
    from the bottom up) were not read; the typeface examples correct this (`tests/fixtures/owner-ink.jsonl`).
    If a digit is often read incorrectly for a player, add examples for it: the examples of the
@@ -1610,7 +1746,8 @@ The values are in [`scripts/ui-lib.sh`](scripts/ui-lib.sh), in the other scripts
 These items are closed:
 
 - **Recognition pause** (closed 2026-10-25). The owner examined 0.5 s on the device: numbers with two
-  strokes stay together, and single digits show quickly.
+  strokes stay together, and single digits show quickly. Later, the owner selected a pause of 1 s
+  (owner approval 2026-11-07; §5.1).
 - **E-ink check** (closed 2026-10-25). The owner examined the faint micro-cell lines, the first
   palette and the gray icons on the device. All are clear. Later, the owner found the first palette too
   faint on the tablet and approved the palette in §15 (owner approval 2026-11-04 and 2026-11-05).

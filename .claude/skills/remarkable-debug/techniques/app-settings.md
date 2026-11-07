@@ -3,7 +3,7 @@
 The app reads these settings when it starts. Each one is an environment variable, or a file in the
 data folder (`/home/root/.local/share/rm-sudoku/`). A file is easier on the tablet, because AppLoad
 starts the app. Close the app and open it again after a change. Delete the file to go back to the
-default.
+default. The recognition pause is not a setting: it is one constant in the source.
 
 | File | Variable | Contents | Default |
 |---|---|---|---|

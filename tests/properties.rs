@@ -1,15 +1,17 @@
 //! Property-based tests: random sequences of player input. After each input, the debug build checks all
 //! state rules of INVARIANTS.md (`invariants::check_app`, in `App::handle`). This test also checks the
 //! rules about two states one after the other (CLK-2, CLK-3, CMP-5, INP-1, INP-9, UND-2, UND-3, ANA-2,
-//! NAV-3, NAV-9, NAV-16, MRK-10 to MRK-16). The two-hand sequences examine the x of a refused tap at each
-//! event. The group sequences at the end examine COL-8 to COL-12 against a separate model (`inv_groups`).
+//! NAV-3, NAV-9, NAV-16, MRK-10 to MRK-16, HLT-1 to HLT-9). The two-hand sequences examine the x of a
+//! refused tap, the highlight, the ink and the hand touches at each event (INP-2, INP-5, INP-20, INP-21,
+//! INP-22, INP-24). The group sequences at the end examine COL-8 to COL-12 against a separate model
+//! (`inv_groups`).
 
 mod common;
 mod inv_groups;
 
 use common::*;
 use proptest::prelude::*;
-use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, OVERLAY_MS};
+use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, HAND_TOUCH_MS, OVERLAY_MS};
 use sudoku::game::{cells, mark_bit, Cell, Change, Game, Group};
 use sudoku::invariants::check_app;
 use sudoku::layout::{self, Button};
@@ -95,18 +97,50 @@ fn uses_toolbar_flow(a: &Act) -> bool {
     matches!(a, Act::UndoRedo | Act::Solve | Act::NewGame(..) | Act::PickColor(..) | Act::DeleteFlow(..) | Act::Switch(_) | Act::DeleteAllFlow(_))
 }
 
-/// True if the act is one tap on a toolbar button or on the close button of the game screen while
-/// the toolbar ignores a press (NAV-16). Then the act must change nothing.
-fn is_ignored_toolbar_tap(a: &Act, d: &Driver) -> bool {
-    // The press of a tap occurs 10 ms after the last event (`Driver::send`).
-    let press_at = d.now + 10;
-    let ignored = d.app.toolbar_ignored_until.is_some_and(|t| press_at < t);
+/// The items of the state before an act that the rules of the act need.
+struct BeforeAct {
+    toolbar_ignored_until: Option<u64>,
+    screen: Screen,
+    menu_open: bool,
+    panel: Option<Panel>,
+    highlight: Option<u8>,
+    highlight_on: bool,
+    /// The cell of the waiting ink.
+    ink: Option<Cell>,
+    seed: u64,
+    value: [[u8; 9]; 9],
+}
+
+impl BeforeAct {
+    fn of(d: &Driver) -> BeforeAct {
+        let a = &d.app;
+        BeforeAct {
+            toolbar_ignored_until: a.toolbar_ignored_until,
+            screen: a.screen,
+            menu_open: a.ui.menu.is_open(),
+            panel: a.ui.menu.panel(),
+            highlight: a.ui.highlight,
+            highlight_on: a.settings.highlight_on,
+            ink: a.ui.pending_ink.as_ref().map(|i| i.cell),
+            seed: a.game.seed,
+            value: a.game.value,
+        }
+    }
+}
+
+/// True if the act was one tap on a toolbar button or on the close button of the game screen while
+/// the toolbar ignored a press (NAV-16). Then the act must change nothing. The test calls this after
+/// the act, because `Driver::send` can wait before a press (INP-20): the press of a tap occurred 10 ms
+/// before its release.
+fn was_ignored_toolbar_tap(a: &Act, b: &BeforeAct, d: &Driver) -> bool {
+    let press_at = d.now - 10;
+    let ignored = b.toolbar_ignored_until.is_some_and(|t| press_at < t);
     let point = match *a {
         Act::Button(i) => button_center(BUTTONS[i as usize]),
         Act::Point(x, y, _) => (x as f32, y as f32),
         _ => return false,
     };
-    ignored && d.app.screen == Screen::Game && layout::game_button(point.0, point.1, d.app.ui.menu.is_open()).is_some()
+    ignored && b.screen == Screen::Game && layout::game_button(point.0, point.1, b.menu_open).is_some()
 }
 
 fn run(d: &mut Driver, a: &Act) {
@@ -335,7 +369,9 @@ fn x_act_rule(a: &Act, before: Option<(Cell, u8, u64)>, ignored_toolbar_tap: boo
             _ => Ok(()),
         },
         Act::FingerBoard(..) | Act::Erase(..) | Act::Button(_) | Act::Swipe(_) | Act::Point(_, _, false) => {
-            if ignored_toolbar_tap && x != before {
+            // `Driver::send` can wait before the press (INP-20): the time of the x can end in that wait.
+            let time_ended = before.is_some_and(|(.., t)| d.now >= t + OVERLAY_MS);
+            if ignored_toolbar_tap && x != before && !(x.is_none() && time_ended) {
                 Err(format!("NAV-16: an ignored press changed the x from {before:?} to {x:?}"))
             } else if !ignored_toolbar_tap && x.is_some() {
                 Err(format!("MRK-15: the x {x:?} stays after a press"))
@@ -345,6 +381,95 @@ fn x_act_rule(a: &Act, before: Option<(Cell, u8, u64)>, ignored_toolbar_tap: boo
         }
         _ => Ok(()),
     }
+}
+
+// ---- The highlight: the rules of the state and of the acts, written from INVARIANTS.md.
+
+/// HLT-1, HLT-2, HLT-4, HLT-6, CMP-3 for one state.
+fn highlight_state_rule(app: &App) -> Result<(), String> {
+    let Some(h) = app.ui.highlight else {
+        return Ok(());
+    };
+    if !(1..=9).contains(&h) {
+        return Err(format!("HLT-2: the highlight {h}"));
+    }
+    if app.screen != Screen::Game {
+        return Err(format!("HLT-4: the highlight {h} on the screen {:?}", app.screen));
+    }
+    if !app.settings.highlight_on {
+        return Err(format!("HLT-6: the highlight {h} with the switch off"));
+    }
+    if app.game.completed {
+        return Err(format!("HLT-1, CMP-3: the highlight {h} on a complete game"));
+    }
+    if app.update.dialog_shown() {
+        return Err(format!("HLT-2: the highlight {h} with the update dialog"));
+    }
+    Ok(())
+}
+
+/// The value of `highlight` after a pen tap on the board with no panel (HLT-2, HLT-3, HLT-6).
+fn highlight_after_tap(value: u8, at_press: Option<u8>, on: bool) -> Option<u8> {
+    match value {
+        0 => None,
+        v if !on || at_press == Some(v) => None,
+        v => Some(v),
+    }
+}
+
+/// The items of HLT-2 that all input can cause: a new game or a completed puzzle (item 5), a change of
+/// screen (item 6) and turning off the switch (item 8). A read of waiting ink is item 4.
+fn may_remove_highlight(b: &BeforeAct, d: &Driver) -> bool {
+    let a = &d.app;
+    let read = b.ink.is_some() && a.ui.pending_ink.is_none();
+    read || a.game.seed != b.seed || a.game.completed || a.screen != Screen::Game || (b.highlight_on && !a.settings.highlight_on)
+}
+
+/// HLT-2, HLT-3, HLT-7 for one act of the first sequences: only the listed items change `highlight`.
+fn highlight_act_rule(act: &Act, b: &BeforeAct, d: &Driver) -> Result<(), String> {
+    let h = d.app.ui.highlight;
+    let keep = |why: &str| {
+        if h == b.highlight {
+            Ok(())
+        } else {
+            Err(format!("HLT-7: {why} changed the highlight from {:?} to {h:?}", b.highlight))
+        }
+    };
+    let point = match *act {
+        Act::TapMicro(r, c, digit) => Some(micro_center((r, c), digit)),
+        Act::Point(x, y, true) => Some((x as f32, y as f32)),
+        _ => None,
+    };
+    match *act {
+        // A suspension removes the ink, but the app does not read it.
+        Act::Suspend => return keep("a suspension"),
+        // The eraser on waiting ink in its own cell removes the ink. The app does not read it.
+        Act::Erase(r, c) if b.ink.is_none() || b.ink == Some((r, c)) => return keep("the eraser"),
+        _ => {}
+    }
+    // A pen tap on the board, with no panel and no ink: the exact result.
+    if let (Some((x, y)), None, None, Screen::Game) = (point, b.panel, b.ink, b.screen) {
+        if let (Some(((r, c), _)), false) = (layout::board_micro(x, y), d.app.game.completed) {
+            let want = highlight_after_tap(b.value[r as usize][c as usize], b.highlight, b.highlight_on);
+            return if h == want { Ok(()) } else { Err(format!("HLT-2, HLT-3: a pen tap gave {h:?} and not {want:?}, from {:?}", b.highlight)) };
+        }
+    }
+    if h == b.highlight {
+        return Ok(());
+    }
+    // More than one stroke: the first can close a panel, and the others can operate the board.
+    let writes = matches!(act, Act::Write(..) | Act::WriteSolution(..) | Act::Scribble(..) | Act::Solve);
+    if h.is_some() {
+        // HLT-2: a value comes only from a pen tap on a number. A stroke of a digit can be a tap.
+        if writes || (point.is_some() && b.ink.is_some()) {
+            return Ok(());
+        }
+        return Err(format!("HLT-2: the highlight {h:?} did not come from a pen tap"));
+    }
+    if writes || may_remove_highlight(b, d) {
+        return Ok(());
+    }
+    Err(format!("HLT-2: no item of the list removed the highlight {:?}", b.highlight))
 }
 
 /// True if the action can not change the board when no ink waits.
@@ -379,13 +504,16 @@ proptest! {
             let confirm_all_before = d.app.confirm_all;
             let ink_before = d.app.ui.pending_ink.is_some();
             let not_board = is_not_a_board_action(a, &d) && !ink_before;
-            let ignored_toolbar_tap = is_ignored_toolbar_tap(a, &d);
+            let before_act = BeforeAct::of(&d);
             let menu_before = d.app.ui.menu;
             let x_before = d.app.ui.refused;
 
             run(&mut d, a);
+            let ignored_toolbar_tap = was_ignored_toolbar_tap(a, &before_act, &d);
             check_app(&d.app).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
             x_state_rule(&d.app).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
+            highlight_state_rule(&d.app).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
+            highlight_act_rule(a, &before_act, &d).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
             x_act_rule(a, x_before, ignored_toolbar_tap, &d).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
             group_state_rule(&d.app).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
 
@@ -499,6 +627,9 @@ fn coverage_of_states() {
             let mut mark = |k: &'static str, b: bool| if b { *seen.entry(k).or_default() += 1 };
             mark("completed", a.game.completed);
             mark("highlight", a.ui.highlight.is_some());
+            mark("highlight+panel", a.ui.highlight.is_some() && a.ui.menu.panel().is_some());
+            mark("highlight+ink", a.ui.highlight.is_some() && a.ui.pending_ink.is_some());
+            mark("ink", a.ui.pending_ink.is_some());
             mark("question", a.ui.question.is_some());
             mark("refused", a.ui.refused.is_some());
             mark("menu", a.ui.menu.is_open());
@@ -602,6 +733,32 @@ struct Reached {
     time: usize,
     /// A turn kept the x.
     turn: usize,
+    /// A finger press or release kept a highlight (HLT-7).
+    highlight_finger: usize,
+    /// The release of a control that did an action kept a highlight (HLT-7).
+    highlight_control: usize,
+    /// A highlight stayed while a panel was open (HLT-4).
+    highlight_panel: usize,
+    /// The eraser kept a highlight (HLT-7).
+    highlight_eraser: usize,
+    /// A pen lift removed or moved a highlight (HLT-2, HLT-3).
+    highlight_lift: usize,
+    /// A read of waiting ink removed a highlight (HLT-2).
+    highlight_read: usize,
+    /// A pen touch started on a filled cell (INP-22).
+    filled_press: usize,
+    /// A pen press on an empty cell started the pen area, because the player writes (INP-24).
+    area_at_press: usize,
+    /// A pen press on an empty cell did not start the pen area (INP-2).
+    no_area_at_press: usize,
+    /// A hand touch changed nothing (INP-20).
+    hand: usize,
+    /// A hand touch on a button kept the x (INP-20, MRK-15).
+    hand_x: usize,
+    /// A hand touch while a finger stays on the screen kept the x (INP-20, INP-15).
+    hand_second: usize,
+    /// A finger press kept waiting ink (INP-21).
+    finger_keeps_ink: usize,
 }
 
 /// A driver that examines the rules of the x at each event.
@@ -613,12 +770,48 @@ struct Hands {
     pen_stopped: bool,
     /// The touch that the app follows (INP-15): its id and the time of its last event.
     followed: Option<(i32, u64)>,
+    /// The pen press on the board that is still down, as a tap or as a stroke.
+    press: Option<BoardPress>,
     reached: Reached,
+}
+
+/// A pen press on the board with no panel (HLT-2, HLT-3, INP-2, INP-22).
+#[derive(Clone, Copy, Debug)]
+struct BoardPress {
+    cell: Cell,
+    digit: u8,
+    /// The press is on a filled cell (INP-22).
+    filled: bool,
+    /// The press continues the waiting ink in its own cell: it is writing from the start.
+    writing: bool,
+    /// The pen left the micro-cell: this touch is not a tap (INP-2).
+    left: bool,
+    /// The highlight at the press (HLT-3).
+    highlight: Option<u8>,
+}
+
+/// The state before one event that the rules of the highlight and of the ink need.
+struct BeforeEvent {
+    act: BeforeAct,
+    /// The time when the pen lifted from the waiting ink.
+    ink_lift: Option<u64>,
+    /// `App::is_writing`.
+    writing: bool,
+    /// A pen touch is on the screen. The sequences can send a press with no lift first.
+    pen_down: bool,
+}
+
+/// All that a hand touch must not change (INP-20).
+type Everything = (Items, Option<u8>, Option<(Cell, u8, u64)>, Option<(Cell, u64)>, Option<sudoku::app::PendingInk>, Option<Vec<(f32, f32)>>, u8, u32, usize, bool);
+
+fn everything(d: &Driver) -> Everything {
+    let a = &d.app;
+    (items(d), a.ui.highlight, a.ui.refused, a.ui.question, a.ui.pending_ink.clone(), a.live_stroke.clone(), a.ui.slider, a.manual_page as u32, a.list.page, a.confirm_all)
 }
 
 impl Hands {
     fn new(d: Driver) -> Hands {
-        Hands { d, tool: None, pen_stopped: false, followed: None, reached: Reached::default() }
+        Hands { d, tool: None, pen_stopped: false, followed: None, press: None, reached: Reached::default() }
     }
 
     /// A finger stays on the screen.
@@ -626,9 +819,18 @@ impl Hands {
         self.followed.is_some()
     }
 
-    /// Sends one event and examines MRK-10, MRK-11, MRK-12, MRK-15, QST-4, INP-15 and NAV-16.
+    /// Sends one event and examines MRK-10, MRK-11, MRK-12, MRK-15, QST-4, INP-15, NAV-16, the rules of
+    /// the highlight and the rules of the ink (`event_rule`). `Driver::send` makes each press a touch
+    /// that does not come from the hand, thus it can wait first (INP-20). Thus the rules that use the
+    /// time of the press are after the send.
     fn send(&mut self, input: Input) -> Result<(), String> {
         let followed = self.followed;
+        let before_event = BeforeEvent {
+            act: BeforeAct::of(&self.d),
+            ink_lift: self.d.app.ui.pending_ink.as_ref().and_then(|i| i.last_lift_at),
+            writing: self.d.app.is_writing(),
+            pen_down: self.tool.is_some(),
+        };
         let d = &mut self.d;
         let before = d.app.ui.refused;
         let question_before = d.app.ui.question;
@@ -637,27 +839,31 @@ impl Hands {
             Input::PenDown { x, y, .. } | Input::TouchDown { x, y, .. } => Some((x, y)),
             _ => None,
         };
-        // The press occurs 10 ms after the last event (`Driver::send`).
-        let in_guard = d.app.toolbar_ignored_until.is_some_and(|t| d.now + 10 < t);
-        let ignored = press.is_some_and(|(x, y)| in_guard && d.app.screen == Screen::Game && layout::game_button(x, y, d.app.ui.menu.is_open()).is_some());
-        // INP-15: a press with a different id, while the followed touch had an event less than 0.15 s
-        // before, is a second finger. Else the app forgets the followed touch: this is a first press.
-        let second_finger = match (input, followed) {
-            (Input::TouchDown { id, .. }, Some((first, last))) => id != first && d.now + 10 - last < 150,
-            _ => false,
-        };
         let control_before = (d.app.screen, d.app.ui.menu, d.app.game.undo.len(), d.app.game.redo.len(), d.app.quit);
 
         d.send(input);
+
+        let in_guard = before_event.act.toolbar_ignored_until.is_some_and(|t| d.now < t);
+        let ignored = press.is_some_and(|(x, y)| in_guard && before_event.act.screen == Screen::Game && layout::game_button(x, y, before_event.act.menu_open).is_some());
+        // INP-15: a press with a different id, while the followed touch had an event less than 0.15 s
+        // before, is a second finger. Else the app forgets the followed touch: this is a first press.
+        let second_finger = match (input, followed) {
+            (Input::TouchDown { id, .. }, Some((first, last))) => id != first && d.now - last < 150,
+            _ => false,
+        };
+        // The time of the x or of the "?" can end in the wait before a press.
+        let x_ended = before.is_some_and(|(.., t)| d.now >= t + OVERLAY_MS);
+        let question_ended = question_before.is_some_and(|(_, t)| d.now >= t + OVERLAY_MS);
 
         check_app(&d.app)?;
         x_state_rule(&d.app)?;
         let x = d.app.ui.refused;
         if press.is_some() {
             if second_finger {
-                // INP-15, MRK-15, QST-4, HLT-2, and NAV-16 in the guard time (owner decision 2026-11-05):
-                // a second finger operates no item, but it removes the x, the "?" and the highlight.
-                if x.is_some() || d.app.ui.question.is_some() || d.app.ui.highlight.is_some() {
+                // INP-15, MRK-15, QST-4, and NAV-16 in the guard time (owner decision 2026-11-05): a
+                // second finger operates no item, but it removes the x and the "?". It does not remove a
+                // highlight: `event_rule` examines this (HLT-7).
+                if x.is_some() || d.app.ui.question.is_some() {
                     return Err(format!("INP-15, MRK-15, QST-4: the x {x:?} or the \"?\" {:?} stays after the second finger {input:?}", d.app.ui.question));
                 }
                 let control = (d.app.screen, d.app.ui.menu, d.app.game.undo.len(), d.app.game.redo.len(), d.app.quit);
@@ -667,7 +873,9 @@ impl Hands {
                 self.reached.guard_second_finger += usize::from(ignored && before.is_some());
                 self.reached.press += usize::from(before.is_some());
             } else if ignored {
-                if x != before || d.app.ui.question != question_before {
+                let x_same = x == before || (x.is_none() && x_ended);
+                let question_same = d.app.ui.question == question_before || (d.app.ui.question.is_none() && question_ended);
+                if !x_same || !question_same {
                     return Err(format!("NAV-16: an ignored press changed the x from {before:?} to {x:?}, or the \"?\" from {question_before:?} to {:?}", d.app.ui.question));
                 }
                 self.reached.guard += usize::from(x.is_some());
@@ -715,15 +923,184 @@ impl Hands {
             Input::TouchUp { id, .. } if followed.is_some_and(|(first, _)| first == id) => self.followed = None,
             _ => {}
         }
+        if matches!(input, Input::TouchDown { .. } | Input::TouchUp { .. }) && before_event.act.highlight.is_some() && d.app.ui.highlight.is_some() {
+            self.reached.highlight_finger += 1;
+            let control = (d.app.screen, d.app.ui.menu, d.app.game.undo.len(), d.app.game.redo.len(), d.app.quit);
+            self.reached.highlight_control += usize::from(control != control_before);
+        }
+        self.reached.highlight_panel += usize::from(d.app.ui.highlight.is_some() && d.app.ui.menu.panel().is_some());
+        self.event_rule(input, &before_event)
+    }
+
+    /// The rules of the highlight and of the ink, for one event. `b` is the state before the event.
+    /// HLT-2, HLT-3, HLT-7, HLT-9: only the listed items change `highlight`, and at the listed event.
+    /// INP-2, INP-22, INP-24: where the ink shows and where the pen area starts. INP-21: a finger press
+    /// does not read the ink.
+    fn event_rule(&mut self, input: Input, b: &BeforeEvent) -> Result<(), String> {
+        highlight_state_rule(&self.d.app)?;
+        let (act, now) = (&b.act, self.d.now);
+        let app = &self.d.app;
+        let h = app.ui.highlight;
+        let read = act.ink.is_some() && app.ui.pending_ink.is_none();
+        // Only the items of HLT-2 that all input can cause.
+        let by_list = may_remove_highlight(act, &self.d);
+        // A change of the panel, the screen or the game stops a pen touch (the press is not a tap now).
+        if act.panel != app.ui.menu.panel() || app.screen != Screen::Game || app.game.seed != act.seed || app.update.dialog_shown() {
+            self.press = None;
+        }
+        let keep_or_list = || {
+            if h == act.highlight || (h.is_none() && by_list) {
+                Ok(())
+            } else {
+                Err(format!("HLT-7, HLT-9: {input:?} changed the highlight from {:?} to {h:?}", act.highlight))
+            }
+        };
+        match input {
+            Input::PenDown { x, y, tool } => {
+                let on_board = act.screen == Screen::Game && act.panel.is_none() && !app.update.dialog_shown() && !app.game.completed;
+                let micro = layout::board_micro(x, y).filter(|_| on_board);
+                let own_ink = micro.is_some_and(|(cell, _)| act.ink == Some(cell));
+                // HLT-9: a pen press changes the highlight only by a read of waiting ink. The pen and the
+                // eraser in the cell of the ink do not read it (INP-5, HLT-7).
+                let read_at_press = read && !own_ink;
+                if h != act.highlight && !(h.is_none() && read_at_press) {
+                    return Err(format!("HLT-9: the pen press {input:?} changed the highlight from {:?} to {h:?}", act.highlight));
+                }
+                self.reached.highlight_read += usize::from(act.highlight.is_some() && h.is_none());
+                self.reached.highlight_eraser += usize::from(tool == Tool::Eraser && h.is_some());
+                if act.panel.is_some() && layout::board_micro(x, y).is_some() && app.live_stroke.is_some() {
+                    return Err(format!("NAV-11, INP-2: the press {input:?} with a panel shows ink"));
+                }
+                self.press = None;
+                if let (Some((cell, digit)), Tool::Pen) = (micro, tool) {
+                    let filled = app.game.is_filled(cell);
+                    self.press = Some(BoardPress { cell, digit, filled, writing: own_ink, left: false, highlight: act.highlight });
+                    if filled {
+                        self.reached.filled_press += 1;
+                    } else {
+                        if app.live_stroke.is_none() {
+                            return Err(format!("INP-2: no ink at the press {input:?} on the empty cell {cell:?}"));
+                        }
+                        // INP-2, INP-24: the area starts at the pen down only while the player writes.
+                        if !b.pen_down && app.writing_stroke().is_some() != b.writing {
+                            return Err(format!("INP-2, INP-24: the pen area at the press {input:?} is {:?}, and the player writes: {}", app.writing_stroke().is_some(), b.writing));
+                        }
+                        self.reached.area_at_press += usize::from(!b.pen_down && b.writing);
+                        self.reached.no_area_at_press += usize::from(!b.pen_down && !b.writing);
+                    }
+                }
+            }
+            Input::PenMove { x, y } => {
+                if h != act.highlight && !(h.is_none() && read) {
+                    return Err(format!("HLT-9: the pen movement changed the highlight from {:?} to {h:?}", act.highlight));
+                }
+                if let Some(p) = &mut self.press {
+                    p.left |= layout::board_micro(x, y) != Some((p.cell, p.digit));
+                }
+            }
+            Input::PenUp { x, y } => match self.press.take() {
+                Some(p) if !app.game.completed => {
+                    // The value of the cell at the lift: a finger Redo can fill the cell of the touch.
+                    let left = p.left || layout::board_micro(x, y) != Some((p.cell, p.digit));
+                    let want = if p.writing || (left && !p.filled) {
+                        act.highlight
+                    } else if left {
+                        None
+                    } else {
+                        highlight_after_tap(act.value[p.cell.0 as usize][p.cell.1 as usize], p.highlight, act.highlight_on)
+                    };
+                    if h != want {
+                        return Err(format!("HLT-2, HLT-3: the lift of {p:?} gave the highlight {h:?}, and not {want:?}"));
+                    }
+                    self.reached.highlight_lift += usize::from(h != act.highlight);
+                }
+                _ => keep_or_list()?,
+            },
+            Input::TouchDown { .. } => {
+                // HLT-7, INP-21: a finger press does not read the ink. Only the time can read it, in the
+                // wait before the press.
+                let pause_ended = b.ink_lift.is_some_and(|t| now >= t + app.pause_ms);
+                if read && !pause_ended {
+                    return Err(format!("INP-21: the finger press {input:?} read the waiting ink"));
+                }
+                if h != act.highlight && !(h.is_none() && read) {
+                    return Err(format!("HLT-7: the finger press {input:?} changed the highlight from {:?} to {h:?}", act.highlight));
+                }
+                self.reached.finger_keeps_ink += usize::from(act.ink.is_some() && !read);
+            }
+            Input::TouchMove { .. } => {
+                if h != act.highlight {
+                    return Err(format!("HLT-7: the finger movement changed the highlight from {:?} to {h:?}", act.highlight));
+                }
+            }
+            Input::TouchUp { .. } => keep_or_list()?,
+        }
+        // INP-22: a touch from a filled cell shows no ink and starts no pen area. The stroke that starts
+        // the area is on an empty cell.
+        if self.press.is_some_and(|p| p.filled) && (app.live_stroke.is_some() || app.writing_stroke().is_some()) {
+            return Err(format!("INP-22: ink of {:?} after {input:?}", self.press));
+        }
+        if let Some(cell) = app.writing_stroke().and_then(|s| s.first()).and_then(|&(x, y)| layout::board_cell(x, y)) {
+            if app.game.is_filled(cell) {
+                return Err(format!("INP-22: the pen area on the filled cell {cell:?} after {input:?}"));
+            }
+        }
         Ok(())
+    }
+
+    /// A hand touch at a point, `delay` ms (less than `HAND_TOUCH_MS`) after the pen lift that this
+    /// value sent last. The press, a movement and the release change nothing (INP-20). The events have
+    /// the same time, thus no timer ends between them. `first_finger`: a finger stays on the screen.
+    fn hand_touch(&mut self, delay: u64, (x, y): (f32, f32), first_finger: bool) -> Result<(), String> {
+        assert!(delay < HAND_TOUCH_MS);
+        self.d.wait(delay);
+        let before = everything(&self.d);
+        let on_button = before.2.is_some() && layout::game_button(x, y, self.d.app.ui.menu.is_open()).is_some();
+        let id = if first_finger { 2 } else { 1 };
+        if first_finger {
+            self.d.app.handle(Input::TouchDown { id, x, y }, self.d.now);
+        } else {
+            self.d.touch_down_after_lift(delay, x, y);
+        }
+        let now = self.d.now;
+        check_app(&self.d.app)?;
+        let same = |d: &Driver, event: &str| {
+            if everything(d) == before {
+                Ok(())
+            } else {
+                Err(format!("INP-20: the {event} of a hand touch at ({x}, {y}), {delay} ms after the lift, changed the state"))
+            }
+        };
+        same(&self.d, "press")?;
+        self.d.app.handle(Input::TouchMove { id, x: x + 150.0, y }, now);
+        same(&self.d, "movement")?;
+        self.d.app.handle(Input::TouchUp { id, x: x + 150.0, y }, now);
+        same(&self.d, "release")?;
+        self.reached.hand += 1;
+        self.reached.hand_x += usize::from(on_button);
+        self.reached.hand_second += usize::from(first_finger && before.2.is_some());
+        Ok(())
+    }
+
+    /// The time goes until a new touch does not come from the hand (INP-20). The first finger moves at
+    /// that time: it stays an active touch, thus the next touch is a second finger (INP-15).
+    fn first_finger_after_hand_time(&mut self, x: f32, y: f32) -> Result<(), String> {
+        self.wait(HAND_TOUCH_MS)?;
+        self.send(Input::TouchMove { id: 1, x, y })
     }
 
     /// The time goes with no input (MRK-14).
     fn wait(&mut self, ms: u64) -> Result<(), String> {
         let before = self.d.app.ui.refused;
+        let highlight = self.d.app.ui.highlight;
+        let ink = self.d.app.ui.pending_ink.is_some();
         self.d.wait(ms);
         check_app(&self.d.app)?;
         x_state_rule(&self.d.app)?;
+        // HLT-2, HLT-7: the time changes the highlight only by a read of the waiting ink.
+        if self.d.app.ui.highlight != highlight && !(self.d.app.ui.highlight.is_none() && ink && self.d.app.ui.pending_ink.is_none()) {
+            return Err(format!("HLT-7: the time changed the highlight from {highlight:?} to {:?}", self.d.app.ui.highlight));
+        }
         let x = self.d.app.ui.refused;
         if let Some((.., t)) = before {
             if self.d.now < t + OVERLAY_MS && x != before {
@@ -749,10 +1126,15 @@ impl Hands {
         self.d.app.rotate(App::placeholder_ng_stops());
         self.pen_stopped = self.tool.is_some();
         self.followed = None;
+        self.press = None;
+        let highlight = self.d.app.ui.highlight;
         check_app(&self.d.app)?;
         x_state_rule(&self.d.app)?;
         if self.d.app.ui.refused != before {
             return Err(format!("MRK-16: the turn changed the x from {before:?} to {:?}", self.d.app.ui.refused));
+        }
+        if self.d.app.ui.highlight != highlight {
+            return Err(format!("HLT-7: the turn changed the highlight from {highlight:?} to {:?}", self.d.app.ui.highlight));
         }
         self.reached.turn += usize::from(before.is_some());
         Ok(())
@@ -767,6 +1149,14 @@ impl Hands {
             let (c, v) = spots[k as usize % spots.len()];
             micro_center(c, v)
         })
+    }
+
+    /// A pen tap on the k-th filled cell.
+    fn number_tap(&mut self, k: u8) -> Result<(), String> {
+        let filled: Vec<Cell> = cells().filter(|&c| self.d.app.game.is_filled(c)).collect();
+        let (x, y) = micro_center(filled[k as usize % filled.len()], 1 + k % 9);
+        self.send(Input::PenDown { x, y, tool: Tool::Pen })?;
+        self.send(Input::PenUp { x, y })
     }
 
     /// A pen tap on the k-th refused point.
@@ -822,6 +1212,18 @@ enum Hand {
     Dialog,
     /// The update dialog closes.
     Later,
+    /// A pen tap on the k-th filled cell (HLT-3).
+    NumberTap(u8),
+    /// A pen tap on the k-th filled cell, then the eraser on the cell at (row, column) (HLT-7).
+    NumberThenEraser(u8, u8, u8),
+    /// A pen tap on the k-th filled cell, then ink that stays waiting in the cell at (row, column). The
+    /// next acts read it or remove it (HLT-2, HLT-7, HLT-9).
+    NumberThenInk(u8, u8, u8, u8),
+    /// A pen stroke from the k-th filled cell to the cell at (row, column) (INP-7, INP-22, HLT-2).
+    FilledStroke(u8, u8, u8),
+    /// A pen tap and then a hand touch, this number of ms after the lift (INP-20). With the last value,
+    /// a finger stays on the board during the pen tap, thus the hand touch is a second touch.
+    HandTouch { control: Control, spot: u8, delay: u8, first_finger: bool },
 }
 
 fn control() -> impl Strategy<Value = Control> {
@@ -850,6 +1252,12 @@ fn hand() -> impl Strategy<Value = Hand> {
         1 => Just(Hand::Turn),
         1 => Just(Hand::Dialog),
         1 => Just(Hand::Later),
+        6 => any::<u8>().prop_map(Hand::NumberTap),
+        2 => (any::<u8>(), 0..9u8, 0..9u8).prop_map(|(k, r, c)| Hand::NumberThenEraser(k, r, c)),
+        3 => (any::<u8>(), 0..9u8, 0..9u8, 1..=9u8).prop_map(|(k, r, c, v)| Hand::NumberThenInk(k, r, c, v)),
+        2 => (any::<u8>(), 0..9u8, 0..9u8).prop_map(|(k, r, c)| Hand::FilledStroke(k, r, c)),
+        6 => (control(), any::<u8>(), 0..HAND_TOUCH_MS as u8, proptest::bool::weighted(0.25))
+            .prop_map(|(control, spot, delay, first_finger)| Hand::HandTouch { control, spot, delay, first_finger }),
     ]
 }
 
@@ -902,9 +1310,14 @@ fn run_hand(h: &mut Hands, a: &Hand) -> Result<(), String> {
     match *a {
         Hand::Base(ref act) => {
             if !h.d.app.update.dialog_shown() {
+                let before = BeforeAct::of(&h.d);
                 run(&mut h.d, act);
                 check_app(&h.d.app)?;
                 x_state_rule(&h.d.app)?;
+                highlight_state_rule(&h.d.app)?;
+                highlight_act_rule(act, &before, &h.d)?;
+                // The next press does not come from the hand (INP-20).
+                h.d.wait(HAND_TOUCH_MS);
             }
         }
         Hand::Refused(k) => h.refused_tap(k)?,
@@ -973,6 +1386,7 @@ fn run_hand(h: &mut Hands, a: &Hand) -> Result<(), String> {
             let (x, y) = micro_center((4, 4), 5);
             h.send(Input::TouchDown { id: 1, x, y })?;
             h.refused_tap(k)?;
+            h.first_finger_after_hand_time(x, y)?;
             h.send(Input::TouchDown { id: 2, x, y })?;
             h.send(Input::TouchUp { id: 2, x, y })?;
             h.send(Input::TouchUp { id: 1, x, y })?;
@@ -998,6 +1412,9 @@ fn run_hand(h: &mut Hands, a: &Hand) -> Result<(), String> {
                         h.send(Input::TouchDown { id: 1, x: bx, y: by })?;
                     }
                     h.refused_tap(k)?;
+                    if second {
+                        h.first_finger_after_hand_time(bx, by)?;
+                    }
                     let (x, y) = button_center(CONTROLS[b as usize]);
                     let id = if second { 2 } else { 1 };
                     h.send(Input::TouchDown { id, x, y })?;
@@ -1010,6 +1427,58 @@ fn run_hand(h: &mut Hands, a: &Hand) -> Result<(), String> {
         }
         Hand::Wait(ms) => h.wait(ms as u64)?,
         Hand::Turn => h.turn()?,
+        Hand::NumberTap(k) => h.number_tap(k)?,
+        Hand::NumberThenEraser(k, r, c) => {
+            h.number_tap(k)?;
+            let (x, y) = micro_center((r, c), 5);
+            h.send(Input::PenDown { x, y, tool: Tool::Eraser })?;
+            h.send(Input::PenMove { x: x + 20.0, y })?;
+            h.send(Input::PenUp { x: x + 20.0, y })?;
+        }
+        Hand::NumberThenInk(k, r, c, v) => {
+            h.number_tap(k)?;
+            for s in &digit_ink((r, c), v) {
+                h.send(Input::PenDown { x: s[0].0, y: s[0].1, tool: Tool::Pen })?;
+                for p in &s[1..] {
+                    h.send(Input::PenMove { x: p.0, y: p.1 })?;
+                }
+                let last = s[s.len() - 1];
+                h.send(Input::PenUp { x: last.0, y: last.1 })?;
+            }
+        }
+        Hand::FilledStroke(k, r, c) => {
+            let filled: Vec<Cell> = cells().filter(|&c| h.d.app.game.is_filled(c)).collect();
+            let (x0, y0) = micro_center(filled[k as usize % filled.len()], 5);
+            let (x1, y1) = micro_center((r, c), 5);
+            h.send(Input::PenDown { x: x0, y: y0, tool: Tool::Pen })?;
+            h.send(Input::PenMove { x: (x0 + x1) / 2.0, y: (y0 + y1) / 2.0 })?;
+            h.send(Input::PenMove { x: x0 + 45.0, y: y0 + 45.0 })?;
+            h.send(Input::PenUp { x: x1, y: y1 })?;
+        }
+        Hand::HandTouch { control, spot, delay, first_finger } => {
+            let dialog = h.d.app.update.dialog_shown();
+            // With the dialog, the hand touch is on one of its two buttons (UPD-10).
+            let point = if dialog { pixel_center(if spot % 2 == 0 { layout::dialog_cancel() } else { layout::dialog_delete() }) } else { control_point(h, control) };
+            let on_board = micro_center((4, 4), 5);
+            if first_finger {
+                h.send(Input::TouchDown { id: 1, x: on_board.0, y: on_board.1 })?;
+            }
+            // A pen lift. A refused tap gives the x, if the board has one. A panel closes with it.
+            match h.refused_point(spot).filter(|_| !dialog) {
+                Some((x, y)) => {
+                    h.send(Input::PenDown { x, y, tool: Tool::Pen })?;
+                    h.send(Input::PenUp { x, y })?;
+                }
+                None => {
+                    h.send(Input::PenDown { x: 5.0, y: 1000.0, tool: Tool::Pen })?;
+                    h.send(Input::PenUp { x: 5.0, y: 1000.0 })?;
+                }
+            }
+            h.hand_touch(delay as u64, point, first_finger)?;
+            if first_finger {
+                h.send(Input::TouchUp { id: 1, x: on_board.0, y: on_board.1 })?;
+            }
+        }
         Hand::Dialog => {
             if !h.d.app.update.dialog_shown() {
                 let mut u = reference::update_state(true);
@@ -1022,6 +1491,9 @@ fn run_hand(h: &mut Hands, a: &Hand) -> Result<(), String> {
                 x_state_rule(&h.d.app)?;
                 if h.d.app.ui.refused.is_some() {
                     return Err("MRK-15: the x stays when the update dialog shows".to_string());
+                }
+                if h.d.app.ui.highlight.is_some() {
+                    return Err("HLT-2: the highlight stays when the update dialog shows".to_string());
                 }
             }
         }
@@ -1058,7 +1530,10 @@ fn the_random_sequences_reach_the_x() {
     use proptest::strategy::ValueTree;
     use proptest::test_runner::TestRunner;
     let mut runner = TestRunner::deterministic();
+    // HLT-2, HLT-4, HLT-9, INP-5, QST-1, CMP-3: also the other states of the rules. The finger events of
+    // these sequences come after the hand time (`Driver::send`), thus a hand touch does not stop them.
     let mut seen = 0;
+    let mut other = [0usize; 6];
     for case in 0..24 {
         let acts = proptest::collection::vec(act(), 1..90).new_tree(&mut runner).unwrap().current();
         let mut d = Driver::new(case);
@@ -1066,9 +1541,18 @@ fn the_random_sequences_reach_the_x() {
             run(&mut d, a);
             d.app.quit = false;
             seen += usize::from(d.app.ui.refused.is_some());
+            let ui = &d.app.ui;
+            let states = [ui.highlight.is_some(), ui.highlight.is_some() && ui.menu.panel().is_some(), ui.question.is_some(), d.app.game.completed, d.app.screen == Screen::Manual, d.app.screen == Screen::GamesList];
+            for (count, state) in other.iter_mut().zip(states) {
+                *count += usize::from(state);
+            }
         }
     }
     assert!(seen > 0, "no random sequence showed the x");
+    let names = ["a highlight", "a highlight with a panel", "a \"?\"", "a complete game", "the manual", "the games list"];
+    for (count, name) in other.iter().zip(names) {
+        assert!(*count > 0, "no random sequence reached {name}");
+    }
 }
 
 #[test]
@@ -1092,8 +1576,25 @@ fn the_two_hand_sequences_reach_each_rule_of_the_x() {
         all.guard_second_finger += h.reached.guard_second_finger;
         all.time += h.reached.time;
         all.turn += h.reached.turn;
+        all.highlight_finger += h.reached.highlight_finger;
+        all.highlight_control += h.reached.highlight_control;
+        all.highlight_panel += h.reached.highlight_panel;
+        all.highlight_eraser += h.reached.highlight_eraser;
+        all.highlight_lift += h.reached.highlight_lift;
+        all.highlight_read += h.reached.highlight_read;
+        all.filled_press += h.reached.filled_press;
+        all.area_at_press += h.reached.area_at_press;
+        all.no_area_at_press += h.reached.no_area_at_press;
+        all.hand += h.reached.hand;
+        all.hand_x += h.reached.hand_x;
+        all.hand_second += h.reached.hand_second;
+        all.finger_keeps_ink += h.reached.finger_keeps_ink;
     }
     println!("shown {}, with a finger {}, press {}, release {}, guard {}, second finger in the guard time {}, time {}, turn {}", all.shown, all.shown_with_finger, all.press, all.release, all.guard, all.guard_second_finger, all.time, all.turn);
+    println!(
+        "highlight: finger {}, control {}, panel {}, eraser {}, lift {}, read {}; filled press {}, area at press {}, no area {}; hand {}, hand with x {}, hand second {}; finger keeps ink {}",
+        all.highlight_finger, all.highlight_control, all.highlight_panel, all.highlight_eraser, all.highlight_lift, all.highlight_read, all.filled_press, all.area_at_press, all.no_area_at_press, all.hand, all.hand_x, all.hand_second, all.finger_keeps_ink
+    );
     assert!(all.shown > 0, "no x");
     assert!(all.shown_with_finger > 0, "no x while a finger stays on the screen");
     assert!(all.press > 0, "no press removed the x");
@@ -1102,6 +1603,19 @@ fn the_two_hand_sequences_reach_each_rule_of_the_x() {
     assert!(all.guard_second_finger > 0, "no second finger in the guard time removed the x");
     assert!(all.time > 0, "the time did not remove the x");
     assert!(all.turn > 0, "no turn kept the x");
+    assert!(all.highlight_finger > 0, "HLT-7: no finger press or release with a highlight");
+    assert!(all.highlight_control > 0, "HLT-7: no control kept a highlight");
+    assert!(all.highlight_panel > 0, "HLT-4: no highlight with an open panel");
+    assert!(all.highlight_eraser > 0, "HLT-7: no eraser with a highlight");
+    assert!(all.highlight_lift > 0, "HLT-2, HLT-3: no pen lift changed a highlight");
+    assert!(all.highlight_read > 0, "HLT-2: no read removed a highlight");
+    assert!(all.filled_press > 0, "INP-22: no pen press on a filled cell");
+    assert!(all.area_at_press > 0, "INP-24: no pen press started the pen area");
+    assert!(all.no_area_at_press > 0, "INP-2: all pen presses started the pen area");
+    assert!(all.hand > 0, "INP-20: no hand touch");
+    assert!(all.hand_x > 0, "INP-20: no hand touch on a button with the x");
+    assert!(all.hand_second > 0, "INP-20: no hand touch with a finger on the screen");
+    assert!(all.finger_keeps_ink > 0, "INP-21: no finger press with waiting ink");
 }
 
 /// A cell and a digit of a refused tap, and the cell of the only peer with the number. `d` has the menu
@@ -1393,6 +1907,7 @@ fn a_second_finger_on_the_toolbar_in_the_guard_time_removes_the_overlays_and_ope
             h.send(Input::PenDown { x: px, y: py, tool: Tool::Pen }).unwrap();
             h.send(Input::PenUp { x: px, y: py }).unwrap();
             assert_eq!(h.d.app.ui.refused, Some((cell, digit, h.d.now)), "MRK-10: {what}, {button:?}");
+            h.first_finger_after_hand_time(on_board.0, on_board.1).unwrap();
             h.send(Input::TouchDown { id: 2, x, y }).unwrap();
             assert!(h.d.app.toolbar_ignored_until.is_some_and(|t| h.d.now < t), "{what}: the press is in the guard time");
             assert_eq!(h.d.app.ui.refused, None, "MRK-15, INP-15: {what}: the second finger on {button:?}");
@@ -1470,6 +1985,262 @@ fn a_first_press_on_the_toolbar_in_the_guard_time_keeps_the_overlays() {
     assert!(h.d.app.toolbar_ignored_until.is_some_and(|t| h.d.now < t), "the press is in the guard time");
     assert_eq!(h.d.app.ui.question, question, "NAV-16: an ignored first press keeps the \"?\"");
     h.send(Input::TouchUp { id: 2, x, y }).unwrap();
+}
+
+// ---- HLT-2, HLT-4, HLT-6, HLT-7, HLT-8: the sequences from a highlight. No ink waits, thus only an item of
+// the list of HLT-2 can remove the highlight. Each input of these sequences is in the list of HLT-7, or it
+// operates a control at a random point.
+
+#[derive(Clone, Debug)]
+enum Keep {
+    /// A finger tap at a point.
+    Finger(u16, u16),
+    /// A finger moves from one point to a different point.
+    FingerMove(u16, u16, u16, u16),
+    /// A second finger on a point while a first finger stays on a point.
+    SecondFinger(u16, u16, u16, u16),
+    /// A finger tap on a button.
+    Button(u8),
+    /// A finger tap on a switch that is not `highlight_on`. The act opens the panel first.
+    OtherSwitch(bool),
+    /// The eraser in the cell at (row, column).
+    Eraser(u8, u8),
+    /// The eraser on the first entry of the board, if the board has one.
+    EraseEntry,
+    /// A pen tap at a point that is not on the board.
+    PenOff(u16, u16),
+    /// A pen press on the cell at (row, column) with an open panel. It only closes the panel, also if
+    /// the pen moves. The act opens the panel first.
+    PenWithPanel(u8, u8, u8, bool),
+    /// A hand touch at a point, after a pen lift off the board.
+    Hand(u16, u16, u8),
+    Turn,
+    Suspend,
+    Wait(u16),
+}
+
+fn keep_act() -> impl Strategy<Value = Keep> {
+    let point = (0..1620u16, 0..2160u16);
+    prop_oneof![
+        5 => point.clone().prop_map(|(x, y)| Keep::Finger(x, y)),
+        2 => (point.clone(), point.clone()).prop_map(|((x0, y0), (x1, y1))| Keep::FingerMove(x0, y0, x1, y1)),
+        2 => (point.clone(), point.clone()).prop_map(|((x0, y0), (x1, y1))| Keep::SecondFinger(x0, y0, x1, y1)),
+        8 => (0..CONTROLS.len() as u8).prop_map(Keep::Button),
+        2 => any::<bool>().prop_map(Keep::OtherSwitch),
+        3 => (0..9u8, 0..9u8).prop_map(|(r, c)| Keep::Eraser(r, c)),
+        3 => Just(Keep::EraseEntry),
+        3 => point.clone().prop_map(|(x, y)| Keep::PenOff(x, y)),
+        3 => (0..9u8, 0..9u8, 0..4u8, any::<bool>()).prop_map(|(r, c, p, m)| Keep::PenWithPanel(r, c, p, m)),
+        3 => (point, 0..HAND_TOUCH_MS as u8).prop_map(|((x, y), ms)| Keep::Hand(x, y, ms)),
+        1 => Just(Keep::Turn),
+        1 => Just(Keep::Suspend),
+        2 => (0..3000u16).prop_map(Keep::Wait),
+    ]
+}
+
+/// The items that the sequences from a highlight count.
+#[derive(Default)]
+struct KeepReached {
+    with_panel: usize,
+    undo: usize,
+    eraser_changed: usize,
+    pen_closed_panel: usize,
+    hand: usize,
+    turn: usize,
+    suspend: usize,
+    /// A control at a random point did an item of the list of HLT-2: the sequence stops there.
+    removed: usize,
+}
+
+/// A driver with a highlight, an entry and a redo. Returns the driver and its layout.
+fn keep_start(seed: u64) -> (Driver, InLayout) {
+    let layout = InLayout::set(seed & 1 != 0, seed & 2 != 0);
+    let mut d = Driver::new(seed);
+    let cell = cells().find(|&c| !d.app.game.is_filled(c)).unwrap();
+    let v = d.app.game.solution[cell.0 as usize][cell.1 as usize];
+    d.write(cell, v);
+    let number = if seed & 4 == 0 { cell } else { cells().find(|&c| d.app.game.is_given(c)).unwrap() };
+    let (x, y) = micro_center(number, 5);
+    d.pen_tap(x, y);
+    assert_eq!(d.app.ui.highlight, Some(d.app.game.value_at(number)), "the fixture has the highlight");
+    (d, layout)
+}
+
+/// One act of the sequences. Returns false when an item of the list of HLT-2 removed the highlight.
+fn keep_step(d: &mut Driver, a: &Keep, r: &mut KeepReached) -> Result<bool, String> {
+    let h = d.app.ui.highlight;
+    let seed = d.app.game.seed;
+    let undo = d.app.game.undo.len();
+    let value = d.app.game.value;
+    if !matches!(a, Keep::Finger(..) | Keep::FingerMove(..) | Keep::SecondFinger(..) | Keep::Wait(_) | Keep::Turn | Keep::Suspend | Keep::Hand(..)) {
+        wait_for_toolbar(d);
+    }
+    match *a {
+        Keep::Finger(x, y) => d.finger_tap(x as f32, y as f32),
+        Keep::FingerMove(x0, y0, x1, y1) => {
+            d.send(Input::TouchDown { id: 1, x: x0 as f32, y: y0 as f32 });
+            d.send(Input::TouchMove { id: 1, x: x1 as f32, y: y1 as f32 });
+            d.send(Input::TouchUp { id: 1, x: x1 as f32, y: y1 as f32 });
+        }
+        Keep::SecondFinger(x0, y0, x1, y1) => {
+            d.send(Input::TouchDown { id: 1, x: x0 as f32, y: y0 as f32 });
+            d.send(Input::TouchDown { id: 2, x: x1 as f32, y: y1 as f32 });
+            d.send(Input::TouchUp { id: 2, x: x1 as f32, y: y1 as f32 });
+            // The release of the first finger is off a control: the second finger operates nothing.
+            d.send(Input::TouchUp { id: 1, x: x0 as f32 + 300.0, y: y0 as f32 + 300.0 });
+        }
+        Keep::Button(i) => {
+            let b = CONTROLS[i as usize];
+            if !d.app.ui.menu.is_open() && d.app.screen == Screen::Game {
+                d.button(Button::Menu);
+            }
+            d.button(b);
+        }
+        Keep::OtherSwitch(first) => {
+            if d.app.screen == Screen::Game {
+                if !d.app.ui.menu.is_open() {
+                    d.button(Button::Menu);
+                }
+                if d.app.ui.menu.panel() != Some(Panel::Settings) {
+                    d.button(Button::Settings);
+                }
+                let (x, y) = switch_point(if first { Switch::HideMarksAutomatically } else { Switch::ColorCompletedGroups });
+                d.finger_tap(x, y);
+            }
+        }
+        Keep::Eraser(row, col) => d.erase((row, col)),
+        Keep::EraseEntry => {
+            if let Some(cell) = cells().find(|&c| d.app.game.is_entry(c)) {
+                d.erase(cell);
+            }
+        }
+        Keep::PenOff(x, y) => {
+            if layout::board_micro(x as f32, y as f32).is_none() {
+                d.pen_tap(x as f32, y as f32);
+            }
+        }
+        Keep::PenWithPanel(row, col, p, moves) => {
+            if d.app.screen == Screen::Game {
+                if !d.app.ui.menu.is_open() {
+                    d.button(Button::Menu);
+                }
+                let (button, panel) = [(Button::Colors, Panel::Colors), (Button::Settings, Panel::Settings), (Button::Checkpoints, Panel::Checkpoints), (Button::NewGame, Panel::NewGame)][p as usize];
+                if d.app.ui.menu.panel() != Some(panel) {
+                    d.button(button);
+                }
+                let (x, y) = micro_center((row, col), 5);
+                d.send(Input::PenDown { x, y, tool: Tool::Pen });
+                if d.app.live_stroke.is_some() {
+                    return Err(format!("NAV-11: ink with the panel {panel:?}"));
+                }
+                if moves {
+                    d.send(Input::PenMove { x: x + 90.0, y: y + 90.0 });
+                    if d.app.live_stroke.is_some() || d.app.ui.pending_ink.is_some() {
+                        return Err(format!("NAV-11: ink with the panel {panel:?} after the pen moves"));
+                    }
+                }
+                d.send(Input::PenUp { x: x + 90.0, y: y + 90.0 });
+                r.pen_closed_panel += usize::from(d.app.ui.menu.panel().is_none());
+            }
+        }
+        Keep::Hand(x, y, ms) => {
+            // The pen lift is on no control. With a panel, the pen press would close it.
+            if d.app.ui.menu.panel().is_none() && d.app.screen == Screen::Game {
+                let (ox, oy) = (0..layout::screen_h() as i32)
+                    .step_by(40)
+                    .flat_map(|y| (0..layout::screen_w() as i32).step_by(40).map(move |x| (x as f32 + 5.0, y as f32 + 5.0)))
+                    .find(|&(x, y)| layout::board_micro(x, y).is_none() && layout::game_button(x, y, true).is_none() && layout::game_button(x, y, false).is_none())
+                    .expect("a point off the board");
+                d.pen_tap(ox, oy);
+                d.touch_down_after_lift(ms as u64, x as f32, y as f32);
+                d.send_at_once(Input::TouchUp { id: 1, x: x as f32, y: y as f32 });
+                r.hand += 1;
+                if d.app.game.seed != seed || d.app.screen != Screen::Game || !d.app.settings.highlight_on || d.app.ui.highlight != h {
+                    return Err(format!("INP-20: a hand touch at ({x}, {y}), {ms} ms after a pen lift, changed the state"));
+                }
+            }
+        }
+        Keep::Turn => {
+            let landscape = layout::screen_w() < layout::screen_h();
+            layout::set_orientation(if landscape { layout::Orientation::Landscape } else { layout::Orientation::Portrait });
+            d.app.rotate(App::placeholder_ng_stops());
+            r.turn += 1;
+        }
+        Keep::Suspend => {
+            d.app.suspend();
+            d.now += 600_000;
+            d.app.tick(d.now);
+            r.suspend += 1;
+        }
+        Keep::Wait(ms) => d.wait(ms as u64),
+    }
+    d.app.quit = false;
+    check_app(&d.app)?;
+    highlight_state_rule(&d.app)?;
+    if d.app.ui.pending_ink.is_some() || d.app.live_stroke.is_some() {
+        return Err("the sequences from a highlight must have no ink".to_string());
+    }
+    let after = d.app.ui.highlight;
+    // HLT-2 items 5, 6 and 8: the items that a control at a random point can do. The list of the other
+    // items needs a pen on the board, or ink, or the update dialog: the sequences do not have them.
+    let removed = d.app.game.seed != seed || d.app.game.completed || d.app.screen != Screen::Game || !d.app.settings.highlight_on;
+    if removed {
+        if after.is_some() {
+            return Err(format!("HLT-1, HLT-2, HLT-4, HLT-6: the highlight {after:?} stays on {:?}", d.app.screen));
+        }
+        r.removed += 1;
+        return Ok(false);
+    }
+    if after != h {
+        return Err(format!("HLT-7: the highlight changed from {h:?} to {after:?}"));
+    }
+    r.with_panel += usize::from(d.app.ui.menu.panel().is_some());
+    r.undo += usize::from(d.app.game.undo.len() != undo);
+    r.eraser_changed += usize::from(matches!(a, Keep::Eraser(..) | Keep::EraseEntry) && d.app.game.value != value);
+    Ok(true)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 48, max_shrink_iters: 1000, ..ProptestConfig::default() })]
+
+    /// HLT-2, HLT-4, HLT-6, HLT-7, HLT-8, INP-20, NAV-11 in all layouts, at each act.
+    #[test]
+    fn a_highlight_stays_for_all_input_that_does_not_remove_it(seed in any::<u64>(), acts in proptest::collection::vec(keep_act(), 1..40)) {
+        let (mut d, _layout) = keep_start(seed);
+        let mut reached = KeepReached::default();
+        for a in &acts {
+            let more = keep_step(&mut d, a, &mut reached).map_err(|e| TestCaseError::fail(format!("{e} after {a:?}")))?;
+            if !more {
+                break;
+            }
+        }
+    }
+}
+
+#[test]
+fn the_sequences_from_a_highlight_reach_each_input() {
+    // The sequences must reach each input that their checks examine: else they prove nothing.
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+    let mut runner = TestRunner::deterministic();
+    let mut r = KeepReached::default();
+    for case in 0..48 {
+        let acts = proptest::collection::vec(keep_act(), 1..40).new_tree(&mut runner).unwrap().current();
+        let (mut d, _layout) = keep_start(case);
+        for a in &acts {
+            if !keep_step(&mut d, a, &mut r).unwrap_or_else(|e| panic!("{e} after {a:?}")) {
+                break;
+            }
+        }
+    }
+    println!("panel {}, undo {}, eraser {}, pen closed a panel {}, hand {}, turn {}, suspend {}, removed {}", r.with_panel, r.undo, r.eraser_changed, r.pen_closed_panel, r.hand, r.turn, r.suspend, r.removed);
+    assert!(r.with_panel > 0, "HLT-4: no highlight with a panel");
+    assert!(r.undo > 0, "HLT-7: no Undo or Redo kept the highlight");
+    assert!(r.eraser_changed > 0, "HLT-7: no eraser changed the board with a highlight");
+    assert!(r.pen_closed_panel > 0, "NAV-11: no pen press closed a panel");
+    assert!(r.hand > 0, "INP-20: no hand touch");
+    assert!(r.turn > 0 && r.suspend > 0, "HLT-7: no turn or suspension");
+    assert!(r.removed > 0, "HLT-2: no control did an item of the list");
 }
 
 // ---- COL-8 to COL-12: the group sequences. They start from a board that is almost full, thus groups get

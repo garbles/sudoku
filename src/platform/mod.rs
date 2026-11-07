@@ -10,7 +10,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 
-use crate::app::{App, Input, Tool, DEFAULT_PAUSE_MS};
+use crate::app::{App, Input, Tool};
 use crate::font::Fonts;
 use crate::game::Game;
 use crate::present::{self, Presenter};
@@ -311,7 +311,6 @@ pub fn run() -> Result<(), String> {
     // The corpus build: a blank board, and each ink goes to the corpus log (corpus.rs).
     #[cfg(feature = "corpus")]
     crate::corpus::setup(&mut app, &data_dir);
-    app.pause_ms = std::env::var("SUDOKU_RECOGNITION_PAUSE_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(DEFAULT_PAUSE_MS);
     save(&mut app, &paths, &saver);
 
     let key: i32 = std::env::var("QTFB_KEY")

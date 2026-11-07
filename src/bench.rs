@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use crate::app::{App, Input, DEFAULT_PAUSE_MS};
+use crate::app::{App, Input, RECOGNITION_PAUSE_MS};
 use crate::font::Fonts;
 use crate::layout::{PHYSICAL_H, PHYSICAL_W};
 use crate::present::{Presenter, Update};
@@ -23,7 +23,7 @@ const IDLE_WAKE_MS: u64 = 1000;
 /// for the next input or timer, and the background calculations (`early.rs`: the reading of the
 /// ink, the puzzle of the next game) continue. The bench lets them finish (not measured) before a
 /// wake (a timer or an input) this time or more after the last input: a generous limit of the
-/// reading time on the tablet. The pause before the app reads the ink (DEFAULT_PAUSE_MS) is longer.
+/// reading time on the tablet. The pause before the app reads the ink (RECOGNITION_PAUSE_MS) is longer.
 const EARLY_READ_MS: u64 = 100;
 
 pub struct Options {
@@ -133,7 +133,7 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
     phases.add("startup.fonts", t.elapsed());
 
     // ---- The script.
-    let script = script::parse(&opts.script, DEFAULT_PAUSE_MS)?;
+    let script = script::parse(&opts.script, RECOGNITION_PAUSE_MS)?;
     let t = Instant::now();
     let mut app = script.app(&fonts);
     phases.add("startup.app", t.elapsed());

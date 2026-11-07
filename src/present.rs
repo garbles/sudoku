@@ -261,9 +261,11 @@ impl Presenter {
     }
 
     /// The pen region for the ink of `app`: the inside of the cell of the pending ink, or of the cell
-    /// of the stroke that writes (`App::writing_stroke`). The region starts only when the touch is
-    /// writing: a tap never starts it, and its mark goes to the screen at once. The ink of a tap
-    /// goes with the UI waveform. Ink after the start of the region waits until the patch has
+    /// of the stroke that writes (`App::writing_stroke`). The first stroke of a session starts the
+    /// region when the touch becomes writing: a tap at this time does not start it, its mark goes to the
+    /// screen at once, and its ink goes with the UI waveform (INP-2). While the player writes, a pen
+    /// press on an empty cell starts the region at the pen down, with no stop between the cells (INP-24).
+    /// A touch on a filled cell has no region (INP-22). Ink after the start of the region waits until the patch has
     /// applied it (PEN_REGION_SETTLE_MS), so that it gets the pen waveform. xochitl refreshes the full region when it starts and when it stops, thus the
     /// region must not touch the cells around it. Its edges go inward to the 4 px grid of the panel
     /// (refer to `PanelCells`).
@@ -949,6 +951,222 @@ mod tests {
         }
     }
 
+    /// The four layouts: the orientation, and a right-handed player.
+    const LAYOUTS: [(crate::layout::Orientation, bool); 4] = [
+        (crate::layout::Orientation::Portrait, false),
+        (crate::layout::Orientation::Portrait, true),
+        (crate::layout::Orientation::Landscape, false),
+        (crate::layout::Orientation::Landscape, true),
+    ];
+
+    /// Runs `test` in each layout. The layout is a value of each thread.
+    fn in_each_layout(mut test: impl FnMut(&str)) {
+        for (orientation, right_handed) in LAYOUTS {
+            crate::layout::set_orientation(orientation);
+            crate::layout::set_right_handed(right_handed);
+            test(&format!("{orientation:?}, right-handed {right_handed}"));
+        }
+        crate::layout::set_orientation(crate::layout::Orientation::Portrait);
+        crate::layout::set_right_handed(false);
+    }
+
+    /// The app and the presenter, with the steps of the main loop. The test gives the time.
+    struct Rig {
+        fonts: Fonts,
+        app: App,
+        p: Presenter,
+        fb: Vec<u8>,
+        now: u64,
+        /// The changes of the pen region that the platform gets: the time and the region.
+        regions: Vec<(u64, Option<Update>)>,
+    }
+
+    impl Rig {
+        /// The game of seed 7 with the first drawing on the screen, and no update in progress.
+        fn new(use_pen_region: bool) -> Rig {
+            let mut p = Presenter::new();
+            p.use_pen_region = use_pen_region;
+            let fb = vec![0u8; (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize];
+            let mut r = Rig { fonts: Fonts::repo().unwrap(), app: game_app(), p, fb, now: 1000, regions: Vec::new() };
+            r.step(None);
+            r.wait(600);
+            r
+        }
+
+        /// One pass of the main loop at the current time. Returns the updates of the screen.
+        fn step(&mut self, input: Option<crate::app::Input>) -> Vec<Update> {
+            if let Some(i) = input {
+                self.app.handle(i, self.now);
+            }
+            self.app.tick(self.now);
+            let mut sent = Vec::new();
+            self.p.present(&mut self.app, &self.fonts, &mut self.fb, self.now, |u| sent.push(u));
+            if let Some(region) = self.p.take_region_change() {
+                self.regions.push((self.now, region));
+            }
+            sent
+        }
+
+        fn after(&mut self, ms: u64, input: Option<crate::app::Input>) -> Vec<Update> {
+            self.now += ms;
+            self.step(input)
+        }
+
+        /// The time passes in steps of 15 ms. Returns the updates with their times.
+        fn wait(&mut self, ms: u64) -> Vec<(u64, Update)> {
+            let end = self.now + ms;
+            let mut log = Vec::new();
+            while self.now < end {
+                let sent = self.after(15, None);
+                log.extend(sent.into_iter().map(|u| (self.now, u)));
+            }
+            log
+        }
+
+        fn down(&mut self, (x, y): (f32, f32)) -> Vec<Update> {
+            self.after(10, Some(crate::app::Input::PenDown { x, y, tool: crate::app::Tool::Pen }))
+        }
+
+        fn to(&mut self, (x, y): (f32, f32)) -> Vec<Update> {
+            self.after(10, Some(crate::app::Input::PenMove { x, y }))
+        }
+
+        fn up(&mut self, (x, y): (f32, f32)) -> Vec<Update> {
+            self.after(10, Some(crate::app::Input::PenUp { x, y }))
+        }
+
+        /// A vertical stroke (a 1) in the middle of the cell. Returns the updates up to the pen lift.
+        fn write(&mut self, cell: crate::game::Cell) -> Vec<Update> {
+            let points = stroke_in(cell);
+            let mut sent = self.down(points[0]);
+            for &q in &points[1..] {
+                sent.extend(self.to(q));
+            }
+            sent.extend(self.up(*points.last().unwrap()));
+            sent
+        }
+
+        /// A pen tap in the middle of the cell. Returns the updates up to the pen lift, and the updates
+        /// of the step of the pen lift.
+        fn tap(&mut self, cell: crate::game::Cell) -> (Vec<Update>, Vec<Update>) {
+            let (x, y) = middle(cell);
+            let mut before = self.down((x, y));
+            before.extend(self.to((x + 1.0, y)));
+            (before, self.up((x + 1.0, y)))
+        }
+
+        fn empty_cells(&self) -> Vec<crate::game::Cell> {
+            crate::game::cells().filter(|&c| !self.app.game.is_filled(c)).collect()
+        }
+
+        fn filled_cell(&self) -> crate::game::Cell {
+            crate::game::cells().find(|&c| self.app.game.is_filled(c)).unwrap()
+        }
+
+        fn cells_with(&self, digit: u8) -> Vec<crate::game::Cell> {
+            crate::game::cells().filter(|&c| self.app.game.value_at(c) == digit).collect()
+        }
+
+        /// Two digits that the board shows.
+        fn two_digits(&self) -> (u8, u8) {
+            let d: Vec<u8> = (1..=9).filter(|&d| !self.cells_with(d).is_empty()).take(2).collect();
+            (d[0], d[1])
+        }
+
+        /// A pen tap makes the highlight of `digit`, and its update goes to the panel.
+        fn make_highlight(&mut self, digit: u8) {
+            let cell = self.cells_with(digit)[0];
+            self.tap(cell);
+            self.wait(600);
+            assert_eq!(self.app.ui.highlight, Some(digit));
+            self.assert_highlight(digit, true);
+        }
+
+        /// The background of a cell in the framebuffer: a point without lines, digits or marks.
+        fn background(&self, cell: crate::game::Cell) -> [u8; 3] {
+            let (x, y) = crate::layout::cell_origin(cell);
+            let (base, sx, sy) = crate::layout::physical_steps();
+            let i = (base + (x + 8) as i64 * sx + (y + 140) as i64 * sy) as usize * 3;
+            [self.fb[i], self.fb[i + 1], self.fb[i + 2]]
+        }
+
+        /// All cells with `digit` show the highlight color in the framebuffer, or none shows it.
+        fn assert_highlight(&self, digit: u8, shows: bool) {
+            let color = self.app.settings.color_highlight.rgb();
+            let cells = self.cells_with(digit);
+            assert!(!cells.is_empty());
+            for cell in cells {
+                assert_eq!(self.background(cell) == color, shows, "the cell {cell:?} of the digit {digit}");
+            }
+        }
+
+        fn cell_pixels_of(&self, fb: &[u8], cell: crate::game::Cell) -> Vec<u8> {
+            let (ox, oy) = crate::layout::cell_origin(cell);
+            let (base, sx, sy) = crate::layout::physical_steps();
+            let mut out = Vec::new();
+            for y in oy..oy + crate::layout::CELL {
+                for x in ox..ox + crate::layout::CELL {
+                    let i = (base + x as i64 * sx + y as i64 * sy) as usize * 3;
+                    out.extend_from_slice(&fb[i..i + 3]);
+                }
+            }
+            out
+        }
+
+        /// The pixels of a cell in the framebuffer.
+        fn cell_pixels(&self, cell: crate::game::Cell) -> Vec<u8> {
+            self.cell_pixels_of(&self.fb, cell)
+        }
+
+        /// The pixels of a cell in the frame (not the framebuffer).
+        fn frame_cell(&self, cell: crate::game::Cell) -> Vec<u8> {
+            let (ox, oy) = crate::layout::cell_origin(cell);
+            let w = self.p.frame.width() as usize;
+            let mut out = Vec::new();
+            for y in oy as usize..(oy + crate::layout::CELL) as usize {
+                for x in ox as usize..(ox + crate::layout::CELL) as usize {
+                    out.extend_from_slice(&self.p.frame.data()[(y * w + x) * 4..][..3]);
+                }
+            }
+            out
+        }
+
+        fn shows_the_frame(&self) -> bool {
+            let mut copy = self.fb.clone();
+            blit(&self.p.frame, &mut copy).is_none()
+        }
+    }
+
+    /// The middle of a cell: the middle micro-cell.
+    fn middle(cell: crate::game::Cell) -> (f32, f32) {
+        let (x, y) = crate::layout::cell_origin(cell);
+        let c = crate::layout::CELL as f32;
+        (x as f32 + c / 2.0, y as f32 + c / 2.0)
+    }
+
+    /// The points of a vertical stroke in a cell, from the top micro-cell to the bottom micro-cell.
+    fn stroke_in(cell: crate::game::Cell) -> Vec<(f32, f32)> {
+        let (x, y) = crate::layout::cell_origin(cell);
+        let c = crate::layout::CELL as f32;
+        (0..=20).map(|k| (x as f32 + c / 2.0, y as f32 + c * (0.2 + 0.6 * k as f32 / 20.0))).collect()
+    }
+
+    /// The pen region for the ink of `cell`: the inside of the cell, on the 4 px grid (R§14.4).
+    fn region_of(cell: crate::game::Cell) -> Update {
+        let (x, y) = crate::layout::cell_origin(cell);
+        let c = crate::layout::CELL;
+        ScreenRect::new(x, y, x + c - 1, y + c - 1).physical().inner_cells().to_update()
+    }
+
+    /// True if the update contains the area of the cell that its background color fills.
+    fn covers(u: Update, cell: crate::game::Cell) -> bool {
+        let (x, y) = crate::layout::cell_origin(cell);
+        let c = crate::layout::CELL;
+        let r = ScreenRect::new(x + 8, y + 8, x + c - 9, y + c - 9).physical();
+        let u = PhysicalRect::from_update(u);
+        u.x0 <= r.x0 && u.y0 <= r.y0 && u.x1 >= r.x1 && u.y1 >= r.y1
+    }
+
     /// Calls `send_ink` each 30 ms until no ink waits. Returns the updates and the time.
     fn drain(s: &mut Scheduler, mut now: u64) -> (Vec<Update>, u64) {
         let mut sent = Vec::new();
@@ -1128,83 +1346,70 @@ mod tests {
         assert!(fb == expect, "the framebuffer does not show the frame");
     }
 
-    /// The player writes a number and moves the pen slowly to the next cell (pen region on). The app
-    /// reads the ink after the recognition pause, but the redraw waits until no stroke occurred for
-    /// WRITING_IDLE_MS. A new stroke starts the time again. A press that does not write stops it.
+    /// INP-5, INP-16, INP-21: the player writes a number (pen region on). The pause and the idle time
+    /// are equal (1 s from the pen lift): at that time the app reads the ink, and the redraw goes when
+    /// the patch stopped the region. A stroke in a different cell before that time reads the first
+    /// ink, and the redraw waits for the idle time of the new stroke. A finger press does not stop the
+    /// writing. A pen press that does not write stops it at once.
     #[test]
     fn a_redraw_waits_until_the_player_has_not_written_for_the_idle_time() {
-        use crate::app::{Input, Tool, WRITING_IDLE_MS};
-        let fonts = Fonts::repo().unwrap();
-        let mut app = game_app();
-        let mut p = Presenter::new();
-        p.use_pen_region = true;
-        let mut fb = vec![0u8; (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize];
-        let empty: Vec<_> = (0..9u8).flat_map(|r| (0..9u8).map(move |c| (r, c))).filter(|&c| !app.game.is_filled(c)).take(2).collect();
-        let (a, b) = (empty[0], empty[1]);
-        let step = |app: &mut App, p: &mut Presenter, fb: &mut Vec<u8>, now: u64, input: Option<Input>| {
-            if let Some(i) = input {
-                app.handle(i, now);
-            }
-            app.tick(now);
-            p.present(app, &fonts, fb, now, |_| {});
-        };
-        // A vertical stroke in the cell (a 1), one point each 10 ms.
-        let write = |app: &mut App, p: &mut Presenter, fb: &mut Vec<u8>, now: &mut u64, cell: crate::game::Cell| {
-            let (x, y) = crate::layout::cell_origin(cell);
-            let (x, c) = (x as f32 + crate::layout::CELL as f32 / 2.0, crate::layout::CELL as f32);
-            let (y0, y1) = (y as f32 + 0.2 * c, y as f32 + 0.8 * c);
-            step(app, p, fb, *now, Some(Input::PenDown { x, y: y0, tool: Tool::Pen }));
-            for k in 1..=20 {
-                *now += 10;
-                step(app, p, fb, *now, Some(Input::PenMove { x, y: y0 + (y1 - y0) * k as f32 / 20.0 }));
-            }
-            *now += 10;
-            step(app, p, fb, *now, Some(Input::PenUp { x, y: y1 }));
-        };
-        let mut now = 1000;
-        step(&mut app, &mut p, &mut fb, now, None);
+        use crate::app::{Input, Tool, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
+        assert_eq!(WRITING_IDLE_MS, RECOGNITION_PAUSE_MS, "INP-16: the idle time is equal to the pause");
+        let mut r = Rig::new(true);
+        let empty = r.empty_cells();
+        let (a, b, c) = (empty[0], empty[1], empty[2]);
 
-        write(&mut app, &mut p, &mut fb, &mut now, a);
-        let lift = now;
-        // The app reads the ink after the recognition pause, but the redraw waits.
-        while now + 30 < lift + WRITING_IDLE_MS {
-            now += 30;
-            step(&mut app, &mut p, &mut fb, now, None);
+        r.write(a);
+        let lift = r.now;
+        let shown = r.fb.clone();
+        // No read and no redraw before the end of the pause.
+        while r.now + 30 < lift + WRITING_IDLE_MS {
+            r.after(30, None);
+            assert!(r.app.ui.pending_ink.is_some(), "{}: the ink is read before the pause ends", r.now - lift);
+            assert!(r.app.is_writing(), "{}: the writing stops before the idle time ends", r.now - lift);
         }
-        assert!(app.ui.pending_ink.is_none(), "the ink is not read after the recognition pause");
-        assert!(app.is_writing() && p.deferred_blit, "{now}: the redraw went before the idle time");
+        assert_eq!(r.app.game.value_at(a), 0);
+        assert_eq!(r.app.next_deadline(), Some(lift + WRITING_IDLE_MS));
+        assert!(r.cell_pixels_of(&shown, b) == r.cell_pixels(b), "a redraw changes the next cell");
 
-        // A second number starts the idle time again.
-        write(&mut app, &mut p, &mut fb, &mut now, b);
-        let lift = now;
-        while now + 30 < lift + WRITING_IDLE_MS {
-            now += 30;
-            step(&mut app, &mut p, &mut fb, now, None);
-            assert!(p.deferred_blit, "{now}: the redraw went before the idle time");
+        // A second number reads the first ink at the press, and starts the idle time again.
+        r.write(b);
+        let lift = r.now;
+        assert_ne!(r.app.game.value_at(a), 0, "the press in a different cell does not read the ink");
+        assert!(r.app.ui.pending_ink.is_some());
+        while r.now + 30 < lift + WRITING_IDLE_MS {
+            r.after(30, None);
+            assert!(r.app.is_writing() && r.p.deferred_blit, "{}: the redraw went before the idle time", r.now - lift);
         }
-        // The idle time is over: the deadline of the app wakes the loop, and the redraw goes.
-        assert_eq!(app.next_deadline(), Some(lift + WRITING_IDLE_MS));
-        now = lift + WRITING_IDLE_MS;
-        step(&mut app, &mut p, &mut fb, now, None);
-        now += PEN_REGION_SETTLE_MS;
-        step(&mut app, &mut p, &mut fb, now, None);
-        assert!(!app.is_writing() && !p.deferred_blit, "the redraw did not go after the idle time");
-        let mut expect = vec![0u8; fb.len()];
-        blit(&p.frame, &mut expect);
-        assert!(fb == expect, "the framebuffer does not show the frame");
+        assert_eq!(r.app.next_deadline(), Some(lift + WRITING_IDLE_MS));
+        // The idle time is over: the deadline of the app wakes the loop, the app reads the ink at that
+        // time and the region stops. The redraw goes after the patch applied that change.
+        r.now = lift + WRITING_IDLE_MS;
+        r.step(None);
+        assert!(r.app.ui.pending_ink.is_none(), "the ink is not read at the end of the pause");
+        assert_ne!(r.app.game.value_at(b), 0);
+        assert!(!r.app.is_writing() && r.p.pen_region.is_none());
+        assert!(r.p.deferred_blit, "the redraw went before the region stopped");
+        r.after(PEN_REGION_SETTLE_MS, None);
+        assert!(!r.p.deferred_blit, "the redraw did not go after the idle time");
+        assert!(r.shows_the_frame(), "the framebuffer does not show the frame");
 
-        // A press that does not write (here a press out of the board) stops the writing at once.
-        write(&mut app, &mut p, &mut fb, &mut now, a);
-        assert!(app.is_writing());
-        now += 10;
-        step(&mut app, &mut p, &mut fb, now, Some(Input::PenDown { x: 5.0, y: 5.0, tool: Tool::Pen }));
-        assert!(!app.is_writing());
+        // A finger press does not stop the writing (INP-21). Its time is after the time of a hand touch (INP-20).
+        r.write(c);
+        assert!(r.app.is_writing());
+        r.after(crate::app::HAND_TOUCH_MS, Some(Input::TouchDown { id: 1, x: 5.0, y: 5.0 }));
+        assert!(r.app.is_writing() && r.app.ui.pending_ink.is_some(), "a finger press stops the writing");
+        r.after(10, Some(Input::TouchUp { id: 1, x: 5.0, y: 5.0 }));
+        assert!(r.app.is_writing() && r.app.ui.pending_ink.is_some(), "a finger release off a control stops the writing");
+        // A pen press that does not write (here a press off the board) stops the writing at once.
+        r.after(10, Some(Input::PenDown { x: 5.0, y: 5.0, tool: Tool::Pen }));
+        assert!(!r.app.is_writing());
     }
 
-    /// A tap shows its ink with the UI waveform, without the pen region (INP-2, MRK-5). A tap that
-    /// changes nothing (a mark that a peer hides) shows the x (MRK-10). After the time of the x, the
-    /// screen is the same as before (MRK-13, MRK-14). When the pen leaves the micro-cell, the touch is
-    /// writing and the pen region starts.
+    /// When the player does not write, a tap shows its ink with the UI waveform, without the pen region
+    /// (INP-2, MRK-5). A tap that changes nothing (a mark that a peer hides) shows the x (MRK-10). After
+    /// the time of the x, the screen is the same as before (MRK-13, MRK-14). When the pen leaves the
+    /// micro-cell, the touch is writing and the pen region starts.
     #[test]
     fn a_tap_does_not_start_the_pen_region_and_a_tap_that_changes_nothing_leaves_no_ink() {
         use crate::app::{Input, Tool};
@@ -1274,8 +1479,8 @@ mod tests {
         assert!(p.pen_region.is_some(), "writing did not start the pen region");
     }
 
-    /// A tap that adds a mark does not start the pen region. The mark goes to the screen at the pen
-    /// up, in a small update inside the micro-cell.
+    /// When the player does not write, a tap that adds a mark does not start the pen region (INP-2).
+    /// The mark goes to the screen at the pen up, in a small update inside the micro-cell.
     #[test]
     fn a_mark_goes_to_the_screen_at_the_pen_up() {
         use crate::app::{Input, Tool};
@@ -1410,5 +1615,480 @@ mod tests {
             assert!(!s.has_dirty() && dirty.is_empty(), "{dirty:?}");
         }
     }
-}
 
+    /// HLT-3, HLT-9: a tap on a number changes no pixel at the press. The removal or the move of the
+    /// highlight goes in one update at the pen lift, and no other update follows. This is the same
+    /// with the pen region and without it.
+    #[test]
+    fn a_tap_on_a_number_changes_the_highlight_in_one_update() {
+        in_each_layout(|layout| {
+            for use_region in [true, false] {
+                // `same`: a tap on the digit of the highlight (it removes). Else, a tap on a different digit (it moves).
+                for same in [false, true] {
+                    let mut r = Rig::new(use_region);
+                    let (v, w) = r.two_digits();
+                    r.make_highlight(v);
+                    let target = if same { v } else { w };
+                    // A cell that is not the first cell of `v`: the cell of the tap does not matter.
+                    let cell = *r.cells_with(target).last().unwrap();
+                    let shown = r.fb.clone();
+                    let (before, at_lift) = r.tap(cell);
+                    let name = format!("{layout}, pen region {use_region}, same digit {same}");
+                    assert_eq!(before, vec![], "{name}: an update before the pen lift");
+                    assert_eq!(at_lift.len(), 1, "{name}: the updates of the pen lift: {at_lift:?}");
+                    assert!(r.fb != shown, "{name}: the framebuffer does not change");
+                    assert!(r.shows_the_frame(), "{name}: the framebuffer does not show the frame");
+                    assert_eq!(r.app.ui.highlight, (!same).then_some(w), "{name}");
+                    r.assert_highlight(v, false);
+                    r.assert_highlight(w, !same);
+                    // The one update contains the cells of the two digits.
+                    for c in r.cells_with(v).into_iter().chain((!same).then(|| r.cells_with(w)).into_iter().flatten()) {
+                        assert!(covers(at_lift[0], c), "{name}: {:?} does not contain the cell {c:?}", at_lift[0]);
+                    }
+                    assert_eq!(r.wait(600), vec![], "{name}: an update after the pen lift");
+                }
+            }
+        });
+    }
+
+    /// HLT-2 item 2, HLT-9: a tap on an empty cell removes the highlight in one update with the mark, at
+    /// the pen lift. The pixels of the highlight do not change before that.
+    #[test]
+    fn a_tap_on_an_empty_cell_removes_the_highlight_in_one_update_with_the_mark() {
+        in_each_layout(|layout| {
+            let mut r = Rig::new(true);
+            let (v, _) = r.two_digits();
+            r.make_highlight(v);
+            let g = &r.app.game;
+            let (cell, d) = r.empty_cells().into_iter().find_map(|c| (1..=9u8).find(|&d| g.peer_digits(c) & crate::game::mark_bit(d) == 0).map(|d| (c, d))).unwrap();
+            let (ox, oy) = crate::layout::cell_origin(cell);
+            let m = crate::layout::CELL as f32 / 3.0;
+            let q = (ox as f32 + m * (((d - 1) % 3) as f32 + 0.5), oy as f32 + m * (((d - 1) / 3) as f32 + 0.5));
+            r.down(q);
+            r.to((q.0 + 1.0, q.1));
+            r.assert_highlight(v, true);
+            let at_lift = r.up((q.0 + 1.0, q.1));
+            assert_eq!(r.app.ui.highlight, None, "{layout}");
+            assert_ne!(r.app.game.marks_at(cell) & crate::game::mark_bit(d), 0, "{layout}: no mark");
+            assert_eq!(at_lift.len(), 1, "{layout}: the updates of the pen lift: {at_lift:?}");
+            r.assert_highlight(v, false);
+            assert!(r.shows_the_frame(), "{layout}: the mark is not in the framebuffer");
+            for c in r.cells_with(v) {
+                assert!(covers(at_lift[0], c), "{layout}: {:?} does not contain the cell {c:?}", at_lift[0]);
+            }
+        });
+    }
+
+    /// HLT-2 item 4, HLT-9: while the player writes, the highlight stays on the screen and only the ink
+    /// changes. The read gives one update, with the removal of the highlight and the number together.
+    #[test]
+    fn writing_while_a_highlight_shows_changes_the_highlight_and_the_number_in_one_update() {
+        let check = |r: &mut Rig, name: &str| {
+            let (v, _) = r.two_digits();
+            r.make_highlight(v);
+            let a = r.empty_cells()[0];
+            let (ox, oy) = crate::layout::cell_origin(a);
+            let c = crate::layout::CELL;
+            let ink_cell = ScreenRect::new(ox, oy, ox + c - 1, oy + c - 1).physical().expand(4);
+            let ink = r.write(a);
+            let lift = r.now;
+            assert!(!ink.is_empty(), "{name}: the ink does not show");
+            assert_eq!(r.app.ui.highlight, Some(v), "{name}: writing changes the highlight before the read");
+            r.assert_highlight(v, true);
+            let mut before_read = r.wait(crate::app::RECOGNITION_PAUSE_MS - 60);
+            before_read.extend(ink.iter().map(|&u| (lift, u)));
+            for (t, u) in before_read {
+                let u = PhysicalRect::from_update(u);
+                assert!(u.x0 >= ink_cell.x0 && u.y0 >= ink_cell.y0 && u.x1 <= ink_cell.x1 && u.y1 <= ink_cell.y1, "{name}: at {t}, {u:?} is not ink in the cell");
+            }
+            r.assert_highlight(v, true);
+            assert_eq!(r.app.game.value_at(a), 0, "{name}");
+            let ink_on_screen = r.cell_pixels(a);
+
+            // The read, at the exact time of the app, then the time of the redraw.
+            r.now = lift + crate::app::RECOGNITION_PAUSE_MS;
+            let mut log: Vec<(u64, Update)> = r.step(None).into_iter().map(|u| (r.now, u)).collect();
+            assert_eq!(r.app.ui.highlight, None, "{name}: the read does not remove the highlight");
+            let d = r.app.game.value_at(a);
+            assert_ne!(d, 0, "{name}: the read gives no number");
+            log.extend(r.wait(600));
+            assert_eq!(log.len(), 1, "{name}: the updates after the read: {log:?}");
+            let u = log[0].1;
+            assert!(log[0].0 - lift >= crate::app::RECOGNITION_PAUSE_MS, "{name}");
+            // The highlight and the number show in the same update.
+            assert!(r.shows_the_frame(), "{name}: the framebuffer does not show the frame");
+            r.assert_highlight(v, false);
+            assert!(r.cell_pixels(a) != ink_on_screen, "{name}: the number does not replace the ink");
+            assert!(covers(u, a), "{name}: {u:?} does not contain the cell of the number");
+            for c in r.cells_with(v) {
+                assert!(covers(u, c), "{name}: {u:?} does not contain the cell {c:?}");
+            }
+        };
+        in_each_layout(|layout| check(&mut Rig::new(true), layout));
+        check(&mut Rig::new(false), "with no pen region");
+    }
+
+    /// HLT-3, HLT-9: a tap on a number while ink waits in a different cell reads the ink at the press.
+    /// The read and the result of the lift go in one update, and the tap compares with the highlight
+    /// at the press: a tap on v gives no highlight, and a tap on w gives w.
+    #[test]
+    fn a_tap_on_a_number_while_ink_waits_gives_one_update_with_the_read() {
+        in_each_layout(|layout| {
+            for same in [false, true] {
+                let name = format!("{layout}, same digit {same}");
+                let mut r = Rig::new(true);
+                let (v, w) = r.two_digits();
+                r.make_highlight(v);
+                let a = r.empty_cells()[0];
+                r.write(a);
+                r.wait(300);
+                let target = if same { v } else { w };
+                let cell = r.cells_with(target)[0];
+                let (x, y) = middle(cell);
+                let shown = r.fb.clone();
+                let mut log = r.down((x, y));
+                assert_ne!(r.app.game.value_at(a), 0, "{name}: the press does not read the ink");
+                assert_eq!(r.app.ui.highlight, None, "{name}: the read does not remove the highlight");
+                assert_eq!(r.p.pen_region, None, "{name}: a press on a filled cell keeps the pen region");
+                // The pen stays down after the region stopped: the read must still wait for the lift.
+                log.extend(r.wait(PEN_REGION_SETTLE_MS + 30).into_iter().map(|(_, u)| u));
+                log.extend(r.to((x + 1.0, y)));
+                assert!(r.fb == shown && log.is_empty(), "{name}: an update before the pen lift: {log:?}");
+                log.extend(r.up((x + 1.0, y)));
+                assert_eq!(r.app.ui.highlight, (!same).then_some(w), "{name}");
+                log.extend(r.wait(600).into_iter().map(|(_, u)| u));
+                assert_eq!(log.len(), 1, "{name}: the updates of the read and of the tap: {log:?}");
+                assert!(r.shows_the_frame(), "{name}");
+                r.assert_highlight(v, false);
+                r.assert_highlight(w, !same);
+                for c in r.cells_with(v).into_iter().chain(std::iter::once(a)) {
+                    assert!(covers(log[0], c), "{name}: {:?} does not contain the cell {c:?}", log[0]);
+                }
+            }
+        });
+    }
+
+    /// INP-24: while ink waits, each pen press on an empty cell starts the region at the pen down, on
+    /// the cell of the press, with no stop between the cells. The ink goes only in that region.
+    #[test]
+    fn while_ink_waits_a_pen_press_starts_the_region_at_the_pen_down_with_no_stop() {
+        in_each_layout(|layout| {
+            let mut r = Rig::new(true);
+            let empty = r.empty_cells();
+            let (a, b, c) = (empty[0], empty[1], empty[2]);
+            r.write(a);
+            r.regions.clear();
+            r.wait(100);
+            assert_eq!(r.regions, vec![], "{layout}: the region stops after the pen lift");
+            for cell in [b, c] {
+                let points = stroke_in(cell);
+                let sent = r.down(points[0]);
+                let press = r.now;
+                assert_eq!(r.regions, vec![(press, Some(region_of(cell)))], "{layout}: the region at the pen down in {cell:?}");
+                assert_eq!(r.app.writing_stroke().map(|s| s.len()), Some(1), "{layout}: the first point starts the region");
+                assert_eq!(sent, vec![], "{layout}: an update at the pen down");
+                r.regions.clear();
+                let region = PhysicalRect::from_update(region_of(cell));
+                for &q in &points[1..] {
+                    for u in r.to(q) {
+                        let u = PhysicalRect::from_update(u);
+                        assert!(u.x0 >= region.x0 && u.y0 >= region.y0 && u.x1 <= region.x1 + 1 && u.y1 <= region.y1 + 1, "{layout}: {u:?} is not in {region:?}");
+                    }
+                }
+                r.up(*points.last().unwrap());
+                r.wait(100);
+                assert_eq!(r.regions, vec![], "{layout}: the region changes during the stroke or at the lift");
+            }
+            // A new stroke in the cell of the waiting ink keeps the region.
+            let points = stroke_in(c);
+            r.down(points[0]);
+            assert_eq!(r.regions, vec![], "{layout}: a stroke in the same cell changes the region");
+            assert_eq!(r.p.pen_region.map(PhysicalRect::to_update), Some(region_of(c)), "{layout}");
+        });
+    }
+
+    /// INP-24: "the player writes" also means that the writing timer runs with no waiting ink: a stroke
+    /// from a filled cell starts it. A finger press does not stop it (INP-21), thus the next pen press
+    /// starts the region at the pen down. A hand touch also has no effect (INP-20).
+    #[test]
+    fn while_the_writing_timer_runs_a_pen_press_starts_the_region_at_the_pen_down() {
+        in_each_layout(|layout| {
+            let mut r = Rig::new(true);
+            let filled = r.filled_cell();
+            let a = r.empty_cells()[0];
+            let points = stroke_in(filled);
+            r.down(points[0]);
+            for &q in &points[1..] {
+                r.to(q);
+            }
+            r.up(*points.last().unwrap());
+            assert!(r.app.ui.pending_ink.is_none(), "{layout}");
+            assert_eq!(r.regions, vec![], "{layout}: a stroke from a filled cell starts the region");
+            // A hand touch, then a finger, on the board. They do not stop the timer.
+            r.after(10, Some(crate::app::Input::TouchDown { id: 1, x: 5.0, y: 5.0 }));
+            r.after(10, Some(crate::app::Input::TouchUp { id: 1, x: 5.0, y: 5.0 }));
+            let (x, y) = middle(a);
+            r.after(crate::app::HAND_TOUCH_MS, Some(crate::app::Input::TouchDown { id: 2, x, y }));
+            r.after(10, Some(crate::app::Input::TouchUp { id: 2, x, y }));
+            r.down((x, y));
+            assert_eq!(r.regions, vec![(r.now, Some(region_of(a)))], "{layout}: the region at the pen down");
+        });
+    }
+
+    /// INP-24: a tap while the player writes also starts the region. Its mark comes after the region
+    /// stops. A tap starts no timer, thus the next press has the start of INP-2.
+    #[test]
+    fn a_tap_while_the_player_writes_starts_the_region_and_ends_the_chain() {
+        in_each_layout(|layout| {
+            let mut r = Rig::new(true);
+            let empty = r.empty_cells();
+            let (a, c) = (empty[0], *empty.last().unwrap());
+            r.write(a);
+            // An empty cell and a micro-cell that a tap can mark.
+            let g = &r.app.game;
+            let (b, d) = r.empty_cells().into_iter().filter(|&x| x != a).find_map(|x| (1..=9u8).find(|&d| g.peer_digits(x) & crate::game::mark_bit(d) == 0).map(|d| (x, d))).unwrap();
+            let (ox, oy) = crate::layout::cell_origin(b);
+            let m = crate::layout::CELL as f32 / 3.0;
+            let q = (ox as f32 + m * (((d - 1) % 3) as f32 + 0.5), oy as f32 + m * (((d - 1) / 3) as f32 + 0.5));
+            r.regions.clear();
+            r.down(q);
+            let press = r.now;
+            assert_eq!(r.regions, vec![(press, Some(region_of(b)))], "{layout}: the tap does not start the region at the pen down");
+            let at_lift = r.up(q);
+            let lift = r.now;
+            assert_ne!(r.app.game.marks_at(b) & crate::game::mark_bit(d), 0, "{layout}: the state changes at the pen lift");
+            assert_eq!(r.regions, vec![(press, Some(region_of(b))), (lift, None)], "{layout}: the region stops at the pen lift");
+            assert_eq!(at_lift, vec![], "{layout}: the mark goes before the region stopped");
+            assert!(!r.shows_the_frame(), "{layout}: the mark goes before the region stopped");
+            assert!(!r.app.is_writing(), "{layout}: a tap starts the writing timer");
+            let mark = r.wait(PEN_REGION_SETTLE_MS + 15);
+            assert!(mark.iter().any(|&(t, _)| t >= lift + PEN_REGION_SETTLE_MS), "{layout}: the mark does not go: {mark:?}");
+            assert!(mark.iter().all(|&(t, _)| t >= lift + PEN_REGION_SETTLE_MS), "{layout}: the mark goes before the region stopped: {mark:?}");
+            assert!(r.shows_the_frame(), "{layout}: the mark is not in the framebuffer");
+            // The chain ended: the next press has the start of INP-2.
+            r.regions.clear();
+            let points = stroke_in(c);
+            r.down(points[0]);
+            assert_eq!(r.regions, vec![], "{layout}: the press after a tap starts the region");
+        });
+    }
+
+    /// INP-2, INP-24: the first stroke of a session starts the region only when the pen leaves the
+    /// micro-cell. The player no longer writes after the idle time, thus the next press has the same
+    /// start.
+    #[test]
+    fn the_first_stroke_of_a_session_starts_the_region_when_the_pen_leaves_the_micro_cell() {
+        in_each_layout(|layout| {
+            let mut r = Rig::new(true);
+            let empty = r.empty_cells();
+            let m = crate::layout::CELL as f32 / 3.0;
+            for cell in [empty[0], empty[1]] {
+                r.regions.clear();
+                let (x, y) = middle(cell);
+                r.down((x, y));
+                assert_eq!(r.regions, vec![], "{layout}: {cell:?}: the region starts at the pen down");
+                assert_eq!(r.app.writing_stroke(), None, "{layout}");
+                // Movement in the micro-cell: this can still be a tap.
+                for k in 1..=3 {
+                    r.to((x + k as f32, y));
+                    assert_eq!(r.regions, vec![], "{layout}: {cell:?}: the region starts in the micro-cell");
+                }
+                r.to((x, y + m));
+                assert_eq!(r.regions, vec![(r.now, Some(region_of(cell)))], "{layout}: {cell:?}: the region does not start when the pen leaves the micro-cell");
+                r.up((x, y + m));
+                // The end of the pause and of the idle time: the session ends.
+                r.wait(crate::app::WRITING_IDLE_MS + PEN_REGION_SETTLE_MS + 30);
+                assert!(!r.app.is_writing() && r.p.pen_region.is_none(), "{layout}");
+            }
+        });
+    }
+
+    /// The steps of a pen touch that starts on a filled cell, and `redraw` asks for a full drawing at
+    /// each step. No step draws ink or starts the pen region (INP-22).
+    fn assert_no_ink_and_no_region(r: &mut Rig, points: &[(f32, f32)], redraw: bool, name: &str) {
+        let frame = r.p.frame.data().to_vec();
+        let shown = r.fb.clone();
+        r.regions.clear();
+        let check = |r: &mut Rig, sent: Vec<Update>, at: &str| {
+            assert_eq!(r.regions, vec![], "{name}: {at}: the pen region starts");
+            assert_eq!(r.p.pen_region, None, "{name}: {at}");
+            assert_eq!(r.app.writing_stroke(), None, "{name}: {at}");
+            assert_eq!(r.app.live_stroke, None, "{name}: {at}: a live stroke");
+            assert_eq!(sent, vec![], "{name}: {at}: an update");
+            assert!(r.p.frame.data() == &frame[..], "{name}: {at}: the frame changes");
+            assert!(r.fb == shown, "{name}: {at}: the framebuffer changes");
+        };
+        let sent = r.down(points[0]);
+        check(r, sent, "the pen down");
+        for &q in &points[1..] {
+            if redraw {
+                r.app.redraw = true;
+            }
+            let sent = r.to(q);
+            check(r, sent, "a pen move");
+            if redraw {
+                // A step with no input, as at a timer of the main loop.
+                r.app.redraw = true;
+                let sent = r.after(1, None);
+                check(r, sent, "a full drawing");
+            }
+        }
+    }
+
+    /// The test of `a_touch_from_a_filled_cell_...` in each layout: the tap, a stroke in the cell, a
+    /// stroke out to an empty cell, and a touch on a completed game.
+    fn check_a_touch_from_a_filled_cell(redraw: bool) {
+        in_each_layout(|layout| {
+            for use_region in [true, false] {
+                let name = format!("{layout}, pen region {use_region}");
+                let mut r = Rig::new(use_region);
+                let empty = r.empty_cells()[0];
+                let filled = r.filled_cell();
+                let (x, y) = middle(filled);
+                // A tap, then a second tap: the highlight comes and goes, and no ink stays.
+                let frame = r.p.frame.data().to_vec();
+                assert_no_ink_and_no_region(&mut r, &[(x, y), (x + 1.0, y)], redraw, &name);
+                r.up((x + 1.0, y));
+                assert!(r.app.ui.highlight.is_some(), "{name}: the tap makes no highlight");
+                r.wait(100);
+                assert_no_ink_and_no_region(&mut r, &[(x, y), (x + 1.0, y)], redraw, &name);
+                r.up((x + 1.0, y));
+                r.wait(100);
+                assert_eq!(r.app.ui.highlight, None, "{name}");
+                assert!(r.p.frame.data() == &frame[..] && r.shows_the_frame(), "{name}: the tap leaves ink");
+
+                // A stroke in the cell, then a stroke that goes out to an empty cell.
+                let out = middle(empty);
+                let long: Vec<_> = (0..=10).map(|k| {
+                    let t = k as f32 / 10.0;
+                    (x + (out.0 - x) * t, y + (out.1 - y) * t)
+                }).collect();
+                for points in [stroke_in(filled), long] {
+                    assert_no_ink_and_no_region(&mut r, &points, redraw, &name);
+                    assert_eq!(r.app.game.value_at(empty), 0, "{name}");
+                    r.up(*points.last().unwrap());
+                    assert!(r.app.ui.pending_ink.is_none(), "{name}: a stroke from a filled cell gives waiting ink");
+                    r.wait(crate::app::WRITING_IDLE_MS + PEN_REGION_SETTLE_MS + 30);
+                    assert!(r.p.frame.data() == &frame[..] && r.shows_the_frame(), "{name}: the stroke leaves ink");
+                }
+
+                // CMP-3: all cells of a completed game are filled, and a touch has no ink.
+                let mut r = Rig::new(use_region);
+                r.app.game = crate::reference::completed_game();
+                r.app.redraw = true;
+                r.wait(600);
+                let (x, y) = middle((4, 4));
+                assert_no_ink_and_no_region(&mut r, &[(x, y), (x + 1.0, y), (x, y + 60.0)], redraw, &format!("{name}, completed game"));
+            }
+        });
+    }
+
+    /// INP-22: the drawing of the ink in parts (no full drawing in the touch).
+    #[test]
+    fn a_touch_from_a_filled_cell_starts_no_region_and_draws_no_ink_in_the_incremental_path() {
+        check_a_touch_from_a_filled_cell(false);
+    }
+
+    /// INP-22: the same touch with a full drawing at each step (a timer, or an update of the app).
+    #[test]
+    fn a_touch_from_a_filled_cell_starts_no_region_and_draws_no_ink_in_a_full_drawing() {
+        check_a_touch_from_a_filled_cell(true);
+    }
+
+    /// INP-22: a pen press on a filled cell while ink waits reads the ink (INP-12), stops the region
+    /// and starts no new region. INP-24 applies only to an empty cell.
+    #[test]
+    fn a_press_on_a_filled_cell_while_the_player_writes_stops_the_region() {
+        in_each_layout(|layout| {
+            let mut r = Rig::new(true);
+            let a = r.empty_cells()[0];
+            let filled = r.filled_cell();
+            r.write(a);
+            r.wait(100);
+            r.regions.clear();
+            let (x, y) = middle(filled);
+            r.down((x, y));
+            assert_eq!(r.regions, vec![(r.now, None)], "{layout}: the region at the press on a filled cell");
+            assert_ne!(r.app.game.value_at(a), 0, "{layout}: the press does not read the ink");
+            assert_eq!(r.app.live_stroke, None, "{layout}");
+            r.to((x, y + crate::layout::CELL as f32 / 3.0));
+            assert_eq!(r.regions, vec![(r.now - 10, None)], "{layout}: a stroke from a filled cell starts the region");
+        });
+    }
+
+    /// INP-22: a stroke that starts on an empty cell and crosses a filled cell shows ink over the filled
+    /// cell, in the incremental path and in a full drawing. The region stays on the cell of the start.
+    #[test]
+    fn a_stroke_from_an_empty_cell_shows_ink_over_a_filled_cell() {
+        in_each_layout(|layout| {
+            for redraw in [false, true] {
+                let name = format!("{layout}, full drawing {redraw}");
+                let mut r = Rig::new(true);
+                // An empty cell next to a filled cell, in a row.
+                let (e, f) = crate::game::cells()
+                    .filter(|&(_, c)| c < 8)
+                    .map(|(row, c)| ((row, c), (row, c + 1)))
+                    .find(|&(e, f)| !r.app.game.is_filled(e) && r.app.game.is_filled(f))
+                    .unwrap();
+                let (start, end) = (middle(e), middle(f));
+                // The pen moves along the top of the digit in the filled cell.
+                let c = crate::layout::CELL as f32;
+                let y = start.1 - 0.4 * c;
+                let before = r.frame_cell(f);
+                r.down((start.0, y));
+                let steps = 20;
+                for k in 1..=steps {
+                    r.to((start.0 + (end.0 - start.0) * k as f32 / steps as f32, y));
+                    if redraw {
+                        r.app.redraw = true;
+                        r.after(1, None);
+                    }
+                }
+                assert_eq!(r.p.pen_region.map(PhysicalRect::to_update), Some(region_of(e)), "{name}: the region is not on the cell of the start");
+                assert!(r.frame_cell(f) != before, "{name}: no ink over the filled cell");
+                r.up((end.0, y));
+                assert_eq!(r.app.ui.pending_ink.as_ref().map(|i| i.cell), Some(e), "{name}: the ink is not on the cell of the start");
+            }
+        });
+    }
+
+    /// INP-22: a finger Redo fills the cell of the pen touch: the region stops, because the region
+    /// never stays on a filled cell.
+    #[test]
+    fn a_redo_that_fills_the_cell_of_the_touch_stops_the_region() {
+        in_each_layout(|layout| {
+            let mut r = Rig::new(true);
+            let filled = r.filled_cell();
+            let a = r.empty_cells()[0];
+            let d = r.app.game.solution[a.0 as usize][a.1 as usize];
+            r.app.game.add_number(a, d);
+            r.app.game.undo();
+            r.app.ui.menu = crate::app::Menu::Open(None);
+            r.app.redraw = true;
+            r.wait(600);
+            assert!(!r.app.game.redo.is_empty() && !r.app.game.is_filled(a), "{layout}: the test needs a redo");
+            // The position of the Redo button, from the layout.
+            let (rx, ry) = (0..crate::layout::screen_h() as i32)
+                .step_by(8)
+                .flat_map(|y| (0..crate::layout::screen_w() as i32).step_by(8).map(move |x| (x as f32, y as f32)))
+                .find(|&(x, y)| crate::layout::game_button(x, y, true) == Some(crate::layout::Button::Redo))
+                .unwrap();
+            // A stroke from a filled cell starts the timer. The next press starts the region at the pen down.
+            let points = stroke_in(filled);
+            r.down(points[0]);
+            r.to(points[20]);
+            r.up(points[20]);
+            let (x, y) = middle(a);
+            r.down((x, y));
+            assert_eq!(r.p.pen_region.map(PhysicalRect::to_update), Some(region_of(a)), "{layout}: the test needs a region");
+            r.after(crate::app::HAND_TOUCH_MS, Some(crate::app::Input::TouchDown { id: 1, x: rx, y: ry }));
+            r.after(10, Some(crate::app::Input::TouchUp { id: 1, x: rx, y: ry }));
+            assert!(r.app.game.is_filled(a), "{layout}: the Redo does not fill the cell");
+            assert_eq!(r.p.pen_region, None, "{layout}: the region stays on a filled cell");
+            assert_eq!(r.app.writing_stroke(), None, "{layout}");
+            // The pen moves on: the region does not start again.
+            r.to((x, y + crate::layout::CELL as f32 / 3.0));
+            assert_eq!(r.p.pen_region, None, "{layout}: the region starts on a filled cell");
+        });
+    }
+}

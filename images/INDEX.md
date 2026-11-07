@@ -25,7 +25,7 @@ dimensions of the toolbar, the panels and the fonts come from screenshots of a r
 |---|---|---|
 | `screen.png` | Empty board, menu closed. It shows only the menu button (top right, closed icon: dot at the bottom left) and the difficulty meter below the board. | The base layout. The board has 9×9 cells of 147 px, at the center, from (148, 418) to (1471, 1741). Each cell has a faint 3×3 grid of 49 px micro-cells. The close button does not show when the menu is closed. |
 | `screen-in-progress.png` | A game in progress: starting numbers (gray background, black digits), your numbers (white background, `#1E1E1E` digits), pencil marks and one clash (two red 9s). Box 0 at the top left is full, but its 9 clashes with a 9 outside the box. Thus the box has no completed color. | The main state of the game. The pencil marks are the possible digits only, because the app hides the marks of the digits of peers. |
-| `screen-highlight.png` | The same game after a tap on a 5. All 5s have the highlight color (Cyan). | Highlights. A tap on the same number again, or a different action, removes the highlight. |
+| `screen-highlight.png` | The same game after a tap on a 5. All 5s have the highlight color (Cyan). | Highlights. A tap on the same number again, or a different pen action on the board, removes the highlight. |
 | `screen-unrecognized.png` | The same game immediately after a scribble that the app cannot read. A gray **?** shows in the cell for approximately one second. | The response to writing that is not a number from 1 to 9 (for example a scribble, 0 or 12). After the "?", the cell is the same as before. |
 | `screen-invalid-mark.png` | The same game immediately after a pen tap on the micro-cell of digit 6 in the empty cell at row 1, column 6 (from 0). A peer has a 6. A small gray **x** shows only in that micro-cell for approximately one second. The marks 3, 4 and 8 and the micro-cell lines of the cell stay. | The response to a pencil mark that a peer refuses, when "Hide pencil marks automatically" is on. The x has two lines with round ends, each from -10 px to +10 px on the two axes around the anchor point of the mark (20×20 px between the line centers), line width 3 px, `gray15`. After the x, the cell is the same as before. |
 | `screen-completed-group.png` | A game with no clash. Box 0 (top left), column 4 and row 7 are complete. All their cells have the completed color (Green), also the cell where column 4 and row 7 cross, and the starting numbers in these groups. Other starting numbers stay gray. The state is the game of `screen-in-progress.png` without the 9 at row 5, column 1, and with the correct numbers in the cells (2,4), (6,4), (7,1), (7,2), (7,6) and (7,7) (row, column, from 0). | Completed groups. The color comes only from the current numbers. |
@@ -100,7 +100,7 @@ next page, next to the page number.
 | 1 | `manual-how-to-play.png` | The rules, starting numbers and your numbers, the close button and the menu button. |
 | 2 | `manual-candidates.png` | Pencil marks: how to tap micro-cells to add and remove them. |
 | 3 | `manual-pen.png` | How to write a number (the app reads it and shows a typed number) and how to erase it (the pencil marks show again). |
-| 4 | `manual-pen-rules.png` | What a tap is. Finger touches have no effect. One number for each cell. Writing on a number has no effect. Writing that the app cannot read shows **?**. |
+| 4 | `manual-pen-rules.png` | What a tap is. Finger touches have no effect. One number for each cell. Writing that starts on a number shows no ink. Writing that the app cannot read shows **?**. |
 | 5 | `manual-helpers.png` | Automatic pencil mark hiding, highlights and completed groups: a full group with no clash gets the completed color, a clash with a cell outside the group stops the color, and the color is not a check against the solution. Settings can turn each one off. |
 | 6 | `manual-mistakes.png` | Numbers in a clash get the clash color. How to correct them. The section "The app does not find all mistakes": the app does not compare the numbers with the solution, and a completed group can have an incorrect number. |
 | 7 | `manual-menu.png` | All menu buttons, with the three settings of the gear, and how to select a color in the five sections of the Cell colors panel. White in Completed groups gives no completed color. |
@@ -128,13 +128,13 @@ with the output). The font is DejaVu Sans Mono (`scripts/fonts/`).
 This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 
 **Input**
-- On the board, only the pen changes the numbers and the pencil marks. Finger touches remove a
-  highlight and the **?**.
+- On the board, only the pen changes the numbers and the pencil marks. Finger touches remove the
+  **?** and the x, not a highlight.
 - In the manual and the games list, a finger swipe to the left or the right turns the page. The page
   arrows also turn the page. reMarkable notebooks operate in the same way.
 - A tap is a pen touch that stays in one micro-cell. On an empty cell, a tap adds or removes the pencil
   mark of that micro-cell. On a number, a tap highlights all cells with that number.
-- The app reads writing in an empty cell after a short pause (approximately 0.5 s) after the pen
+- The app reads writing in an empty cell after a short pause (1 s) after the pen
   lifts. Thus a number with more than one stroke is correct.
 - If the writing is a number from 1 to 9, the app removes the ink and shows a typed number. The pencil
   marks of that cell are hidden. They show again if you erase the number.
@@ -148,8 +148,8 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 - When you write a number, the app hides that digit in the pencil marks in the same row, column and
   box. It keeps the marks: erase or undo the number, and they show again.
 - A highlight gives the highlight color (default: Cyan) to all cells with the same number. A cell
-  that clashes keeps the clash color. A tap on the same number again removes the highlight. All other
-  actions also remove it, for example a tap on the menu button.
+  that clashes keeps the clash color. A tap on the same number again removes the highlight. A pen tap
+  or stroke on the board also removes it. The hand, the menu and panels do not.
 - There are four cell colors: starting numbers (default: Gray), clashing numbers (default: Red),
   highlighted numbers (default: Cyan) and completed groups (default: Green). You select each color
   from nine colors in the Cell colors panel: Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue
@@ -197,7 +197,7 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 
 - **Puzzle generator (done).** `src/generator.rs` makes puzzles with only one solution. It sets the
   quantity of starting numbers for each mode (REQUIREMENTS.md §14.5).
-- **Recognition pause (done).** The owner examined 0.5 s on the device (REQUIREMENTS.md §16).
+- **Recognition pause (done).** The owner examined 1 s on the device (REQUIREMENTS.md §16).
 - **E-ink check (done).** The owner examined the faint micro-cell lines, the cell colors and the
   gray icons on the tablet. All are clear.
 - **Launcher (decided).** AppLoad (asivery/rm-appload), installed with Vellum. Refer to

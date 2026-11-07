@@ -6,7 +6,7 @@ mod common;
 use std::path::Path;
 
 use common::*;
-use sudoku::app::{Input, Menu, Panel, Screen, Tool};
+use sudoku::app::{Input, Menu, Panel, Screen, Tool, HAND_TOUCH_MS};
 use sudoku::font::{Fonts, Weight};
 use sudoku::game::{cells, mark_bit, peers, Cell};
 use sudoku::layout::{self, Button};
@@ -424,22 +424,30 @@ fn undo_and_redo_do_not_put_a_number_under_the_question_mark() {
 }
 
 #[test]
-fn a_second_finger_removes_the_highlight_and_the_question_mark() {
-    // HLT-2, QST-4: each finger touch is an action, also when a different finger (for example a palm)
-    // is already on the screen.
+fn a_second_finger_keeps_the_highlight_and_removes_the_question_mark() {
+    // HLT-7, INP-15, QST-4: a different finger (for example a palm) is already on the screen. A second
+    // finger does not remove the highlight, but it removes the "?". It operates no item.
     let mut d = Driver::new(41);
     let palm = empty_cell(&d.app.game);
     let (px, py) = micro_center(palm, 5);
     d.send(Input::TouchDown { id: 5, x: px, y: py });
     let given = cells().find(|&c| d.app.game.is_given(c)).unwrap();
     d.tap_cell(given);
-    assert!(d.app.ui.highlight.is_some());
-    d.finger_tap(5.0, 1000.0);
-    assert_eq!(d.app.ui.highlight, None, "HLT-2");
+    let v = d.app.game.value_at(given);
+    assert_eq!(d.app.ui.highlight, Some(v));
+    let (bx, by) = button_center(Button::Menu);
+    // The second finger is not a hand touch (INP-20), and the first touch is active (INP-15).
+    d.wait(HAND_TOUCH_MS);
+    d.send(Input::TouchMove { id: 5, x: px, y: py });
+    d.finger_tap(bx, by);
+    assert_eq!(d.app.ui.highlight, Some(v), "HLT-7");
+    assert_eq!(d.app.ui.menu, Menu::Closed, "INP-15: the second finger operates no item");
     let cell = cells().find(|&c| !d.app.game.is_filled(c) && c != palm).unwrap();
     d.write_strokes(&scribble_ink(cell));
     d.wait(d.app.pause_ms + 10);
     assert!(d.app.ui.question.is_some());
+    assert_eq!(d.app.ui.highlight, None, "HLT-2: the read of the ink");
+    d.send(Input::TouchMove { id: 5, x: px, y: py });
     d.finger_tap(5.0, 1000.0);
     assert_eq!(d.app.ui.question, None, "QST-4");
     d.send(Input::TouchUp { id: 5, x: px, y: py });
@@ -490,17 +498,30 @@ fn a_number_hides_the_digit_in_the_marks_of_peers() {
 }
 
 #[test]
-fn a_press_on_a_button_reads_the_waiting_ink() {
-    // INP-12: a press on a different item reads the waiting ink immediately.
+fn a_press_on_a_button_reads_the_waiting_ink_only_with_the_pen() {
+    // INP-12, INP-21: a pen press on a control reads the waiting ink immediately. A finger press does
+    // not read it: the control reads it at its release.
     let mut d = Driver::new(44);
     let cell = empty_cell(&d.app.game);
     d.write_strokes(&digit_ink(cell, 6));
     assert!(d.app.ui.pending_ink.is_some());
     let (x, y) = button_center(Button::Menu);
+    d.send(Input::PenDown { x, y, tool: Tool::Pen });
+    assert!(d.app.ui.pending_ink.is_none(), "INP-12");
+    assert_eq!(d.app.game.value_at(cell), 6, "INP-12: read at the press, before the pause");
+    assert_eq!(d.app.ui.menu, Menu::Closed, "the action is at the release");
+    d.send(Input::PenUp { x, y });
+    assert!(d.app.ui.menu.is_open());
+
+    let mut d = Driver::new(44);
+    let cell = empty_cell(&d.app.game);
+    d.write_strokes(&digit_ink(cell, 6));
     d.send(Input::TouchDown { id: 1, x, y });
-    assert!(d.app.ui.pending_ink.is_none());
-    assert_eq!(d.app.game.value_at(cell), 6, "read at the press, before the pause");
+    assert!(d.app.ui.pending_ink.is_some(), "INP-21: no read at a finger press");
+    assert_eq!(d.app.game.value_at(cell), 0, "INP-21");
     d.send(Input::TouchUp { id: 1, x, y });
+    assert!(d.app.ui.pending_ink.is_none(), "INP-21: the read at the release");
+    assert_eq!(d.app.game.value_at(cell), 6, "INP-21");
     assert!(d.app.ui.menu.is_open());
 }
 
@@ -865,18 +886,19 @@ fn draw_app(app: &sudoku::app::App, fonts: &Fonts) -> tiny_skia::Pixmap {
 }
 
 #[test]
-fn a_control_released_after_a_pen_tap_removes_the_highlight() {
-    // HLT-2, HLT-4: a finger holds the menu button and the pen taps a number. When the finger lifts,
-    // the menu opens. The menu also removes this highlight.
+fn a_control_released_after_a_pen_tap_keeps_the_highlight() {
+    // HLT-4, HLT-7, MRK-15: a finger holds the menu button and the pen taps a number. When the finger
+    // lifts, the menu opens, and the highlight stays with the open menu.
     let mut d = Driver::new(50);
     let (x, y) = button_center(Button::Menu);
     d.send(Input::TouchDown { id: 1, x, y });
     let given = cells().find(|&c| d.app.game.is_given(c)).unwrap();
     d.tap_cell(given);
-    assert!(d.app.ui.highlight.is_some());
+    let v = d.app.game.value_at(given);
+    assert_eq!(d.app.ui.highlight, Some(v));
     d.send(Input::TouchUp { id: 1, x, y });
     assert!(d.app.ui.menu.is_open());
-    assert_eq!(d.app.ui.highlight, None, "HLT-4: the menu opened with a highlight");
+    assert_eq!(d.app.ui.highlight, Some(v), "HLT-4: the menu opened with a highlight");
 }
 
 #[test]

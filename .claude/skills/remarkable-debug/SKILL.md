@@ -22,6 +22,7 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
    - What gets to the panel: [techniques/xochitl-update-log.md](techniques/xochitl-update-log.md).
      It needs a restart of xochitl. **Ask the owner before each restart.**
    - The pen area of the ink patch: [techniques/pen-area.md](techniques/pen-area.md).
+   - The timing of a stroke from the journal: [techniques/stroke-timing.md](techniques/stroke-timing.md).
 4. Ask the user to do the test on the tablet. Then read the log:
    [techniques/read-the-update-log.md](techniques/read-the-update-log.md).
 5. Make a test on the computer that shows the same problem, and make sure that it fails before the
@@ -56,17 +57,40 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
   ghosts. Thus a redraw of the cell (the recognized digit) must wait until the Pen area stopped.
 - **The pen area and the tap.** The app knows that a touch is writing only when the pen leaves the
   micro-cell. If the area starts at the pen down, each tap starts it, and the mark waits until the
-  area stops (approximately 60 ms, then a refresh of the full cell). Thus the area starts when the
-  touch becomes writing (`App::writing_stroke`). The ink in the micro-cell before that goes with
-  the UI waveform. If gaps at the start of a stroke come back, the cause is probably the area that
-  starts over this ink while its update is in progress.
-- **A tap shows ink.** A tap that changes nothing (a mark that a peer hides) shows a dot until a
-  redraw removes it. A test build that hid the ink of a tap delayed the start of each stroke, and
-  the owner selected the ink from the pen down. The input log (`log-input`) shows if a touch was a
-  tap: a pen down, few moves and a pen up in one micro-cell.
+  area stops (approximately 60 ms, then a refresh of the full cell). Thus the area of the first
+  stroke of a session starts when the touch becomes writing (`App::writing_stroke`). The ink in
+  the micro-cell before that goes with the UI waveform. While the player writes (ink waits, or the
+  1 s idle time runs), a pen press on an empty cell starts the area at the pen down. This removes
+  the stop between cells (the area starts 2 to 12 ms after the pen down, not 58 to 241 ms). A tap
+  in that time also starts the area, and its mark comes after the area stops. A tap ends the chain.
+  If gaps at the start of a stroke come back, the cause is probably the area that starts over this
+  ink while its update is in progress.
+- **A tap shows ink, but not on a filled cell.** A tap on an empty cell that changes nothing (a
+  mark that a peer hides) shows a dot until a redraw removes it. A test build that hid the ink of a
+  tap delayed the start of each stroke, and the owner selected the ink from the pen down. A pen
+  touch that starts on a filled cell shows no ink and starts no area. The input log (`log-input`)
+  shows if a touch was a tap: a pen down, few moves and a pen up in one micro-cell.
 - **The redraw must wait for a pause in the writing, not for the recognition pause.** The move of
-  the pen to the next cell can take more than the recognition pause (0.5 s). Thus the redraw waits
-  until no stroke occurred for 1 s (`App::is_writing`).
+  the pen to the next cell can take more than a short pause. Thus the redraw waits until no stroke
+  occurred for the idle time (`App::is_writing`). The recognition pause is 1 s
+  (`RECOGNITION_PAUSE_MS`), and the idle time is equal to it. The digit is complete on the panel
+  approximately 0.45 s after the read.
+- **One source for a value.** An environment value in `external.manifest.json` overrode the source
+  constant of the pause, thus a change of the source had no effect, and a wrong time was reported.
+  Prefer one source. Compare the log with the expected time before you report a result.
+- **AppLoad keeps the manifest in memory until xochitl restarts.** A change of the manifest on the
+  tablet does not apply before that.
+- **A running Sudoku keeps the old program after an install.** Compare the start time of the process
+  with the time of the binary before you trust a test.
+- **The tablet sends a touch from the hand after each pen lift.** It comes approximately 97 ms
+  after the pen lift and ends a few ms before the next pen down. The `log-input` setting shows it.
+  The app ignores a touch that starts less than 150 ms after a pen lift (`HAND_TOUCH_MS`).
+- **The pen area can be off.** It is off when the patch file is newer than the start of xochitl.
+  The log has the line `sudoku: pen region off`, and the ink is slower. Examine this first for an
+  ink lag ([techniques/pen-area.md](techniques/pen-area.md)). `xovi/start` turns it on.
+- **A restart of xochitl can fail.** One time in five restarts, `xovi/start` gave a segmentation
+  fault of xochitl and a reboot of the tablet. The cause is not known. After the reboot, xovi
+  operated. Tell the owner about this before a restart.
 - **A redraw while the player writes stops the ink in the next cell.** The redraw of the digit in
   the first cell can be wide (it also changes pencil marks, highlights and completed groups), and it
   covers the next cell. Ink that waits for it does not show while the pen moves. Thus a redraw waits until the app

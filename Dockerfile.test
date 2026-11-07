@@ -31,7 +31,8 @@ COPY src /src/src
 COPY tests /src/tests
 COPY install.sh /src/install.sh
 COPY images /src/images
-COPY appload/sudoku/icon.png /src/appload/sudoku/icon.png
+COPY appload /src/appload
+COPY Dockerfile* /src/
 COPY assets /src/assets
 COPY video/demo-full.txt /src/video/demo-full.txt
 COPY INVARIANTS.md /src/INVARIANTS.md

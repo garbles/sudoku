@@ -1,7 +1,7 @@
 //! Helpers for the tests: an app with a known environment, and input as a player gives it.
 #![allow(dead_code)]
 
-use sudoku::app::{App, Env, Input, Menu, Panel, Tool};
+use sudoku::app::{App, Env, Input, Menu, Panel, Tool, HAND_TOUCH_MS};
 use sudoku::font::Fonts;
 use sudoku::game::{cells, Cell, Game};
 use sudoku::layout::{self, cell_origin, Rect, CELL};
@@ -55,6 +55,8 @@ pub fn fonts() -> Fonts {
 pub struct Driver {
     pub app: App,
     pub now: u64,
+    /// The time of the last pen lift that this driver sent (INP-20).
+    pen_lift: Option<u64>,
 }
 
 impl Driver {
@@ -68,17 +70,56 @@ impl Driver {
     /// use `Driver::opened`.
     pub fn from(mut app: App) -> Driver {
         app.ui.menu = Menu::Closed;
-        Driver { app, now: 1000 }
+        Driver { app, now: 1000, pen_lift: None }
     }
 
     /// A driver for `app` in the state in which the app opened (the menu open, PER-2).
     pub fn opened(app: App) -> Driver {
-        Driver { app, now: 1000 }
+        Driver { app, now: 1000, pen_lift: None }
     }
 
+    /// Sends an input as a player gives it, 10 ms after the last input. A new touch does not come
+    /// from the hand: it starts `HAND_TOUCH_MS` or more after the last pen lift (INP-20). A test of a
+    /// hand touch uses `hand_down`, `touch_down_after_lift` or `send_at_once`.
     pub fn send(&mut self, i: Input) {
+        if let (Input::TouchDown { .. }, Some(lift)) = (&i, self.pen_lift) {
+            let first = lift + HAND_TOUCH_MS - 10;
+            if self.now < first {
+                self.wait(first - self.now);
+            }
+        }
+        self.send_at_once(i);
+    }
+
+    /// Sends an input 10 ms after the last input, also if it is a touch less than `HAND_TOUCH_MS`
+    /// after the last pen lift.
+    pub fn send_at_once(&mut self, i: Input) {
         self.now += 10;
+        if matches!(i, Input::PenUp { .. }) {
+            self.pen_lift = Some(self.now);
+        }
         self.app.handle(i, self.now);
+    }
+
+    /// The press of touch 1 at exactly `ms` after the last pen lift. It ticks the app up to that
+    /// time. The test must not be later than that time already.
+    pub fn touch_down_after_lift(&mut self, ms: u64, x: f32, y: f32) {
+        let at = self.pen_lift.expect("a pen lift") + ms;
+        assert!(self.now <= at, "the test is at {} and the press must be at {at}", self.now);
+        self.wait(at - self.now);
+        self.app.handle(Input::TouchDown { id: 1, x, y }, at);
+    }
+
+    /// The press of a hand touch (touch 1): the first possible time after the last pen lift is the
+    /// time of the next input. The tablet sends it approximately 97 ms after the lift (INP-20).
+    pub fn hand_down(&mut self, x: f32, y: f32) {
+        self.send_at_once(Input::TouchDown { id: 1, x, y });
+    }
+
+    /// A full tap of a hand touch at a point: the press and the release (INP-20).
+    pub fn hand_tap(&mut self, x: f32, y: f32) {
+        self.hand_down(x, y);
+        self.send_at_once(Input::TouchUp { id: 1, x, y });
     }
 
     pub fn wait(&mut self, ms: u64) {

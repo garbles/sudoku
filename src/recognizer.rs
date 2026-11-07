@@ -9,6 +9,9 @@
 //! include characters that are not 1 to 9 (0, letters and symbols). Ink that is nearer to those
 //! examples is "not 1–9". Before the match, the recognizer rejects ink that is too small, ink with two
 //! or more characters side by side (for example 12) and scribbles.
+//!
+//! Each example is stored in the two pen directions (`PEN_DIRECTIONS`, INP-17). The ink of the player
+//! is not reversed: its features are calculated one time, as written (INP-18).
 
 use std::sync::OnceLock;
 
@@ -48,6 +51,12 @@ const DIGIT_COPIES: [(f32, f32, f32); 9] = [
     (0.0, 0.0, 0.8),
     (0.0, 0.0, 1.2),
 ];
+/// The one copy of an example that is not a digit: no change.
+const OTHER_COPIES: [(f32, f32, f32); 1] = [(0.0, 0.0, 1.0)];
+/// The stored items of each copy of an example: one as written and one as its full reversal (the last
+/// stroke first, and each stroke from its end to its start). `example_features` adds them together,
+/// thus a copy with only one direction cannot occur (INP-17).
+const PEN_DIRECTIONS: usize = 2;
 const DIM: usize = GRID * GRID * DIRS + 2 * PATH_POINTS;
 
 /// Reads the ink with the examples of all 60 writers. If `read_early` started a reading of the
@@ -76,8 +85,9 @@ pub fn matches(strokes: &[Stroke]) -> Option<Match> {
     default().matches(strokes)
 }
 
-/// Prepares the examples (approximately 19 000). The app calls this when it starts, so that the first
-/// number does not wait for it.
+/// Prepares the stored examples (approximately 40 000). The app calls this one time at each start, on
+/// a background thread, so that the first number does not wait for it. The features stay in memory
+/// only, and not on disk (R§5.1).
 pub fn warm_up() {
     default();
 }
@@ -112,9 +122,11 @@ pub fn owner_examples() -> &'static [Sample] {
 }
 
 /// Examples with the shapes of the typeface of the screen: a closed 4, a 9 with a round loop and a
-/// straight tail, and a 1 as a straight line, each in both directions of writing. Few writers of the
-/// database write these shapes (or write them from the bottom up), but players copy the digits of the
-/// board. The writer is 0 (not a writer of the database).
+/// straight tail, and a 1 as a straight line. Few writers of the database write these shapes (or write
+/// them from the bottom up), but players copy the digits of the board. The list has each shape one
+/// time: `example_features` adds the reversal, as for all examples. A reversed item in this list also
+/// would store the shape two times in one direction, and duplicates can give one shape more of the K
+/// votes (INP-17). The writer is 0 (not a writer of the database).
 fn typeface_examples() -> &'static [Sample] {
     static S: OnceLock<Vec<Sample>> = OnceLock::new();
     S.get_or_init(|| {
@@ -156,17 +168,13 @@ fn typeface_examples() -> &'static [Sample] {
         ];
         shapes
             .into_iter()
-            .flat_map(|(class, strokes)| {
+            .map(|(class, strokes)| {
                 // The same box of 0..255 as the database (the larger side is 255).
                 let (x0, y0, x1, y1) = bbox(strokes.iter().flatten());
                 let k = 255.0 / (x1 - x0).max(y1 - y0);
                 let strokes: Vec<Stroke> =
                     strokes.iter().map(|st| st.iter().map(|&(x, y)| ((x - x0) * k, (y - y0) * k)).collect()).collect();
-                // Also in the opposite direction: some players write from the bottom up (for example
-                // the tail of a 9 first). The features use the direction of the pen. The examples of
-                // the database already have the directions of their writers.
-                let reversed = strokes.iter().rev().map(|st| st.iter().rev().copied().collect()).collect();
-                [Sample { class, writer: 0, strokes }, Sample { class, writer: 0, strokes: reversed }]
+                Sample { class, writer: 0, strokes }
             })
             .collect()
     })
@@ -243,7 +251,8 @@ impl Recognizer {
         // parts of the list, and the result keeps the order of the list.
         let samples: Vec<&Sample> = samples.collect();
         let threads = threads();
-        // Each part gives the classes and the features (DIM values for each class, in one vector).
+        // Each part gives the classes and the features of the stored items (DIM values for each
+        // class, in one vector).
         let parts: Vec<(Vec<u8>, Vec<f32>)> = std::thread::scope(|scope| {
             let handles: Vec<_> = samples
                 .chunks(samples.len().div_ceil(threads).max(1))
@@ -251,8 +260,8 @@ impl Recognizer {
                     scope.spawn(move || {
                         // The exact size at the start: a vector that grows makes copies and frees
                         // large blocks.
-                        let copies: usize = part.iter().map(|s| if s.class == 0 { 1 } else { DIGIT_COPIES.len() }).sum();
-                        let (mut classes, mut features) = (Vec::with_capacity(copies), Vec::with_capacity(copies * DIM));
+                        let items: usize = part.iter().map(|s| copies_of(s.class).len() * PEN_DIRECTIONS).sum();
+                        let (mut classes, mut features) = (Vec::with_capacity(items), Vec::with_capacity(items * DIM));
                         for s in part {
                             example_features(s, &mut classes, &mut features);
                         }
@@ -307,6 +316,8 @@ impl Recognizer {
         if length / size > MAX_DENSITY {
             return None;
         }
+        // The features of the ink, one time and as written (INP-18). The stored items have the two
+        // pen directions (INP-17).
         let f = features_of(&strokes)?;
 
         // The threads scan ranges of the blocks. Each range keeps all the examples that it accepts,
@@ -394,21 +405,27 @@ impl Nearest {
     }
 }
 
-/// The class and the features of an example and of its copies (DIGIT_COPIES: digits also get copies
-/// with a different slant, rotation and width).
-/// Adds the class to `classes` and the DIM features to `features` for each copy whose features
-/// are known.
+/// The copies of an example of `class`: digits also get copies with a different slant, rotation and
+/// width.
+fn copies_of(class: u8) -> &'static [(f32, f32, f32)] {
+    if class == 0 { &OTHER_COPIES } else { &DIGIT_COPIES }
+}
+
+/// The class and the features of an example and of its copies (`copies_of`), each in the
+/// PEN_DIRECTIONS directions (INP-17): first as written, then fully reversed.
+/// Adds the class to `classes` and the DIM features to `features` for each stored item. A copy with
+/// no size has no features, thus it gives no item in the two directions.
 fn example_features(s: &Sample, classes: &mut Vec<u8>, features: &mut Vec<f32>) {
-    let copies: &[(f32, f32, f32)] = if s.class == 0 { &[(0.0, 0.0, 1.0)] } else { &DIGIT_COPIES };
-    for &(k, rot, sx) in copies {
+    for &(k, rot, sx) in copies_of(s.class) {
         let (sin, cos) = rot.to_radians().sin_cos();
         let ink = Flat::new(&s.strokes, |(x, y)| {
             let (x, y) = ((x + k * (255.0 - y) - 128.0) * sx, y - 128.0);
             (x * cos - y * sin + 128.0, x * sin + y * cos + 128.0)
         });
-        if flat_features(ink, features) {
-            classes.push(s.class);
-        }
+        let Some(ink) = normalize(ink) else { continue };
+        flat_features(&ink, features);
+        flat_features(&ink.reversed(), features);
+        classes.extend([s.class; PEN_DIRECTIONS]);
     }
 }
 
@@ -500,6 +517,15 @@ impl Flat {
         Flat { points, starts }
     }
 
+    /// The full reversal: the last stroke first, and each stroke from its end to its start.
+    fn reversed(mut self) -> Flat {
+        let total = self.points.len();
+        self.points.reverse();
+        self.starts.reverse();
+        self.starts.iter_mut().for_each(|s| *s = total - *s);
+        self
+    }
+
     fn strokes(&self) -> impl Iterator<Item = &[Point]> {
         self.starts.windows(2).map(|w| &self.points[w[0]..w[1]])
     }
@@ -519,20 +545,21 @@ fn normalize(mut ink: Flat) -> Option<Flat> {
     Some(ink)
 }
 
-/// The feature vector: the pen directions in a grid, then the pen path.
+/// The feature vector of the strokes, as written: the pen directions in a grid, then the pen path.
+/// None if the ink has no size.
 fn features_of(strokes: &[Stroke]) -> Option<Vec<f32>> {
+    let ink = normalize(Flat::new(strokes, |p| p))?;
     let mut f = Vec::with_capacity(DIM);
-    flat_features(Flat::new(strokes, |p| p), &mut f).then_some(f)
+    flat_features(&ink, &mut f);
+    Some(f)
 }
 
-/// Adds the DIM features of the ink to `out`. False (and nothing added) if the ink has no size.
-fn flat_features(ink: Flat, out: &mut Vec<f32>) -> bool {
-    let Some(ns) = normalize(ink) else { return false };
+/// Adds the DIM features of the ink (from `normalize`) to `out`.
+fn flat_features(ink: &Flat, out: &mut Vec<f32>) {
     let start = out.len();
-    directions(&ns, out);
-    pen_path(&ns.points, out);
+    directions(ink, out);
+    pen_path(&ink.points, out);
     debug_assert_eq!(out.len() - start, DIM);
-    true
 }
 
 /// The length of the pen movement in each grid cell and each of 8 directions (with the sense of the
@@ -659,6 +686,12 @@ mod tests {
         s.strokes.iter().map(|st| st.iter().map(|&(x, y)| (300.0 + x * 0.4, 600.0 + y * 0.4)).collect()).collect()
     }
 
+    /// The full reversal of the ink, on the lists of strokes: the last stroke first, and each stroke
+    /// from its end to its start. This does not use `Flat::reversed`.
+    fn full_reversal(ink: &[Stroke]) -> Vec<Stroke> {
+        ink.iter().rev().map(|s| s.iter().rev().copied().collect()).collect()
+    }
+
     #[test]
     fn a_reading_that_starts_early_gives_the_same_result() {
         // INP-5, INP-6: the app starts the reading at each pen lift. The result at the end of the
@@ -696,13 +729,36 @@ mod tests {
         }
     }
 
-    #[test]
-    fn writer_independent_accuracy() {
-        let (r, test) = split();
+    /// The result of one ink of the test set: the class, the reading of the ink as written, and the
+    /// reading of its full reversal.
+    struct Reading {
+        class: u8,
+        written: Option<u8>,
+        reversed: Option<u8>,
+    }
+
+    /// The readings of the 3360 inks of writers 41 to 60, with the examples of writers 1 to 40 (INP-19).
+    /// The accuracy tests use the same readings, thus the test run makes them one time only.
+    fn readings() -> &'static [Reading] {
+        static R: OnceLock<Vec<Reading>> = OnceLock::new();
+        R.get_or_init(|| {
+            let (r, test) = split();
+            test.iter()
+                .map(|s| {
+                    let ink = place(s);
+                    Reading { class: s.class, written: r.read(&ink), reversed: r.read(&full_reversal(&ink)) }
+                })
+                .collect()
+        })
+    }
+
+    /// The accuracy limits for the 360 digits and the 3000 other characters of the test set. The
+    /// result of `got` is the reading of each ink.
+    fn assert_accuracy(name: &str, got: impl Fn(&Reading) -> Option<u8>) {
         let (mut n, mut ok, mut wrong) = (0, 0, 0);
         let (mut on, mut rejected) = (0, 0);
-        for s in &test {
-            let got = r.read(&place(s));
+        for s in readings() {
+            let got = got(s);
             if s.class != 0 {
                 n += 1;
                 match got {
@@ -717,18 +773,247 @@ mod tests {
                 }
             }
         }
+        assert_eq!((n, on), (360, 3000), "{name}: the inks of the test set");
         let (acc, wrong_rate, rej) = (ok as f64 / n as f64, wrong as f64 / n as f64, rejected as f64 / on as f64);
         eprintln!(
-            "new writers: {:.1}% of digits correct, {:.1}% a wrong digit; {:.1}% of other characters rejected",
+            "{name}: {:.1}% of digits correct, {:.1}% a wrong digit; {:.1}% of other characters rejected",
             acc * 100.0,
             wrong_rate * 100.0,
             rej * 100.0
         );
-        // Measured: 97.8% correct, 0.8% a wrong digit, 91.3% of other characters rejected. The
-        // target of REQUIREMENTS.md §5.1 is 96% correct and 1.2% wrong.
-        assert!(acc >= 0.975, "digits read correctly: {:.1}%", acc * 100.0);
-        assert!(wrong_rate <= 0.012, "digits read as a different digit: {:.1}%", wrong_rate * 100.0);
-        assert!(rej >= 0.905, "other characters rejected: {:.1}%", rej * 100.0);
+        // Measured (macOS, one run): 98.6% correct, 0.6% a wrong digit, 90.5% of other characters
+        // rejected. The limit 90.0% has owner approval (2026-11-06). The examples of the owner are
+        // also in this test, thus an added example can change the result. The target of
+        // REQUIREMENTS.md §5.1 is 96% correct and 1.2% wrong.
+        assert!(acc >= 0.975, "{name}: digits read correctly: {:.1}%", acc * 100.0);
+        assert!(wrong_rate <= 0.012, "{name}: digits read as a different digit: {:.1}%", wrong_rate * 100.0);
+        assert!(rej >= 0.90, "{name}: other characters rejected: {:.1}%", rej * 100.0);
+    }
+
+    #[test]
+    fn writer_independent_accuracy() {
+        // R§5.1: the ink as written.
+        assert_accuracy("new writers", |s| s.written);
+    }
+
+    #[test]
+    fn full_reversals_of_new_writers_agree_with_the_accuracy_limits() {
+        // R§5.1, INP-19: the full reversal of each ink, with the same limits as the ink as written.
+        assert_accuracy("new writers, full reversals", |s| s.reversed);
+    }
+
+    #[test]
+    fn an_ink_and_its_full_reversal_give_the_same_result() {
+        // INP-19: this rule is for this test set only. It is not for all ink, and it is not for partly
+        // reversed ink.
+        let all = readings();
+        assert_eq!(all.len(), 3360);
+        let different: Vec<_> =
+            all.iter().enumerate().filter(|(_, s)| s.written != s.reversed).map(|(i, s)| (i, s.class, s.written, s.reversed)).collect();
+        assert!(different.is_empty(), "{} of 3360 inks (index, class, written, reversed): {different:?}", different.len());
+    }
+
+    /// The stored items of one sample: the classes, and DIM features for each item.
+    fn stored_items(s: &Sample) -> (Vec<u8>, Vec<f32>) {
+        let (mut classes, mut features) = (Vec::new(), Vec::new());
+        example_features(s, &mut classes, &mut features);
+        (classes, features)
+    }
+
+    /// True if the two lists of features are the same, bit for bit.
+    fn same_bits(a: &[f32], b: &[f32]) -> bool {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.to_bits() == y.to_bits())
+    }
+
+    /// INP-17: the quantity of stored items of a sample, and of the items in each direction. The stored
+    /// items of a copy are at known positions: first as written, then the full reversal. The full
+    /// reversal of the sample has the same items in the opposite order. Thus the test counts the
+    /// positions that agree. It does not search for equal items, because the full reversal of a
+    /// symmetrical shape can be equal to the shape.
+    fn assert_two_directions(name: &str, s: &Sample) {
+        let want = if s.class == 0 { 2 } else { 18 };
+        let (classes, features) = stored_items(s);
+        assert_eq!(classes.len(), want, "{name}: stored items of class {}", s.class);
+        assert!(classes.iter().all(|&c| c == s.class), "{name}: classes of the stored items");
+        assert_eq!(features.len(), want * DIM, "{name}: features of the stored items");
+
+        let (_, opposite) = stored_items(&Sample { class: s.class, writer: s.writer, strokes: full_reversal(&s.strokes) });
+        assert_eq!(opposite.len(), want * DIM, "{name}: features of the items of the full reversal");
+        let item = |list: &'_ [f32], k: usize| -> Vec<f32> { list[k * DIM..(k + 1) * DIM].to_vec() };
+        let same = |k: usize, other: usize| same_bits(&item(&features, k), &item(&opposite, other));
+        let written = (0..want).step_by(2).filter(|&k| same(k, k + 1)).count();
+        let reversed = (1..want).step_by(2).filter(|&k| same(k, k - 1)).count();
+        assert_eq!((written, reversed), (want / 2, want / 2), "{name}: items as written and items fully reversed");
+    }
+
+    /// Ink with many strokes: empty strokes at the start, in the middle and at the end, and strokes of
+    /// different lengths, in a box of 0..255.
+    fn many_strokes() -> Vec<Stroke> {
+        vec![
+            vec![],
+            vec![(10.0, 10.0)],
+            vec![(20.0, 30.0), (200.0, 40.0)],
+            vec![],
+            vec![],
+            vec![(50.0, 60.0), (60.0, 200.0), (240.0, 250.0)],
+            vec![(100.0, 100.0), (90.0, 10.0)],
+            vec![],
+        ]
+    }
+
+    #[test]
+    fn each_example_has_two_or_eighteen_stored_items_in_the_two_directions() {
+        // INP-17, R§5.1: for all classes and sources, 2 items for "not 1-9" and 18 for a digit. Half are
+        // as written, and half are the full reversal.
+        let sources = [("database", samples()), ("typeface", typeface_examples()), ("owner", owner_examples())];
+        let mut total = 0;
+        for (name, list) in sources {
+            assert!(!list.is_empty(), "{name}: no samples");
+            for (i, s) in list.iter().enumerate() {
+                assert_two_directions(&format!("{name} {i}"), s);
+                total += if s.class == 0 { 2 } else { 18 };
+            }
+        }
+        assert!(samples().iter().any(|s| s.class == 0) && samples().iter().any(|s| s.class != 0));
+        // The recognizer of the app stores these items, and no other items.
+        assert_eq!(default().classes.len(), total, "stored items of the app");
+        assert_eq!(default().blocks.len(), total.div_ceil(LANES) * DIM * LANES, "stored features of the app");
+
+        // Many strokes with empty strokes, and a shape with a full reversal that is equal to the shape.
+        for class in [0, 7] {
+            assert_two_directions("many strokes", &Sample { class, writer: 0, strokes: many_strokes() });
+            let symmetrical = vec![vec![(0.0, 0.0), (200.0, 100.0), (0.0, 0.0)]];
+            assert_eq!(full_reversal(&symmetrical), symmetrical);
+            assert_two_directions("symmetrical", &Sample { class, writer: 0, strokes: symmetrical });
+        }
+    }
+
+    #[test]
+    fn a_typeface_shape_has_no_separate_reversed_item() {
+        // INP-17: if the list has a shape and also its reversal, one shape has two items in one direction.
+        // The test compares items of different shapes, thus a symmetrical shape does not change it.
+        let copies: Vec<(u8, Vec<f32>)> = typeface_examples().iter().map(|s| (s.class, stored_items(s).1)).collect();
+        for (i, (_, a)) in copies.iter().enumerate() {
+            for (j, (_, b)) in copies.iter().enumerate().skip(i + 1) {
+                for (x, y) in a.chunks_exact(DIM).flat_map(|x| b.chunks_exact(DIM).map(move |y| (x, y))) {
+                    assert!(!same_bits(x, y), "the typeface shapes {i} and {j} have the same stored item");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_copy_with_no_size_has_no_item_in_the_two_directions() {
+        // INP-17: a copy with only one direction must not occur. Ink with no size has no features.
+        for strokes in [vec![], vec![vec![]], vec![vec![(9.0, 9.0)]], vec![vec![(9.0, 9.0), (9.0, 9.0)], vec![], vec![(9.0, 9.0)]]] {
+            for class in [0, 5] {
+                let (classes, features) = stored_items(&Sample { class, writer: 0, strokes: strokes.clone() });
+                assert!(classes.is_empty() && features.is_empty(), "class {class}, strokes {strokes:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_full_reversal_keeps_the_limits_of_the_strokes() {
+        // INP-17 (full reversal): `full_reversal` gives the term of INVARIANTS.md.
+        let ink = vec![vec![(1.0, 2.0), (3.0, 4.0)], vec![], vec![(5.0, 6.0)]];
+        assert_eq!(full_reversal(&ink), vec![vec![(5.0, 6.0)], vec![], vec![(3.0, 4.0), (1.0, 2.0)]]);
+
+        let check = |ink: &[Stroke]| {
+            let once = Flat::new(ink, |p| p).reversed();
+            assert_eq!(once.starts.len(), ink.len() + 1, "{ink:?}");
+            assert_eq!((once.starts[0], *once.starts.last().unwrap()), (0, once.points.len()), "{ink:?}");
+            assert!(once.starts.windows(2).all(|w| w[0] <= w[1]), "{ink:?}");
+            assert_eq!(once.strokes().map(<[Point]>::to_vec).collect::<Vec<_>>(), full_reversal(ink), "{ink:?}");
+
+            let (twice, first) = (once.reversed(), Flat::new(ink, |p| p));
+            assert_eq!((&twice.points, &twice.starts), (&first.points, &first.starts), "{ink:?}");
+            assert_eq!(twice.strokes().map(<[Point]>::to_vec).collect::<Vec<_>>(), ink, "{ink:?}");
+        };
+        // All the parts of the ink with many strokes: an empty stroke can be first or last, and an ink
+        // can have no strokes.
+        let many = many_strokes();
+        for first in 0..=many.len() {
+            for last in first..=many.len() {
+                check(&many[first..last]);
+            }
+        }
+        // The real examples.
+        for s in samples().iter().chain(typeface_examples()).chain(owner_examples()) {
+            check(&s.strokes);
+        }
+    }
+
+    /// A recognizer with exactly these items (it does not add the other direction).
+    fn with_items(items: &[(u8, &[f32])]) -> Recognizer {
+        let mut blocks = vec![0f32; items.len().div_ceil(LANES) * DIM * LANES];
+        for (i, (_, f)) in items.iter().enumerate() {
+            for (j, &v) in f.iter().enumerate() {
+                blocks[(i / LANES * DIM + j) * LANES + i % LANES] = v;
+            }
+        }
+        Recognizer { classes: items.iter().map(|i| i.0).collect(), blocks, alpha: ALPHA }
+    }
+
+    #[test]
+    fn the_ink_of_the_player_is_read_as_written() {
+        // INP-18: the recognizer in this test stores each shape in one direction only. If the app also
+        // read the reversal of the ink, or read only the reversal, then the distances show it. A test
+        // cannot see a second calculation that has no effect on the result.
+        let mut inks = 0;
+        for s in samples().iter().filter(|s| s.writer == 41 && s.class != 0) {
+            let (ink, reversal) = (place(s), full_reversal(&place(s)));
+            let (f, g) = (features_of(&ink).unwrap(), features_of(&reversal).unwrap());
+            assert_eq!(f.len(), DIM, "class {}: one set of features", s.class);
+            assert!(!same_bits(&f, &g), "class {}: the ink must not be symmetrical", s.class);
+            let far: f32 = f.iter().zip(&g).map(|(a, b)| (a - b) * (a - b)).sum();
+
+            // The features are the features of the first stored item: as written, with no change.
+            let (_, stored) = stored_items(s);
+            assert!(same_bits(&features_of(&s.strokes).unwrap(), &stored[..DIM]), "class {}: as written", s.class);
+
+            for threads in [1, 4] {
+                let only_written = with_items(&[(s.class, f.as_slice())]);
+                let m = only_written.matches_in(&ink, threads).unwrap();
+                assert_eq!((m.digit, m.digit_distance), (s.class, 0.0), "class {}: the ink", s.class);
+                let m = only_written.matches_in(&reversal, threads).unwrap();
+                assert!((m.digit_distance - far).abs() <= far * 1e-3 && far > 0.0, "class {}: the reversal: {m:?}, far {far}", s.class);
+
+                let only_reversed = with_items(&[(s.class, g.as_slice())]);
+                let m = only_reversed.matches_in(&reversal, threads).unwrap();
+                assert_eq!((m.digit, m.digit_distance), (s.class, 0.0), "class {}: the reversal", s.class);
+                let m = only_reversed.matches_in(&ink, threads).unwrap();
+                assert!((m.digit_distance - far).abs() <= far * 1e-3, "class {}: the ink: {m:?}, far {far}", s.class);
+            }
+
+            // The result of the reading: the digit as written, and "not 1-9" as reversed.
+            let r = with_items(&[(s.class, f.as_slice()), (0, g.as_slice())]);
+            assert_eq!(r.read(&ink), Some(s.class), "class {}: the ink", s.class);
+            assert_eq!(r.read(&reversal), None, "class {}: the reversal", s.class);
+            inks += 1;
+        }
+        // The database has 2 samples of each digit for each writer.
+        assert_eq!(inks, 18);
+    }
+
+    #[test]
+    fn the_ink_is_compared_with_all_stored_items() {
+        // INP-18: the item that agrees with the ink can be at each position of the stored items, also
+        // in the last block, which has empty lanes.
+        let s = samples().iter().find(|s| s.writer == 41 && s.class == 4).unwrap();
+        let ink = place(s);
+        let (f, g) = (features_of(&ink).unwrap(), features_of(&full_reversal(&ink)).unwrap());
+        let count = 3 * LANES + 5;
+        for position in 0..count {
+            let items: Vec<(u8, &[f32])> =
+                (0..count).map(|i| if i == position { (s.class, f.as_slice()) } else { (0, g.as_slice()) }).collect();
+            let r = with_items(&items);
+            for threads in 1..=4 {
+                let m = r.matches_in(&ink, threads).unwrap();
+                assert_eq!((m.digit, m.digit_distance), (s.class, 0.0), "position {position}, {threads} ranges");
+                assert!(m.other_distance > 0.0, "position {position}, {threads} ranges");
+            }
+        }
     }
 
     #[test]
@@ -818,7 +1103,8 @@ mod tests {
         // tests/fixtures/owner-ink.jsonl: the ink log of the owner on the device (2026-10-25): five
         // 4s, six 9s and six 8s. The owner writes the 4 and the 9 like the typeface, from the bottom
         // up. The typeface examples (`typeface_examples`) were made after an examination of this ink,
-        // thus this test is not independent; `writer_independent_accuracy` is.
+        // and each example also has a reversed item (INP-17), which can agree with ink from the bottom
+        // up. Thus this test is not independent; `writer_independent_accuracy` is.
         let want = [4, 4, 4, 4, 4, 9, 9, 9, 9, 9, 9, 8, 8, 8, 8, 8, 8];
         let log = include_str!("../tests/fixtures/owner-ink.jsonl");
         for (i, (line, &d)) in log.lines().zip(want.iter()).enumerate() {

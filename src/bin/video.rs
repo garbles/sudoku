@@ -189,7 +189,7 @@ fn main() {
     let fonts = Fonts::for_tools().expect("fonts");
 
     let text = std::fs::read_to_string(script_path).expect("script");
-    let script = match parse(&text, sudoku::app::DEFAULT_PAUSE_MS) {
+    let script = match parse(&text, sudoku::app::RECOGNITION_PAUSE_MS) {
         Ok(s) => s,
         Err(e) => {
             eprintln!("{script_path}: {e}");

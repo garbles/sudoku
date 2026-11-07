@@ -175,7 +175,7 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   game panel is open, the app draws the seed of the next game and makes its puzzle in the
   background (`generate_early`); Start new game then uses it.
 - `solver.rs`: the human-style solver. It grades a puzzle by the most difficult technique it needs.
-- `recognizer.rs`: reads handwriting in a cell ($P point-cloud recognizer with templates). Up to 4
+- `recognizer.rs`: reads handwriting in a cell (it compares the pen direction and pen path features of the ink with the nearest examples). All examples are stored in both pen directions, and the features are calculated at each start. Up to 4
   threads scan ranges of the examples; the main thread plays the accepted examples of all ranges
   again in order, thus the result is the same bit for bit. At each pen lift, the app starts the
   reading of the pending ink on a background thread (`read_early`). At the end of the pause,

@@ -7,7 +7,7 @@ mod inv_groups;
 
 use common::*;
 use inv_groups::{board_color_error, game_with_full_row, group_cells, outside_clash, palette_rgb, ROW};
-use sudoku::app::{new_game, App, Input, Menu, Panel, Screen, Tool, OVERLAY_MS};
+use sudoku::app::{new_game, App, Input, Menu, Panel, Screen, Tool, OVERLAY_MS, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
 use sudoku::font::{Anchor, Fonts, Weight};
 use sudoku::game::{cells, mark_bit, Cell, Game};
 use sudoku::generator::MODES;
@@ -1854,5 +1854,214 @@ fn a_switch_that_is_off_has_the_same_pixels_for_the_two_hands() {
             .collect();
         layout::set_orientation(layout::Orientation::Portrait);
         assert_eq!(different, vec![], "NAV-15: {o:?}: the pixels (from the left of the panel) that are different");
+    }
+}
+
+// ---- HLT-4, HLT-9, INP-22: the highlight and the ink on the screen.
+
+/// The first starting number of the board and its digit.
+fn first_number(g: &Game) -> (Cell, u8) {
+    let c = cells().find(|&c| g.is_given(c)).unwrap();
+    (c, g.value_at(c))
+}
+
+#[test]
+fn a_highlight_shows_with_the_menu_and_each_panel() {
+    // HLT-4, BRD-7, R§6.2: all layouts. The cells that the panel does not cover have the color of the
+    // highlight. A cell under the panel does not show it.
+    let fonts = fonts();
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let mut d = Driver::new(140);
+        d.app.settings.color_highlight = Color::Orange;
+        let (given, v) = first_number(&d.app.game);
+        let (x, y) = micro_center(given, 5);
+        d.pen_tap(x, y);
+        assert_eq!(d.app.ui.highlight, Some(v));
+        d.button(Button::Menu);
+        for button in [None, Some(Button::Colors), Some(Button::Settings), Some(Button::Checkpoints), Some(Button::NewGame)] {
+            let what = format!("{o:?}, right-handed {right_handed}, {button:?}");
+            if let Some(b) = button {
+                d.button(b);
+                assert!(d.app.ui.menu.panel().is_some(), "{what}");
+            }
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-4: {what}");
+            let panel = match d.app.ui.menu.panel() {
+                Some(Panel::Colors) => Some(layout::colors_panel()),
+                Some(Panel::Settings) => Some(layout::settings_panel(d.app.update.has_row())),
+                Some(Panel::Checkpoints) => Some(layout::ckp_panel(0)),
+                Some(Panel::NewGame) => Some(layout::ng_panel()),
+                None => None,
+            };
+            let pm = draw_app(&d.app, &fonts);
+            let mut shown = 0;
+            for cell in cells().filter(|&c| d.app.game.value_at(c) == v) {
+                let (cx, cy) = layout::cell_origin(cell);
+                let covered = panel.is_some_and(|p| p.x0 < cx + CELL && cx < p.x1 && p.y0 < cy + CELL && cy < p.y1);
+                if !covered {
+                    assert_eq!(rgb_at(&pm, cx + 8, cy + 8), palette_rgb(Color::Orange), "HLT-4, BRD-7: {what}: the cell {cell:?}");
+                    shown += 1;
+                }
+            }
+            assert!(shown > 0, "HLT-4: {what}: the test needs a cell that the panel does not cover");
+            if let Some(b) = button {
+                d.button(b);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_touch_from_a_filled_cell_changes_no_pixel() {
+    // INP-22, HLT-9, MRK-13: the state and the real output (`present.rs`) in all layouts. A pen press on a
+    // number and a stroke from a number change no pixel, the pen area does not start and no update
+    // occurs before the lift. A press on an empty cell shows ink.
+    use sudoku::present::{Presenter, Update};
+    let fonts = fonts();
+    let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let what = format!("{o:?}, right-handed {right_handed}");
+        let mut d = Driver::new(141);
+        let mut p = Presenter::new();
+        p.use_pen_region = true;
+        let mut fb = vec![0u8; w * h * 3];
+        let mut updates: Vec<Update> = Vec::new();
+        for _ in 0..30 {
+            d.now += 30;
+            d.app.tick(d.now);
+            p.present(&mut d.app, &fonts, &mut fb, d.now, |u| updates.push(u));
+        }
+        p.take_region_change();
+        let (given, _) = first_number(&d.app.game);
+        let (x, y) = micro_center(given, 5);
+        let before = fb.clone();
+        let screen = draw_app(&d.app, &fonts);
+        updates.clear();
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert!(d.app.live_stroke.is_none(), "INP-22: {what}");
+        assert_eq!(differences(&draw_app(&d.app, &fonts), &screen), vec![], "INP-22: {what}: the pixels of the press");
+        p.present(&mut d.app, &fonts, &mut fb, d.now, |u| updates.push(u));
+        for k in 1..5 {
+            d.send(Input::PenMove { x: x + 40.0 * k as f32, y: y + 40.0 * k as f32 });
+            assert_eq!(differences(&draw_app(&d.app, &fonts), &screen), vec![], "INP-22: {what}: the pixels of the stroke");
+            p.present(&mut d.app, &fonts, &mut fb, d.now, |u| updates.push(u));
+            assert_eq!(p.take_region_change(), None, "INP-22: {what}: the pen area starts on a filled cell");
+        }
+        assert!(fb == before, "INP-22: {what}: the framebuffer changed");
+        assert_eq!(updates, vec![], "INP-22: {what}: an update");
+        d.send(Input::PenUp { x: x + 160.0, y: y + 160.0 });
+        d.wait(WRITING_IDLE_MS);
+        p.present(&mut d.app, &fonts, &mut fb, d.now, |u| updates.push(u));
+
+        // The other side of the rule: a stroke from an empty cell shows ink and starts the pen area.
+        let cell = empty_cell(&d.app.game);
+        let (x, y) = micro_center(cell, 5);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        d.send(Input::PenMove { x: x + 60.0, y: y + 60.0 });
+        assert_ne!(differences(&draw_app(&d.app, &fonts), &screen), vec![], "INP-22: {what}: no ink on an empty cell");
+        p.present(&mut d.app, &fonts, &mut fb, d.now, |u| updates.push(u));
+        assert!(p.take_region_change().is_some_and(|r| r.is_some()), "INP-2: {what}: the pen area starts");
+    }
+}
+
+/// True if each pixel of the cell in `fb` has the same value as in `want`.
+fn cell_same(fb: &[u8], want: &[u8], cell: Cell) -> bool {
+    let w = layout::PHYSICAL_W as usize;
+    let (cx, cy) = layout::cell_origin(cell);
+    let (x0, y0, pw, ph) = layout::physical_rect((cx, cy, cx + CELL - 1, cy + CELL - 1));
+    let (x0, y0, pw, ph) = (x0 as usize, y0 as usize, pw as usize, ph as usize);
+    (y0..y0 + ph).all(|y| fb[(y * w + x0) * 3..(y * w + x0 + pw) * 3] == want[(y * w + x0) * 3..(y * w + x0 + pw) * 3])
+}
+
+#[test]
+fn the_removal_of_a_highlight_goes_in_one_redraw_with_the_result_of_the_action() {
+    // HLT-9, HLT-2, INP-5, INP-16: the real output (`present.rs`) in all layouts. While the pen writes or
+    // taps, the pixels of the highlight do not change. The first framebuffer without the highlight already
+    // has the result: a tap on a different number, a mark, and a number that the app reads.
+    use sudoku::present::Presenter;
+    let fonts = fonts();
+    let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let what = format!("{o:?}, right-handed {right_handed}");
+        let mut d = Driver::new(142);
+        let mut p = Presenter::new();
+        p.use_pen_region = true;
+        p.set_wave_ms(0);
+        let mut fb = vec![0u8; w * h * 3];
+        let settle = |d: &mut Driver, p: &mut Presenter, fb: &mut Vec<u8>| {
+            for _ in 0..60 {
+                d.now += 30;
+                d.app.tick(d.now);
+                p.present(&mut d.app, &fonts, fb, d.now, |_| {});
+            }
+        };
+        settle(&mut d, &mut p, &mut fb);
+        let (given, v) = first_number(&d.app.game);
+        let other = cells().find(|&c| d.app.game.is_given(c) && d.app.game.value_at(c) != v).unwrap();
+        let w_digit = d.app.game.value_at(other);
+        let tap = |d: &mut Driver, cell: Cell, digit: u8, p: &mut Presenter, fb: &mut Vec<u8>| {
+            let (x, y) = micro_center(cell, digit);
+            d.send(Input::PenDown { x, y, tool: Tool::Pen });
+            p.present(&mut d.app, &fonts, fb, d.now, |_| {});
+            let at_press = fb.clone();
+            d.send(Input::PenUp { x, y });
+            at_press
+        };
+
+        // A different number. The press has no effect on the framebuffer. The two cells change together.
+        tap(&mut d, given, 5, &mut p, &mut fb);
+        settle(&mut d, &mut p, &mut fb);
+        let highlighted = fb.clone();
+        let at_press = tap(&mut d, other, 5, &mut p, &mut fb);
+        assert!(at_press == highlighted, "HLT-9: {what}: the press on a different number changed the framebuffer");
+        p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+        assert_eq!(d.app.ui.highlight, Some(w_digit), "{what}");
+        let one_present = fb.clone();
+        settle(&mut d, &mut p, &mut fb);
+        assert!(one_present == fb, "HLT-9: {what}: a tap needs a second redraw");
+        assert!(!cell_same(&fb, &highlighted, given), "HLT-3: {what}: the old cell does not change");
+        assert!(!cell_same(&fb, &highlighted, other), "HLT-3: {what}: the new cell does not change");
+
+        // Writing. The highlight stays on the screen during the ink and the pause. The read removes it in
+        // the redraw that shows the number.
+        let cell = empty_cell(&d.app.game);
+        let highlighted = fb.clone();
+        let digit = d.app.game.solution[cell.0 as usize][cell.1 as usize];
+        for s in digit_ink(cell, digit) {
+            d.send(Input::PenDown { x: s[0].0, y: s[0].1, tool: Tool::Pen });
+            p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+            for q in &s[1..] {
+                d.send(Input::PenMove { x: q.0, y: q.1 });
+                p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+            }
+            let last = s[s.len() - 1];
+            d.send(Input::PenUp { x: last.0, y: last.1 });
+            p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+        }
+        let lift = d.now;
+        assert!(cell_same(&fb, &highlighted, other), "HLT-9: {what}: the highlight must stay during the ink");
+        // The time goes until 1 ms before the read.
+        d.now = lift + RECOGNITION_PAUSE_MS - 1;
+        d.app.tick(d.now);
+        p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+        assert!(d.app.ui.highlight.is_some() && cell_same(&fb, &highlighted, other), "HLT-9: {what}: the highlight must stay until the read");
+        // After the read, the first framebuffer without the highlight has the number.
+        let mut with_number = None;
+        for _ in 0..60 {
+            d.now += 10;
+            d.app.tick(d.now);
+            p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+            if !cell_same(&fb, &highlighted, other) {
+                with_number = Some(fb.clone());
+                break;
+            }
+        }
+        let with_number = with_number.expect("HLT-2: the highlight does not go from the framebuffer");
+        assert_eq!(d.app.game.value_at(cell), digit, "{what}");
+        settle(&mut d, &mut p, &mut fb);
+        assert!(cell_same(&with_number, &fb, cell), "HLT-9: {what}: the number comes in a second redraw");
+        assert!(cell_same(&with_number, &fb, other), "HLT-9: {what}: the highlight goes in a second redraw");
     }
 }

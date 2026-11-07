@@ -3,12 +3,17 @@
 //!
 //! Rules about a sequence of states (for example CLK-2 or UND-3) are in the tests.
 
-use crate::app::{App, Menu, Panel, Screen, MANUAL_PAGES};
+use crate::app::{App, Menu, Panel, Screen, HAND_TOUCH_MS, MANUAL_PAGES, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
 use crate::game::{cells, mark_bit, Board, Change, Game, Group, MAX_CHECKPOINTS};
 use crate::generator::{count_solutions, is_valid_solution, MODES, V1_MODES, VERSION};
 use crate::layout;
 use crate::settings::Color;
 use crate::update::{has_updates, is_update, PatchChange, UpToDateRow, UpdateState};
+
+// The fixed times of the writing rules. A wrong value does not compile.
+const _: () = assert!(RECOGNITION_PAUSE_MS == 1000, "INP-23");
+const _: () = assert!(WRITING_IDLE_MS == RECOGNITION_PAUSE_MS, "INP-16");
+const _: () = assert!(HAND_TOUCH_MS == 150, "INP-20");
 
 fn fail(rule: &str, msg: impl std::fmt::Display) -> Result<(), String> {
     Err(format!("{rule}: {msg}"))
@@ -245,7 +250,8 @@ pub fn check_app(app: &App) -> Result<(), String> {
     if let Some(h) = ui.highlight {
         ensure!((1..=9).contains(&h), "HLT-2", "highlight {h}");
         ensure!(!g.completed, "HLT-1", "highlight on a complete game");
-        ensure!(app.screen == Screen::Game && ui.menu.panel().is_none(), "HLT-4", "highlight with a panel or a different screen");
+        // A highlight can show with the menu, a panel and waiting ink (HLT-4, HLT-9).
+        ensure!(app.screen == Screen::Game, "HLT-4", "highlight on screen {:?}", app.screen);
     }
     if let Some((cell, _)) = ui.question {
         ensure!(!g.is_filled(cell), "QST-1", "the ? is on a filled cell");
@@ -271,6 +277,14 @@ pub fn check_app(app: &App) -> Result<(), String> {
         ensure!(!g.is_filled(ink.cell), "INP-5", "pending ink on a filled cell");
         ensure!(!g.completed, "INP-5", "pending ink on a complete game");
         ensure!(app.screen == Screen::Game, "INP-5", "pending ink on a different screen");
+    }
+    // INP-22: no ink and no pen area on a filled cell. The stroke that can start the area is on an empty
+    // cell, and a touch that started on a filled cell has no live stroke.
+    if app.pen_on_filled_cell() {
+        ensure!(app.live_stroke.is_none(), "INP-22", "ink of a pen touch that started on a filled cell");
+    }
+    if let Some(cell) = app.writing_stroke().and_then(|s| s.first()).and_then(|&(x, y)| layout::board_cell(x, y)) {
+        ensure!(!g.is_filled(cell), "INP-22", "the pen area of a stroke on the filled cell {cell:?}");
     }
     if app.writing_until.is_some() {
         ensure!(!g.completed && app.screen == Screen::Game, "INP-16", "writing timer on a complete game or a different screen");

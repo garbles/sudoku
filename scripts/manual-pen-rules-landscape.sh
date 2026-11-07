@@ -40,17 +40,16 @@ text 972 290 50 black start "One number per cell"
 text 972 355 38 gray25 start "The app reads your writing when you stop"
 text 972 405 38 gray25 start "for a short time. Thus you can write a"
 text 972 455 38 gray25 start "number with two strokes, for example 4."
-text 972 505 38 gray25 start "Writing on a number has no effect. Erase"
-text 972 555 38 gray25 start "the number first."
-SEVEN='M 40,35 L 102,32 L 62,112'; THREE='M 45,30 C 90,20 100,60 65,68 C 105,72 100,120 45,110'
+text 972 505 38 gray25 start "Writing that starts on a number shows no"
+text 972 555 38 gray25 start "ink. Erase the number first."
 for row in 0 1; do
-  Y=$((600+row*330)); AY=$((Y+CW/2))
+  Y=$((600+row*330))
   if [ $row = 0 ]; then
-    filled 1100 $Y 7 "$GIVEN_BG"; ink 1100 $Y "$THREE"; arrow 1290 1350 $AY; filled 1365 $Y 7 "$GIVEN_BG"
-    text 1320 $((Y+CW+50)) 34 gray25 middle "Starting number: no change"
+    filled 1233 $Y 7 "$GIVEN_BG"
+    text 1320 $((Y+CW+50)) 34 gray25 middle "Starting number: no ink, no change"
   else
-    filled 1100 $Y 4 "" $ENTRY_FG; ink 1100 $Y "$SEVEN"; arrow 1290 1350 $AY; filled 1365 $Y 4 "" $ENTRY_FG
-    text 1320 $((Y+CW+50)) 34 gray25 middle "Your number: no change"
+    filled 1233 $Y 4 "" $ENTRY_FG
+    text 1320 $((Y+CW+50)) 34 gray25 middle "Your number: no ink, no change"
   fi
 done
 

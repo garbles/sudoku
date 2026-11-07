@@ -1352,3 +1352,23 @@ fn the_saved_files_have_no_x_and_the_app_opens_with_no_x() {
     assert_eq!(app.ui.refused, None, "MRK-17: the app opens with no x");
     std::fs::remove_dir_all(&dir).ok();
 }
+
+// ---- HLT-2 item 5, PER-2: a restart.
+
+#[test]
+fn a_restart_of_the_app_removes_a_highlight() {
+    // HLT-2 item 5, PER-2 (owner decision 2026-11-07): the app does not save the highlight, thus it does not
+    // come back at the next start. The game itself comes back.
+    let mut d = Driver::new(701);
+    let given = given_cell(&d.app.game);
+    let (x, y) = micro_center(given, 5);
+    d.pen_tap(x, y);
+    assert_eq!(d.app.ui.highlight, Some(d.app.game.value_at(given)), "the fixture has the highlight");
+    let text = serde_json::to_string(&d.app.game).unwrap();
+    assert!(!text.to_lowercase().contains("highlight"), "HLT-2: the saved game has the highlight");
+    let saved: Game = serde_json::from_str(&text).unwrap();
+    let app = app_with_game(saved, START_TIME, 7);
+    assert_eq!(app.game.value, d.app.game.value, "PER-2: the saved game comes back");
+    assert_eq!(app.ui.highlight, None, "HLT-2, PER-2: no highlight at the start");
+    check_app(&app).unwrap();
+}

@@ -925,6 +925,75 @@ fn the_highlight_is_on_top_of_the_completed_color() {
 }
 
 #[test]
+fn a_highlight_shows_with_the_menu_and_with_each_panel() {
+    // HLT-4, HLT-7: a highlight can show while the menu or a panel is open. No image in images/ shows
+    // this state. In each layout and with each panel, the cells outside the panel have the highlight
+    // color, the other cells do not have it, and the panel does not change. A retained frame gives the
+    // same pixels as a full drawing, when the highlight comes and when it goes.
+    use sudoku::app::{Menu, Panel};
+    use sudoku::layout::{ckp_panel, colors_panel, ng_panel, settings_panel};
+    let fonts = fonts();
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let area = [
+            (Menu::Open(None), None),
+            (Menu::Open(Some(Panel::Colors)), Some(colors_panel())),
+            (Menu::Open(Some(Panel::Settings)), Some(settings_panel(false))),
+            (Menu::Open(Some(Panel::NewGame)), Some(ng_panel())),
+            (Menu::Open(Some(Panel::Checkpoints)), Some(ckp_panel(0))),
+        ];
+        for (menu, panel) in area {
+            let name = format!("{layout:?}, {menu:?}");
+            let state = |highlight: Option<u8>| {
+                let mut app = reference::app(&fonts);
+                app.game = reference::sample_game();
+                app.settings.color_highlight = Color::Magenta;
+                app.ui.menu = menu;
+                app.ui.highlight = highlight;
+                sudoku::invariants::check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
+                app
+            };
+            let (with, without) = (state(Some(5)), state(None));
+            let (high, plain) = (draw_app(&fonts, &with), draw_app(&fonts, &without));
+
+            // A cell shows its color if the point of `cell_background` is not under the panel.
+            let visible = |cell: sudoku::game::Cell| {
+                let (x, y) = sudoku::layout::cell_origin(cell);
+                panel.is_none_or(|p| !p.contains((x + 8) as f32, (y + 140) as f32))
+            };
+            let (mut shown, mut other) = (0, 0);
+            for cell in cells().filter(|&c| visible(c)) {
+                if with.game.value_at(cell) == 5 {
+                    assert_eq!(cell_background(&high, cell), Color::Magenta.rgb(), "{name}: cell {cell:?}");
+                    assert_ne!(cell_background(&plain, cell), Color::Magenta.rgb(), "{name}: cell {cell:?}, no highlight");
+                    shown += 1;
+                } else {
+                    assert_ne!(cell_background(&high, cell), Color::Magenta.rgb(), "{name}: cell {cell:?}");
+                    other += 1;
+                }
+            }
+            assert!(shown > 0 && other > 0, "{name}: no visible cell examines the highlight");
+
+            // The highlight changes only the board, and not the panel on top of it.
+            if let Some(p) = panel {
+                for (x, y) in changed_pixels(&plain, &high) {
+                    assert!(!p.contains(x as f32, y as f32), "{name}: the highlight changes ({x}, {y}) in the panel");
+                }
+            }
+
+            // The cached drawing of the frame follows the highlight in the two directions.
+            let mut record = sudoku::render::FrameRecord::default();
+            let mut frame = tiny_skia::Pixmap::new(sudoku::layout::screen_w(), sudoku::layout::screen_h()).unwrap();
+            for (app, full) in [(&without, &plain), (&with, &high), (&without, &plain)] {
+                sudoku::render::draw(&mut sudoku::render::Canvas::retained(&mut frame, &mut record, &fonts), app);
+                assert!(frame.data() == full.data(), "{name}: the retained frame is not the same as a full drawing");
+            }
+        }
+    }
+    reset_layout();
+}
+
+#[test]
 fn the_switch_off_and_white_give_the_same_board_with_no_completed_color() {
     // COL-11, BRD-7: the two conditions give the same pixels of the board: a starting number keeps
     // its starting color. The menu is closed, thus the settings do not show in a panel.

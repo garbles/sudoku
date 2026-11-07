@@ -12,14 +12,18 @@ use crate::settings::{Color, LineGray, Section, Settings, Switch};
 use crate::store::{NewResult, ResultRow, ResultsDb};
 use crate::update::{Manifest, Update};
 
-/// The recognition pause after the pen lifts (§5.1). `SUDOKU_RECOGNITION_PAUSE_MS` changes it.
-pub const DEFAULT_PAUSE_MS: u64 = 500;
+/// The recognition pause after the pen lifts (§5.1, INP-5). This is the only source of the value: the
+/// AppLoad manifest does not set it, and no environment variable changes it (INP-23).
+pub const RECOGNITION_PAUSE_MS: u64 = 1000;
 /// The time that the "?" and the x of a refused tap show (§5.1, §6.1, QST-1, MRK-14).
 pub const OVERLAY_MS: u64 = 1000;
 /// The writing stops when the pen has written nothing on the board for this time after the last
-/// stroke (§5.1, ink patch). Until then, a redraw waits. This time is longer than the recognition
-/// pause, so that the redraw does not start while the pen moves to the next cell.
-pub const WRITING_IDLE_MS: u64 = 1000;
+/// stroke (§5.1, §14.4, ink patch). Until then, a redraw waits, so that the redraw does not start while
+/// the pen moves to the next cell. This time is equal to the recognition pause (INP-16).
+pub const WRITING_IDLE_MS: u64 = RECOGNITION_PAUSE_MS;
+/// A touch that starts less than this time after a pen lift is a hand touch: it has no effect (INP-20).
+/// The tablet sends a touch from the hand approximately 97 ms after each pen lift.
+pub const HAND_TOUCH_MS: u64 = 150;
 /// A gap between two events that is longer than this is a suspension. The clock does not count it.
 pub const MAX_CLOCK_GAP_MS: u64 = 5000;
 
@@ -191,12 +195,23 @@ enum Gesture {
     Ignored,
     /// A press on a control. The action occurs on the release if the touch is still on the control.
     Control(Target),
-    /// A pen press on the board. It is a tap while it stays in the micro-cell.
-    BoardTap { cell: Cell, digit: u8, prev_highlight: Option<u8> },
+    /// A pen press on an empty cell. It is a tap while it stays in the micro-cell. It shows ink.
+    /// `starts_area`: the player was writing at the press, thus the pen area starts at the pen down
+    /// (INP-24). Else the area starts when the touch becomes writing (INP-2). `highlight_at_press`: refer
+    /// to `App::board_tap`.
+    BoardTap { cell: Cell, digit: u8, starts_area: bool, highlight_at_press: Option<u8> },
     /// Writing in an empty cell. The stroke goes into the pending ink.
     Writing,
-    /// Writing that has no effect (on a filled cell). The app removes the ink on the release.
-    DiscardInk,
+    /// The touch started on an empty cell, and a finger Redo filled that cell before the pen left the
+    /// micro-cell. The touch has no effect. The app removes its ink on the release.
+    DiscardInk { cell: Cell },
+    /// A pen press on a filled cell. It is a tap while it stays in the micro-cell. It shows no ink and
+    /// starts no pen area (INP-22). `stroke` is only for `StrokeLog`. `highlight_at_press`: refer to
+    /// `App::board_tap`.
+    FilledTap { cell: Cell, digit: u8, stroke: Stroke, highlight_at_press: Option<u8> },
+    /// A stroke that started on a filled cell. It shows no ink and starts no pen area (INP-22).
+    /// `stroke` is only for `StrokeLog`.
+    FilledStroke { cell: Cell, stroke: Stroke },
     Eraser,
     /// The finger or pen moves the slider of the New game panel.
     Slider,
@@ -268,6 +283,8 @@ pub struct App {
     db: ResultsDb,
     env: Box<dyn Env>,
 
+    /// The recognition pause. It is always `RECOGNITION_PAUSE_MS` in the app (INP-23). Only a test
+    /// changes it, to read ink in a time that is shorter than the pause.
     pub pause_ms: u64,
     /// The x positions of the stops of the New game slider. They depend on the font (layout.rs).
     pub ng_stops: [f32; layout::STOPS as usize],
@@ -287,6 +304,8 @@ pub struct App {
 
     pen: Option<Gesture>,
     touch: Option<FollowedTouch>,
+    /// The time of the last pen lift, to find a hand touch (INP-20).
+    last_pen_lift: Option<u64>,
     last_clock: Option<u64>,
     /// The seed of the next new game (DIF-5: a new seed for each game). The app draws it when the
     /// New game panel is open, so that the generator can make the puzzle before Start new game.
@@ -335,7 +354,7 @@ impl App {
             update: Update::new(crate::VERSION),
             db,
             env,
-            pause_ms: DEFAULT_PAUSE_MS,
+            pause_ms: RECOGNITION_PAUSE_MS,
             ng_stops,
             live_stroke: None,
             live_stroke_count: 0,
@@ -343,6 +362,7 @@ impl App {
             toolbar_ignored_until: None,
             pen: None,
             touch: None,
+            last_pen_lift: None,
             last_clock: None,
             next_seed: None,
             game_dirty: true,
@@ -410,18 +430,37 @@ impl App {
         }
     }
 
-    /// True while the player writes: from the first stroke on the board until the app has read the
-    /// last ink and no stroke occurred for `WRITING_IDLE_MS`. A press that does not write (a tap, the
-    /// eraser, a button) stops the writing. The presenter keeps a redraw until the writing stops.
+    /// True while the presenter keeps a redraw: while the player writes (`player_writes`), and while
+    /// the pen is on the board. A pen press that does not write (a tap, the eraser, a button) stops the
+    /// writing. A finger press does not stop it (INP-21). A pen touch keeps the redraw until its lift,
+    /// also on a filled cell, thus the result of a tap goes in one redraw (HLT-9).
     pub fn is_writing(&self) -> bool {
-        self.live_stroke.is_some() || self.ui.pending_ink.is_some() || self.writing_until.is_some()
+        self.live_stroke.is_some() || self.pen_on_filled_cell() || self.player_writes()
     }
 
-    /// The live stroke if the touch is writing. While the pen stays in the micro-cell where it
-    /// touched the board, the touch can still be a tap (INP-2): then None. The ink of the live stroke
-    /// shows also during a tap, but only writing starts the pen region (`present::wanted_region`).
+    /// "The player writes" of INVARIANTS.md: ink waits, or the writing timer runs (INP-16).
+    fn player_writes(&self) -> bool {
+        self.ui.pending_ink.is_some() || self.writing_until.is_some()
+    }
+
+    /// True while a pen touch that started on a filled cell is on the board (INP-22).
+    pub(crate) fn pen_on_filled_cell(&self) -> bool {
+        matches!(self.pen, Some(Gesture::FilledTap { .. } | Gesture::FilledStroke { .. }))
+    }
+
+    /// The live stroke if it starts the pen region (`present::wanted_region`). This is a stroke that is
+    /// writing, or a press at a time when the player writes (INP-24). While the pen stays in the
+    /// micro-cell where it touched the board, the touch can still be a tap (INP-2): then None if the
+    /// player did not write at the press. The ink of the live stroke shows also during a tap. The
+    /// region never starts on a filled cell (INP-22), also when a finger Redo fills the cell of the
+    /// touch.
     pub fn writing_stroke(&self) -> Option<&Stroke> {
-        self.live_stroke.as_ref().filter(|_| !matches!(self.pen, Some(Gesture::BoardTap { .. })))
+        let starts_region = match &self.pen {
+            Some(Gesture::Writing) => true,
+            Some(Gesture::BoardTap { cell, starts_area, .. }) => *starts_area && !self.game.is_filled(*cell),
+            _ => false,
+        };
+        self.live_stroke.as_ref().filter(|_| starts_region)
     }
 
     /// The tablet turned. The positions of ink and of touches are not correct now: the app removes the
@@ -471,7 +510,10 @@ impl App {
         // A pen movement while the pen writes changes only the ink. Other input needs a full drawing
         // only if it changes something that the screen shows.
         let ink_only = matches!(input, Input::PenMove { .. })
-            && matches!(self.pen, Some(Gesture::Writing | Gesture::DiscardInk | Gesture::BoardTap { .. }));
+            && matches!(
+                self.pen,
+                Some(Gesture::Writing | Gesture::DiscardInk { .. } | Gesture::BoardTap { .. } | Gesture::FilledTap { .. } | Gesture::FilledStroke { .. })
+            );
         let before = (!ink_only).then(|| self.view_key());
         match input {
             Input::PenDown { x, y, tool } => {
@@ -484,6 +526,7 @@ impl App {
                 }
             }
             Input::PenUp { x, y } => {
+                self.last_pen_lift = Some(now);
                 if let Some(g) = self.pen.take() {
                     // The release point is a part of the movement of the touch (INP-2).
                     let g = self.pen_move(g, x, y);
@@ -496,13 +539,16 @@ impl App {
                 // app forgets the touch that it follows if the new press has the same id, or if that
                 // touch has had no event for STALE_TOUCH_MS. Thus a lost release never stops the next
                 // touches. A real second finger (an active touch) operates no item.
+                //
+                // INP-20: a hand touch has no effect at all. The app follows it as an ignored touch,
+                // thus its move and its release also have no effect.
+                let hand = self.last_pen_lift.is_some_and(|lift| now.saturating_sub(lift) < HAND_TOUCH_MS);
                 if self.touch.as_ref().is_none_or(|t| t.is_replaced_by_press(id, now)) {
-                    let gesture = self.press(x, y, None, now);
+                    let gesture = if hand { Gesture::Ignored } else { self.press(x, y, None, now) };
                     self.touch = Some(FollowedTouch { id, gesture, last_event_ms: now });
-                } else {
-                    // A second finger has no other effect. But it is an action: it removes the
-                    // highlight, the "?" and the x (HLT-2, QST-4, MRK-15).
-                    self.ui.highlight = None;
+                } else if !hand {
+                    // A second finger operates no item, but it removes the "?" and the x (QST-4,
+                    // MRK-15). It does not remove a highlight (HLT-7).
                     self.ui.question = None;
                     self.ui.refused = None;
                 }
@@ -541,7 +587,7 @@ impl App {
     /// A press of the pen (`tool` is Some) or of a finger (`tool` is None).
     fn press(&mut self, x: f32, y: f32, tool: Option<Tool>, now: u64) -> Gesture {
         // NAV-16: shortly after "< Back", a press on the toolbar or on the close button changes
-        // nothing, also not the highlight, the "?", the x or the waiting ink. It is often the second tap of a
+        // nothing, also not the "?", the x or the waiting ink. It is often the second tap of a
         // fast double tap on "< Back", which is at the position of the close button (left-handed) or
         // of the menu button (right-handed).
         let toolbar_ignored = self.toolbar_ignored_until.is_some_and(|t| now < t);
@@ -555,9 +601,8 @@ impl App {
         if guarded && !self.update.dialog_shown() && layout::ckp_guard_area().contains(x, y) {
             return Gesture::Ignored;
         }
-        // Each action removes the highlight, the "?" and the x before the app does the action (HLT-2,
-        // QST-4, MRK-15).
-        let prev_highlight = self.ui.highlight.take();
+        // Each press removes the "?" and the x before the app does the action (QST-4, MRK-15). A press
+        // does not change the highlight, unless it reads waiting ink (HLT-9).
         self.ui.question = None;
         self.ui.refused = None;
 
@@ -572,6 +617,11 @@ impl App {
                 Gesture::Ignored
             };
         }
+
+        // These values are from before the press reads the ink and stops the writing timer: INP-24, and
+        // the toggle of a tap on a number (`board_tap`).
+        let player_writes = self.player_writes();
+        let highlight_at_press = self.ui.highlight;
 
         // A press on the cell of the waiting ink, on the game screen with no panel.
         let cell = layout::board_cell(x, y);
@@ -597,22 +647,17 @@ impl App {
                 None => {}
             }
         }
-        // Ink that waits in a different cell is read now.
-        //
-        // A finger on the board has no effect on the game (INP-1), thus it does not read the ink (for
-        // example a palm on the screen between two strokes of a 4).
-        let finger_on_board = tool.is_none() && self.screen == Screen::Game && cell.is_some();
-        if self.ui.pending_ink.is_some() && !finger_on_board {
+        // A pen press reads the ink that waits in a different cell, also off the board (INP-12), and it
+        // stops the writing: a redraw of its result must not wait. If the pen writes, the live stroke
+        // continues the writing. A finger press does neither of these, also off the board (INP-21): a
+        // control that a finger operates does them at its release.
+        if tool.is_some() {
             self.read_ink(now);
-        }
-        // A press stops the writing: a redraw of its result must not wait. If the pen writes, the
-        // live stroke continues the writing.
-        if !finger_on_board {
             self.writing_until = None;
         }
 
         match self.screen {
-            Screen::Game => self.press_game(x, y, tool, prev_highlight),
+            Screen::Game => self.press_game(x, y, tool, player_writes, highlight_at_press),
             Screen::Manual | Screen::Statistics | Screen::GamesList => {
                 let target = self.page_target(x, y);
                 if tool.is_none() && self.screen != Screen::Statistics {
@@ -624,7 +669,7 @@ impl App {
         }
     }
 
-    fn press_game(&mut self, x: f32, y: f32, tool: Option<Tool>, prev_highlight: Option<u8>) -> Gesture {
+    fn press_game(&mut self, x: f32, y: f32, tool: Option<Tool>, player_writes: bool, highlight_at_press: Option<u8>) -> Gesture {
         let button = layout::game_button(x, y, self.ui.menu.is_open());
 
         // A panel is open: a tap outside the panel only closes the panel (NAV-11). The panel buttons (the
@@ -685,9 +730,11 @@ impl App {
                 self.erase_at(x, y);
                 Gesture::Eraser
             }
+            // INP-22: no ink and no pen area on a filled cell.
+            Tool::Pen if self.game.is_filled(cell) => Gesture::FilledTap { cell, digit, stroke: vec![(x, y)], highlight_at_press },
             Tool::Pen => {
                 self.start_live_stroke(x, y);
-                Gesture::BoardTap { cell, digit, prev_highlight }
+                Gesture::BoardTap { cell, digit, starts_area: player_writes, highlight_at_press }
             }
         }
     }
@@ -708,19 +755,30 @@ impl App {
                 }
                 // The pen left the micro-cell: this touch is writing (INP-2).
                 if self.game.is_filled(cell) {
-                    Gesture::DiscardInk
+                    Gesture::DiscardInk { cell }
                 } else {
-                    let stroke = self.live_stroke.clone().unwrap_or_default();
                     self.ui.pending_ink = Some(PendingInk { cell, strokes: Vec::new(), last_lift_at: None });
-                    self.live_stroke = Some(stroke);
                     Gesture::Writing
                 }
             }
-            Gesture::Writing | Gesture::DiscardInk => {
+            Gesture::Writing | Gesture::DiscardInk { .. } => {
                 if let Some(s) = self.live_stroke.as_mut() {
                     s.push((x, y));
                 }
                 g
+            }
+            Gesture::FilledTap { cell, digit, mut stroke, highlight_at_press } => {
+                stroke.push((x, y));
+                // The pen left the micro-cell: this touch is a stroke (INP-2).
+                if layout::board_micro(x, y) == Some((cell, digit)) {
+                    Gesture::FilledTap { cell, digit, stroke, highlight_at_press }
+                } else {
+                    Gesture::FilledStroke { cell, stroke }
+                }
+            }
+            Gesture::FilledStroke { cell, mut stroke } => {
+                stroke.push((x, y));
+                Gesture::FilledStroke { cell, stroke }
             }
             Gesture::Eraser => {
                 self.erase_at(x, y);
@@ -737,12 +795,14 @@ impl App {
 
     fn pen_up(&mut self, g: Gesture, x: f32, y: f32, now: u64) {
         match g {
-            Gesture::BoardTap { cell, digit, prev_highlight } => {
-                if let (Some(log), Some(s)) = (self.stroke_log.as_mut(), self.live_stroke.as_ref()) {
-                    log(BoardInput::Stroke(cell, s));
-                }
-                self.live_stroke = None;
-                self.board_tap(cell, digit, prev_highlight, now);
+            Gesture::BoardTap { cell, digit, highlight_at_press, .. } => {
+                let stroke = self.live_stroke.take().unwrap_or_default();
+                self.log_stroke(cell, &stroke);
+                self.board_tap(cell, digit, highlight_at_press, now);
+            }
+            Gesture::FilledTap { cell, digit, stroke, highlight_at_press } => {
+                self.log_stroke(cell, &stroke);
+                self.board_tap(cell, digit, highlight_at_press, now);
             }
             Gesture::Writing => {
                 let stroke = self.live_stroke.take().unwrap_or_default();
@@ -755,19 +815,38 @@ impl App {
                     // The pause gives the time to read the ink (INP-5): read_ink then gets the result.
                     recognizer::read_early(&ink.strokes);
                 }
-                self.writing_until = Some(now + WRITING_IDLE_MS);
+                self.start_writing_timer(now);
             }
-            Gesture::DiscardInk => {
+            Gesture::DiscardInk { cell } => {
                 let stroke = self.live_stroke.take().unwrap_or_default();
-                let cell = stroke.first().and_then(|&(x, y)| layout::board_cell(x, y));
-                if let (Some(log), Some(cell)) = (self.stroke_log.as_mut(), cell) {
-                    log(BoardInput::Stroke(cell, &stroke));
-                }
-                self.writing_until = Some(now + WRITING_IDLE_MS);
+                self.log_stroke(cell, &stroke);
+                self.start_writing_timer(now);
+            }
+            // INP-7: a stroke from a filled cell changes only the highlight (HLT-2). If no highlight
+            // shows, nothing changes on the screen, thus no redraw occurs.
+            Gesture::FilledStroke { cell, stroke } => {
+                self.log_stroke(cell, &stroke);
+                self.ui.highlight = None;
+                self.start_writing_timer(now);
             }
             Gesture::Control(t) => self.release_control(t, x, y, now),
             // The erasure and the slider move occur during the motion. The release has no effect.
             Gesture::Ignored | Gesture::Eraser | Gesture::Slider | Gesture::Swipe { .. } => {}
+        }
+    }
+
+    /// Gives a stroke to `StrokeLog`. A stroke is empty if a completed game removed the live stroke.
+    fn log_stroke(&mut self, cell: Cell, stroke: &[recognizer::Point]) {
+        if let Some(log) = self.stroke_log.as_mut().filter(|_| !stroke.is_empty()) {
+            log(BoardInput::Stroke(cell, stroke));
+        }
+    }
+
+    /// A stroke on the board ended (INP-16). A finger Redo can complete the game during the stroke:
+    /// then the timer does not start.
+    fn start_writing_timer(&mut self, now: u64) {
+        if !self.game.completed {
+            self.writing_until = Some(now + WRITING_IDLE_MS);
         }
     }
 
@@ -794,7 +873,9 @@ impl App {
             | Gesture::Slider
             | Gesture::BoardTap { .. }
             | Gesture::Writing
-            | Gesture::DiscardInk
+            | Gesture::DiscardInk { .. }
+            | Gesture::FilledTap { .. }
+            | Gesture::FilledStroke { .. }
             | Gesture::Eraser => {}
         }
     }
@@ -802,7 +883,11 @@ impl App {
     /// A tap on the board at its pen lift (§5.2). The gesture of a tap exists only with no panel and
     /// no dialog: a change to these states stops the gesture (`cancel_gestures`). Thus a refused tap
     /// sets the x only in the states of MRK-10 and MRK-12.
-    fn board_tap(&mut self, cell: Cell, digit: u8, prev_highlight: Option<u8>, now: u64) {
+    ///
+    /// A tap on a number compares with the highlight at the press. The press can read waiting ink, and
+    /// that read removes the highlight: with highlight v, a tap on v then gives no highlight at the
+    /// lift, and a tap on a different digit gives that digit.
+    fn board_tap(&mut self, cell: Cell, digit: u8, highlight_at_press: Option<u8>, now: u64) {
         if self.game.completed {
             return;
         }
@@ -810,8 +895,12 @@ impl App {
         if v != 0 {
             // HLT-3: the same digit removes the highlight. A different digit moves it. HLT-6: no
             // highlight if the switch is off.
-            self.ui.highlight = if !self.settings.highlight_on || prev_highlight == Some(v) { None } else { Some(v) };
-        } else if self.game.refuses_mark(cell, digit, self.settings.auto_hide_on) {
+            self.ui.highlight = if !self.settings.highlight_on || highlight_at_press == Some(v) { None } else { Some(v) };
+            return;
+        }
+        // HLT-2: a tap on an empty cell removes the highlight, in the same redraw as the mark or the x.
+        self.ui.highlight = None;
+        if self.game.refuses_mark(cell, digit, self.settings.auto_hide_on) {
             // MRK-7, MRK-11: the game, the redo history, the clock and the saved data do not change.
             self.ui.refused = Some((cell, digit, now));
         } else {
@@ -830,9 +919,11 @@ impl App {
         }
     }
 
-    /// Reads the pending ink (INP-5, INP-6).
+    /// Reads the pending ink (INP-5, INP-6). A read removes the highlight, in the same redraw as the
+    /// number or the "?" (HLT-2).
     fn read_ink(&mut self, now: u64) {
         let Some(ink) = self.ui.pending_ink.take() else { return };
+        self.ui.highlight = None;
         self.live_stroke = None;
         if self.pen == Some(Gesture::Writing) {
             self.pen = Some(Gesture::Ignored);
@@ -996,17 +1087,16 @@ impl App {
         if !self.target_rect_contains(t, x, y) {
             return;
         }
-        // The release does the action of the control. While a finger stays on the control, the pen can
-        // make a highlight, show an x or write ink. Thus the release also removes the highlight (HLT-2,
-        // HLT-4) and the x (MRK-15), and reads the waiting ink (INP-12) before the action, as a press
-        // does. Then an undo or a redo cannot put a number under the ink (INP-5), an undo cannot leave an
-        // x with no number in a peer, and a panel does not open over the ink or the x (NAV-11, MRK-12).
-        // The release does not remove a "?" in a different cell.
-        self.ui.highlight = None;
+        // The release does the action of the control. A finger press does not read waiting ink or stop
+        // the writing (INP-21), and while a finger stays on the control, the pen can show an x or write
+        // ink. Thus the release removes the x (MRK-15), reads the waiting ink (INP-12) and stops the
+        // writing before the action. Then an undo or a redo cannot put a number under the ink (INP-5),
+        // an undo cannot leave an x with no number in a peer, and a panel does not open over the ink or
+        // the x (NAV-11, MRK-12). The highlight stays, unless the read removes it (HLT-7). The release
+        // does not remove a "?" in a different cell.
         self.ui.refused = None;
-        if self.ui.pending_ink.is_some() {
-            self.read_ink(now);
-        }
+        self.read_ink(now);
+        self.writing_until = None;
         match t {
             Target::Game(b) => self.game_button(b),
             Target::Color(s, c) => {
@@ -1033,9 +1123,13 @@ impl App {
                 self.list = ListUi::start();
             }
             Target::Switch(s) => {
-                // NAV-14: only the switch changes; the game and the undo history do not.
+                // NAV-14: only the switch changes; the game and the undo history do not. HLT-6: when
+                // highlights go off, the highlight goes in this redraw.
                 self.settings.toggle(s);
                 self.settings_dirty = true;
+                if !self.settings.highlight_on {
+                    self.ui.highlight = None;
+                }
             }
             // UPD-5, UPD-9: only the update state changes. UPD-10: "Restart interface" asks the
             // platform to run xovi/start, after the game is saved.
@@ -1172,7 +1266,7 @@ impl App {
     }
 
     /// The panel, the screen or the game changed under the other pen or finger. Its touch has no more
-    /// effect, thus its release does not operate the board of a different state (HLT-4, NAV-11).
+    /// effect, thus its release does not operate the board of a different state (NAV-11).
     /// The touch that does the action is not in `pen` or `touch` now.
     fn cancel_gestures(&mut self) {
         if self.pen.is_some() {

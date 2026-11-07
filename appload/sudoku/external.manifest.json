@@ -3,8 +3,5 @@
   "application": "sudoku",
   "qtfb": true,
   "disablesWindowedMode": true,
-  "supportsRotation": true,
-  "environment": {
-    "SUDOKU_RECOGNITION_PAUSE_MS": "500"
-  }
+  "supportsRotation": true
 }
