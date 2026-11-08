@@ -24,3 +24,6 @@ scripts/fonts/rmsans-*.ttf
 
 # Bench marks
 bench/*
+
+# Scratch files
+.scratchpad/
