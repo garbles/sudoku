@@ -109,6 +109,16 @@ pub fn physical_rect((x0, y0, x1, y1): (i32, i32, i32, i32)) -> (i32, i32, i32, 
     (px0, py0, px1 - px0 + 1, py1 - py0 + 1)
 }
 
+/// The screen rectangle (x, y, width, height) of a physical rectangle (x, y, width, height). It is
+/// the inverse of `physical_rect`.
+pub fn screen_rect((x, y, w, h): (i32, i32, i32, i32)) -> (i32, i32, i32, i32) {
+    let (ax, ay) = to_screen(x as f32, y as f32);
+    let (bx, by) = to_screen((x + w - 1) as f32, (y + h - 1) as f32);
+    let (x0, x1) = (ax.min(bx) as i32, ax.max(bx) as i32);
+    let (y0, y1) = (ay.min(by) as i32, ay.max(by) as i32);
+    (x0, y0, x1 - x0 + 1, y1 - y0 + 1)
+}
+
 fn landscape() -> bool {
     orientation() == Orientation::Landscape
 }
@@ -889,6 +899,18 @@ pub const SWIPE_MIN: f32 = 120.0;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn screen_rect_is_the_inverse_of_physical_rect_in_each_rotation() {
+        for rotation in 0..4 {
+            set_rotation(rotation);
+            for r in [(0, 0, 0, 0), (148, 418, 294, 564), (3, 7, 100, 40), (screen_w() as i32 - 5, screen_h() as i32 - 9, screen_w() as i32 - 1, screen_h() as i32 - 1)] {
+                let (x, y, w, h) = screen_rect(physical_rect(r));
+                assert_eq!((x, y, x + w - 1, y + h - 1), r, "rotation {rotation}");
+            }
+        }
+        set_rotation(0);
+    }
 
     #[test]
     fn board_geometry_agrees_with_requirements() {

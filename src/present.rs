@@ -111,6 +111,14 @@ impl PhysicalRect {
         (self.x0, self.y0, self.x1 - self.x0 + 1, self.y1 - self.y0 + 1)
     }
 
+    /// The same pixels in the coordinates of the window of AppLoad (x, y, width, height): the
+    /// coordinates of the screen as the player sees it. AppLoad turns the framebuffer when it draws
+    /// it (`fbRotation`), but the items of its window, also the pen area of the ink patch, use the
+    /// coordinates of the turned window. In portrait (rotation 0) they are the physical coordinates.
+    fn to_window(self) -> Update {
+        crate::layout::screen_rect(self.to_update())
+    }
+
     /// The cells that an update of the rectangle touches (with the extra pixel of AppLoad).
     fn touched_cells(self) -> PanelCells {
         PanelCells::new(self.x0 >> 2, self.y0 >> 2, (self.x1 + 1) >> 2, (self.y1 + 1) >> 2)
@@ -256,10 +264,12 @@ impl Presenter {
         ink.into_iter().chain(blit).min()
     }
 
-    /// The new pen region (physical x, y, width, height; None: no region), if it changed since the
-    /// last call. The platform gives it to the QML patch of AppLoad.
+    /// The new pen region (x, y, width, height in the coordinates of the window of AppLoad; None: no
+    /// region), if it changed since the last call. The platform gives it to the QML patch of AppLoad.
+    /// The patch puts the area in the window, thus a physical rectangle is at the wrong place when
+    /// the tablet is turned (landscape, or portrait at 180°): the ink then gets the UI waveform.
     pub fn take_region_change(&mut self) -> Option<Option<Update>> {
-        std::mem::take(&mut self.region_changed).then(|| self.pen_region().map(PhysicalRect::to_update))
+        std::mem::take(&mut self.region_changed).then(|| self.pen_region().map(PhysicalRect::to_window))
     }
 
     /// The pen region (physical): the inside of `pen_cell`. None: no region.
@@ -1176,11 +1186,12 @@ mod tests {
         (0..=20).map(|k| (x as f32 + c / 2.0, y as f32 + c * (0.2 + 0.6 * k as f32 / 20.0))).collect()
     }
 
-    /// The pen region for the ink of `cell`: the inside of the cell, on the 4 px grid (R§14.4).
+    /// The pen region for the ink of `cell`, as the platform gets it: the inside of the cell, on the
+    /// 4 px grid of the panel, in the coordinates of the window of AppLoad (R§14.4).
     fn region_of(cell: crate::game::Cell) -> Update {
         let (x, y) = crate::layout::cell_origin(cell);
         let c = crate::layout::CELL;
-        ScreenRect::new(x, y, x + c - 1, y + c - 1).physical().inner_cells().to_update()
+        ScreenRect::new(x, y, x + c - 1, y + c - 1).physical().inner_cells().to_window()
     }
 
     /// True if the update contains the area of the cell that its background color fills.
@@ -1794,6 +1805,37 @@ mod tests {
         });
     }
 
+    /// R§14.4: the platform gives the pen region in the coordinates of the window of AppLoad, which
+    /// are the coordinates of the screen as the player sees it. In each rotation of the tablet, the
+    /// region is the inside of the cell of the pen, on the 4 px grid of the panel. Before, the region
+    /// was in physical coordinates: in landscape the pen area was on a different cell, and the ink
+    /// got the UI waveform (choppy ink with gaps).
+    #[test]
+    fn the_pen_region_is_in_the_coordinates_of_the_window_in_each_rotation() {
+        for rotation in 0..4 {
+            crate::layout::set_rotation(rotation);
+            let mut r = Rig::new(true);
+            let cell = r.empty_cells()[0];
+            r.regions.clear();
+            r.down(stroke_in(cell)[0]);
+            let Some(&(_, Some((x, y, w, h)))) = r.regions.last() else {
+                panic!("rotation {rotation}: no pen region at the pen down: {:?}", r.regions);
+            };
+            let (cx, cy) = crate::layout::cell_origin(cell);
+            let c = crate::layout::CELL;
+            // The inside of the cell on the screen: at most 3 px from each edge of the cell.
+            assert!(
+                (cx..cx + 4).contains(&x) && (cy..cy + 4).contains(&y) && (c - 7..=c).contains(&w) && (c - 7..=c).contains(&h),
+                "rotation {rotation}: the region ({x}, {y}, {w}, {h}) is not the inside of the cell at ({cx}, {cy})"
+            );
+            // The same pixels in the framebuffer are on the 4 px grid of the panel.
+            let p = PhysicalRect::from_update(crate::layout::physical_rect((x, y, x + w - 1, y + h - 1)));
+            assert_eq!(p, p.inner_cells(), "rotation {rotation}: the region is not on the 4 px grid");
+            assert_eq!(Some(p), r.p.pen_region(), "rotation {rotation}");
+        }
+        crate::layout::set_rotation(0);
+    }
+
     /// INP-24: while ink waits, each pen press on an empty cell starts the region at the pen down, on
     /// the cell of the press, with no stop between the cells. The ink goes only in that region.
     #[test]
@@ -1814,7 +1856,7 @@ mod tests {
                 assert_eq!(r.app.writing_stroke().map(|s| s.len()), Some(1), "{layout}: the first point starts the region");
                 assert_eq!(sent, vec![], "{layout}: an update at the pen down");
                 r.regions.clear();
-                let region = PhysicalRect::from_update(region_of(cell));
+                let region = cell_region(cell);
                 for &q in &points[1..] {
                     for u in r.to(q) {
                         let u = PhysicalRect::from_update(u);
@@ -1829,7 +1871,7 @@ mod tests {
             let points = stroke_in(c);
             r.down(points[0]);
             assert_eq!(r.regions, vec![], "{layout}: a stroke in the same cell changes the region");
-            assert_eq!(r.p.pen_region().map(PhysicalRect::to_update), Some(region_of(c)), "{layout}");
+            assert_eq!(r.p.pen_region().map(PhysicalRect::to_window), Some(region_of(c)), "{layout}");
         });
     }
 
@@ -2157,7 +2199,7 @@ mod tests {
                         r.after(1, None);
                     }
                 }
-                assert_eq!(r.p.pen_region().map(PhysicalRect::to_update), Some(region_of(e)), "{name}: the region is not on the cell of the start");
+                assert_eq!(r.p.pen_region().map(PhysicalRect::to_window), Some(region_of(e)), "{name}: the region is not on the cell of the start");
                 assert!(r.frame_cell(f) != before, "{name}: no ink over the filled cell");
                 r.up((end.0, y));
                 assert_eq!(r.app.ui.pending_ink.as_ref().map(|i| i.cell), Some(e), "{name}: the ink is not on the cell of the start");
@@ -2193,7 +2235,7 @@ mod tests {
             r.up(points[20]);
             let (x, y) = middle(a);
             r.down((x, y));
-            assert_eq!(r.p.pen_region().map(PhysicalRect::to_update), Some(region_of(a)), "{layout}: the test needs a region");
+            assert_eq!(r.p.pen_region().map(PhysicalRect::to_window), Some(region_of(a)), "{layout}: the test needs a region");
             r.after(crate::app::HAND_TOUCH_MS, Some(crate::app::Input::TouchDown { id: 1, x: rx, y: ry }));
             r.after(10, Some(crate::app::Input::TouchUp { id: 1, x: rx, y: ry }));
             assert!(r.app.game.is_filled(a), "{layout}: the Redo does not fill the cell");

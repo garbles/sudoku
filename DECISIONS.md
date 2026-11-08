@@ -1163,3 +1163,26 @@ records it.
 ### Owner request: crisp icons, 2026-11-08
 
 The owner asked: "can you make all of the icons render with crisp too?" The prototype (build `dev/crisp-icons`) draws each `render::Icon` with no anti-aliasing. The owner approved it on the tablet ("Correct") and asked to skip the team procedure: the images were made again (the icon sheet `icons.png` and the screens with icons), the tests pass, and NAV-20 and the §15 row "Anti-aliasing" list the icons. The ImageMagick icons of the design images keep their anti-aliasing: the snapshot tests accept the edge pixels.
+
+### Bug: choppy ink with gaps only in landscape, 2026-11-08
+
+Owner report: "ink writing performance is very poor (choppy, with gaps) only when in landscape
+mode. Portrait mode is smooth." (bd remarkable-sudoku-c4x).
+
+Cause: the app wrote the pen area of the ink patch (`/tmp/sudoku-pen-region`) in framebuffer
+coordinates (always portrait). The AppLoad source (`FBController`) turns only the drawing of the
+framebuffer (`fbRotation`); the items of the window, also the `ScreenModeItem` of the ink patch, use
+the coordinates of the screen as the player sees it. In portrait (rotation 0) the two are the same.
+In landscape the area was on a different place of the screen (for example the cell at (418, 148) gave
+the area at (1328, 420)). Thus the ink got the UI waveform, and the scheduler (`present::Scheduler`)
+did not wait for the updates in progress in the cell of the ink, because it thought that the cell
+had the pen waveform. Portrait at 180° had the same fault.
+
+Fix: `Presenter::take_region_change` gives the area in window coordinates
+(`layout::screen_rect`, the inverse of `layout::physical_rect`). The area is the same pixels of the
+framebuffer as before, thus it stays on the 4 px grid of the panel. The ink patch does not change.
+Tests: `present::tests::the_pen_region_is_in_the_coordinates_of_the_window_in_each_rotation` (it
+failed before the fix in rotation 1) and
+`layout::tests::screen_rect_is_the_inverse_of_physical_rect_in_each_rotation`.
+
+Device test (build `dev/landscape-ink`, 2026-11-08): the owner wrote in landscape and reported "this change fixed the issue". The ink is smooth in landscape.
