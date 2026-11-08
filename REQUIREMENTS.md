@@ -1778,7 +1778,11 @@ The installer (§14.6) does these steps automatically.
 while the pen wrote (DECISIONS.md). The ink patch is a QML patch of AppLoad for qt-resource-rebuilder.
 It puts an area with the Pen screen mode of xochitl (the fast pen waveform) in the window of the app.
 The app gives the area in `/tmp/sudoku-pen-region` ("x y width height", or empty), and the patch
-reads it each 15 ms:
+reads it each 15 ms. The values are in the coordinates of the window of AppLoad: the screen as the
+player sees it, in each rotation of the tablet. AppLoad turns only the drawing of the framebuffer, not
+the items of its window. In portrait they are the framebuffer coordinates; in landscape a framebuffer
+rectangle puts the area on a different cell, and the ink gets the UI waveform (owner report
+2026-11-08: choppy ink with gaps, only in landscape):
 
 - While the player writes in a cell, the area is the inside of that cell, aligned inward to 4 px.
   It does not touch the cells around it, because xochitl refreshes the full area when it starts and

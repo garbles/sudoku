@@ -116,6 +116,14 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
   only a part of the board in the board area) had this cause in `render::draw_board_stripes`. The
   landscape screens are examined on the computer (refer to
   [techniques/check-the-orientations.md](techniques/check-the-orientations.md)).
+- **The pen area is in window coordinates.** AppLoad turns only the drawing of the framebuffer
+  (`FBController.fbRotation`). The items of its window, also the pen area of the ink patch, use the
+  coordinates of the screen as the player sees it. The app gave the area in framebuffer coordinates:
+  in portrait they are the same, but in landscape the area was on a different cell. The ink then got
+  the UI waveform, and the scheduler did not wait for the updates in progress there (it thought that
+  the cell was fast): the ink was choppy with gaps, only in landscape (owner report 2026-11-08). If a
+  problem occurs only in one orientation, compare `/tmp/sudoku-pen-region` with the cell on the
+  screen first ([techniques/pen-area.md](techniques/pen-area.md)).
 - **One process drives the panel.** AppLoad runs in xochitl, thus the app must use the framebuffer of
   xochitl through qtfb. The app cannot drive the panel itself.
 - **There is no screen layer for the pen.** xochitl has one framebuffer. Its "layers" are layers of

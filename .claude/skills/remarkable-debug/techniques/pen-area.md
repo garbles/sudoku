@@ -2,7 +2,9 @@
 
 The ink patch (`appload/sudoku/sudoku-penregion.qmd`) puts an area with the Pen screen mode of
 xochitl in the AppLoad window (REQUIREMENTS.md §14.4). The app writes the area to
-`/tmp/sudoku-pen-region` ("x y width height", or empty), and the patch reads it each 15 ms.
+`/tmp/sudoku-pen-region` ("x y width height", or empty), and the patch reads it each 15 ms. The
+values are in the coordinates of the window of AppLoad (the screen as the player sees it), not in
+framebuffer coordinates: in landscape, `x` is in 0..2160 and `y` is in 0..1620.
 
 ## Does the patch operate?
 
