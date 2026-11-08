@@ -64,7 +64,7 @@ define install_patch
 endef
 
 .DEFAULT_GOAL := help
-.PHONY: help test build snapshot check video video-full media bench bench-save bench-linux \
+.PHONY: help test build snapshot check invariants video video-full media bench bench-save bench-linux \
 	bench-linux-save media-images media-installer media-video fonts-check test-linux tablet-build tablet-build-dev tablet-build-corpus tablet-build-colors dist install-dev install-sim install-corpus install-colors colors-pull corpus-start corpus-pull fonts xovi-restart fmt clippy bump-patch bump-minor \
 	bump-major clean
 
@@ -83,6 +83,9 @@ snapshot: ## Draw the reference states and the icon sheet and compare them with 
 	cargo run --release --bin snapshot -- $(SNAPSHOT_DIR)
 
 check: test snapshot ## The checks before a change: tests and snapshots
+
+invariants: ## Show the rules of INVARIANTS.md and the rules that changed, in the browser (BASE=<git ref>)
+	python3 scripts/invariants.py --open $(if $(BASE),--base $(BASE))
 
 fmt: ## Format the source code
 	cargo fmt

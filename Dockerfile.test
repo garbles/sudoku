@@ -10,7 +10,8 @@
 #
 # The tests use the fonts scripts/fonts/rmsans-{400,500}.ttf (refer to scripts/fonts/README.md).
 FROM --platform=linux/arm64 rust:1.97-alpine AS base
-# bash runs the simulation of the installer (tests/install.rs). python3 runs scripts/licenses.py --check (tests/licenses.rs).
+# bash runs the simulation of the installer (tests/install.rs). python3 runs scripts/licenses.py --check (tests/licenses.rs)
+# and scripts/invariants.py --check (tests/invariants_format.rs).
 RUN apk add --no-cache musl-dev bash python3
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
