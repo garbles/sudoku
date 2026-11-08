@@ -1788,7 +1788,7 @@ rectangle puts the area on a different cell, and the ink gets the UI waveform (o
   It does not touch the cells around it, because xochitl refreshes the full area when it starts and
   when it stops.
 - Each pen press on an empty cell starts the area at the pen down, also a tap and also the first
-  stroke of a session: the ink is smooth from the moment the pen touches the cell. A press on a
+  stroke of a session (but not a press on a micro-cell that shows a mark, below): the ink is smooth from the moment the pen touches the cell. A press on a
   different empty cell moves the area to that cell at the pen down, with no stop between the cells
   (owner request 2026-11-07; before, the first stroke of a session started the area when the pen left
   the micro-cell, and a tap at that time did not start it). Measured with the update log of xochitl
@@ -1809,6 +1809,17 @@ rectangle puts the area on a different cell, and the ink gets the UI waveform (o
   these three drawings have no anti-aliasing, [§15](#15-visual-specification)): a redraw
   with only these changes in the cell goes with the area on. Thus the end of the x also goes inside
   the area, in the micro-cell. The area never covers a filled cell (owner request 2026-11-07).
+- The pen waveform removes only the marks and the x that it drew while the area stayed on the
+  cell. A mark that the UI waveform showed (the mark was on the screen before the area came to the
+  cell, for example after a number or a mark in a different cell) leaves a ghost when the pen
+  waveform removes it (owner report 2026-11-08). Thus a pen press on a micro-cell that shows a mark
+  does not start or move the area while the touch can be a tap: the area stays where it is, and the
+  tap removes the mark at the pen lift with the UI waveform, only in the micro-cell. A start or a
+  stop of the area would refresh the full cell (owner decision 2026-11-08: only the micro-cell
+  changes). When the pen leaves the micro-cell, the touch is writing and the area comes to the
+  cell. If the area is on the cell already and the mark is older than the area (the area came to
+  the cell for a different mark), the area stops before the removal, and the removal goes when the
+  patch applied the stop (45 ms).
 - A pen touch that starts on a filled cell starts no area ([§5.1](#51-rules); owner approval 2026-11-07).
 - The ink waits until the patch can apply a new area (45 ms). A redraw also waits for it, so that a mark
   gets the pen waveform and colored cells get the UI waveform.

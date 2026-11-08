@@ -1068,7 +1068,14 @@ impl Hands {
                             return Err(format!("INP-2: no ink at the press {input:?} on the empty cell {cell:?}"));
                         }
                         // INP-24: the area starts at the pen down, also when the player did not write.
-                        if app.pen_cell() != Some(cell) {
+                        // A press on a micro-cell that shows a mark asks for no area while it can be a
+                        // tap (R§14.4): the tap removes the mark with the UI waveform.
+                        let on_mark = !own_ink && app.game.visible_marks(cell, app.settings.auto_hide_on) & mark_bit(digit) != 0;
+                        if on_mark {
+                            if app.pen_cell() != app.ui.pending_ink.as_ref().map(|i| i.cell) {
+                                return Err(format!("INP-24: a pen area on {cell:?} at the press {input:?} on a mark"));
+                            }
+                        } else if app.pen_cell() != Some(cell) {
                             return Err(format!("INP-24: no pen area on {cell:?} at the press {input:?}"));
                         }
                         self.reached.area_at_press += usize::from(!b.pen_down && b.writing);

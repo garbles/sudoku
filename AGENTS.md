@@ -215,7 +215,7 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   builds examine it after each copy). In portrait, a large copy goes in bands of rows on up to 4
   threads. The rotation is a value of each thread: the code of a band must not use it. The pen area
   of the ink patch (R§14.4) follows `App::pen_cell` and stays on its cell after a pen lift; it stops
-  only before a redraw that needs the UI waveform in its cell (`FrameRecord::cell_change_shows_with_pen`),
+  only before a redraw that needs the UI waveform in its cell (`FrameRecord::pen_change`: also the removal of a mark that the pen waveform did not draw),
   when its cell becomes filled, or at a turn.
 - `licenses.rs`: the Licenses screens (REQUIREMENTS.md §9.4). It reads `assets/licenses.json`
   (compiled into the app), wraps the license texts at 80 characters and divides them into pages.

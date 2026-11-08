@@ -1223,3 +1223,42 @@ failed before the fix in rotation 1) and
 `layout::tests::screen_rect_is_the_inverse_of_physical_rect_in_each_rotation`.
 
 Device test (build `dev/landscape-ink`, 2026-11-08): the owner wrote in landscape and reported "this change fixed the issue". The ink is smooth in landscape.
+
+### Bug: a ghost of a pencil mark after its removal, 2026-11-08
+
+Owner report: "pencil mark any micro cell, draw a number into a full cell, tap the pencil mark to
+remove it, the pencil mark ghost is left behind" (bd remarkable-sudoku-a9u).
+
+Sequence on the computer (`present.rs` test rig): the first tap starts the pen area on the cell A
+and the mark goes with the pen waveform. The number in the cell B moves the area to B (xochitl
+refreshes A with the UI waveform), and the redraw of the number stops it. The second tap on A starts
+the area on A again, and the removal of the mark went at the pen lift with the area on: the pen
+waveform removed a mark that the UI waveform showed. A mark that the pen waveform drew and removed
+in the same area had no ghost.
+
+Cause (inferred, not measured): the pen waveform cannot drive the colored dots of the color dither
+that the UI waveform made for the `gray15` pixels of the mark (refer to the lesson "The Pen
+waveform cannot drive colors" in the `remarkable-debug` skill).
+
+First fix: the area stopped before the removal, and the removal went with the UI waveform 45 ms
+after the pen lift. The owner rejected it: "the pencil mark is removed but the entire cell fully
+refreshes. This is unacceptable. It should just be the micro-cell that full refreshes (if
+necessary)". The stop of the area refreshes the full cell (xochitl), and the start at the pen down
+also refreshes it.
+
+Fix: a pen press on a micro-cell that shows a mark does not ask for the area while the touch can be
+a tap (`App::pen_cell`). The area stays where it is (no refresh), and the removal goes at the pen
+lift with the UI waveform, only in the micro-cell. When the pen leaves the micro-cell (writing), the
+area comes to the cell as before. The presenter also records the marks and the x that the pen
+waveform drew while the area stayed on its cell (`render::PenDrawn`). `FrameRecord::pen_change`
+(before: `cell_change_shows_with_pen`) accepts a removal only of these items. Else the area stops
+before the redraw: this occurs only when the area came to the cell for a different mark and the
+tap removes an older mark (the full cell refreshes). Test:
+`present::tests::a_mark_that_the_ui_waveform_drew_goes_away_with_the_ui_waveform` (it failed
+without the change of `App::pen_cell`).
+
+Device test (build `dev/mark-ghost`, 2026-11-08): the owner reported that the removal "is now doing
+what it's supposed to do". The owner also saw the cell of a new mark refresh when the player then
+writes in a different cell: the area moves, and xochitl refreshes the full area that it left (this
+was also the behavior before the fix). Options were an area on the micro-cell only for a tap, or no
+area for a tap. Owner decision: keep it as it is.

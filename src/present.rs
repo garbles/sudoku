@@ -11,7 +11,7 @@ use crate::app::App;
 use crate::font::Fonts;
 use crate::game::Cell;
 use crate::layout::{screen_h, screen_w};
-use crate::render::{self, Canvas, Damage, FrameRecord};
+use crate::render::{self, Canvas, Damage, FrameRecord, PenDrawn};
 
 /// The shortest time between two updates of the ink while the pen writes.
 const INK_UPDATE_INTERVAL_MS: u64 = 30;
@@ -182,6 +182,8 @@ pub struct Presenter {
     /// The cell of the pen region: xochitl sends the updates inside the cell with the fast pen
     /// waveform (R§14.4). None: no region.
     pen_cell: Option<Cell>,
+    /// The marks and the x that the pen waveform drew in `pen_cell` (refer to `FrameRecord::pen_change`).
+    pen_drawn: PenDrawn,
     /// The time of the last change of `pen_cell`, and true if the platform must send the region.
     region_since: u64,
     region_changed: bool,
@@ -215,6 +217,7 @@ impl Presenter {
             scheduler: Scheduler::new(INK_WAVE_MS),
             use_pen_region: false,
             pen_cell: None,
+            pen_drawn: PenDrawn::default(),
             region_since: 0,
             region_changed: false,
             deferred_blit: false,
@@ -285,6 +288,7 @@ impl Presenter {
             return;
         }
         self.pen_cell = cell;
+        self.pen_drawn = PenDrawn::default();
         self.region_since = now;
         self.region_changed = true;
         self.scheduler.fast = self.pen_region().map(PhysicalRect::pixel_cells);
@@ -365,7 +369,9 @@ impl Presenter {
             // change in that cell (a number, a "?", a panel over it) stops the region first, and
             // goes when the patch applied the stop: else xochitl sends it with the pen waveform,
             // which leaves ghosts on gray and colored pixels.
-            if self.pen_cell.is_some_and(|cell| !self.record.cell_change_shows_with_pen(cell)) {
+            // The pen waveform also cannot remove a mark that the UI waveform drew: a ghost stays.
+            let pen_drawn = self.pen_cell.and_then(|cell| self.record.pen_change(cell, self.pen_drawn));
+            if pen_drawn.is_none() {
                 self.set_region(None, now);
             }
             if !self.use_pen_region || self.region_settled(now) {
@@ -374,6 +380,9 @@ impl Presenter {
                 let mut spans = Vec::new();
                 let changed = self.blit(fb, &mut spans);
                 self.times.blit = t.elapsed();
+                if let Some(d) = pen_drawn {
+                    self.pen_drawn = d;
+                }
                 if let Some(r) = changed {
                     // A change of the screen does not wait. The ink in progress that it stops is sent
                     // again later.
@@ -1688,6 +1697,116 @@ mod tests {
 
     /// HLT-2 item 2, HLT-9: a tap on an empty cell removes the highlight in one update with the mark, at
     /// the pen lift. The pixels of the highlight do not change before that.
+    /// R§14.4, INP-24, MRK-5: the pen waveform removes only the marks that it drew. A mark that the
+    /// UI waveform showed (here the area went to a different cell, for a number or for a mark) has
+    /// colored dots of the color dither on the panel, and the pen waveform leaves a ghost of it. Thus
+    /// a tap on it does not change the area (a start or a stop refreshes the full cell), and its
+    /// removal goes at the pen lift with the UI waveform, only in the micro-cell. When the area came
+    /// to the cell for a different mark, the removal of the old mark stops the area first. A mark
+    /// that the pen waveform drew in the area goes away in the area.
+    #[test]
+    fn a_mark_that_the_ui_waveform_drew_goes_away_with_the_ui_waveform() {
+        // `away`: a number (true) or a mark (false) in a different cell, between the two taps.
+        for away in [true, false] {
+            let mut r = Rig::new(true);
+            let g = &r.app.game;
+            let (a, d, d3) = r
+                .empty_cells()
+                .into_iter()
+                .find_map(|c| {
+                    let free: Vec<u8> = (1..=9u8).filter(|&x| g.peer_digits(c) & crate::game::mark_bit(x) == 0).collect();
+                    (free.len() >= 2).then(|| (c, free[0], free[1]))
+                })
+                .unwrap();
+            let q = micro_point(a, d);
+            r.down(q);
+            r.wait(PEN_REGION_SETTLE_MS + 30);
+            r.up(q);
+            r.wait(600);
+            assert_ne!(r.app.game.marks_at(a) & crate::game::mark_bit(d), 0);
+            let g = &r.app.game;
+            let (b, d2) = r
+                .empty_cells()
+                .into_iter()
+                .filter(|&c| c.0 != a.0 && c.1 != a.1)
+                .find_map(|c| (1..=9u8).find(|&x| g.peer_digits(c) & crate::game::mark_bit(x) == 0).map(|x| (c, x)))
+                .unwrap();
+            if away {
+                r.write(b);
+                r.wait(2500);
+                assert_eq!(r.app.game.value_at(b), 1, "the number in {b:?}");
+            } else {
+                let q2 = micro_point(b, d2);
+                r.down(q2);
+                r.wait(PEN_REGION_SETTLE_MS + 30);
+                r.up(q2);
+                r.wait(600);
+                assert_ne!(r.app.game.marks_at(b) & crate::game::mark_bit(d2), 0);
+            }
+            let region = r.p.pen_cell;
+            r.regions.clear();
+            let before = r.fb.clone();
+            r.down(q);
+            r.to((q.0 + 1.0, q.1));
+            let ink = r.wait(PEN_REGION_SETTLE_MS + 30);
+            assert!(r.fb != before, "away {away}: the ink of the tap does not show");
+            assert!(ink.iter().all(|&(_, u)| inside_micro(u, a, d)), "away {away}: the ink is not in the micro-cell: {ink:?}");
+            let at_lift = r.up(q);
+            assert_eq!(r.app.game.marks_at(a) & crate::game::mark_bit(d), 0, "away {away}");
+            assert_eq!(at_lift.len(), 1, "away {away}: the removal does not go at the pen lift: {at_lift:?}");
+            assert!(inside_micro(at_lift[0], a, d), "away {away}: {:?} is not in the micro-cell", at_lift[0]);
+            assert_eq!(r.p.pen_cell, region, "away {away}: the region changes");
+            assert_ne!(r.p.pen_cell, Some(a), "away {away}");
+            assert!(r.shows_the_frame(), "away {away}");
+            assert_eq!(r.regions, vec![], "away {away}: the region changes");
+
+            // The mark again (the pen waveform draws it), then a different mark in the cell: the
+            // area is on the cell. The removal of the mark of the pen goes in the area.
+            let q3 = micro_point(a, d3);
+            for p in [q, q3, q] {
+                r.down(p);
+                r.wait(PEN_REGION_SETTLE_MS + 30);
+                r.up(p);
+                r.wait(600);
+            }
+            assert_eq!(r.p.pen_cell, Some(a), "away {away}");
+            assert_eq!(r.app.game.marks_at(a) & crate::game::mark_bit(d), 0, "away {away}");
+            assert!(r.shows_the_frame(), "away {away}");
+
+            // The area leaves the cell, and comes back for a new mark. The old mark (d3) has the UI
+            // waveform on the panel: its removal stops the area first.
+            let g = &r.app.game;
+            let (c, d4) = r
+                .empty_cells()
+                .into_iter()
+                .filter(|&c| c != a && c != b && g.marks_at(c) == 0)
+                .find_map(|c| (1..=9u8).find(|&x| g.peer_digits(c) & crate::game::mark_bit(x) == 0).map(|x| (c, x)))
+                .unwrap();
+            r.down(micro_point(c, d4));
+            r.wait(PEN_REGION_SETTLE_MS + 30);
+            r.up(micro_point(c, d4));
+            r.wait(600);
+            assert_eq!(r.p.pen_cell, Some(c), "away {away}");
+            r.down(q);
+            r.wait(PEN_REGION_SETTLE_MS + 30);
+            r.up(q);
+            r.wait(600);
+            assert_eq!(r.p.pen_cell, Some(a), "away {away}");
+            let q3 = micro_point(a, d3);
+            r.regions.clear();
+            r.down(q3);
+            r.wait(PEN_REGION_SETTLE_MS + 30);
+            let at_lift = r.up(q3);
+            let lift = r.now;
+            assert_eq!(r.app.game.marks_at(a) & crate::game::mark_bit(d3), 0, "away {away}");
+            assert_eq!(at_lift, vec![], "away {away}: the removal goes with the region on");
+            assert_eq!(r.regions, vec![(lift, None)], "away {away}: the region does not stop");
+            let removal = r.wait(PEN_REGION_SETTLE_MS);
+            assert_eq!(removal.len(), 1, "away {away}: the removal: {removal:?}");
+            assert!(r.shows_the_frame(), "away {away}");
+        }
+    }
+
     #[test]
     fn a_tap_on_an_empty_cell_removes_the_highlight_in_one_update_with_the_mark() {
         in_each_layout(|layout| {

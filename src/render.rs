@@ -233,24 +233,32 @@ impl FrameRecord {
         std::mem::replace(&mut self.damage, Damage::Areas(Vec::new()))
     }
 
-    /// True if the pen waveform of the ink patch can show the change of the board cell `cell` since
-    /// the last copy of the frame to the screen (R§14.4): the cell is an empty cell on the screen and
-    /// in the frame, with the same micro-cell lines, thus only its pencil marks, its x or the ink
-    /// changed (crisp drawings, exactly black or gray15 on white, MRK-19 and INP-25). False when the cell has a number or a "?"
-    /// (gray25), when the lines changed, when a panel, a dialog or a different screen covers it, or
-    /// when the record does not know the frame or the screen. Then the change needs the UI waveform.
-    pub fn cell_change_shows_with_pen(&self, cell: crate::game::Cell) -> bool {
-        let (Some(k), Some(shown)) = (&self.known, &self.shown_tiles) else { return false };
+    /// The items of the board cell `cell` that the pen waveform shows after the change of the cell
+    /// since the last copy of the frame to the screen (R§14.4), or None if the change needs the UI
+    /// waveform. `drawn`: the items of the cell that the pen waveform drew (the pen region stayed on
+    /// the cell since then). The pen waveform shows the change when the cell is an empty cell on the
+    /// screen and in the frame, with the same micro-cell lines, thus only its pencil marks, its x or
+    /// the ink changed (crisp drawings, exactly black or gray15 on white, MRK-19 and INP-25), and when
+    /// each mark or x that goes away is in `drawn`. A mark that the UI waveform drew (for example
+    /// before the region came to the cell) has colored dots of the color dither on the panel: the pen
+    /// waveform cannot remove them, and a ghost of the mark stays. The UI waveform is also necessary
+    /// when the cell has a number or a "?" (gray25), when the lines changed, when a panel, a dialog
+    /// or a different screen covers it, or when the record does not know the frame or the screen.
+    pub fn pen_change(&self, cell: crate::game::Cell, drawn: PenDrawn) -> Option<PenDrawn> {
+        let (Some(k), Some(shown)) = (&self.known, &self.shown_tiles) else { return None };
         if shown.size != k.size || shown.board != k.board {
-            return false;
+            return None;
         }
-        let Some(i) = cells().position(|c| c == cell) else { return false };
+        let i = cells().position(|c| c == cell)?;
         let (slot, tile) = &k.slots[i];
         let covered = match &self.covers {
             Damage::All => true,
             Damage::Areas(v) => v.iter().any(|a| a.overlaps(slot)),
         };
-        !covered && CellLook::pen_waveform_shows(shown.tiles[i].and_then(|t| t.5), tile.and_then(|t| t.5))
+        if covered {
+            return None;
+        }
+        CellLook::pen_change(shown.tiles[i].and_then(|t| t.5), tile.and_then(|t| t.5), drawn)
     }
 
     fn damage(&mut self, a: Area) {
@@ -265,7 +273,7 @@ impl FrameRecord {
     }
 
     /// A drawing (not a board tile) changed the pixels of `a`. `ink`: the drawing is ink of the pen,
-    /// which the pen waveform shows (refer to `cell_change_shows_with_pen`).
+    /// which the pen waveform shows (refer to `pen_change`).
     fn touch(&mut self, a: Area, ink: bool) {
         self.damage(a);
         if !ink {
@@ -351,7 +359,7 @@ impl<'a> Canvas<'a> {
     /// Draws one stroke of the ink of the pen (`INK_WIDTH`, black): a dot of `INK_DOT_RADIUS` for one
     /// point, else a line with round ends and joins. The ink is a crisp drawing (INP-25): each pixel
     /// is black or the pixel under it, also over a filled cell. The ink is not a drawing that
-    /// covers a board cell (refer to `FrameRecord::cell_change_shows_with_pen`).
+    /// covers a board cell (refer to `FrameRecord::pen_change`).
     pub fn ink(&mut self, stroke: &[(f32, f32)]) {
         self.ink = true;
         match stroke {
@@ -1018,13 +1026,30 @@ enum CellLook {
 }
 
 impl CellLook {
-    /// True if the pen waveform of the ink patch can show the change of a cell from the look `from`
-    /// to the look `to` (R§14.4): the two are empty cells with the same micro-cell lines, thus only
-    /// the pencil marks and the x differ (gray15 on white, as the ink). A number with its color, the
-    /// "?" (gray25) and a change of the lines need the UI waveform. None is the band of the board.
-    fn pen_waveform_shows(from: Option<CellLook>, to: Option<CellLook>) -> bool {
-        matches!((from, to), (Some(CellLook::Empty(_, a, _)), Some(CellLook::Empty(_, b, _))) if a == b)
+    /// The items that the pen waveform shows after the change of a cell from the look `from` to the
+    /// look `to` (R§14.4), or None if the change needs the UI waveform. The two looks must be empty
+    /// cells with the same micro-cell lines, thus only the pencil marks and the x differ (gray15 on
+    /// white, as the ink), and each mark or x that goes away must be in `drawn` (the items that the
+    /// pen waveform drew). A number with its color, the "?" (gray25) and a change of the lines need
+    /// the UI waveform. None is the band of the board.
+    fn pen_change(from: Option<CellLook>, to: Option<CellLook>, drawn: PenDrawn) -> Option<PenDrawn> {
+        let (Some(CellLook::Empty(ma, la, xa)), Some(CellLook::Empty(mb, lb, xb))) = (from, to) else { return None };
+        let removed = ma & !mb;
+        if la != lb || removed & !drawn.marks != 0 || (xa.is_some() && xa != xb && drawn.refused != xa) {
+            return None;
+        }
+        let refused = xb.filter(|_| xb != xa || drawn.refused == xb);
+        Some(PenDrawn { marks: (drawn.marks | (mb & !ma)) & mb, refused })
     }
+}
+
+/// The pencil marks and the x of a refused tap that the pen waveform drew in the cell of the pen
+/// region (refer to `FrameRecord::pen_change`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PenDrawn {
+    pub marks: crate::game::Marks,
+    /// The digit of the micro-cell of the x.
+    pub refused: Option<u8>,
 }
 
 /// The temporary items on the board (§3.2): the digit of the highlight, the cell of the "?", and the

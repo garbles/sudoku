@@ -5662,6 +5662,17 @@ fn a_press_on_an_empty_cell_starts_the_pen_area_at_the_pen_down() {
         assert!(d.app.pen_cell().is_none(), "{case}");
         assert!(d.app.game.marks_at(c) == mark_bit(5) || d.app.ui.refused.is_some(), "INP-24: the mark or the x at the lift ({case})");
         assert!(!d.app.is_writing(), "INP-24: a tap starts no timer ({case})");
+        // A press on a micro-cell that shows a mark asks for no area while it can be a tap: the tap
+        // removes the mark with the UI waveform (R§14.4).
+        if d.app.game.marks_at(c) == mark_bit(5) {
+            d.send(Input::PenDown { x, y, tool: Tool::Pen });
+            assert_eq!(d.app.pen_cell(), None, "INP-24: a press on a mark ({case})");
+            let (x1, y1) = micro_center(c, 9);
+            d.send(Input::PenMove { x: x1, y: y1 });
+            assert_eq!(d.app.pen_cell(), Some(c), "INP-24: the pen left the micro-cell of the mark ({case})");
+            d.send(Input::PenUp { x: x1, y: y1 });
+        }
+        let (x, y) = micro_center(c, 7);
         d.send(Input::PenDown { x, y, tool: Tool::Pen });
         assert_eq!(d.app.pen_cell(), Some(c), "INP-24: the press after a tap ({case})");
         d.send(Input::PenUp { x, y });

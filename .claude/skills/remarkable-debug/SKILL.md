@@ -72,13 +72,23 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
   it stops and when it changes (also when no pixel in it changed), and the ink patch cannot avoid
   this. Thus the area changes as rarely as possible: it follows the pen (`App::pen_cell`), it stays
   on its cell when the pen lifts, and it stops only before a redraw that needs the UI waveform in its
-  cell (`FrameRecord::cell_change_shows_with_pen`: a number, a "?", other lines, a panel over the
+  cell (`FrameRecord::pen_change`: a number, a "?", other lines, a panel over the
   cell), when its cell becomes filled, or at a turn. The mark or the x of a tap goes at the pen lift
   inside the area, with the pen waveform, in the micro-cell only. An earlier version stopped the area
   at the lift of a tap: the mark waited for the stop (approximately 60 ms), and the stop refreshed
   the full cell with the ink dot of the tap on it. A move of the area gives two updates in the update
   log: the old cell (`ui`) and the new cell (`pen (ui)`). If gaps at the start of a stroke come back, the cause is
   probably the area that starts over ink while its update is in progress.
+- **The pen waveform removes only what it drew.** A mark that the UI waveform showed (the area left
+  the cell and came back, for example for a number or a mark in a different cell) left a ghost when
+  a tap removed it in the pen area (owner report 2026-11-08). A stop of the area to remove it with
+  the UI waveform refreshed the full cell, and the owner rejected it: only the micro-cell must
+  change. Thus a press on a micro-cell that shows a mark does not ask for the area while it can be a
+  tap (`App::pen_cell`), and the presenter records the marks and the x that the pen waveform drew in
+  the cell of the area (`render::PenDrawn`): a removal of any other mark stops the area first
+  (`FrameRecord::pen_change`; only when the area came to the cell for a different mark). For a ghost
+  after a change in the pen area, find which waveform drew the pixels before the change, not only
+  which waveform removed them.
 - **A tap shows ink, but not on a filled cell.** A tap on an empty cell shows a dot until its mark
   or its x removes it at the pen lift. A test build that hid the ink of a
   tap delayed the start of each stroke, and the owner selected the ink from the pen down. A pen

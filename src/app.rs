@@ -509,10 +509,17 @@ impl App {
     /// waiting ink, or the empty cell of the pen touch in progress, from the pen down (INP-24), also
     /// while the touch can still be a tap (INP-2). None when the pen is not on an empty cell and no
     /// ink waits: then the presenter decides what the area does. The area never covers a filled cell
-    /// (INP-22), also when a finger Redo fills the cell of the touch.
+    /// (INP-22), also when a finger Redo fills the cell of the touch. A touch on a micro-cell that
+    /// shows a mark does not ask for the area while it can still be a tap: the tap removes the mark,
+    /// and the pen waveform cannot remove a mark that the UI waveform drew (a ghost stays). A start
+    /// or a stop of the area would refresh the full cell. The area comes to the cell when the pen
+    /// leaves the micro-cell (the touch is writing).
     pub fn pen_cell(&self) -> Option<Cell> {
         match &self.pen {
-            Some(Gesture::BoardTap { cell, .. }) if !self.game.is_filled(*cell) => Some(*cell),
+            Some(Gesture::BoardTap { cell, digit, .. }) if !self.game.is_filled(*cell) => {
+                let mark = self.game.visible_marks(*cell, self.settings.auto_hide_on) & crate::game::mark_bit(*digit) != 0;
+                (!mark).then_some(*cell)
+            }
             _ => self.ui.pending_ink.as_ref().map(|i| i.cell),
         }
     }
