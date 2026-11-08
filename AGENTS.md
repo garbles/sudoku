@@ -32,6 +32,7 @@ All tests run on the computer. `Dockerfile.test` runs them again on aarch64 Linu
 ```bash
 cargo test                                   # all tests on the computer (macOS or Linux)
 cargo run --release --bin snapshot -- DIR    # draw the reference states and the icon sheet, and compare them with images/
+python3 scripts/invariants.py --open        # the visualizer of INVARIANTS.md (make invariants BASE=<ref>)
 cargo run --release --bin video -- video/demo.txt video/demo.mp4   # demo video from an event script (ffmpeg)
 cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4   # extended demo video for the website
 scripts/bench.sh                             # performance bench: compare with bench/baseline-computer.json
@@ -252,6 +253,16 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - Write all text, comments and documents in ASD-STE100 Simplified Technical English.
 - Each behavior comes from REQUIREMENTS.md. Each state rule comes from INVARIANTS.md. Tests give the
   rule IDs that they examine.
+- `make invariants` writes `target/invariants.html` and opens it. The page shows each rule of
+  INVARIANTS.md with its source, the rules that refer to it and the files that give its ID. It
+  compares the working tree with a base (on a branch: the merge base with main; on main: HEAD if
+  INVARIANTS.md has changes, else the version before its last change) and shows the rules that are
+  new, changed, moved or removed. The script reads the state model with a fixed grammar (one
+  card for each type, one row for each field, and a Mermaid diagram of the types from
+  cdn.jsdelivr.net). `BASE=<ref>` sets a different base. The script reads the format
+  that the comment at the start of INVARIANTS.md gives. Keep that format when you edit the file:
+  `python3 scripts/invariants.py --check` examines it, and `tests/invariants_format.rs` runs that
+  check in `cargo test` and on CI.
 - Each requested feature (a new behavior, or a change to what the app does or how it looks) uses
   the `remarkable-dev` skill (`.claude/skills/remarkable-dev/`). First make a prototype and install
   the dev build on the tablet. The skill gives the test for a simple request. For a simple

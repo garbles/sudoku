@@ -1,5 +1,26 @@
 # Sudoku for reMarkable Paper Pro — State invariants
 
+<!--
+Format for scripts/invariants.py (the visualizer, `make invariants`). Keep it when you edit:
+- A section is a heading "## N. Title" or "### N.M Title".
+- A rule is one table row: | ID | Rule | Source |. The ID is 2 to 4 capital letters, a hyphen and a
+  number. Do not use a line break in a row. Write "|" in a rule only in a code span.
+- The state model is the code block between the markers state-model:start and state-model:end.
+  Each line of it is one of these:
+  - a type: "Name" (a capital letter, then letters), with no indent;
+  - an alias: "Name = definition", with no indent;
+  - a field: an indent of 2 spaces, the names ("a" or "a, b[r][c]"), then optionally an operator
+    (∈, :, ⊆ or ≥) and the domain. The domain applies to all names of the line, and it has no
+    comma out of braces and parentheses: write fields with different domains on different lines;
+  - a continuation: an indent of 20 or more spaces. It adds to the note of the item above.
+  A note is a group in parentheses at the end of a line, after two or more spaces. A type name in
+  a domain, out of braces and parentheses, refers to that type.
+- Each term is one item "- **name**: text" between the markers terms:start and terms:end.
+- Each rule ID in the text (with the prefix of a rule) must be a rule.
+`python3 scripts/invariants.py --check` examines this format. tests/invariants_format.rs runs it
+(also on CI).
+-->
+
 This document is written in ASD-STE100 Simplified Technical English (STE).
 
 This document gives the rules that must be true **in all states that the app can get to**. The rules
@@ -42,6 +63,7 @@ comes from (for example *R§4.1*). Rules that are not confirmed yet are in
 The rules use this model of the state of the app. The names are examples. The code can use different
 names if it has an equivalent state.
 
+<!-- invariants:state-model:start -->
 ```
 App
   screen          ∈ {Game, Manual, Statistics, GamesList, Licenses, LicenseText}
@@ -59,7 +81,7 @@ Game
   seed            : integer                    (from the generator; no fixed range)
   mode            ∈ 0..6
   generator       ∈ {1, 2}                     (the version of the generator; 1 only for mode ∈ 0..4)
-  solution[r][c]  ∈ 1..9                       for r, c ∈ 0..8
+  solution[r][c]  ∈ 1..9                       (for r, c ∈ 0..8)
   given[r][c]     ∈ {true, false}
   value[r][c]     ∈ 0..9                       (0 = empty)
   marks[r][c]     ⊆ {1..9}                     (pencil marks; kept also when hidden)
@@ -112,11 +134,17 @@ Update
 Palette = {Gray, White, Yellow, Blue, Red, Green, Cyan, Magenta, Orange}
 
 Result
-  id, finished_at, mode ∈ 0..6, givens ∈ 0..81, seconds ≥ 0, seed, generator
+  id, finished_at
+  mode            ∈ 0..6
+  givens          ∈ 0..81
+  seconds         ≥ 0
+  seed, generator
 ```
+<!-- invariants:state-model:end -->
 
 Terms:
 
+<!-- invariants:terms:start -->
 - **peers(r, c)**: the 20 other cells in row r, in column c and in the 3×3 box of (r, c).
 - **filled(r, c)**: `value[r][c] ≠ 0`.
 - **entry(r, c)**: the cell is filled and is not a starting number ("your number").
@@ -142,6 +170,7 @@ Terms:
 - **example copy**: one item of the recognizer: one sample or shape of a source, with one slant,
   rotation and width for a digit, and with no change for "not 1–9". The sources are the database of 60
   writers, the typeface shapes and the handwriting of the owner.
+<!-- invariants:terms:end -->
 
 ## 1. Puzzle and solution
 
