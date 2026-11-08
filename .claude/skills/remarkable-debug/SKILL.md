@@ -59,8 +59,9 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
   conversion for the Pen waveform sends gray pixels through the color dither.
 - **A full black and white UI is wrong.** With all grays dithered to black and white, xochitl chose a
   mono waveform for the areas that were black and white before an update. The colors were washed out,
-  and a ghost stayed over the colored cells after the menu closed (owner test 2026-11-07). Thus only
-  the ink, the marks and the x are crisp (REQUIREMENTS.md §14.4). The micro-cell lines are the one
+  and a ghost stayed over the colored cells after the menu closed (owner test 2026-11-07). Thus no
+  gray becomes a black and white pattern. Since 2026-11-08 all drawings are crisp (no anti-aliasing),
+  but their grays and colors stay flat (REQUIREMENTS.md §14.4, §15). The micro-cell lines are the one
   drawing that shows a gray as a pattern, and the dots of the pattern are gray15, not black. With
   black dots an empty cell was a pure black and white area, and xochitl selected the mono waveform
   when a color appeared in it (a clash): the clash color was washed out (owner test 2026-11-08).

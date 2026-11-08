@@ -294,7 +294,7 @@ fn each_mark_is_at_its_keypad_position() {
         let mut c = Canvas::new(&mut want, &fonts);
         c.clear();
         // MRK-19: the mark is a crisp drawing (no anti-aliasing).
-        c.crisp(|c| c.text(Weight::Regular, 31.0, xf + MARK_POS[i % 3], yf + MARK_POS[i / 3] + 11.0, Anchor::Middle, &digit.to_string(), gray(15)));
+        c.text(Weight::Regular, 31.0, xf + MARK_POS[i % 3], yf + MARK_POS[i / 3] + 11.0, Anchor::Middle, &digit.to_string(), gray(15));
         // Each micro-cell without its edges (the board lines and the micro-cell lines).
         for m in 0..9 {
             let (mx, my) = (m % 3, m / 3);
@@ -983,10 +983,8 @@ fn assert_only_x(fonts: &Fonts, before: &Pixmap, with: &Pixmap, center: (f32, f3
     let mut c = Canvas::new(&mut want, fonts);
     let h = X_HALF;
     let (fx, fy) = center;
-    c.crisp(|c| {
-        c.line(fx - h, fy - h, fx + h, fy + h, X_WIDTH, gray(15));
-        c.line(fx - h, fy + h, fx + h, fy - h, X_WIDTH, gray(15));
-    });
+    c.line(fx - h, fy - h, fx + h, fy + h, X_WIDTH, gray(15));
+    c.line(fx - h, fy + h, fx + h, fy - h, X_WIDTH, gray(15));
     assert_eq!(differences(&want, with), vec![], "{what}: not two lines with round ends");
 }
 
@@ -2218,8 +2216,7 @@ fn the_removal_of_a_highlight_goes_in_one_redraw_with_the_result_of_the_action()
     }
 }
 
-// ---- MRK-19, INP-25, NAV-20: the crisp drawings (no anti-aliasing) and the anti-aliasing of all
-// other drawings.
+// ---- MRK-19, INP-25, NAV-20: all drawings are crisp (no anti-aliasing).
 
 /// The offset of the anchor point of a pencil mark from the cell origin on each axis, and the offset
 /// of its baseline from the anchor point (§15, MRK-1).
@@ -2298,14 +2295,12 @@ fn the_marks_and_the_x_are_crisp_in_all_layouts_and_with_each_grid() {
                 for digit in (1..=9u8).filter(|&v| visible & mark_bit(v) != 0) {
                     let i = digit as usize - 1;
                     let (mx, my) = (x as f32 + MARK_POS[i % 3], y as f32 + MARK_POS[i / 3] + MARK_BASELINE);
-                    c.crisp(|c| c.text(Weight::Regular, 31.0, mx, my, Anchor::Middle, &digit.to_string(), gray(15)));
+                    c.text(Weight::Regular, 31.0, mx, my, Anchor::Middle, &digit.to_string(), gray(15));
                 }
             }
             let (fx, fy) = x_center(board_origin(o), xcell, xdigit);
-            c.crisp(|c| {
-                c.line(fx - X_HALF, fy - X_HALF, fx + X_HALF, fy + X_HALF, X_WIDTH, gray(15));
-                c.line(fx - X_HALF, fy + X_HALF, fx + X_HALF, fy - X_HALF, X_WIDTH, gray(15));
-            });
+            c.line(fx - X_HALF, fy - X_HALF, fx + X_HALF, fy + X_HALF, X_WIDTH, gray(15));
+            c.line(fx - X_HALF, fy + X_HALF, fx + X_HALF, fy - X_HALF, X_WIDTH, gray(15));
             assert_eq!(differences(&want, &with), vec![], "MRK-19: {what}: not the crisp marks and x at their positions");
             // The x is in its micro-cell, the micro-cell lines stay.
             assert_grid(&with, xcell, line, &what);
@@ -2378,44 +2373,39 @@ fn the_ink_is_crisp_also_over_a_filled_cell_in_all_layouts() {
 }
 
 #[test]
-fn a_crisp_drawing_ends_with_the_drawing() {
-    // NAV-20, INP-25, MRK-19: on one canvas, a number after the ink, after a crisp drawing and after a
-    // crisp drawing inside a crisp drawing has its anti-aliasing. Inside the outer crisp drawing, the
-    // end of the inner one keeps the crisp mode (the previous value).
+fn each_drawing_of_the_canvas_is_crisp() {
+    // NAV-20: a text in the two weights, a line, a circle with a fill and a border, and the ink. Each
+    // pixel is the color of the drawing or white (the pixel under it): no intermediate value.
     let fonts = fonts();
-    let mut pm = Pixmap::new(400, 200).unwrap();
+    let mut pm = Pixmap::new(600, 200).unwrap();
     let mut c = Canvas::new(&mut pm, &fonts);
     c.clear();
-    let digit = |c: &mut Canvas, x: f32| c.text(Weight::Regular, 100.0, x, 150.0, Anchor::Middle, "8", BLACK);
-    let area = |x: i32| Rect::new(x - 50, 40, x + 50, 190);
-    digit(&mut c, 50.0);
-    c.ink(&[(10.0, 10.0), (390.0, 20.0)]);
-    c.ink(&[(200.0, 30.0)]);
-    digit(&mut c, 150.0);
-    c.crisp(|c| {
-        c.crisp(|c| c.line(0.0, 5.0, 400.0, 5.0, 3.0, gray(15)));
-        digit(c, 250.0);
-    });
-    digit(&mut c, 350.0);
+    let area = |x: i32| Rect::new(x - 50, 0, x + 50, 200);
+    c.text(Weight::Regular, 100.0, 50.0, 150.0, Anchor::Middle, "8", BLACK);
+    c.text(Weight::Medium, 100.0, 150.0, 150.0, Anchor::Middle, "?", sudoku::render::SECONDARY);
+    c.line(205.3, 10.7, 290.1, 180.4, 3.0, gray(15));
+    c.circle(350.4, 100.6, 33.3, Some(BLACK), Some((gray(15), 3.0)));
+    c.ink(&[(410.2, 20.3), (490.7, 170.9)]);
+    c.circle(550.4, 100.6, 33.3, None, Some((BLACK, 5.0)));
     drop(c);
-    assert!(intermediate(&pm, area(50)) > 20, "NAV-20: the number has no anti-aliasing");
-    assert!(intermediate(&pm, area(150)) > 20, "NAV-20: the crisp mode stays on after the ink");
-    assert_eq!(intermediate(&pm, area(250)), 0, "NAV-20: the end of the inner crisp drawing ends the outer one");
-    assert!(intermediate(&pm, area(350)) > 20, "NAV-20: the crisp mode stays on after a crisp drawing");
-    // The two smooth numbers are the same pixels.
-    for y in 40..190 {
-        for x in 0..100 {
-            assert_eq!(rgb_at(&pm, x, y), rgb_at(&pm, x + 100, y), "NAV-20: the number after the ink at ({}, {y})", x + 100);
+    for (x, what) in [(50, "the Regular text"), (150, "the Medium text"), (250, "the line"), (350, "the circle"), (450, "the ink"), (550, "the circle border")] {
+        let r = area(x);
+        let mut colors = std::collections::HashSet::new();
+        for y in r.y0..r.y1 {
+            for x in r.x0..r.x1 {
+                colors.insert(rgb_at(&pm, x, y));
+            }
         }
+        let max = if x == 350 { 3 } else { 2 };
+        assert!(colors.len() <= max && colors.len() >= 2, "NAV-20: {what} has the colors {colors:?}");
     }
 }
 
 #[test]
-fn numbers_question_marks_and_panels_keep_their_anti_aliasing_in_the_first_frame_and_in_a_redraw() {
+fn numbers_question_marks_and_panels_are_crisp_in_the_first_frame_and_in_a_redraw() {
     // NAV-20, INP-25, MRK-19: the real output (`present.rs`). The first frame (a full drawing in
     // stripes on the drawing threads) and each retained redraw after a mark, an x, ink and a "?" show
-    // the numbers, the "?" and the text of a panel with anti-aliasing. The ink that the presenter
-    // draws alone is crisp. At the end, the frame is the same as a full drawing on a new thread.
+    // the numbers, the "?", the ink and the text of a panel with no anti-aliasing. At the end, the frame is the same as a full drawing on a new thread.
     use sudoku::present::Presenter;
     let fonts = fonts();
     let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
@@ -2431,7 +2421,7 @@ fn numbers_question_marks_and_panels_keep_their_anti_aliasing_in_the_first_frame
     };
     let given = given_cell(&d.app.game);
     let check_number = |p: &Presenter, what: &str| {
-        assert!(intermediate(p.frame(), cell_inside(given)) > 20, "NAV-20: {what}: the number of {given:?} has no anti-aliasing");
+        assert_eq!(intermediate(p.frame(), cell_inside(given)), 0, "NAV-20: {what}: the number of {given:?} has anti-aliasing");
     };
     p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
     check_number(&p, "the first frame");
@@ -2479,7 +2469,12 @@ fn numbers_question_marks_and_panels_keep_their_anti_aliasing_in_the_first_frame
     d.wait(d.app.pause_ms + 50);
     assert_eq!(d.app.ui.question.map(|q| q.0), Some(q), "QST-1: the scribble gives a \"?\"");
     p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
-    assert!(intermediate(p.frame(), cell_inside(q)) > 20, "NAV-20: the \"?\" has no anti-aliasing");
+    // The "?" (gray25) on the white cell with the pattern of the micro-cell lines (gray15): no other
+    // color. 8 px from the borders: away from the thick lines (13 px) of the box borders.
+    let r = Rect::new(cell_inside(q).x0 + 4, cell_inside(q).y0 + 4, cell_inside(q).x1 - 4, cell_inside(q).y1 - 4);
+    let seen: std::collections::BTreeSet<[u8; 3]> = (r.y0..r.y1).flat_map(|y| (r.x0..r.x1).map(move |x| (x, y))).map(|(x, y)| rgb_at(p.frame(), x, y)).collect();
+    let allowed = [[255, 255, 255], sudoku::render::SECONDARY, gray(15)];
+    assert!(seen.contains(&sudoku::render::SECONDARY) && seen.iter().all(|c| allowed.contains(c)), "NAV-20: the \"?\" has the colors {seen:?}");
     check_number(&p, "the redraw with the \"?\"");
     settle(&mut d, &mut p, &mut fb);
 
@@ -2490,7 +2485,9 @@ fn numbers_question_marks_and_panels_keep_their_anti_aliasing_in_the_first_frame
     settle(&mut d, &mut p, &mut fb);
     let (x0, x1) = documented_settings_x();
     let y0 = documented_settings_row_y(0);
-    assert!(intermediate(p.frame(), Rect::new(x0 + 4, y0 + 4, x1 - 4, y0 + 108)) > 20, "NAV-20: the text of the Settings panel has no anti-aliasing");
+    let r = Rect::new(x0 + 4, y0 + 4, x1 - 4, y0 + 108);
+    let seen: std::collections::BTreeSet<[u8; 3]> = (r.y0..r.y1).flat_map(|y| (r.x0..r.x1).map(move |x| (x, y))).map(|(x, y)| rgb_at(p.frame(), x, y)).collect();
+    assert!(seen.len() <= 4, "NAV-20: the first row of the Settings panel has the colors {seen:?}");
     check_number(&p, "the redraw with the panel");
 
     // The frame of the redraws is the same as a full drawing on a new thread (no tiles in its cache).

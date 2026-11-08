@@ -116,29 +116,10 @@ impl Units {
     }
 }
 
-/// The edges of a drawing (R§15 "Anti-aliasing", NAV-20).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Edges {
-    /// Anti-aliasing: a pixel at the edge of the drawing gets an intermediate color. All drawings
-    /// except the ink, the pencil marks, the x, the board lines and the micro-cell lines have these
-    /// edges.
-    Smooth,
-    /// No anti-aliasing (a crisp drawing): each pixel is fully the color of the drawing, or it stays
-    /// the pixel that was under it. The ink of the pen (INP-25), the pencil marks and the x of a
-    /// refused tap (MRK-19) and the board lines (BRD-11) have these edges: the pen waveform of the
-    /// ink patch shows them with no dither (R§14.4). The micro-cell lines are also crisp: they are a
-    /// pattern of gray15 and white pixels that `Canvas::pattern` writes (BRD-9).
-    Crisp,
-}
-
 pub struct Canvas<'a> {
     pm: &'a mut Pixmap,
     pub fonts: &'a Fonts,
     units: Units,
-    /// The edges of the next drawings. `Smooth` except inside `crisp` (NAV-20): a value of this
-    /// canvas, not of the thread or of the program, thus a new canvas on a drawing thread starts
-    /// with `Smooth`.
-    edges: Edges,
     /// The record of the frame (refer to [`FrameRecord`]). None: each drawing writes the full frame.
     record: Option<&'a mut FrameRecord>,
     /// The screen row of the first row of `pm` (not 0 only for a stripe of the board, refer to
@@ -323,11 +304,12 @@ impl Known {
     }
 }
 
-/// The paint of a drawing of the color `c` with the edges `edges`.
-fn paint(c: Rgb, edges: Edges) -> Paint<'static> {
+/// The paint of a drawing of the color `c`. All drawings are crisp (no anti-aliasing, NAV-20): each
+/// pixel is fully `c`, or it stays the pixel that was under it.
+fn paint(c: Rgb) -> Paint<'static> {
     let mut p = Paint::default();
     p.set_color_rgba8(c[0], c[1], c[2], 255);
-    p.anti_alias = edges == Edges::Smooth;
+    p.anti_alias = false;
     p
 }
 
@@ -342,13 +324,13 @@ fn stroke(w: f32, round: bool) -> Stroke {
 
 impl<'a> Canvas<'a> {
     pub fn new(pm: &'a mut Pixmap, fonts: &'a Fonts) -> Canvas<'a> {
-        Canvas { pm, fonts, units: Units::Screen, edges: Edges::Smooth, record: None, top: 0, ink: false }
+        Canvas { pm, fonts, units: Units::Screen, record: None, top: 0, ink: false }
     }
 
     /// A canvas that keeps `record` (refer to [`FrameRecord`]). All drawings on `pm` after the first
     /// drawing with `record` must use the same record.
     pub fn retained(pm: &'a mut Pixmap, record: &'a mut FrameRecord, fonts: &'a Fonts) -> Canvas<'a> {
-        Canvas { pm, fonts, units: Units::Screen, edges: Edges::Smooth, record: Some(record), top: 0, ink: false }
+        Canvas { pm, fonts, units: Units::Screen, record: Some(record), top: 0, ink: false }
     }
 
     /// Records that a drawing in the box `b` (screen px), with `margin` px more on each side, can
@@ -361,18 +343,9 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    /// The paint of the color `c` with the edges of this canvas.
+    /// The paint of the color `c`.
     fn paint(&self, c: Rgb) -> Paint<'static> {
-        paint(c, self.edges)
-    }
-
-    /// Calls `draw` with crisp edges (`Edges::Crisp`, no anti-aliasing), then gives the edges that
-    /// the canvas had before back (NAV-20). Thus the crisp mode is off after each drawing, and a
-    /// crisp drawing inside a crisp drawing gives the previous value back when it ends.
-    pub fn crisp(&mut self, draw: impl FnOnce(&mut Self)) {
-        let before = std::mem::replace(&mut self.edges, Edges::Crisp);
-        draw(self);
-        self.edges = before;
+        paint(c)
     }
 
     /// Draws one stroke of the ink of the pen (`INK_WIDTH`, black): a dot of `INK_DOT_RADIUS` for one
@@ -381,11 +354,11 @@ impl<'a> Canvas<'a> {
     /// covers a board cell (refer to `FrameRecord::cell_change_shows_with_pen`).
     pub fn ink(&mut self, stroke: &[(f32, f32)]) {
         self.ink = true;
-        self.crisp(|c| match stroke {
+        match stroke {
             [] => {}
-            [(x, y)] => c.circle(*x, *y, INK_DOT_RADIUS, Some(BLACK), None),
-            _ => c.polyline(stroke, INK_WIDTH, BLACK, true),
-        });
+            [(x, y)] => self.circle(*x, *y, INK_DOT_RADIUS, Some(BLACK), None),
+            _ => self.polyline(stroke, INK_WIDTH, BLACK, true),
+        }
         self.ink = false;
     }
 
@@ -622,9 +595,13 @@ impl<'a> Canvas<'a> {
         self.polyline(&[(x0, y0), (x1, y1)], w, c, false);
     }
 
+    /// A circle with its center at (cx, cy). The circle is made near the origin and moved by a
+    /// translation of whole units: the f32 rounding of the curves then does not depend on the
+    /// position, thus a crisp circle has the same pixels at each position (NAV-20).
     pub fn circle(&mut self, cx: f32, cy: f32, r: f32, fill: Option<Rgb>, line: Option<(Rgb, f32)>) {
-        let Some(path) = PathBuilder::from_circle(cx, cy, r) else { return };
-        let tf = self.tf();
+        let (ix, iy) = (cx.floor(), cy.floor());
+        let Some(path) = PathBuilder::from_circle(cx - ix, cy - iy, r) else { return };
+        let tf = self.tf().pre_translate(ix, iy);
         if let Some(f) = fill {
             self.pm.fill_path(&path, &self.paint(f), FillRule::Winding, tf, None);
         }
@@ -656,8 +633,7 @@ impl<'a> Canvas<'a> {
         let tf = self.tf();
         let (dx, dy) = self.units.text_offset();
         let scale = self.units.scale();
-        let anti_alias = self.edges == Edges::Smooth;
-        if let Some(path) = font.draw_edges(self.pm, size, x + dx / scale, y + dy / scale, anchor, s, c, anti_alias, tf) {
+        if let Some(path) = font.draw(self.pm, size, x + dx / scale, y + dy / scale, anchor, s, c, tf) {
             self.touched_path(&path, tf, 0.0);
         }
     }
@@ -846,8 +822,7 @@ fn draw_game(c: &mut Canvas, app: &App) {
         bookmark: !app.game.completed,
     };
     put_overlay(c, menu, |c| {
-        // The menu button is an icon: a crisp drawing (NAV-20).
-        c.crisp(|c| menu_icon(c, tb_cx(), tb_cy(0), app.ui.menu.is_open(), layout::right_handed(), BLACK));
+        menu_icon(c, tb_cx(), tb_cy(0), app.ui.menu.is_open(), layout::right_handed(), BLACK);
         if let Menu::Open(panel) = app.ui.menu {
             draw_toolbar(c, app, panel);
         }
@@ -1165,10 +1140,10 @@ const REFUSED_X_HALF: f32 = 10.0;
 const REFUSED_X_WIDTH: f32 = 3.0;
 
 /// Draws one cell with its top left at (xf, yf; integer screen px): the background or the faint
-/// micro-cell grid (a pattern, BRD-9), then the number, the "?" (with anti-aliasing) or the pencil
-/// marks and the x of a refused tap (crisp, MRK-19). The cell is drawn the same on the main thread,
-/// on a stripe thread and into a tile (NAV-20): the edges are a value of the canvas, `crisp` gives
-/// the smooth edges back, and the pattern is a function of the position in the cell only.
+/// micro-cell grid (a pattern, BRD-9), then the number, the "?" or the pencil marks and the x of a
+/// refused tap (MRK-19). All are crisp drawings (NAV-20). The cell is drawn the same on the main
+/// thread, on a stripe thread and into a tile: the pattern is a function of the position in the
+/// cell only.
 fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
     let cs = CELL as f32;
     match look {
@@ -1191,14 +1166,14 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
             }
         }
     }
-    // Numbers: starting numbers black, your numbers `ENTRY_DIGIT` (BRD-8), with anti-aliasing (NAV-20).
+    // Numbers: starting numbers black, your numbers `ENTRY_DIGIT` (BRD-8), crisp (NAV-20).
     // Pencil marks only on empty cells (MRK-2), gray15, at their keypad positions (MRK-1).
     match look {
         CellLook::Value(v, _, col) => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, &v.to_string(), col),
         CellLook::Question => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, "?", SECONDARY),
-        // The marks and the x are crisp drawings (MRK-19): each pixel is gray15 or the pixel of the
-        // cell without them (white, or a gray15 dot of the grid). The background keeps its anti-aliasing.
-        CellLook::Empty(marks, _, refused) => c.crisp(|c| {
+        // The marks and the x are crisp drawings (MRK-19, NAV-20): each pixel is gray15 or the pixel
+        // of the cell without them (white, or a gray15 dot of the grid).
+        CellLook::Empty(marks, _, refused) => {
             for d in 1..=9u8 {
                 if marks & crate::game::mark_bit(d) != 0 {
                     let (cx, cy) = mark_anchor(xf, yf, d);
@@ -1213,7 +1188,7 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
                 c.line(cx - h, cy - h, cx + h, cy + h, REFUSED_X_WIDTH, MARK_COLOR);
                 c.line(cx - h, cy + h, cx + h, cy - h, REFUSED_X_WIDTH, MARK_COLOR);
             }
-        }),
+        }
     }
 }
 
@@ -1223,11 +1198,6 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
 /// full lines, because the lines are straight and the ends of the parts are out of the area. The
 /// lines are crisp drawings (BRD-11): black on full pixels, with no anti-aliasing.
 fn board_lines(c: &mut Canvas, keep: impl Fn(i32, bool) -> bool, near: Option<(i32, i32, i32, i32)>) {
-    c.crisp(|c| board_lines_smooth(c, keep, near));
-}
-
-/// The lines of `board_lines` with the edges of the canvas.
-fn board_lines_smooth(c: &mut Canvas, keep: impl Fn(i32, bool) -> bool, near: Option<(i32, i32, i32, i32)>) {
     let (x0, y0, b) = (board_x() as f32, board_y() as f32, BOARD_SIZE as f32);
     // The part of a line from `a` to `a + b` near the span s0..s1 (with a margin larger than the
     // ends of the thick lines).
@@ -1407,7 +1377,7 @@ fn draw_board_stripes(c: &mut Canvas, (ax, ay, aw, ah): (usize, usize, usize, us
                     let top = y0 - STRIPE_MARGIN.min(y0);
                     let mut pm = Pixmap::new(fw, (y0 - top + h + STRIPE_MARGIN) as u32).unwrap();
                     pm.fill(tiny_skia::Color::WHITE);
-                    let mut s = Canvas { pm: &mut pm, fonts, units: Units::Screen, edges: Edges::Smooth, record: None, top: top as i32, ink: false };
+                    let mut s = Canvas { pm: &mut pm, fonts, units: Units::Screen, record: None, top: top as i32, ink: false };
                     for &(cell, look) in looks {
                         let (x, y) = cell_origin(cell);
                         draw_cell(&mut s, look, x as f32, y as f32);
@@ -1656,7 +1626,7 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
 
 /// A switch with its right end at x: a track of 72 x 36 px and a knob of 28 px. The curves are made at
 /// the origin and moved by a transform, because the f32 rounding of curves at absolute positions gives
-/// other antialiased pixels at a different x. Thus the switch has the same pixels for the two hands (NAV-15).
+/// other edge pixels at a different x. Thus the switch has the same pixels for the two hands (NAV-15).
 fn switch(c: &mut Canvas, x1: f32, cy: f32, on: bool) {
     let (w, r) = (72.0, 18.0);
     let mut pb = PathBuilder::new();
@@ -2335,10 +2305,6 @@ impl Icon {
     /// Draws the icon with its center at (cx, cy). The caution icon uses `col` for its border and its
     /// mark. Each icon is a crisp drawing (no anti-aliasing; NAV-20, owner approval 2026-11-08).
     pub fn draw(self, c: &mut Canvas, cx: f32, cy: f32, col: Rgb) {
-        c.crisp(|c| self.draw_shapes(c, cx, cy, col));
-    }
-
-    fn draw_shapes(self, c: &mut Canvas, cx: f32, cy: f32, col: Rgb) {
         match self {
             Icon::MenuClosed | Icon::MenuOpen => menu_icon(c, cx, cy, self == Icon::MenuOpen, false, col),
             Icon::Close => {

@@ -1,18 +1,21 @@
-//! The app draws the same pixels as the reference images in `images/` (REQUIREMENTS.md §15). The
-//! renderer (tiny-skia) and ImageMagick (FreeType) use different antialiasing. Thus a difference is
-//! permitted only on the pixels at the edge of a line or a glyph (within 1 px; 2 px for a maximum of
-//! two pixels). There is one exception: the pencil marks are crisp drawings (MRK-19). ImageMagick
-//! draws them with the hinting of FreeType (the stems snap to full pixels), and tiny-skia has no
-//! hinting. Thus a stem of a mark can be 1 px to the side. In a micro-cell that shows a mark, a pixel
-//! that has the color of the mark (gray15, also under the veil of a dialog) in one picture and the
-//! pixel of the cell with no marks in the other picture (within 2 per channel) is not counted in the
-//! limit of 1 px (refer to `without_mark_stem_shifts`). There is a second exception: a glyph edge
-//! directly under a horizontal panel line. The two pictures can start the glyph one row apart. Then
-//! the black line above the glyph hides the edge of the glyph from the test of 1 px in the
+//! The app draws the same positions and shapes as the reference images in `images/` (REQUIREMENTS.md
+//! §15). The app draws all items crisp (no anti-aliasing, NAV-20), and ImageMagick (FreeType) draws
+//! the images with anti-aliasing. Thus a difference is permitted only on the pixels at the edge of a
+//! line or a glyph (within 1 px; 2 px for a maximum of two pixels). There is one exception: ImageMagick
+//! draws the pencil marks crisp, with the hinting of FreeType (the stems snap to full pixels), and
+//! tiny-skia has no hinting. Thus a stem of a mark can be 1 px to the side. In a micro-cell that shows
+//! a mark, a pixel that has the color of the mark (gray15, also under the veil of a dialog) in one
+//! picture and the pixel of the cell with no marks in the other picture (within 2 per channel) is not
+//! counted in the limit of 1 px (refer to `without_mark_stem_shifts`). There is a second exception: a
+//! glyph edge directly under a horizontal panel line. The two pictures can start the glyph one row
+//! apart. Then the black line above the glyph hides the edge of the glyph from the test of 1 px in the
 //! reference. A pixel is not counted in the limit of 1 px only if the two rows directly above it are
 //! black over 21 px in the two pictures (a line, not a glyph), and the app has an edge within 1 px of
-//! the pixel (refer to `without_glyph_edges_under_lines`). All other drawings keep the limits above.
-
+//! the pixel (refer to `without_glyph_edges_under_lines`). There is a third exception: under the veil
+//! of a dialog, the contrast of an edge is low. A crisp edge of the app can then differ by more than 64
+//! from the soft edge of the image, and the image has no edge of more than 64 within 1 px. Thus the
+//! images with a dialog permit 12 pixels in the limit of 1 px (refer to `max_off1`). All other
+//! drawings keep the limits above.
 mod common;
 
 use std::path::Path;
@@ -24,11 +27,19 @@ use sudoku::render::{decode_png, rgb_at};
 use sudoku::settings::Color;
 
 /// The limits of `reference::compare` for an image: the mean difference and the part of the pixels that
-/// differ by more than 64. The text of ImageMagick and of tiny-skia has different anti-aliasing at the
-/// edges of the glyphs. The license text page (R§9.4) has much more text than the other screens, thus
-/// it has higher limits. The checks of the pixels away from the edges are the same for all images.
+/// differ by more than 64. The app draws the glyphs crisp (NAV-20), and ImageMagick draws them with
+/// anti-aliasing: the edges of the glyphs are different. The screens with much text (the analytics
+/// screens, the Licenses screens) have the most edges, and the license text page (R§9.4) has much more
+/// text than the other screens, thus it has higher limits. The checks of the pixels away from the
+/// edges are the same for all images.
 fn limits(name: &str) -> (f64, f64) {
-    if name.starts_with("licenses-text") { (2.5, 0.015) } else { (1.5, 0.008) }
+    if name.starts_with("licenses-text") { (2.5, 0.015) } else { (2.0, 0.012) }
+}
+
+/// The maximum quantity of pixels that differ more than 1 px from an edge (refer to the start of this
+/// file): 12 for an image with the veil of a dialog, else 2.
+fn max_off1(name: &str) -> usize {
+    if name.starts_with("update-restart") || name.contains("-delete") { 12 } else { 2 }
 }
 
 #[test]
@@ -49,7 +60,7 @@ fn screens_agree_with_the_reference_images() {
         assert!(off2.is_empty(), "{name}: pixels that differ away from all edges: {:?}", &off2[..off2.len().min(10)]);
         let off1 = without_mark_stem_shifts(&fonts, setup, &pm, &want, reference::differences_off_edges(&pm, &want, 1));
         let off1 = without_glyph_edges_under_lines(&pm, &want, off1);
-        assert!(off1.len() <= 2, "{name}: pixels that differ more than 1 px from an edge: {:?}", &off1[..off1.len().min(10)]);
+        assert!(off1.len() <= max_off1(name), "{name}: pixels that differ more than 1 px from an edge: {:?}", &off1[..off1.len().min(10)]);
     }
 }
 
@@ -2166,16 +2177,17 @@ fn a_retained_frame_follows_each_change_of_the_symmetrical_switch() {
     reset_layout();
 }
 
-/// The number of different colors in the cell, inside a margin of 6 px from its borders.
-fn colors_in_cell(pm: &tiny_skia::Pixmap, cell: sudoku::game::Cell) -> usize {
+/// The different colors in the cell, inside a margin of 8 px from its borders (away from the thick
+/// lines of 13 px at the borders of a box).
+fn colors_in_cell(pm: &tiny_skia::Pixmap, cell: sudoku::game::Cell) -> Vec<[u8; 3]> {
     let (ox, oy) = sudoku::layout::cell_origin(cell);
-    let mut seen = std::collections::HashSet::new();
-    for y in oy + 6..oy + sudoku::layout::CELL - 6 {
-        for x in ox + 6..ox + sudoku::layout::CELL - 6 {
+    let mut seen = std::collections::BTreeSet::new();
+    for y in oy + 8..oy + sudoku::layout::CELL - 8 {
+        for x in ox + 8..ox + sudoku::layout::CELL - 8 {
             seen.insert(rgb_at(pm, x, y));
         }
     }
-    seen.len()
+    seen.into_iter().collect()
 }
 
 #[test]
@@ -2231,7 +2243,8 @@ fn the_marks_the_x_and_the_ink_are_crisp_in_each_layout() {
                 let in_filled = |&&(x, y): &&(i32, i32)| x >= fx && x < fx + sudoku::layout::CELL && y >= fy && y < fy + sudoku::layout::CELL;
                 assert!(changed.iter().filter(in_filled).count() > 100, "{what}: the ink does not cross the filled cell");
                 assert_eq!(rgb_at(&ink, dot.0 as i32, dot.1 as i32), [0, 0, 0], "{what}: no dot");
-                // NAV-20: the numbers and the "?" keep their anti-aliasing (intermediate colors at the edges).
+                // NAV-20: the numbers and the "?" are crisp: the color of the number or of the "?", and the
+                // color of the cell (no intermediate colors at the edges).
                 app.ui.question = Some((empty, 0));
                 app.ui.pending_ink = None;
                 app.live_stroke = None;
@@ -2239,10 +2252,12 @@ fn the_marks_the_x_and_the_ink_are_crisp_in_each_layout() {
                 for cell in [filled, (0, 0)] {
                     assert!(app.game.is_filled(cell), "{what}: cell {cell:?} has no number");
                     let n = colors_in_cell(&question, cell);
-                    assert!(n > 8, "{what}: the number of cell {cell:?} has only {n} colors");
+                    assert_eq!(n.len(), 2, "{what}: the number of cell {cell:?} has the colors {n:?}");
                 }
+                // The "?" (gray25) on the white cell with the pattern of the micro-cell lines (gray15).
                 let n = colors_in_cell(&question, empty);
-                assert!(n > 8, "{what}: the \"?\" has only {n} colors");
+                let allowed = [[255, 255, 255], sudoku::render::SECONDARY, sudoku::render::MARK_COLOR];
+                assert!(n.contains(&sudoku::render::SECONDARY) && n.iter().all(|c| allowed.contains(c)), "{what}: the \"?\" has the colors {n:?}");
             })
             .join()
             .unwrap();
@@ -2251,47 +2266,14 @@ fn the_marks_the_x_and_the_ink_are_crisp_in_each_layout() {
 }
 
 #[test]
-fn the_panels_keep_their_anti_aliasing_and_the_crisp_mode_ends() {
-    // NAV-20: the text of a panel over the board keeps its anti-aliasing. A crisp drawing inside a
-    // crisp drawing gives the previous value back when it ends, and after the outer crisp drawing
-    // the canvas draws with anti-aliasing again.
-    use sudoku::font::{Anchor, Weight};
-    use sudoku::render::{Canvas, BLACK, MARK_COLOR, MARK_SIZE};
+fn the_panels_are_crisp() {
+    // NAV-20: the panels have no anti-aliasing. The Settings panel over the board has only a small
+    // set of colors (the colors of its drawings), not the intermediate grays of anti-aliased edges.
     reference::use_utc();
     let fonts = fonts();
     let pm = reference::render(&fonts, reference_setup("settings-menu.png"));
-    let grays: std::collections::HashSet<[u8; 3]> =
-        pm.pixels().iter().map(|p| [p.red(), p.green(), p.blue()]).filter(|c| c[0] == c[1] && c[1] == c[2]).collect();
-    assert!(grays.len() > 50, "settings-menu.png: only {} grays", grays.len());
-
-    let colors = |pm: &tiny_skia::Pixmap, x0: i32| {
-        let mut seen = std::collections::HashSet::new();
-        for y in 0..100 {
-            for x in x0..x0 + 100 {
-                seen.insert(rgb_at(pm, x, y));
-            }
-        }
-        seen
-    };
-    let mut smooth = tiny_skia::Pixmap::new(300, 100).unwrap();
-    smooth.fill(tiny_skia::Color::WHITE);
-    Canvas::new(&mut smooth, &fonts).text(Weight::Regular, 60.0, 250.0, 50.0, Anchor::Middle, "8", BLACK);
-    let mut pm = tiny_skia::Pixmap::new(300, 100).unwrap();
-    pm.fill(tiny_skia::Color::WHITE);
-    let mut c = Canvas::new(&mut pm, &fonts);
-    c.crisp(|c| {
-        c.crisp(|c| c.text(Weight::Regular, MARK_SIZE, 50.0, 50.0, Anchor::Middle, "8", MARK_COLOR));
-        // Still crisp after the inner drawing.
-        c.text(Weight::Regular, MARK_SIZE, 150.0, 50.0, Anchor::Middle, "8", MARK_COLOR);
-    });
-    c.text(Weight::Regular, 60.0, 250.0, 50.0, Anchor::Middle, "8", BLACK);
-    let white = [255, 255, 255];
-    for x0 in [0, 100] {
-        let set = colors(&pm, x0);
-        assert!(set.len() == 2 && set.contains(&MARK_COLOR) && set.contains(&white), "mark at {x0}: {set:?}");
-    }
-    assert!(colors(&pm, 200).len() > 8, "the text after the crisp drawing has no anti-aliasing");
-    assert_eq!(colors(&pm, 200), colors(&smooth, 200), "the text after the crisp drawing is not the same");
+    let colors: std::collections::HashSet<[u8; 3]> = pm.pixels().iter().map(|p| [p.red(), p.green(), p.blue()]).collect();
+    assert!(colors.len() <= 24, "settings-menu.png: {} colors: {colors:?}", colors.len());
 }
 
 /// The matrix of the pattern of the micro-cell lines, as BRD-9 gives it. The tests do not use the

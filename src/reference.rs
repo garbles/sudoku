@@ -485,7 +485,7 @@ pub fn use_utc() {
 
 /// The pixels that differ by more than 64 and that are not near an edge of the reference image. A
 /// pixel is near an edge if the reference has a contrast of more than 64 within `radius` pixels.
-/// Antialiasing changes only pixels near edges. Thus a result other than 0 is a real difference (for
+/// Anti-aliasing (of the design images) changes only pixels near edges. Thus a result other than 0 is a real difference (for
 /// example a missing item or an item at a different position).
 pub fn differences_off_edges(ours: &Pixmap, reference: &Pixmap, radius: i32) -> Vec<(u32, u32)> {
     let (w, h) = (reference.width() as i32, reference.height() as i32);

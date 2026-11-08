@@ -238,8 +238,9 @@ approximately one second in that micro-cell (owner approval 2026-11-04).
 
 Digits use reMarkable Sans Regular: 104 px for numbers and 31 px for pencil marks. Starting numbers
 are black. Your numbers are dark gray (`#1E1E1E`; owner approval 2026-11-04 and 2026-11-05). The
-numbers have anti-aliasing. The pencil marks have no anti-aliasing: each pixel of a mark is `gray15`
-or the pixel of the empty cell under it ([§15](#15-visual-specification); owner approval 2026-11-07).
+numbers have no anti-aliasing ([§15](#15-visual-specification); owner approval 2026-11-08). The
+pencil marks have no anti-aliasing: each pixel of a mark is `gray15` or the pixel of the empty cell
+under it ([§15](#15-visual-specification); owner approval 2026-11-07).
 
 The **micro-cell lines** of an empty cell are a pattern of `gray15` and white pixels with the darkness
 of the gray that the Micro-cell lines section selects ([§10](#10-cell-colors-panel); owner approval
@@ -1835,9 +1836,12 @@ approval 2026-11-08): the board lines are black on full pixels, and the micro-ce
 selected gray as a pattern of `gray15` and white pixels ([§4.1](#41-types-of-cell)). The panel has no
 gray particle: a flat gray pixel is a colored dither on the panel, and a 16×16 tile with 16 or more
 flat gray pixels loses the clean text path for the digits in it. Thus a lighter line must be a
-pattern of dark and white pixels. All other drawings keep their anti-aliasing: the numbers, the "?",
-the menu, the panels, the dialogs, the texts, the manual pages, the result card and the small boards
-of the Checkpoints panel (their mark dots stay as they are). The micro-cell lines and the swatches of
+pattern of dark and white pixels. Since 2026-11-08, all other drawings of the app also have no
+anti-aliasing (owner approval on the tablet, build `dev/no-antialias`): the numbers, the "?", the
+menu, the panels, the dialogs, the texts, the result card and the small boards of the Checkpoints
+panel with their mark dots. Their colors and grays do not change: no gray becomes a pattern. The
+manual pages are prepared images: the app copies their pixels, and they keep the anti-aliasing of
+the images. The micro-cell lines and the swatches of
 the Micro-cell lines section ([§10](#10-cell-colors-panel)) are the only drawings that show a gray
 as a pattern. The dots of the pattern are `gray15`, not black: the display code of xochitl gives a
 rectangle that was pure black and white a mono waveform, and a color that then appears in it is
@@ -2012,7 +2016,7 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Ink of the pen (§5.1) | Black line of 5 px with round ends and joins; the ink of a tap is a dot with a radius of 2.5 px. No anti-aliasing: each pixel is black or the pixel under it, also over a filled cell (§14.4; owner approval 2026-11-07) |
 | "?" | reMarkable Sans Regular 104 px, `gray25` (owner request 2026-11-07) |
 | x of a refused tap (§6.1) | Two straight lines with round ends, line width 3 px, `gray15` (the same as the pencil marks). Each line goes from -10 px to +10 px on the two axes around the center: 20×20 px between the line centers, visible extent of approximately 23×23 px. The center is the anchor point of the pencil mark of that digit: 24, 74 or 122 px from the cell origin on each axis, at the keypad position of the digit (1 at the top left, 9 at the bottom right). The x stays in its micro-cell and does not touch the cell lines. Time: the same value as the "?" (1000 ms) (owner approval 2026-11-04). No anti-aliasing: each changed pixel is `gray15` (owner approval 2026-11-07). |
-| Anti-aliasing | Only the ink of the pen, the pencil marks, the x, the board lines, the micro-cell lines and the icons (all icons of the app, also on the icon sheet `icons.png`; owner approval 2026-11-08) have no anti-aliasing. All other drawings have anti-aliasing: the numbers, the "?", the menu frame, the panels, the dialogs, the texts, the manual pages, the result card and the small boards of the Checkpoints panel with their mark dots. The micro-cell lines and the swatches of the Micro-cell lines section are the only drawings that show a gray as a pattern; no other gray becomes a black and white pattern (§14.4; owner approval 2026-11-07 and 2026-11-08) |
+| Anti-aliasing | No drawing of the app has anti-aliasing (owner approval 2026-11-08): the ink of the pen, the pencil marks, the x, the board lines, the micro-cell lines, the icons (also on the icon sheet `icons.png`), the numbers, the "?", the menu frame, the panels, the dialogs, the texts, the result card and the small boards of the Checkpoints panel with their mark dots. Each pixel of a drawing is fully the color of the drawing, or the pixel that was under it. Only the manual pages have anti-aliasing: they are prepared images, and the app copies their pixels. The design images in `images/` keep the anti-aliasing of ImageMagick for all items except the ink, the pencil marks, the x, the board lines and the micro-cell lines: they give the positions and the shapes, and the comparison accepts the edge pixels (§17). The micro-cell lines and the swatches of the Micro-cell lines section are the only drawings that show a gray as a pattern; no other gray becomes a black and white pattern (§14.4; owner approval 2026-11-07 and 2026-11-08) |
 | Highlight | The same color rules as before (§4.2). It can also show while the menu or a panel is open, on the part of the board that the panel does not cover (§6.2; owner approval 2026-11-07) |
 | Times of writing | Recognition pause 1000 ms from the pen lift. Redraw wait 1000 ms after the last stroke. A touch that starts less than 150 ms after a pen lift has no effect (§5.1, §14.4; owner approval 2026-11-07) |
 | Palette | Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue `#408CFF`, Red `#FF8E8E`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0`, Orange `#FF9A1F` (owner approval 2026-11-04 and 2026-11-05). The board, the panel dots, the manual and the images all use this palette. |
@@ -2073,7 +2077,12 @@ These items are closed:
 This table gives all the images in [`images/`](images/) and the sections that tell about them. The
 images that show pencil marks or an x on the board (for example `screen-in-progress.png` and
 `screen-invalid-mark.png`) show them with no anti-aliasing, as the app draws them
-([§15](#15-visual-specification); owner decision 2026-11-07). The images that show an empty cell
+([§15](#15-visual-specification); owner decision 2026-11-07). The app draws all items with no
+anti-aliasing ([§15](#15-visual-specification); owner approval 2026-11-08), but the other items of
+the images (the numbers, the texts, the panels, the icons) keep the anti-aliasing of ImageMagick
+(owner decision 2026-11-08): the crisp glyphs of ImageMagick and of the app are different by 1 px at
+many edges, thus the anti-aliased images are the better reference for the positions and the shapes.
+The images that show an empty cell
 of the board, and `box.png` and `cell.png`, show the micro-cell lines as the pattern of `gray15` dots
 of [§4.1](#41-types-of-cell), and all images with the board show the crisp board lines (the faint edge
 pixels of the lines go away, [§4.1](#41-types-of-cell)), and the Cell colors panel images (`color-menu*.png`) show the swatches of the Micro-cell lines section

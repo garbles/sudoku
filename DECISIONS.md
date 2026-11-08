@@ -18,7 +18,9 @@ Since 2026-11-07, the ink of the pen, the pencil marks and the x of a refused ta
 anti-aliasing, in the app and in the images (REQUIREMENTS.md §15). Since 2026-11-08, the board lines
 and the micro-cell lines also have no anti-aliasing: the micro-cell lines are a pattern of `gray15`
 and white pixels with the darkness of the selected gray, and ImageMagick draws the same pattern pixel
-for pixel (REQUIREMENTS.md §4.1). All other drawings keep their anti-aliasing.
+for pixel (REQUIREMENTS.md §4.1). Since 2026-11-08 (later), no drawing of the app has anti-aliasing,
+but the design images keep the anti-aliasing of ImageMagick for the other items (the entry
+"no anti-aliasing" of 2026-11-08, below).
 
 In `color-menu.png`, the redo button is black. UND-7 tells that redo is black only if a redo is
 available. Thus the test makes the image state with one change that was undone.
@@ -1163,3 +1165,39 @@ records it.
 ### Owner request: crisp icons, 2026-11-08
 
 The owner asked: "can you make all of the icons render with crisp too?" The prototype (build `dev/crisp-icons`) draws each `render::Icon` with no anti-aliasing. The owner approved it on the tablet ("Correct") and asked to skip the team procedure: the images were made again (the icon sheet `icons.png` and the screens with icons), the tests pass, and NAV-20 and the §15 row "Anti-aliasing" list the icons. The ImageMagick icons of the design images keep their anti-aliasing: the snapshot tests accept the edge pixels.
+
+### Owner request: no anti-aliasing, 2026-11-08
+
+Request: "as a spike, can you remove all anti-aliasing so that i can see whether it improves rendering
+performance", then "lets keep that change. no more anti-aliasing". Issue remarkable-sudoku-0se. The
+prototype (build `dev/no-antialias`) draws all shapes and all text of the app with no anti-aliasing.
+The owner examined it on the tablet and approved it, and asked for the work without the team
+procedure.
+
+This is not iteration 1 of 2026-11-07 (build `dev/bw-pixels`, rejected): that build also changed
+each gray pixel to black or white with a dither. Now only the edges change: each pixel of a drawing
+is fully the color of the drawing or the pixel under it, and the colors and the grays stay flat.
+
+Decisions of the owner (2026-11-08):
+
+- The manual pages do not change: they are prepared images, the app copies their pixels, and they
+  keep their anti-aliasing ("Keep manual as is").
+- The design images in `images/` keep the anti-aliasing of ImageMagick for the numbers, the texts,
+  the panels and the icons ("Keep AA images"). A test build of crisp design images
+  (ImageMagick `+antialias`) agreed less with the app: the crisp glyphs of FreeType and of tiny-skia
+  are different by 1 px at many edges (for example `licenses-text.png`: 6994 pixels more than 2 px
+  from an edge of the image, 0 with the anti-aliased image). Thus the anti-aliased images are the
+  better reference for the positions and the shapes.
+
+The comparison limits of `tests/render.rs` changed: a maximum mean difference of 2.0 (before 1.5)
+and a maximum of 1.2 % of the pixels that differ by more than 64 (before 0.8 %) for all images
+except the license text page, because each crisp edge of the app differs from the soft edge of the
+image. Under the veil of a dialog (`update-restart.png`, the delete dialogs of the analytics screen)
+the edges have low contrast, thus these images permit 12 pixels more than 1 px from an edge
+(before 2). The pixels more than 2 px from an edge stay at 0.
+
+A crisp circle at a different x had a different edge pixel (the f32 rounding of the curves at large
+coordinates): the Cell colors panel was not the same in the four layouts, and the meter of the
+result card was not the same as the meter below the board. Thus the app makes each circle near the
+origin and moves it by full pixels, as the switch of the Settings panel.
+

@@ -17,8 +17,8 @@ const _: () = assert!(HAND_TOUCH_MS == 150, "INP-20");
 // NAV-19, QST-5: the secondary text and marks are gray25 (#404040).
 const _: () = assert!(crate::render::SECONDARY[0] == 0x40 && crate::render::SECONDARY[1] == 0x40 && crate::render::SECONDARY[2] == 0x40, "NAV-19");
 // MRK-19, NAV-19: the pencil marks and the x are gray15 (#262626), Regular 31 px. INP-25: the ink is
-// 5 px wide, and the dot of a tap has a radius of 2.5 px. The crisp pixels of these drawings and the
-// anti-aliasing of all other drawings (NAV-20) are pixel rules: the tests examine them.
+// 5 px wide, and the dot of a tap has a radius of 2.5 px. The crisp pixels of these drawings and of
+// all other drawings (NAV-20) are pixel rules: the tests examine them.
 const _: () = assert!(crate::render::MARK_COLOR[0] == 0x26 && crate::render::MARK_COLOR[1] == 0x26 && crate::render::MARK_COLOR[2] == 0x26, "MRK-19");
 const _: () = assert!(crate::render::MARK_SIZE == 31.0, "MRK-19");
 const _: () = assert!(crate::render::INK_WIDTH == 5.0 && crate::render::INK_DOT_RADIUS == 2.5, "INP-25");
