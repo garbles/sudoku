@@ -36,7 +36,7 @@ text 72 1485 38 gray25 start "shows ? for one second. Then the cell is the same 
 SCRIBBLE='M 30,60 C 50,20 70,100 90,50 S 120,90 100,110 S 40,100 60,70'
 Y=1530; AY=$((Y+CW/2))
 cell 300 $Y "1 3" ""; ink 300 $Y "$SCRIBBLE"; arrow 490 580 $AY
-filled 595 $Y "?" "" gray40; arrow 785 875 $AY
+filled 595 $Y "?" "" gray25; arrow 785 875 $AY
 cell 890 $Y "1 3" ""
 text 387 $((Y+CW+50)) 34 gray25 middle "Scribble"
 text 682 $((Y+CW+50)) 34 gray25 middle "? for one second"

@@ -259,6 +259,9 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
     crate::reference::use_utc();
     let mut draw_hash = Hash::new();
     for (name, setup) in crate::reference::states().into_iter().chain([("ink", crate::reference::ink_state as crate::reference::Setup)]) {
+        // Each state starts in the portrait layout of a left-handed player. A state can change the
+        // orientation (the landscape states), and the next state must not keep it.
+        crate::layout::set_orientation(crate::layout::Orientation::Portrait);
         crate::layout::set_right_handed(false);
         let mut a = crate::reference::app(&fonts);
         setup(&mut a);

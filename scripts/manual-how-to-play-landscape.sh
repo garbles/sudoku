@@ -41,6 +41,6 @@ echo "fill none stroke black stroke-width 5 circle 1012,1186 1040,1186 fill blac
 text 1080 1200 38 gray25 start "Open the menu (top right). Page 7"
 text 1080 1250 38 gray25 start "tells about the menu."
 
-text 1340 1305 30 gray40 middle "To turn the page, swipe left or right with your finger, or tap an arrow."
+text 1340 1305 30 gray25 middle "To turn the page, swipe left or right with your finger, or tap an arrow."
 pagenum 1 9
 render "$1/manual-how-to-play-landscape.png"

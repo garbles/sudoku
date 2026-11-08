@@ -54,6 +54,9 @@ UNIT_BG='#DCE9F7'   # only for the rules on page 1. It is not a color of the boa
 # sections (the panel is at x 708-1507, y 112-1192).
 COLOR_PANEL_CROP=912x362+708+111
 
+# The last row of the board and the result card (x 148-1471, y 1790-2110) in screen-completed.png, for page 9.
+FINISHED_CROP=1336x532+142+1588
+
 # minib X Y "r,c,bg ..." "r,c,digit,color ..." : a small 9x9 board (cells of 34 px) with colored cells and digits
 MC=34
 minib() {

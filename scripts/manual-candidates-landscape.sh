@@ -42,7 +42,7 @@ for row in 0 1; do
   arrow $((X1+CW+15)) $((X2-15)) $AY
 done
 
-text 936 1250 32 gray40 middle "You can add pencil marks only to cells that do not have a number."
+text 936 1250 32 gray25 middle "You can add pencil marks only to cells that do not have a number."
 
 pagenum 2 9
 render "$1/manual-candidates-landscape.png"

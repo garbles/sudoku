@@ -306,29 +306,34 @@ fn undo_and_redo_are_gray_on_a_complete_game() {
     assert_eq!(d.app.game, g, "a gray button changed the complete game");
 }
 
-// ---- CMP-4: "Completed in" and the meter.
+// ---- CMP-4: the result card and the meter.
 
 #[test]
-fn completed_in_replaces_the_meter() {
-    // CMP-4: a complete game shows "Completed in" and the time (m:ss, h:mm:ss after one hour) in place
-    // of the meter. A game that is not complete shows the meter. The player cannot change the meter.
+fn the_result_card_replaces_the_meter() {
+    // CMP-4, DIF-6, CLK-4: a complete game shows the result card (x 148–1471, y 1790–2110, CMP-7) in
+    // place of the meter: the part of the meter above the card is white, and the old text "Completed
+    // in m:ss" is not at the position of the meter. A game that is not complete shows the meter and
+    // no card. The player cannot change the meter. tests/inv_card.rs examines the contents of the card.
     let fonts = fonts();
     let area = Rect::new(layout::board_x(), layout::meter_y() - 30, layout::board_x() + layout::BOARD_SIZE, layout::meter_y() + 30);
+    // Below the outer line of the board and above the frame of the card.
+    let above_card = Rect::new(layout::board_x(), layout::board_y() + layout::BOARD_SIZE + 12, layout::board_x() + layout::BOARD_SIZE, 1789);
     let (cx, ty) = ((layout::board_x() + layout::BOARD_SIZE / 2) as f32, (layout::meter_y() + 9) as f32);
-    for (seconds, text) in [(7, "0:07"), (23 * 60 + 41, "23:41"), (3599, "59:59"), (3600, "1:00:00"), (3725, "1:02:05"), (36_000 + 59, "10:00:59")] {
+    for (seconds, text) in [(7, "0:07"), (23 * 60 + 41, "23:41"), (3600, "1:00:00")] {
         let mut app = reference::app(&fonts);
         app.game = reference::completed_game();
         app.game.elapsed_ms = seconds * 1000 + 999;
         let pm = draw_app(&app, &fonts);
-        let want = text_only(&fonts, Units::Screen, Weight::Medium, 25.0, cx, ty, Anchor::Middle, &format!("Completed in {text}"));
-        assert_eq!(first_difference(&pm, &want, area), None, "{seconds} s: not \"Completed in {text}\" alone");
+        let old = text_only(&fonts, Units::Screen, Weight::Medium, 25.0, cx, ty, Anchor::Middle, &format!("Completed in {text}"));
+        assert!(first_difference(&pm, &old, area).is_some(), "CMP-4: {seconds} s: the old text \"Completed in {text}\" shows");
+        assert_eq!(darkest(&pm, above_card), 255, "CMP-4: {seconds} s: the meter shows on a complete game");
+        assert_eq!(rgb_at(&pm, 148, 1950), [0, 0, 0], "CMP-4, CMP-7: {seconds} s: no result card");
     }
 
-    // Not complete: the meter shows, not the text.
+    // Not complete: the meter shows, and no card.
     let mut d = Driver::new(75);
     let pm = draw_app(&d.app, &fonts);
-    let want = text_only(&fonts, Units::Screen, Weight::Medium, 25.0, cx, ty, Anchor::Middle, "Completed in 0:01");
-    assert!(first_difference(&pm, &want, area).is_some());
+    assert_eq!(rgb_at(&pm, 148, 1950), [255, 255, 255], "CMP-4: a card on a game that is not complete");
     let (we, wh) = (fonts.get(Weight::Medium).width(25.0, "Easy"), fonts.get(Weight::Medium).width(25.0, "Hard"));
     let stops = layout::slider_stops(layout::meter_xl(), layout::meter_xr(), we, wh);
     let knob = stops[d.app.game.mode as usize];
@@ -1610,10 +1615,10 @@ fn the_cell_colors_panel_has_its_position_and_its_lines_in_all_layouts() {
 }
 
 #[test]
-fn the_cell_colors_panel_covers_no_button_and_not_the_meter_or_completed_in() {
-    // NAV-17, NAV-8, NAV-12, CMP-4: in all layouts, on a game in progress and on a completed game. The
-    // panel changes only its own pixels and the button of the paint bucket. Each button, the close
-    // button, the meter and "Completed in" are outside the panel.
+fn the_cell_colors_panel_covers_no_button_and_not_the_meter_or_the_result_card() {
+    // NAV-17, NAV-8, NAV-12, CMP-4, CMP-7: in all layouts, on a game in progress and on a completed
+    // game. The panel changes only its own pixels and the button of the paint bucket. Each button, the
+    // close button, the meter and the result card are outside the panel.
     let fonts = fonts();
     for (o, right_handed) in LAYOUTS {
         let _layout = InLayout::set(o, right_handed);
@@ -1632,12 +1637,24 @@ fn the_cell_colors_panel_covers_no_button_and_not_the_meter_or_completed_in() {
                 let inside = |r: Rect| x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1;
                 assert!(inside(panel) || inside(bucket), "NAV-17: {what}: the pixel ({x}, {y}) is outside the panel");
             }
-            // The meter or "Completed in" is below the board. All of it is below the panel.
+            // The meter is below the board. All of it is below the panel.
             let below = board_origin(o).1 + layout::BOARD_SIZE + 1;
             let (w, h) = (layout::screen_w() as i32, layout::screen_h() as i32);
             let ink = (below..h).flat_map(|y| (layout::TB_SLOT..w - layout::TB_SLOT).map(move |x| (x, y))).filter(|&(x, y)| rgb_at(&without, x, y) != [255, 255, 255]).count();
-            assert!(ink > 0, "{what}: no meter and no \"Completed in\"");
             assert!(below > 1192, "NAV-17: {what}: the board ends at {below}");
+            if completed {
+                // CMP-7: the frame of the result card (x0 − 1 to x1 + 1) is outside the panel.
+                let (cx0, cy0, cx1, cy1) = match (o, right_handed) {
+                    (layout::Orientation::Portrait, _) => (148, 1790, 1471, 2110),
+                    (layout::Orientation::Landscape, false) => (48, 148, 370, 1471),
+                    (layout::Orientation::Landscape, true) => (1790, 148, 2112, 1471),
+                };
+                let apart = cx1 + 1 < x0 || cx0 - 1 > x1 || cy1 + 1 < 112 || cy0 - 1 > 1192;
+                assert!(apart, "NAV-17, CMP-7: {what}: the panel covers the result card");
+                assert_eq!(rgb_at(&with, cx0, (cy0 + cy1) / 2), [0, 0, 0], "CMP-7: {what}: no result card");
+            } else {
+                assert!(ink > 0, "{what}: no meter");
+            }
         }
         // The buttons are outside the panel, and the hit area of each button stays a button.
         let what = format!("{o:?}, right-handed {right_handed}");

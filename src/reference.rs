@@ -335,6 +335,17 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             a.screen = Screen::Manual;
             a.manual_page = 9
         }),
+        // CMP-7, R§3.3: the result card in landscape, as a column at the side opposite the toolbar.
+        // These states set the orientation; `render` sets the old orientation again after the drawing.
+        ("screen-completed-landscape.png", |a| {
+            crate::layout::set_orientation(crate::layout::Orientation::Landscape);
+            a.game = completed_game()
+        }),
+        ("screen-completed-landscape-right-handed.png", |a| {
+            crate::layout::set_orientation(crate::layout::Orientation::Landscape);
+            crate::layout::set_right_handed(true);
+            a.game = completed_game()
+        }),
     ]
 }
 
@@ -349,13 +360,16 @@ pub fn ink_state(a: &mut App) {
 }
 
 pub fn render(fonts: &Fonts, setup: Setup) -> Pixmap {
-    // The images are left-handed, if the setup does not change this.
+    // The images are left-handed, if the setup does not change this. A setup can also change the
+    // orientation: after the drawing, the orientation of the caller applies again.
+    let orientation = crate::layout::orientation();
     crate::layout::set_right_handed(false);
     let mut a = app(fonts);
     setup(&mut a);
     let mut pm = Pixmap::new(crate::layout::screen_w(), crate::layout::screen_h()).unwrap();
     render::draw(&mut Canvas::new(&mut pm, fonts), &a);
     crate::layout::set_right_handed(false);
+    crate::layout::set_orientation(orientation);
     pm
 }
 
@@ -407,7 +421,7 @@ pub fn icon_sheet(fonts: &Fonts) -> Pixmap {
     let origin = |i: u32| ((i % ICON_COLUMNS * ICON_TILE_W) as f32, (i / ICON_COLUMNS * ICON_TILE_H) as f32);
     let center = |(x, y): (f32, f32)| (x + (ICON_TILE_W / 2) as f32, y + ICON_CENTER_Y as f32);
     let label = |c: &mut Canvas, (x, y): (f32, f32), name: &str| {
-        c.text(Weight::Regular, 20.0, x + (ICON_TILE_W / 2) as f32, y + ICON_LABEL_Y as f32, Anchor::Middle, name, gray(40));
+        c.text(Weight::Regular, 20.0, x + (ICON_TILE_W / 2) as f32, y + ICON_LABEL_Y as f32, Anchor::Middle, name, render::SECONDARY);
     };
     for (i, &(icon, look)) in tiles.iter().enumerate() {
         let o = origin(i as u32);

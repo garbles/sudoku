@@ -89,3 +89,89 @@ labeled_slider() {
   printf "text-anchor end text %s,%s 'Hard' " $2 $(($3+9))
   slider $(($1+we+24)) $(($2-wi-24)) $3 $4
 }
+
+# The secondary text gray (REQUIREMENTS.md §15): gray25 (#404040). The old gray40 was too light on the device.
+TEXT_GRAY=gray25
+
+# meter XA Y STEP LEVEL : MVG for the small difficulty meter with no labels (render.rs `meter`, the meter of the
+# statistics tables), in screen pixels. Its first stop is at XA, and its stops are STEP px apart.
+meter() {
+  awk -v xa=$1 -v y=$2 -v s=$3 -v L=$4 -v n=$STOPS 'BEGIN{
+    xk=xa+L*s; xb=xa+(n-1)*s
+    printf "fill none stroke-linecap round stroke gray60 stroke-width 2.5 line %g,%g %g,%g ", xk, y, xb, y
+    printf "stroke black stroke-width 4.5 line %g,%g %g,%g ", xa, y, xk, y
+    for (i=0;i<n;i++) { x=xa+i*s; printf "fill %s stroke black stroke-width 2.5 circle %g,%g %g,%g ", (i<L?"black":"white"), x, y, x+5, y }
+    printf "fill black stroke white stroke-width 2.5 circle %g,%g %g,%g", xk, y, xk+11, y }'
+}
+
+# The result card of a completed puzzle (REQUIREMENTS.md §8.3). It replaces the difficulty meter.
+# Portrait: below the board, the same for the two hands: x 148-1471 (the board width), y 1790-2110.
+CARD_X0=$X0; CARD_X1=$((X0+9*C)); CARD_Y0=$((Y0+9*C+49)); CARD_Y1=$((Y0+9*C+49+320))
+CARD_MID=$((CARD_X0+640))              # the vertical line between the result and the level buttons (x 788)
+# Landscape: a column with the height of the board (y 148-1471), 322 px wide, at the side opposite the toolbar.
+CARD_LS_W=322; CARD_LS_X_LEFT=48; CARD_LS_X_RIGHT=$((LS_W-48-CARD_LS_W))   # left-handed x 48-370, right-handed x 1790-2112
+CARD_LS_Y0=$((Y0+LS_DY)); CARD_LS_Y1=$((Y0+9*C+LS_DY))
+CARD_LS_SPLIT=560                      # the horizontal line is 560 px above the bottom of the column (y 911)
+# The sample values of the reference state: the time, and the comparison with the results of analytics.py at
+# mode 2 (LEVEL), without the result of the current game (seed 1, the second result).
+CARD_TIME="23:41"; CARD_AVERAGE="18:55"; CARD_BEST="14:51"
+
+# card_text FONT SIZE COLOR ANCHOR X Y TEXT
+card_text() { printf "stroke none fill %s font '%s' font-size %s text-anchor %s text %s,%s '%s'\n" "$3" "$1" $2 $4 $5 $6 "$7"; }
+# card_frame X0 Y0 X1 Y1 COLOR : a frame of 2 px on the lines of the rectangle (columns X0-1, X0 and X1-1, X1; the same
+# for the rows), as a stroke of 2 px of render.rs `stroke_rect`
+card_frame() {
+  printf "stroke none fill %s rectangle %s,%s %s,%s rectangle %s,%s %s,%s " $5 $(($1-1)) $(($2-1)) $3 $2 $(($1-1)) $(($4-1)) $3 $4
+  printf "rectangle %s,%s %s,%s rectangle %s,%s %s,%s\n" $(($1-1)) $(($2-1)) $1 $4 $(($3-1)) $(($2-1)) $3 $4
+}
+# level_label I : the label of level button I (0 Easier, 1 Same, 2 Harder)
+level_label() { case $1 in 0) echo Easier ;; 1) echo Same ;; *) echo Harder ;; esac; }
+# level_mode I LEVEL : the mode that level button I starts, or nothing when the button is not available
+level_mode() { lm=$(($2+$1-1)); if [ $lm -ge 0 ] && [ $lm -lt $STOPS ]; then echo $lm; fi; }
+
+# result_card portrait|left|right LEVEL : MVG for the result card. "left" and "right" are the landscape column of a
+# left-handed and a right-handed player (2160x1620 coordinates). The contents of the column are the same for the
+# two hands. The three level buttons have a white inside (no button is selected). A button that is not available
+# has a gray80 frame, a gray70 label and no meter.
+result_card() {
+  rl=$2
+  if [ $1 = portrait ]; then
+    rx0=$CARD_X0; ry0=$CARD_Y0; rx1=$CARD_X1; ry1=$CARD_Y1; rtx=$((rx0+40))
+    echo "stroke none fill white rectangle $((rx0-1)),$((ry0-1)) $rx1,$ry1"
+    card_frame $rx0 $ry0 $rx1 $ry1 black
+    card_text "$DIGIT_FONT" 30 $TEXT_GRAY start $rtx $((ry0+66)) "Completed in"
+    card_text "$UI_FONT" 96 black start $rtx $((ry0+180)) "$CARD_TIME"
+    labeled_slider $rtx $((rtx+DIFF_W)) $((ry0+232)) $rl; echo
+    card_text "$DIGIT_FONT" 25 $TEXT_GRAY start $rtx $((ry0+293)) "Average $CARD_AVERAGE  ·  Previous best $CARD_BEST"
+    echo "stroke none fill gray70 rectangle $((CARD_MID-1)),$((ry0+24)) $CARD_MID,$((ry1-25))"
+    card_text "$UI_FONT" 28 black start $((CARD_MID+32)) $((ry0+55)) "New game"
+    for i in 0 1 2; do
+      bx0=$((CARD_MID+32)); bx1=$((rx1-32)); by0=$((ry0+75+80*i)); by1=$((by0+70)); bcy=$(((by0+by1)/2))
+      bm=$(level_mode $i $rl); fg=black; [ -z "$bm" ] && fg=gray70
+      card_frame $bx0 $by0 $bx1 $by1 $([ -n "$bm" ] && echo black || echo gray80)
+      card_text "$UI_FONT" 30 $fg start $((bx0+28)) $((bcy+11)) "$(level_label $i)"
+      [ -n "$bm" ] && { meter $((bx1-40-6*30)) $bcy 30 $bm; echo; }
+    done
+  else
+    rx0=$CARD_LS_X_LEFT; [ $1 = right ] && rx0=$CARD_LS_X_RIGHT
+    rx1=$((rx0+CARD_LS_W)); ry0=$CARD_LS_Y0; ry1=$CARD_LS_Y1; rtx=$((rx0+28)); rcx=$(((rx0+rx1)/2)); sy=$((ry1-CARD_LS_SPLIT))
+    card_frame $rx0 $ry0 $rx1 $ry1 black
+    card_text "$DIGIT_FONT" 30 $TEXT_GRAY start $rtx $((ry0+70)) "Completed in"
+    card_text "$UI_FONT" 72 black start $rtx $((ry0+185)) "$CARD_TIME"
+    meter $((rcx-3*40)) $((ry0+255)) 40 $rl; echo
+    card_text "$DIGIT_FONT" 25 $TEXT_GRAY start $rtx $((ry0+370)) "Average at this level"
+    card_text "$UI_FONT" 40 black start $rtx $((ry0+418)) "$CARD_AVERAGE"
+    card_text "$DIGIT_FONT" 25 $TEXT_GRAY start $rtx $((ry0+480)) "Previous best"
+    card_text "$UI_FONT" 40 black start $rtx $((ry0+528)) "$CARD_BEST"
+    echo "stroke none fill gray70 rectangle $rtx,$((sy-1)) $((rx1-29)),$sy"
+    card_text "$UI_FONT" 28 black start $rtx $((sy+60)) "New game"
+    for i in 0 1 2; do
+      bx0=$((rx0+20)); bx1=$((rx1-20)); by0=$((sy+90+140*i)); by1=$((by0+120))
+      bm=$(level_mode $i $rl); fg=black; [ -z "$bm" ] && fg=gray70
+      card_frame $bx0 $by0 $bx1 $by1 $([ -n "$bm" ] && echo black || echo gray80)
+      card_text "$UI_FONT" 32 $fg middle $rcx $((by0+50)) "$(level_label $i)"
+      [ -n "$bm" ] && { meter $((rcx-3*36)) $((by0+88)) 36 $bm; echo; }
+    done
+  fi
+  return 0
+}

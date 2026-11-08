@@ -4,10 +4,10 @@
 #   board-state.py unrecognized  the same game immediately after a scribble that the app cannot read: "?" in the cell
 #   board-state.py invalid-mark  the same game immediately after a pen tap on a pencil mark that a peer refuses: "x" in the micro-cell
 #   board-state.py completed-group  a game with no clash and a complete box, column and row in the completed color
-#   board-state.py completed     the complete, locked board with the normal colors. The time replaces the difficulty meter.
+#   board-state.py completed     the complete, locked board with the normal colors. The result card replaces the difficulty meter.
 #   board-state.py mini STATE X Y CELL  the small board of a checkpoint (MINI_STATES) with its first cell at X,Y
 #   board-state.py mini-count STATE     the quantity of filled cells of that checkpoint
-import os, sys
+import os, subprocess, sys
 C = 147; X0, Y0 = (1620 - 9*C)//2, (2160 - 9*C)//2   # must agree with ui-lib.sh
 HERE = os.path.dirname(os.path.abspath(__file__))
 FONT = os.path.join(HERE, "fonts", "rmsans-400.ttf")     # reMarkable Sans Regular
@@ -33,7 +33,6 @@ UNRECOGNIZED = (4,1)      # the cell with the scribble in "unrecognized"
 INVALID_MARK = (1,6,6)    # the row, the column and the digit of the tap in "invalid-mark". (1,0) and (2,7) have a 6.
 X_HALF = 10               # each line of the x goes from -10 px to +10 px on the two axes around the center
 X_WIDTH = 3               # the line width of the x
-TIME = "23:41"            # the time used in "completed"
 # The small boards of the Checkpoints panel: the player numbers, the mistakes and the cells with pencil marks.
 MINI_STATES = {
     "current": (ENTERED, WRONG, MARKED),                        # the same as the game in progress
@@ -122,7 +121,7 @@ def mini_board(state, bx, by, cell):
         for d in range(1, 10):
             if d in used: continue
             dx, dy = x+3+5*((d-1) % 3), y+3+5*((d-1)//3)
-            m.append(f"stroke none fill gray40 rectangle {dx},{dy} {dx+1},{dy+1}")
+            m.append(f"stroke none fill gray25 rectangle {dx},{dy} {dx+1},{dy+1}")
     for i in range(1, 9):
         if i % 3:
             a = i*cell
@@ -178,7 +177,7 @@ for r, c in MARKED:
 
 if MODE == "unrecognized":
     r, c = UNRECOGNIZED; x, y = X0+c*C, Y0+r*C
-    out.append(f"stroke none fill gray40 font '{FONT}' font-size 104 text-anchor middle text {x+C//2},{y+111} '?'")
+    out.append(f"stroke none fill gray25 font '{FONT}' font-size 104 text-anchor middle text {x+C//2},{y+111} '?'")
 if MODE == "invalid-mark":
     # only the micro-cell changes: the other marks and the micro-cell lines of the cell stay
     r, c, d = INVALID_MARK
@@ -188,8 +187,10 @@ if MODE == "invalid-mark":
     out.append(f"fill none stroke gray15 stroke-width {X_WIDTH} stroke-linecap round "
                f"line {cx-h},{cy-h} {cx+h},{cy+h} line {cx-h},{cy+h} {cx+h},{cy-h}")
 if MODE == "completed":
-    # the time used replaces the difficulty meter below the board
+    # the result card replaces the difficulty meter below the board (ui-lib.sh result_card, mode 2 = LEVEL)
     dy = Y0 + 9*C + 50
     out.append(f"stroke none fill white rectangle {X0},{dy-30} {X0+9*C},{dy+30}")
-    out.append(f"fill black font '{UI_FONT}' font-size 25 text-anchor middle text {X0+9*C//2},{dy+9} 'Completed in {TIME}'")
+    card = subprocess.run(["sh", "-c", '. "$0"; result_card portrait $LEVEL', os.path.join(HERE, "ui-lib.sh")],
+                          check=True, capture_output=True, text=True).stdout
+    out.append(card)
 print("\n".join(out))

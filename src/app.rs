@@ -6,7 +6,7 @@
 
 use crate::game::{Cell, Game, Outcome};
 use crate::generator::{generate, generate_early};
-use crate::layout::{self, Button, CheckpointControl, Rect};
+use crate::layout::{self, Button, CheckpointControl, LevelButton, Rect};
 use crate::recognizer::{self, Stroke};
 use crate::settings::{Color, LineGray, Section, Settings, Switch};
 use crate::store::{NewResult, ResultRow, ResultsDb};
@@ -142,7 +142,8 @@ impl GameUi {
         GameUi { menu: Menu::Open(None), ..GameUi::closed(slider) }
     }
 
-    /// The state of the game screen when a different screen shows: the menu is closed (NAV-5).
+    /// The state of the game screen when a different screen shows (NAV-5), and after a level button
+    /// of the result card (NAV-9): the menu is closed.
     fn closed(slider: u8) -> GameUi {
         GameUi { menu: Menu::Closed, highlight: None, question: None, refused: None, pending_ink: None, slider, delete_guard: None }
     }
@@ -266,6 +267,8 @@ enum Target {
     /// A control of the Checkpoints panel.
     Checkpoint(CheckpointControl),
     StartNewGame,
+    /// A level button of the result card (CMP-10). Only an available button is a target.
+    Level(LevelButton),
     Back,
     Prev,
     Next,
@@ -337,8 +340,12 @@ pub struct App {
     last_pen_lift: Option<u64>,
     last_clock: Option<u64>,
     /// The seed of the next new game (DIF-5: a new seed for each game). The app draws it when the
-    /// New game panel is open, so that the generator can make the puzzle before Start new game.
-    next_seed: Option<u64>,
+    /// New game panel is open or the result card shows, so that the generator can make the puzzle
+    /// before Start new game or a level button.
+    pub(crate) next_seed: Option<u64>,
+    /// The puzzle `(next_seed, mode)` that the generator makes in the background for the next game
+    /// (PUZ-7, `start_early_game`). None: no puzzle started since the last new game.
+    pub(crate) early_game: Option<(u64, u8)>,
 
     pub game_dirty: bool,
     pub settings_dirty: bool,
@@ -370,7 +377,7 @@ impl App {
         };
         let results = db.all().unwrap_or_default();
         let slider = settings.last_mode;
-        App {
+        let mut app = App {
             screen: Screen::Game,
             game,
             ui: GameUi::shown(slider),
@@ -397,6 +404,7 @@ impl App {
             last_pen_lift: None,
             last_clock: None,
             next_seed: None,
+            early_game: None,
             game_dirty: true,
             settings_dirty: false,
             quit: false,
@@ -405,7 +413,11 @@ impl App {
             save_game_now: None,
             ink_log: None,
             stroke_log: None,
-        }
+        };
+        // PUZ-7: a completed game from the save shows the result card, thus the puzzle of Same
+        // starts now.
+        app.start_early_game();
+        app
     }
 
     /// The New game slider stops with approximate text widths of the labels "Easy" and "Hard", for
@@ -607,12 +619,7 @@ impl App {
                 }
             }
         }
-        // While the New game panel is open, the puzzle of the slider mode is made in the background:
-        // when no pen or finger is down (not at each stop of a slider move).
-        if self.ui.menu.panel() == Some(Panel::NewGame) && self.screen == Screen::Game && self.pen.is_none() && self.touch.is_none() {
-            let seed = *self.next_seed.get_or_insert_with(|| self.env.new_seed());
-            generate_early(seed, self.ui.slider);
-        }
+        self.start_early_game();
         // §9.2: "Sudoku is up to date" shows only until the Settings panel closes.
         if self.ui.menu.panel() != Some(Panel::Settings) || self.screen != Screen::Game {
             self.update.panel_closed();
@@ -624,6 +631,27 @@ impl App {
         if let Err(e) = crate::invariants::check_app(self) {
             panic!("invariant failed after {input:?}: {e}");
         }
+    }
+
+    /// Starts to make the puzzle of the next game in the background (§11, PUZ-7), so that the new
+    /// game does not wait for the generator. While the New game panel is open: the mode of the
+    /// slider, when no pen or finger is down (not at each stop of a slider move). Else, on a complete
+    /// game (the result card): the mode of Same, immediately, also at a completion by the read of
+    /// the ink at the end of the pause. The result is the same as at the time of need (PUZ-5).
+    fn start_early_game(&mut self) {
+        let mode = if self.ui.menu.panel() == Some(Panel::NewGame) && self.screen == Screen::Game {
+            if self.pen.is_some() || self.touch.is_some() {
+                return;
+            }
+            self.ui.slider
+        } else if self.game.completed {
+            self.game.mode
+        } else {
+            return;
+        };
+        let seed = *self.next_seed.get_or_insert_with(|| self.env.new_seed());
+        self.early_game = Some((seed, mode));
+        generate_early(seed, mode);
     }
 
     /// A press of the pen (`tool` is Some) or of a finger (`tool` is None).
@@ -764,6 +792,17 @@ impl App {
         }
         if let Some(b) = button {
             return Gesture::Control(Target::Game(b));
+        }
+
+        // The level buttons of the result card (CMP-10): the pen tip, the eraser and a finger operate
+        // them. A button that is not available changes nothing (CMP-9).
+        if self.game.completed {
+            if let Some(b) = layout::level_button_at(x, y) {
+                return match b.target(self.game.mode) {
+                    Some(_) => Gesture::Control(Target::Level(b)),
+                    None => Gesture::Ignored,
+                };
+            }
         }
 
         // The board. Only the pen operates it (§5.1). A complete puzzle is locked (§8.3).
@@ -1028,6 +1067,8 @@ impl App {
                 Ok(_) => self.refresh_results(),
                 Err(e) => eprintln!("sudoku: cannot save the result: {e}"),
             }
+            // PUZ-7: the puzzle of Same starts at the completion, not at the next input.
+            self.start_early_game();
         }
     }
 
@@ -1125,6 +1166,7 @@ impl App {
             Target::LineGray(g) => layout::line_gray_at(x, y) == Some(g),
             Target::Checkpoint(control) => layout::checkpoint_control_at(x, y, self.game.checkpoints.len()) == Some(control),
             Target::StartNewGame => layout::ng_start_row().contains(x, y),
+            Target::Level(b) => layout::level_button_at(x, y) == Some(b),
             Target::Switch(s) => layout::settings_at(x, y) == Some(s),
             Target::Update => layout::update_button_area().contains(x, y),
             Target::Licenses => layout::settings_row(layout::LICENSES_ROW).contains(x, y),
@@ -1175,6 +1217,7 @@ impl App {
             }
             Target::Checkpoint(control) => self.checkpoint_control(control, now),
             Target::StartNewGame => self.start_new_game(),
+            Target::Level(b) => self.level_button(b),
             Target::Back => match self.screen {
                 Screen::GamesList => self.screen = Screen::Statistics,
                 Screen::LicenseText => self.screen = Screen::Licenses,
@@ -1407,19 +1450,49 @@ impl App {
         }
     }
 
-    /// Start new game (§11).
+    /// Start new game (§11). The New game panel closes and the menu stays open (NAV-9).
     pub fn start_new_game(&mut self) {
         let mode = self.ui.slider;
+        self.start_game_at(mode);
+        self.ui = GameUi::shown(mode);
+    }
+
+    /// A level button of the result card (§8.3, CMP-10): a new game at `target(b)`, with the menu
+    /// closed and no panel (NAV-9). A button that is not available, or a game that is not complete,
+    /// changes nothing.
+    pub fn level_button(&mut self, b: LevelButton) {
+        let Some(mode) = b.target(self.game.mode).filter(|_| self.game.completed && self.screen == Screen::Game) else {
+            return;
+        };
+        self.start_game_at(mode);
+        self.ui = GameUi::closed(mode);
+        // NAV-16 guards only the second tap of a double tap on "< Back", with the menu open. A level
+        // button is a different action, and it closes the menu: the guard stops.
+        self.toolbar_ignored_until = None;
+    }
+
+    /// The steps of a new game at `mode` (DIF-5), with the seed of the puzzle that the app made in
+    /// the background, if there is one (PUZ-7). The caller sets the menu.
+    fn start_game_at(&mut self, mode: u8) {
         eprintln!("sudoku: start new game (mode {mode})");
         self.settings.last_mode = mode;
         self.settings_dirty = true;
         let seed = self.next_seed.take().unwrap_or_else(|| self.env.new_seed());
+        self.early_game = None;
         self.game = new_game(seed, mode);
         self.game_dirty = true;
-        // The New game panel closes and the menu stays open (NAV-9).
-        self.ui = GameUi::shown(mode);
         self.live_stroke = None;
         self.cancel_gestures();
+    }
+
+    /// The puzzle `(seed, mode)` that the app makes in the background for the next game (PUZ-7).
+    pub fn early_game(&self) -> Option<(u64, u8)> {
+        self.early_game
+    }
+
+    /// The comparison of the result card (CMP-8).
+    pub fn card_comparison(&self) -> Comparison {
+        Comparison::of(&self.results, &self.game)
     }
 
     // ---- Analytics
@@ -1542,6 +1615,26 @@ fn is_generated(g: &Game) -> bool {
     let p = crate::generator::generate_version(g.generator, g.seed, g.mode);
     let given = p.givens.map(|row| row.map(|v| v != 0));
     p.solution == g.solution && given == g.given
+}
+
+/// The comparison of the result card with the earlier results at the mode of the game (CMP-8).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Comparison {
+    /// No earlier result at this mode: "First game at this level".
+    First,
+    /// The average (Statistics rounding, ANA-4) and the minimum of the earlier times, in seconds.
+    Earlier { average: u64, best: u64 },
+}
+
+impl Comparison {
+    /// The results at the mode of the game, without the result of the game itself (the same seed).
+    pub fn of(results: &[ResultRow], game: &Game) -> Comparison {
+        let earlier = || results.iter().filter(|r| r.mode == game.mode && r.seed != game.seed);
+        match (average_seconds(earlier()), earlier().map(|r| r.seconds).min()) {
+            (Some(average), Some(best)) => Comparison::Earlier { average, best },
+            _ => Comparison::First,
+        }
+    }
 }
 
 /// The average of the times, rounded to whole seconds. A half rounds to the even value, as in the

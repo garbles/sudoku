@@ -979,3 +979,37 @@ edges of ImageMagick and tiny-skia is different, thus its mean difference is 1.7
 image has higher limits (mean 2.5, 1.5% of the pixels) in `tests/render.rs`. The checks of the pixels
 away from the edges are the same as for all images (no difference).
 
+
+### Owner request: the result card of a completed puzzle, and a darker secondary gray, 2026-11-07
+
+Request (design review): keep the result card of design 1, but remove the Statistics button, the New
+game button and the "New best" pill. Add new game buttons that select an easier, the same or a harder
+level. The owner selected design D ("Split card") and the rule "the card never touches the toolbar".
+
+The owner examined the prototype on the tablet (`dev/result-card`, epic remarkable-sudoku-3ow) and
+approved it after two changes:
+
+- Rejected: **Same** with a black fill and white text (as in the mocks). The owner said "do not
+  highlight Same". The three buttons are equal: 2 px black frame, white inside.
+- Rejected: `gray40` (`#666666`) for secondary text. "Completed in" was hard to read on the tablet.
+  The owner asked for a darker gray in all interfaces, also the manual pages: `gray25` (`#404040`).
+  The micro-cell line setting 40 (COL-7) is a setting, not a text color, and does not change.
+
+Decisions of the owner (2026-11-07):
+
+- Landscape: the card is a column of 322 px at the side opposite the toolbar. Only the column moves;
+  its contents are not a mirror image.
+- Rejected: the landscape time at Medium 96. "1:00:00" does not fit in the 322 px column. The time is
+  always Medium 72 in landscape.
+- One tap on a level button starts the game, with no confirmation. The pen tip, the eraser and a
+  finger operate the buttons. After a level button, the menu is closed.
+- Only the puzzle of **Same** is made in the background. Easier and Harder are made at the tap.
+- An open panel can cover a part of the card (for example the portrait New game panel). Accepted.
+
+Rejected in the design rounds: a Statistics button, a New game button and a "New best" pill in the
+card.
+
+Findings of the review: the prototype started the early Same puzzle only at the next input. It must
+start at the completion, also at a completion by the reading of the ink and when a completed game
+opens from the save. The comparison does not use the result of the current game (same seed). The
+text of `manual-finished` "To start a new game, tap + in the menu" must change.

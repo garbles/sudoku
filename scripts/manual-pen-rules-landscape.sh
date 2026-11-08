@@ -29,7 +29,7 @@ K=1.0; CW=140
 SCRIBBLE='M 30,60 C 50,20 70,100 90,50 S 120,90 100,110 S 40,100 60,70'
 Y=1115; AY=$((Y+CW/2))
 cell 110 $Y "1 3" ""; ink 110 $Y "$SCRIBBLE"; arrow 265 335 $AY
-filled 350 $Y "?" "" gray40; arrow 505 575 $AY
+filled 350 $Y "?" "" gray25; arrow 505 575 $AY
 cell 590 $Y "1 3" ""
 text 180 $((Y+CW+45)) 30 gray25 middle "Scribble"
 text 420 $((Y+CW+45)) 30 gray25 middle "? for one second"

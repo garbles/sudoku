@@ -162,4 +162,4 @@ write r9c6 2 writer 39
 write r9c8 5 writer 40
 wait 1.0
 write r9c9 3 writer 41        # the last number
-wait 5.0                      # the board shows "Completed in m:ss"
+wait 5.0                      # the result card shows "Completed in m:ss" and "First game at this level"

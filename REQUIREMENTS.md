@@ -95,7 +95,8 @@ open ([§9](#9-the-menu)): refer to [`screen-toolbar.png`](images/screen-toolbar
 |---|---|---|
 | Board | 9×9 cells of **147 px**; x 148–1471, y 418–1741 (at the center of the screen) | Lines of 13 px are around the board and the 3×3 boxes. Lines of 3 px are between the cells. |
 | Micro-cells | Each cell has a very faint 3×3 grid of **49 px** micro-cells (2 px lines, default `gray90`; the player can select a different gray or no lines, §10) | Each micro-cell is for one digit. The positions are the same as a keypad: 1 2 3 / 4 5 6 / 7 8 9. |
-| Difficulty meter | Below the board, at the center, 50 px from the board | The player cannot change it. It shows "Easy", seven stops and "Hard". The large knob shows the mode of the current puzzle. When the puzzle is complete, "Completed in …" replaces the meter. |
+| Difficulty meter | Below the board, at the center, 50 px from the board | The player cannot change it. It shows "Easy", seven stops and "Hard". The large knob shows the mode of the current puzzle. When the puzzle is complete, the **result card** replaces the meter ([§8.3](#83-complete); owner approval 2026-11-07). |
+| Result card | Only on a complete puzzle: x 148–1471, y 1790–2110 (49 px below the board, 320 px high). The same for a left-handed and a right-handed player | The time, the comparison with the earlier results and the level buttons Easier, Same and Harder ([§8.3](#83-complete)). |
 | Menu button | Top right, circle of 38 px, center at (1563.5, 55.5) | Closed icon: dot at the bottom left. Open icon: dot at the top left. Each icon is a ring (radius 18 px, line of 3 px) and a dot (radius 4.5 px), 5.5 px left of the center and 5.5 px below it (closed) or above it (open). |
 | Close button | Top left, circle of 38 px with ×, center at (55.5, 55.5) | The close button shows **only when the menu is open**. The device does the same. |
 
@@ -113,7 +114,7 @@ The positions above are for a **left-handed** player. The app reads the handedne
   Checkpoints at x 112–711).
 - The other icons and the contents of the panels do not change.
 
-The board, the meter, the manual and the statistics do not change.
+The board, the meter, the result card, the manual and the statistics do not change.
 
 Image: [`images/color-menu-right-handed.png`](images/color-menu-right-handed.png) (the Cell colors
 panel of `color-menu.png` for a right-handed player).
@@ -206,6 +207,7 @@ The landscape layout has the same items, at the same sizes, as the portrait layo
 | Item | Landscape position |
 |---|---|
 | Board | At the center: x 418–1741, y 148–1471. The difficulty meter is 50 px below the board. |
+| Result card | A column with the height of the board (y 148–1471), 322 px wide, at the side opposite the toolbar: x 48–370 for a left-handed player (toolbar at the right), x 1790–2112 for a right-handed player (toolbar at the left). Only the column moves: its contents are the same for the two hands (not a mirror image). [§8.3](#83-complete) gives the contents (owner approval 2026-11-07). |
 | Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. The Cell colors panel is at x 1248–2047, y 112–1192 (right-handed: x 112–911; [§10](#10-cell-colors-panel)). The Checkpoints panel is at x 1448–2047, with its top at y 560 (right-handed: x 112–711; [§9.3](#93-checkpoints-panel)). |
 | Close button | Top left, as in portrait. For a right-handed player, the toolbar is at the left edge (x 0–112) and the close button is at the top right (§3.1). |
 | Manual | Each page has a landscape version with two columns (`manual-*-landscape.png`, made by `scripts/manual-*-landscape.sh`). The content is the same as in portrait. |
@@ -699,6 +701,7 @@ stateDiagram-v2
     Playing --> Done: all cells have a number and there is no clash
     Playing --> Playing: Start new game (replaces the puzzle)
     Done --> Playing: Start new game
+    Done --> Playing: Easier, Same or Harder on the result card (menu closed)
 ```
 
 ### 8.2 In progress
@@ -710,8 +713,8 @@ Images: [`screen.png`](images/screen.png) (a new puzzle, shown empty to show the
 
 A puzzle is **complete** when all cells have a number and there is no clash. Then:
 
-- The text **"Completed in m:ss"** replaces the difficulty meter below the board. After one hour, the
-  format is `h:mm:ss`. The text uses the UI font and is at the position of the meter.
+- The **result card** replaces the difficulty meter (owner approval 2026-11-07; it replaces the
+  earlier text "Completed in m:ss"). Refer to [The result card](#the-result-card) below.
 - The board **locks**. Writing, the eraser, pencil marks, highlights, undo and redo have no effect.
   The undo and redo buttons are gray.
 - The board shows no completed color. The groups lose the color at this moment, and the board shows
@@ -719,14 +722,95 @@ A puzzle is **complete** when all cells have a number and there is no clash. The
   ([§6.4](#64-completed-groups); owner approval 2026-11-04 and 2026-11-05).
 - The app saves the result in the database ([§14](#14-data-that-the-app-keeps)).
 - **+** and **Start new game** continue to operate. The menu, Help, Statistics, Cell colors and the
-  Settings panel continue to operate.
+  Settings panel continue to operate. The level buttons of the result card also start a new game.
 - The Checkpoints panel is not available. The bookmark is `gray70`, a tap on it has no effect, and the
   panel cannot be open. The checkpoints stay in the saved game until a new game
   ([§9.3](#93-checkpoints-panel); owner decision 2026-11-06).
 
 Images: [`screen-completed.png`](images/screen-completed.png),
 [`screen-completed-menu.png`](images/screen-completed-menu.png),
+[`screen-completed-landscape.png`](images/screen-completed-landscape.png) (left-handed),
+[`screen-completed-landscape-right-handed.png`](images/screen-completed-landscape-right-handed.png),
 [`manual-finished.png`](images/manual-finished.png).
+
+#### The result card
+
+All rules of this part: owner approval of the prototype `dev/result-card` on the tablet, 2026-11-07,
+unless a different source is given.
+
+- The result card shows **only** when the puzzle is complete and the game screen shows. It never
+  shows on a game that is not complete. The meter and the card never show at the same time.
+- The time has the format of the clock: `m:ss`, and `h:mm:ss` after one hour.
+- The card has a 2 px black frame and is white inside.
+
+**Portrait** (1620×2160). The card is the same for a left-handed and a right-handed player.
+
+| Item | Position and size | Content |
+|---|---|---|
+| Frame | x 148–1471 (the board width), y 1790–2110 (y0 = 1790, y1 = 2110) | 2 px black, white inside |
+| "Completed in" | x 188 (x0 + 40), baseline y 1856 (y0 + 66) | reMarkable Sans Regular 30 px, `gray25` |
+| Time | x 188, baseline y 1970 (y0 + 180) | Medium 96 px, black |
+| Difficulty slider | x 188–628 (440 px), center line y 2022 (y0 + 232) | The mode of the puzzle, with the labels "Easy" and "Hard". The same drawing as the meter below the board. |
+| Comparison line | x 188, baseline y 2083 (y0 + 293) | Regular 25 px, `gray25`: "Average m:ss  ·  Previous best m:ss" (two spaces at each side of the middle dot), or "First game at this level" |
+| Divider | x 788 (x0 + 640), 2 px wide, from y0 + 24 to y1 − 24 | `gray70` |
+| "New game" | x 820 (the divider + 32), baseline y0 + 55 | Medium 28 px, black |
+| Level buttons | x 820–1439 (x1 − 32). From the top: **Easier** y 1865–1935, **Same** y 1945–2015, **Harder** y 2025–2095 (70 px high, pitch 80 px, the first at y0 + 75) | 2 px black frame, white inside (no black fill). Label: Medium 30 px, black, at x + 28, baseline at the vertical center + 11. At the right: a small meter of the mode that the button starts (no labels, the meter of the statistics tables, stop step 30 px); its last stop is 40 px from the right frame. |
+
+**Landscape** (2160×1620). The card is a column, x0 to x1, y0 = 148 to y1 = 1471 (the height of the
+board), 322 px wide, at the side opposite the toolbar ([§3.3](#33-landscape)). The text starts at
+x0 + 28.
+
+| Item | Position and size | Content |
+|---|---|---|
+| "Completed in" | Baseline y0 + 70 | Regular 30 px, `gray25` |
+| Time | Baseline y0 + 185 | **Medium 72 px**, black, at all times (owner decision 2026-11-07: a time of one hour or more must fit in the column) |
+| Difficulty meter | At the center of the column, y0 + 255 | The mode of the puzzle, no labels, stop step 40 px |
+| Comparison | Labels at baseline y0 + 370 and y0 + 480; values at baseline y0 + 418 and y0 + 528 | Label Regular 25 px `gray25`, value Medium 40 px black: "Average at this level" / m:ss, then "Previous best" / m:ss (110 px lower). With no earlier result: only "First game at this level" (Regular 25 px, `gray25`, baseline y0 + 370). |
+| Divider | 2 px, `gray70`, from x0 + 28 to x1 − 28, at y1 − 560 (y 911) | |
+| "New game" | Baseline at the divider + 60 | Medium 28 px, black |
+| Level buttons | x0 + 20 to x1 − 20. **Easier**, **Same**, **Harder** from the top, each 120 px high, pitch 140 px, the first at the divider + 90 | 2 px black frame, white inside. Label: Medium 32 px, black, centered, baseline at the button top + 50. Below it: a small meter (no labels, stop step 36 px), centered, at the button top + 88. |
+
+**The values of the comparison.**
+
+- The comparison uses the saved results ([§14.1](#141-results-database-sqlite)) of the **same mode**
+  as the completed puzzle. It does not use the result of the current game (the result with the same
+  seed).
+- **Average** is the average of these results, with the same rounding as Statistics
+  ([§13.1](#131-summary)). **Previous best** is the shortest time of these results.
+- If there are no such results, the card shows "First game at this level".
+- The values follow the database. After a delete in Statistics, the card shows the new values when
+  the game shows again.
+
+**The level buttons.**
+
+- **Easier** starts a new game at the mode − 1, **Same** at the same mode, and **Harder** at the
+  mode + 1 (modes 0 to 6, [§11](#11-new-game-panel-and-difficulty)). The three buttons are equal:
+  Same has no highlight (owner request 2026-11-07).
+- **One tap starts the game immediately**: a press and a release on the same button. There is no
+  confirmation. The pen tip, the eraser and a finger operate the buttons, as the other controls of the
+  app (owner decision 2026-11-07). A release on a different position does nothing.
+- The new game is the same as after **Start new game** ([§11](#11-new-game-panel-and-difficulty)):
+  the last mode and the slider get the new mode, the clock starts and the checkpoints are removed.
+  The difference: after a level button, **the menu is closed** and no panel is open.
+- **Not available:** Easier after an Easy game (mode 0) and Harder after a Hard game (mode 6). Such a
+  button has a `gray80` frame, a `gray70` label and no meter. A tap on it has no effect.
+- While the card shows, the app makes the puzzle of **Same** in the background, with the next seed
+  (only Same; owner decision 2026-11-07). It starts **immediately at the completion**: also at a
+  completion by the reading of the ink at the end of the pause, and when a completed game opens from
+  the save. It does not wait for the next input. Easier and Harder use the same next seed with their
+  own mode, and the app makes their puzzle at the tap. The puzzle is the same as a puzzle that the app
+  makes at the time of need ([§14.5](#145-puzzle-generation); review finding 2026-11-07).
+
+**Panels, the menu and the layouts.**
+
+- The menu and the panels continue to operate on a completed game. An open panel can cover a part of
+  the card. Example: in portrait, the New game panel covers Same and Harder for a left-handed player,
+  and the left half of the card for a right-handed player. The owner accepted this (owner decision
+  2026-11-07). When a panel is open, a tap outside the panel only closes the panel, also on the card
+  ([§9](#9-the-menu)).
+- With the menu closed, the card never touches the toolbar, the close button, the menu button or the
+  board, in the four layouts (portrait and landscape, left and right hand). In landscape with the menu
+  open, the toolbar and the column are at opposite sides (owner selection 2026-11-07).
 
 ### 8.4 The clock
 
@@ -774,6 +858,8 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
 - The menu is **open by default**. When the game screen shows, the menu is open and no panel is
   open: when the app opens (a new game or a saved game), after **< Back** from the manual or from
   the statistics, and after **Start new game**. The app does not keep the menu state ([§14.3](#143-game-in-progress-kept-when-the-app-closes)).
+  Exception: after a level button of the result card (**Easier**, **Same**, **Harder**), the new game
+  shows with the menu closed and no panel open ([§8.3](#83-complete); owner approval 2026-11-07).
   On the other screens (manual, statistics, completed games list), the menu is closed.
 - After **< Back** from the manual or from the statistics shows the game screen, the app ignores a
   press on the toolbar (all toolbar buttons, also the menu button) and on the close button for
@@ -830,6 +916,8 @@ stateDiagram-v2
     [*] --> Open: start the app
     Closed --> Open: tap the menu button
     Open --> Closed: tap the menu button
+    Open --> Closed: level button of the result card (new game)
+    Closed --> Closed: level button of the result card (new game)
     Open --> Colors: tap the paint bucket
     Colors --> Open: tap the paint bucket again or tap outside the panel
     Open --> NewGame: tap +
@@ -961,7 +1049,7 @@ other rows. It shows one of these:
 | The update is installed, and the ink patch did not change | "Restart Sudoku to update" |
 | The update is installed, and it replaced the ink patch | The button **Restart interface** |
 
-- The text of a state is reMarkable Sans Regular, 25 px, `gray40`, at the left (33 px from the left
+- The text of a state is reMarkable Sans Regular, 25 px, `gray25` (owner request 2026-11-07), at the left (33 px from the left
   edge of the panel). The baseline is 65 px below the top of the row.
 - The two buttons have a black border of 2 px. They are 33 px from the left and the right edges of
   the panel, and from 22 px to 90 px below the top of the row. Each has an icon at the left (3 px
@@ -1085,7 +1173,7 @@ same order and move with the panel.
   has no effect.
 - **No checkpoint.** The panel ends at y 864. Two lines of text have their center at x 1207: "No
   checkpoints" (Regular 28 px, `gray25`, baseline y 760) and "Save the board before a difficult guess."
-  (Regular 25 px, `gray40`, baseline y 800).
+  (Regular 25 px, `gray25`, baseline y 800; owner request 2026-11-07).
 - **Checkpoint rows.** The newest is first. There are at most 5 rows, and each row is 180 px high. Row i
   has its top at y0 = 672 + 180 i. The panel ends at y 672 + 180 n (y 1572 with 5 rows). Each row below
   the first has a line of 2 px at y0-2 to y0-1. A row has no title and no name.
@@ -1106,7 +1194,7 @@ The small board:
 - The background is the first rule that applies: clash color, completed color (with the same switch and
   color rules as the board, [§6.4](#64-completed-groups)), starting color, white. The small board shows
   no highlight.
-- Each visible pencil mark of an empty cell has a dot of 2×2 px, `gray40`, at (cell x + 3 + 5 × ((d-1) mod 3),
+- Each visible pencil mark of an empty cell has a dot of 2×2 px, `gray25` (owner request 2026-11-07), at (cell x + 3 + 5 × ((d-1) mod 3),
   cell y + 3 + 5 × ((d-1) div 3)). The rule for a visible mark is the same as on the board, with the
   setting "Hide pencil marks automatically" ([§6.1](#61-automatic-pencil-mark-hiding)).
 - The lines are 1 px `gray60` between the cells, and 2 px black at the box borders and the outside.
@@ -1158,7 +1246,8 @@ area and on the toolbar operates as usual.
 - Each change of the list stops the other pen or finger gesture. Thus a release never operates a different
   checkpoint, for example when a finger stays on a control while the pen operates a different control
   (review finding 2026-11-06).
-- The panel does not cover a toolbar button, the close button, the meter or "Completed in" in any layout.
+- The panel does not cover a toolbar button, the close button or the meter in any layout. It is not
+  available on a complete puzzle, thus it never covers the result card ([§8.3](#83-complete)).
   The panel never has waiting ink or a stroke in progress (review finding 2026-11-06).
 
 **Validity at load** (review finding 2026-11-06). The app examines each checkpoint and each board of a
@@ -1194,14 +1283,14 @@ request 2026-11-07).
   45 px from the right edge of the panel. A tap with the pen or a finger opens the Licenses list at
   page 1. The menu closes.
 - **Licenses list.** The page units of the analytics screens ([§13](#13-statistics)). **< Back** and
-  the title **Licenses**, then the gray text "The app contains these open source components." Each
-  row (97 units) has the name of the entry (Medium, 32) and its version (Regular, 30, gray40, at the
+  the title **Licenses**, then the `gray25` text "The app contains these open source components." Each
+  row (97 units) has the name of the entry (Medium, 32) and its version (Regular, 30, `gray25`, at the
   right), and a › at the right end. The row does not show the license (owner decision 2026-11-07).
   Each page shows 14 rows in portrait and 9 rows in landscape. The ‹ › arrows and a finger swipe change
   the page. A tap on a row opens its license text at page 1. **< Back** shows the game with the menu open
   and no panel, and the toolbar ignores a press for 0.5 s ([§9](#9-the-menu)).
 - **License text.** The title is the name of the entry. Below it is the line "Version <version> ·
-  <license>" (Regular, 30, gray40). In the license expression, each ` OR ` shows as ` / `, for example
+  <license>" (Regular, 30, `gray25`; owner request 2026-11-07). In the license expression, each ` OR ` shows as ` / `, for example
   `MIT / Apache-2.0` (owner decision 2026-11-07). `AND` and `WITH` do not change. Then, for each license
   file: its name (Medium, 28), an empty line, and its text (Regular, 25), with lines of 36 units. A line
   of more than 80 characters breaks at the last space before the limit (or at the limit if there is no
@@ -1250,8 +1339,9 @@ The positions, the sizes, the sections and the colors of this section have the o
   Each cell has a color dot of 38 px and the name below the dot. The pen-color menu of the device has
   the same design.
 - A tap on the empty space or on a title changes nothing, and the panel stays open.
-- The panel does not cover a toolbar button, the close button, the meter or "Completed in" in any of
-  the four layouts. The panel covers approximately 27 cells of the board in portrait and 24 in
+- The panel does not cover a toolbar button, the close button or the meter in any of the four
+  layouts. On a complete puzzle, it can cover a part of the result card (owner decision 2026-11-07,
+  [§8.3](#83-complete)). The panel covers approximately 27 cells of the board in portrait and 24 in
   landscape. The owner accepted this size.
 - A solid black box with white text shows the selected color.
 - The available colors are Gray, White, Yellow, Blue, Red, Green, Cyan, Magenta and Orange.
@@ -1323,7 +1413,13 @@ Images: [`images/new-game-menu.png`](images/new-game-menu.png),
   - Removes the undo and redo history and all checkpoints, and sets the clock to zero.
   - Keeps the selected mode for the next time.
 - The meter below the board shows the mode of the current puzzle. When the puzzle is complete,
-  "Completed in …" replaces the meter ([§8.3](#83-complete)). You cannot change the meter.
+  the result card replaces the meter ([§8.3](#83-complete)). You cannot change the meter.
+- On a complete puzzle, the level buttons of the result card (**Easier**, **Same**, **Harder**) also
+  start a new game, at the mode − 1, the same mode or the mode + 1. They do the same steps as
+  **Start new game**, but the menu closes ([§8.3](#83-complete); owner approval 2026-11-07).
+- While the New game panel is open, the app makes the puzzle of the next game in the background.
+  While the result card shows, it makes the puzzle of **Same** in the background from the completion
+  ([§8.3](#83-complete)). The puzzle is the same as a puzzle that the app makes at the time of need.
 
 ```mermaid
 stateDiagram-v2
@@ -1337,6 +1433,10 @@ stateDiagram-v2
     Sel --> Generating: Start new game
     state "New puzzle made (with a seed)" as Generating
     Generating --> [*]: the game shows the new puzzle, menu open, no panel
+    state "Result card shows (complete puzzle)" as Card
+    Card --> Level: tap Easier, Same or Harder (if available)
+    state "New puzzle made at mode − 1, mode or mode + 1" as Level
+    Level --> [*]: the game shows the new puzzle, menu closed, no panel
     Open --> [*]: tap + again or tap outside (no change)
     Sel --> [*]: tap + again or tap outside (selection not kept)
 ```
@@ -1363,7 +1463,7 @@ stateDiagram-v2
 | 6 | [`manual-mistakes.png`](images/manual-mistakes.png) | Clashes and how to correct them. |
 | 7 | [`manual-menu.png`](images/manual-menu.png) | All the menu buttons, how to select colors, and the Settings panel: the helpers, the version and the third-party licenses ([§9.4](#94-third-party-licenses)). |
 | 8 | [`manual-new-game.png`](images/manual-new-game.png) | How to start a new game, and the meter of the current difficulty. |
-| 9 | [`manual-finished.png`](images/manual-finished.png) | Completion, the lock, the clock and the saved results. A completed game shows no completed color. |
+| 9 | [`manual-finished.png`](images/manual-finished.png) | Completion, the lock, the clock and the saved results. A completed game shows no completed color. The crop of the board shows the result card. The text tells that the level buttons of the card (Easier, Same, Harder) start a new game; it does not tell "To start a new game, tap + in the menu" (review finding 2026-11-07). |
 
 ```mermaid
 stateDiagram-v2
@@ -1763,21 +1863,23 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Board lines | Box and border 13 px black; cell 3 px black; micro-cell 2 px, default `gray90` (§10) |
 | Numbers | reMarkable Sans Regular 104 px; starting numbers black, your numbers dark gray (`#1E1E1E`; owner approval 2026-11-04 and 2026-11-05) |
 | Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell |
-| "?" | reMarkable Sans Regular 104 px, `gray40` |
+| "?" | reMarkable Sans Regular 104 px, `gray25` (owner request 2026-11-07) |
 | x of a refused tap (§6.1) | Two straight lines with round ends, line width 3 px, `gray15` (the same as the pencil marks). Each line goes from -10 px to +10 px on the two axes around the center: 20×20 px between the line centers, visible extent of approximately 23×23 px. The center is the anchor point of the pencil mark of that digit: 24, 74 or 122 px from the cell origin on each axis, at the keypad position of the digit (1 at the top left, 9 at the bottom right). The x stays in its micro-cell and does not touch the cell lines. Time: the same value as the "?" (1000 ms) (owner approval 2026-11-04). |
 | Highlight | The same color rules as before (§4.2). It can also show while the menu or a panel is open, on the part of the board that the panel does not cover (§6.2; owner approval 2026-11-07) |
 | Times of writing | Recognition pause 1000 ms from the pen lift. Redraw wait 1000 ms after the last stroke. A touch that starts less than 150 ms after a pen lift has no effect (§5.1, §14.4; owner approval 2026-11-07) |
 | Palette | Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue `#408CFF`, Red `#FF8E8E`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0`, Orange `#FF9A1F` (owner approval 2026-11-04 and 2026-11-05). The board, the panel dots, the manual and the images all use this palette. |
 | Default colors | Starting Gray `#AEAEAE`, clash Red `#FF8E8E`, highlight Cyan `#6FCFE6`, completed groups Green `#48D630` |
 | Background of a filled cell | First rule that applies: clash, highlight, completed, starting number, white (§4.2) |
-| UI text | reMarkable Sans Medium 25 px (menus, meter labels, "Completed in …"). The version value and the text of an update state are reMarkable Sans Regular 25 px (§9.1, §9.2). |
+| UI text | reMarkable Sans Medium 25 px (menus, meter labels). The version value and the text of an update state are reMarkable Sans Regular 25 px (§9.1, §9.2). |
+| Secondary text | `gray25` (`#404040`) for all secondary text and marks: the result card text, the "?", the box labels and the column headings of Statistics and of the completed games list, the help line of the Checkpoints panel and the mark dots of the small boards, the Licenses screens (intro text, versions, the version and license line), the text rows of the update states, the pages of the manual and the labels of the icon sheet `images/icons.png`. No text uses `gray40` (`#666666`): it was hard to read on the tablet (owner request 2026-11-07). The micro-cell line setting 40 of the Cell colors panel stays (§10), and the other grays do not change. |
+| Result card | 2 px black frame, white. Portrait: x 148–1471, y 1790–2110. Landscape: a column of 322 px, y 148–1471, x 48–370 (left-handed) or x 1790–2112 (right-handed). "Completed in" Regular 30 `gray25`; time Medium 96 (portrait) or Medium 72 (landscape), black; comparison Regular 25 `gray25`; divider 2 px `gray70`; "New game" Medium 28; level buttons with a 2 px black frame (not available: `gray80` frame, `gray70` label, no meter). §8.3 gives all positions (owner approval 2026-11-07). |
 | Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |
 | Bookmark icon | Closed line of 3 px through (-12,-18), (12,-18), (12,18), (0,8), (-12,18) from the center of top slot 5 (y 560–671). Black; white on black while its panel is open; `gray70` on a complete puzzle (owner approval 2026-11-06) |
 | Panels | 2 px black border, rows of 112 px, 2 px dividers, inner margin of 33 px |
 | Settings panel | 400 px wide (x 1108–1507 for a left-handed player in portrait). Three switch rows, the version row and, in a stable or preview build, the update row (§9.1, §9.2) |
 | Cell colors panel | 800 px wide (two columns of 400 px), three rows of 360 px, y 112–1192. x 708–1507 (left-handed, portrait), x 1248–2047 (left-handed, landscape), x 112–911 (right-handed). Vertical line of 2 px at 400 px from the left of the panel. Section title 33 px, grid 32 px from the left of the column; grid cells 112×90 px (owner approval 2026-11-04 and 2026-11-05) |
 | Checkpoints panel | 600 px wide, top at y 560. x 908–1507 (left-handed, portrait), x 1448–2047 (left-handed, landscape), x 112–711 (right-handed). White, 2 px black border. Save row of 112 px; no checkpoint: the panel ends at y 864; else rows of 180 px, the panel ends at y 672 + 180 n, at most y 1572 (§9.3; owner approval 2026-11-06) |
-| Checkpoint row | Small board of 155 px with cells of 17 px, digits Regular 14, mark dots of 2×2 px `gray40`; text Regular 25 `gray25`; button 141×71 px, text Medium 25; bin icon of the games list (§9.3; owner approval 2026-11-06) |
+| Checkpoint row | Small board of 155 px with cells of 17 px, digits Regular 14, mark dots of 2×2 px `gray25`; text Regular 25 `gray25`; button 141×71 px, text Medium 25; bin icon of the games list (§9.3; owner approval 2026-11-06) |
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
 | Difficulty meter | "Easy" to "Hard" across 440 px; 7 stops; the current stop is a knob with a radius of 13 px |
 | Switch (Settings panel) | Track 72×36 px, 3 px border; knob of 28 px; 33 px from the right edge of the panel |
@@ -1833,6 +1935,7 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`screen-completed-group.png`](images/screen-completed-group.png) | [§2](#2-screens), [§6.4](#64-completed-groups) |
 | [`screen-completed.png`](images/screen-completed.png) | [§8.3](#83-complete) |
 | [`screen-completed-menu.png`](images/screen-completed-menu.png) | [§8.3](#83-complete), [§9](#9-the-menu), [§9.3](#93-checkpoints-panel) |
+| [`screen-completed-landscape.png`](images/screen-completed-landscape.png) (left-handed), [`screen-completed-landscape-right-handed.png`](images/screen-completed-landscape-right-handed.png) | [§3.3](#33-landscape), [§8.3](#83-complete) |
 | [`screen-toolbar.png`](images/screen-toolbar.png) | [§9](#9-the-menu) |
 | [`color-menu.png`](images/color-menu.png) | [§10](#10-cell-colors-panel) |
 | [`color-menu-landscape.png`](images/color-menu-landscape.png) | [§10](#10-cell-colors-panel) |

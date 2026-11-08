@@ -1,7 +1,8 @@
 //! Property-based tests: random sequences of player input. After each input, the debug build checks all
 //! state rules of INVARIANTS.md (`invariants::check_app`, in `App::handle`). This test also checks the
 //! rules about two states one after the other (CLK-2, CLK-3, CMP-5, INP-1, INP-9, UND-2, UND-3, ANA-2,
-//! NAV-3, NAV-9, NAV-16, MRK-10 to MRK-16, HLT-1 to HLT-9). The two-hand sequences examine the x of a
+//! NAV-3, NAV-9, NAV-16, MRK-10 to MRK-16, HLT-1 to HLT-9, and the level buttons of the result card:
+//! CMP-9, CMP-10, DIF-5, PUZ-7). The two-hand sequences examine the x of a
 //! refused tap, the highlight, the ink and the hand touches at each event (INP-2, INP-5, INP-20, INP-21,
 //! INP-22, INP-24). The group sequences at the end examine COL-8 to COL-12 against a separate model
 //! (`inv_groups`).
@@ -14,7 +15,7 @@ use proptest::prelude::*;
 use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, HAND_TOUCH_MS, OVERLAY_MS};
 use sudoku::game::{cells, mark_bit, Cell, Change, Game, Group};
 use sudoku::invariants::check_app;
-use sudoku::layout::{self, Button};
+use sudoku::layout::{self, Button, LevelButton};
 use sudoku::reference;
 use sudoku::settings::{Color, Section, Settings, Switch};
 
@@ -45,6 +46,9 @@ enum Act {
     Switch(Switch),
     /// Goes to the statistics, taps "Delete all games" and maybe confirms.
     DeleteAllFlow(Option<bool>),
+    /// A tap on level button b (`LevelButton::ALL`) of the result card with the pen tip (0), the
+    /// eraser (1) or a finger (2). On a game that is not complete, it is a tap below the board.
+    Level(u8, u8),
 }
 
 fn act() -> impl Strategy<Value = Act> {
@@ -70,7 +74,46 @@ fn act() -> impl Strategy<Value = Act> {
         1 => (0..12u8, proptest::option::of(any::<bool>())).prop_map(|(i, c)| Act::DeleteFlow(i, c)),
         2 => (0..Switch::ALL.len() as u8).prop_map(|i| Act::Switch(Switch::ALL[i as usize])),
         1 => proptest::option::of(any::<bool>()).prop_map(Act::DeleteAllFlow),
+        2 => (0..3u8, 0..3u8).prop_map(|(b, tool)| Act::Level(b, tool)),
     ]
+}
+
+/// The center of a level button of the result card.
+fn level_center(b: LevelButton) -> (f32, f32) {
+    let r = layout::level_button(b);
+    ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0)
+}
+
+/// The level button of an act that is one tap on a level button (CMP-10), from the state before the
+/// act: a complete game on the game screen with no panel. None for all other acts.
+fn level_tap(a: &Act, b: &BeforeAct, completed: bool) -> Option<LevelButton> {
+    if !completed || b.screen != Screen::Game || b.panel.is_some() {
+        return None;
+    }
+    let (x, y) = match *a {
+        Act::Level(i, _) => level_center(LevelButton::ALL[i as usize]),
+        Act::Point(x, y, _) => (x as f32, y as f32),
+        _ => return None,
+    };
+    layout::level_button_at(x, y)
+}
+
+/// True if the act is one tap on a level button outside the open panel on a complete game. A panel
+/// can cover a part of the card (CMP-7): a tap there operates the panel (for example Start new game).
+fn level_tap_with_panel(a: &Act, b: &BeforeAct, completed: bool) -> bool {
+    let (x, y) = match *a {
+        Act::Level(i, _) => level_center(LevelButton::ALL[i as usize]),
+        Act::Point(x, y, _) => (x as f32, y as f32),
+        _ => return false,
+    };
+    let area = match b.panel {
+        Some(Panel::Colors) => layout::colors_panel(),
+        Some(Panel::Settings) => layout::settings_panel(true),
+        Some(Panel::NewGame) => layout::ng_panel(),
+        Some(Panel::Checkpoints) => layout::ckp_panel(5),
+        None => return false,
+    };
+    completed && b.screen == Screen::Game && layout::level_button_at(x, y).is_some() && !area.contains(x, y)
 }
 
 const BUTTONS: [Button; 8] =
@@ -278,6 +321,17 @@ fn run(d: &mut Driver, a: &Act) {
                     let (x, y) = pixel_center(if c { layout::dialog_delete() } else { layout::dialog_cancel() });
                     d.finger_tap(x, y);
                 }
+            }
+        }
+        Act::Level(b, tool) => {
+            let (x, y) = level_center(LevelButton::ALL[b as usize]);
+            match tool {
+                0 => d.pen_tap(x, y),
+                1 => {
+                    d.send(Input::PenDown { x, y, tool: Tool::Eraser });
+                    d.send(Input::PenUp { x, y });
+                }
+                _ => d.finger_tap(x, y),
             }
         }
         Act::ListControl(k) => {
@@ -507,6 +561,9 @@ proptest! {
             let before_act = BeforeAct::of(&d);
             let menu_before = d.app.ui.menu;
             let x_before = d.app.ui.refused;
+            let early_before = d.app.early_game();
+            let level = level_tap(a, &before_act, before.completed);
+            let level_with_panel = level_tap_with_panel(a, &before_act, before.completed);
 
             run(&mut d, a);
             let ignored_toolbar_tap = was_ignored_toolbar_tap(a, &before_act, &d);
@@ -551,8 +608,33 @@ proptest! {
                 prop_assert!(g.undo.is_empty() && g.redo.is_empty() && !g.completed, "UND-6");
                 prop_assert!(g.checkpoints.is_empty(), "UND-6, DIF-5");
                 prop_assert_eq!(g.mode, d.app.settings.last_mode, "DIF-5");
-                // NAV-9: after Start new game, the menu is open with no panel.
-                prop_assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-9 after {:?}", a);
+                // NAV-9: after Start new game, the menu is open with no panel. After a level button of
+                // the result card, the menu is closed (CMP-10).
+                let menu = if level.is_some() { Menu::Closed } else { Menu::Open(None) };
+                prop_assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, menu), "NAV-9 after {:?}", a);
+            }
+            // CMP-9, CMP-10, DIF-5, PUZ-7: a tap on an available level button starts a game at
+            // target(b) with the seed of the early game. A button that is not available changes nothing.
+            if let Some(b) = level {
+                match b.target(before.mode) {
+                    Some(t) => {
+                        prop_assert!(new_game, "CMP-10: {:?} after mode {} did not start a game", b, before.mode);
+                        prop_assert!(t < sudoku::generator::MODES, "CMP-10");
+                        prop_assert_eq!(g.mode, t, "CMP-10, DIF-5 after {:?}", a);
+                        prop_assert_eq!(Some((g.seed, before.mode)), early_before, "PUZ-7 after {:?}", a);
+                    }
+                    None => prop_assert!(!new_game, "CMP-9: {:?} after mode {} is not available", b, before.mode),
+                }
+            }
+            // CMP-10, NAV-11: with a panel open, a tap on the card only closes the panel.
+            if level_with_panel {
+                prop_assert!(!new_game, "CMP-10: a level button operated below a panel after {:?}", a);
+            }
+            // PUZ-7: the completion starts the early game of Same at once.
+            if !before.completed && g.completed && !new_game && d.app.ui.menu.panel() != Some(Panel::NewGame) {
+                let early = d.app.early_game();
+                prop_assert_eq!(early.map(|e| e.1), Some(g.mode), "PUZ-7: no early game at the completion after {:?}", a);
+                prop_assert!(early.is_some_and(|e| e.0 != g.seed), "PUZ-7: the next seed is the seed of the game");
             }
             // CMP-5, ANA-2: results change only by completion (one row) or by a delete on the list.
             if !before.completed && g.completed && !new_game {
@@ -1493,10 +1575,14 @@ fn the_random_sequences_reach_the_x() {
     // these sequences come after the hand time (`Driver::send`), thus a hand touch does not stop them.
     let mut seen = 0;
     let mut other = [0usize; 6];
-    for case in 0..24 {
+    // CMP-10: the sequences also tap a level button of the result card on a complete game.
+    let mut level_taps = 0;
+    for case in 0..40 {
         let acts = proptest::collection::vec(act(), 1..90).new_tree(&mut runner).unwrap().current();
         let mut d = Driver::new(case);
         for a in &acts {
+            let before = BeforeAct::of(&d);
+            level_taps += usize::from(level_tap(a, &before, d.app.game.completed).is_some());
             run(&mut d, a);
             d.app.quit = false;
             seen += usize::from(d.app.ui.refused.is_some());
@@ -1508,6 +1594,7 @@ fn the_random_sequences_reach_the_x() {
         }
     }
     assert!(seen > 0, "no random sequence showed the x");
+    assert!(level_taps > 0, "CMP-10: no random sequence tapped a level button of the result card");
     let names = ["a highlight", "a highlight with a panel", "a \"?\"", "a complete game", "the manual", "the games list"];
     for (count, name) in other.iter().zip(names) {
         assert!(*count > 0, "no random sequence reached {name}");

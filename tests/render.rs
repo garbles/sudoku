@@ -323,6 +323,8 @@ fn a_retained_frame_is_the_same_as_a_full_drawing() {
     let mut pm = Pixmap::new(1, 1).unwrap();
     let mut record = FrameRecord::default();
     for (name, setup) in order {
+        // Most states are in portrait. The states of the landscape result card set the orientation.
+        sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
         sudoku::layout::set_right_handed(false);
         let mut a = reference::app(&fonts);
         setup(&mut a);
@@ -337,6 +339,7 @@ fn a_retained_frame_is_the_same_as_a_full_drawing() {
         draw(&mut Canvas::new(&mut full, &fonts), &a);
         assert!(pm.data() == full.data(), "{name}: the retained frame is not the same as a full drawing");
     }
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
     sudoku::layout::set_right_handed(false);
 }
 
@@ -1418,7 +1421,7 @@ fn the_panel_with_no_checkpoint_shows_the_save_row_and_two_lines_of_text() {
         let inside = pl + 2..pl + 598;
         assert_text(&fonts, &pm, (Weight::Medium, 28.0, BLACK), (pl + 100, 625), Anchor::Start, "Save checkpoint", pl + 90..pl + 598);
         assert_text(&fonts, &pm, (Weight::Regular, 28.0, gray(25)), (pl + 299, 760), Anchor::Middle, "No checkpoints", inside.clone());
-        assert_text(&fonts, &pm, (Weight::Regular, 25.0, gray(40)), (pl + 299, 800), Anchor::Middle, "Save the board before a difficult guess.", inside);
+        assert_text(&fonts, &pm, (Weight::Regular, 25.0, gray(25)), (pl + 299, 800), Anchor::Middle, "Save the board before a difficult guess.", inside);
     }
     reset_layout();
 }
@@ -1554,8 +1557,8 @@ fn the_digits_of_the_small_board_have_the_color_of_the_board() {
 
 #[test]
 fn the_small_board_shows_a_dot_for_each_visible_mark() {
-    // CKP-7, MRK-4: a dot of 2x2 px, gray 40, at the keypad position, with the current setting. Only 3
-    // is free in (8, 0). The other digits have a peer: their marks show only with automatic hiding off.
+    // CKP-7, MRK-4, NAV-19: a dot of 2x2 px, gray 25, at the keypad position, with the current setting.
+    // Only 3 is free in (8, 0). The other digits have a peer: their marks show only with automatic hiding off.
     use sudoku::render::gray;
     let fonts = fonts();
     let mut game = reference::sample_game();
@@ -1572,7 +1575,7 @@ fn the_small_board_shows_a_dot_for_each_visible_mark() {
             let (x, y) = small_cell((pl, 0), (8, 0));
             for d in 1..=9 {
                 let (dx, dy) = (x + 3 + 5 * ((d - 1) % 3), y + 3 + 5 * ((d - 1) / 3));
-                let want = if !hide || d == 3 { gray(40) } else { WHITE };
+                let want = if !hide || d == 3 { gray(25) } else { WHITE };
                 for (px, py) in [(dx, dy), (dx + 1, dy), (dx, dy + 1), (dx + 1, dy + 1)] {
                     assert_eq!(rgb_at(&pm, px, py), want, "{layout:?}, hide {hide}: the mark {d} at ({px}, {py})");
                 }
@@ -1886,4 +1889,51 @@ fn the_cached_rows_of_the_checkpoints_panel_are_the_same_as_a_new_drawing() {
         }
     }
     reset_layout();
+}
+
+#[test]
+fn the_frame_of_the_result_card_is_at_the_exact_pixels_of_each_image() {
+    // CMP-7, R§3.3, §8.3, §15: a card at a different position by some pixels stays near the edges of
+    // the image. Thus the 2 px frame of the result card must be at the same pixels in the app and in
+    // the image, in portrait and in landscape for the two hands. The scans go through the frame at a
+    // position with no text, no divider and no button.
+    use sudoku::layout::Orientation::{Landscape, Portrait};
+    reference::use_utc();
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let dark = |pm: &tiny_skia::Pixmap, x: i32, y: i32| rgb_at(pm, x, y)[0] < 64;
+    for (name, orientation, right_handed) in [
+        ("screen-completed.png", Portrait, false),
+        ("screen-completed-landscape.png", Landscape, false),
+        ("screen-completed-landscape-right-handed.png", Landscape, true),
+    ] {
+        let pm = reference::render(&fonts, reference_setup(name));
+        // The rectangle of the card in the layout of the image.
+        set_layout((orientation, right_handed));
+        let card = sudoku::layout::result_card();
+        set_layout((Portrait, false));
+        let want = decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
+        assert_eq!((pm.width(), pm.height()), (want.width(), want.height()), "{name}: the size");
+        // A row 10 px below the top frame (above the divider of portrait and above the text), and a
+        // column 10 px right of the left frame (left of the text and of the buttons).
+        let (row, column) = (card.y0 + 10, card.x0 + 10);
+        let xs = |pm: &tiny_skia::Pixmap| -> Vec<i32> { (card.x0 - 20..card.x1 + 20).filter(|&x| dark(pm, x, row)).collect() };
+        let ys = |pm: &tiny_skia::Pixmap| -> Vec<i32> { (card.y0 - 20..card.y1 + 20).filter(|&y| dark(pm, column, y)).collect() };
+        assert_eq!(xs(&pm), xs(&want), "{name}: the left and right frame at y {row}");
+        assert_eq!(ys(&pm), ys(&want), "{name}: the top and bottom frame at x {column}");
+        // Two lines of 2 px each, at the edges of the rectangle of the layout.
+        for (lines, a, b) in [(xs(&pm), card.x0, card.x1), (ys(&pm), card.y0, card.y1)] {
+            assert_eq!(lines.len(), 4, "{name}: frame pixels {lines:?}");
+            assert!(lines[1] == lines[0] + 1 && lines[3] == lines[2] + 1, "{name}: frame pixels {lines:?}");
+            assert!((lines[0] - a).abs() <= 1 && (lines[3] - b).abs() <= 1, "{name}: frame pixels {lines:?} for {a}..{b}");
+        }
+    }
+    // R§3.3: the column is at the side opposite the toolbar, x 48-370 (left-handed) or x 1790-2112
+    // (right-handed), with the height of the board.
+    for (right_handed, x0) in [(false, 48), (true, 1790)] {
+        set_layout((Landscape, right_handed));
+        let card = sudoku::layout::result_card();
+        set_layout((Portrait, false));
+        assert_eq!((card.x0, card.y0, card.x1 - card.x0, card.y1 - card.y0), (x0, 148, 322, 1323), "right-handed {right_handed}: {card:?}");
+    }
 }

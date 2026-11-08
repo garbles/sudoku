@@ -293,7 +293,7 @@ fn completion_locks_the_board_and_saves_one_result() {
     assert_eq!(d.app.game, g, "CMP-3, CLK-3: nothing changes");
     assert!(!d.app.game.can_undo() && !d.app.game.can_redo(), "UND-8");
     assert_eq!(d.app.results.len(), 1);
-    // CMP-6: the menu continues to operate; only Start new game ends the state.
+    // CMP-6: the menu continues to operate; only Start new game and the level buttons of the card end the state.
     d.button(Button::Help);
     assert_eq!(d.app.screen, Screen::Manual);
     d.finger_tap(40.0, 50.0);
@@ -2994,7 +2994,7 @@ fn a_tap_on_the_empty_space_or_a_title_of_the_colors_panel_has_no_effect() {
 #[test]
 fn the_colors_panel_does_not_cover_the_other_items() {
     // NAV-17, NAV-10: the panel changes only the pixels of its area (and the button that opened it). Thus
-    // it does not cover a toolbar button, the close button, the meter or "Completed in".
+    // it does not cover a toolbar button, the close button, the meter or the result card (CMP-7).
     let fonts = fonts();
     for_each_layout(|layout_case| {
         let mut games = vec![reference::sample_game()];
@@ -3798,7 +3798,7 @@ fn nearly_complete(seed: u64, n: usize) -> (Driver, Cell, u8) {
 #[test]
 fn the_bookmark_is_gray_and_has_no_effect_on_a_complete_puzzle() {
     // CKP-9, CMP-3, CMP-6, NAV-12, UND-6: the list stays until a new game. A different panel stays open,
-    // and only Start new game ends the state. Then the panel operates again.
+    // and only Start new game or a level button ends the state. Then the panel operates again.
     for_each_layout(|case| {
         let (mut d, last, v) = nearly_complete(315, 2);
         assert_eq!(bookmark_grays(&d.app), (0, 255), "CKP-9: black in a game in progress ({case})");
@@ -3823,7 +3823,7 @@ fn the_bookmark_is_gray_and_has_no_effect_on_a_complete_puzzle() {
         assert_eq!(d.app.game, game, "CMP-3, CKP-9 ({case})");
         assert_eq!(bookmark_grays(&d.app).0, GRAY70, "CKP-9 ({case})");
 
-        // CMP-6: only Start new game ends the state. UND-6: the list goes.
+        // CMP-6: only Start new game or a level button ends the state. UND-6: the list goes.
         d.button(Button::NewGame);
         let (x, y) = pixel_center(layout::ng_start_row());
         d.finger_tap(x, y);
@@ -5774,4 +5774,342 @@ fn a_stroke_from_a_number_with_the_menu_open_removes_the_highlight() {
         assert_eq!(d.app.ui.highlight, None, "HLT-2 ({case})");
         assert!(d.app.ui.menu.is_open(), "{case}");
     });
+}
+
+// ---- The result card of a complete puzzle (REQUIREMENTS.md §8.3, §11; CMP-7 to CMP-10, PUZ-7).
+
+/// The center of a level button, from the documented values (R§8.3, CMP-7), not from `layout`.
+/// Portrait: the buttons are at x 820–1439, y 1865–1935, 1945–2015 and 2025–2095. Landscape: x0 + 20
+/// to x1 − 20 of the column (x 48–370 for a left-handed player, 1790–2112 for a right-handed player),
+/// 120 px high with a pitch of 140 px, the first at y 911 + 90.
+fn documented_level_center(b: layout::LevelButton) -> (f32, f32) {
+    let i = layout::LevelButton::ALL.iter().position(|&x| x == b).unwrap() as f32;
+    if layout::orientation() == layout::Orientation::Landscape {
+        let x0 = if layout::right_handed() { 1790.0 } else { 48.0 };
+        (x0 + 161.0, 1001.0 + i * 140.0 + 60.0)
+    } else {
+        (1129.5, 1865.0 + i * 80.0 + 35.0)
+    }
+}
+
+/// The tool of a tap on a level button: the pen tip, the eraser or a finger.
+#[derive(Clone, Copy, Debug)]
+enum Tapper {
+    Pen,
+    Eraser,
+    Finger,
+}
+
+fn tap_with(d: &mut Driver, by: Tapper, (x, y): (f32, f32)) {
+    match by {
+        Tapper::Pen => d.pen_tap(x, y),
+        Tapper::Eraser => {
+            d.send(Input::PenDown { x, y, tool: Tool::Eraser });
+            d.send(Input::PenUp { x, y });
+        }
+        Tapper::Finger => d.finger_tap(x, y),
+    }
+}
+
+/// A driver with the game `new_game(seed, mode)` and the results `db`, completed with the pen: the
+/// last number completes the game at the read of the ink at the end of the pause (a tick). The menu
+/// is closed.
+fn completed_with(seed: u64, mode: u8, db: ResultsDb) -> Driver {
+    let game = sudoku::app::new_game(seed, mode);
+    let app = App::new(Some(game), None, db, Box::new(TestEnv { time: START_TIME, seed }), App::placeholder_ng_stops());
+    let mut d = Driver::from(app);
+    complete_with_the_pen(&mut d);
+    d
+}
+
+fn complete_with_the_pen(d: &mut Driver) {
+    let last = empty_cell(&d.app.game);
+    fill_except(d, last);
+    d.write(last, d.app.game.solution[last.0 as usize][last.1 as usize]);
+    assert!(d.app.game.completed && d.app.screen == Screen::Game);
+}
+
+fn completed_at(seed: u64, mode: u8) -> Driver {
+    completed_with(seed, mode, ResultsDb::in_memory())
+}
+
+/// The new game after a level button: DIF-5 with `mode`, NAV-9 (the menu closed, no panel), PUZ-5.
+fn assert_level_game(d: &Driver, old_seed: u64, mode: u8, case: &str) {
+    let g = &d.app.game;
+    assert_eq!((g.mode, d.app.settings.last_mode), (mode, mode), "DIF-5, CMP-10 ({case})");
+    assert_ne!(g.seed, old_seed, "DIF-5: a new seed ({case})");
+    assert!(!g.completed && g.elapsed_ms < 1000, "CMP-6, DIF-5 ({case})");
+    assert!(g.undo.is_empty() && g.redo.is_empty() && g.checkpoints.is_empty(), "DIF-5 ({case})");
+    assert!(cells().all(|c| g.is_given(c) || (!g.is_filled(c) && g.marks_at(c) == 0)), "DIF-5 ({case})");
+    assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Closed), "NAV-9, CMP-10 ({case})");
+    let p = sudoku::generator::generate_version(2, g.seed, mode);
+    let given = p.givens.map(|row| row.map(|v| v != 0));
+    assert_eq!((g.generator, g.solution, g.given), (2, p.solution, given), "PUZ-5, PUZ-7 ({case})");
+}
+
+#[test]
+fn a_tap_on_a_level_button_starts_a_game_at_its_mode_in_all_layouts() {
+    // CMP-9, CMP-10, DIF-5, DIF-7, NAV-9, PUZ-7: Easier, Same and Harder at the modes 0, 3 and 6, with
+    // the pen tip, the eraser and a finger, in the four layouts. One tap starts the game, with no
+    // confirmation, and the menu is closed after it.
+    use layout::LevelButton::{Easier, Harder, Same};
+    let mut k = 0u64;
+    for_each_layout(|layout_case| {
+        for (mode, b, by) in [
+            (3, Easier, Tapper::Pen),
+            (3, Same, Tapper::Eraser),
+            (3, Harder, Tapper::Finger),
+            (0, Same, Tapper::Finger),
+            (0, Harder, Tapper::Eraser),
+            (6, Easier, Tapper::Finger),
+            (6, Same, Tapper::Pen),
+        ] {
+            k += 1;
+            let case = format!("{layout_case}, mode {mode}, {b:?}, {by:?}");
+            let mut d = completed_at(600 + k % 3, mode);
+            let (old_seed, results) = (d.app.game.seed, d.app.results.len());
+            let target = match b {
+                Easier => mode - 1,
+                Same => mode,
+                Harder => mode + 1,
+            };
+            tap_with(&mut d, by, documented_level_center(b));
+            assert_level_game(&d, old_seed, target, &case);
+            assert_eq!(d.app.results.len(), results, "DIF-7 ({case})");
+            assert_eq!(d.app.ui.slider, target, "R§11: the slider takes the new mode ({case})");
+            d.button(Button::Menu);
+            d.button(Button::NewGame);
+            assert_eq!(d.app.ui.slider, target, "DIF-5: the New game panel opens at last_mode ({case})");
+        }
+    });
+}
+
+#[test]
+fn a_level_button_with_the_menu_open_closes_the_menu() {
+    // NAV-9, CMP-7, CMP-10: with the menu open and no panel, a level button starts the game and closes
+    // the menu. In landscape the toolbar and the card are at opposite sides of the board.
+    for_each_layout(|case| {
+        let mut d = completed_at(611, 2);
+        d.button(Button::Menu);
+        assert_eq!(d.app.ui.menu, Menu::Open(None));
+        let old = d.app.game.seed;
+        let (x, y) = documented_level_center(layout::LevelButton::Harder);
+        d.finger_tap(x, y);
+        assert_level_game(&d, old, 3, case);
+    });
+}
+
+#[test]
+fn start_new_game_on_a_complete_game_keeps_the_menu_open() {
+    // NAV-9, CMP-6, DIF-5: the card does not change Start new game. The menu stays open after it.
+    let mut d = completed_at(612, 2);
+    d.button(Button::Menu);
+    d.button(Button::NewGame);
+    let (stops, row_y) = (d.app.ng_stops, layout::ng_slider_y() as f32);
+    d.finger_tap(stops[5], row_y);
+    start_new_game(&mut d);
+    let g = &d.app.game;
+    assert!(!g.completed, "CMP-6");
+    assert_eq!((g.mode, d.app.settings.last_mode), (5, 5), "DIF-5");
+    assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-9");
+}
+
+#[test]
+fn a_release_on_a_different_place_does_nothing() {
+    // CMP-10: a press on a level button and a release on a different place (an other button, the
+    // board, the frame of the card, the gap above the button) changes nothing, with the pen, the
+    // eraser and a finger.
+    use layout::LevelButton::{Harder, Same};
+    for_each_layout(|layout_case| {
+        let mut d = completed_at(613, 3);
+        let g = d.app.game.clone();
+        let (sx, sy) = documented_level_center(Same);
+        let landscape = layout::orientation() == layout::Orientation::Landscape;
+        let card_frame = if landscape { (sx, 1471.0 - 4.0) } else { (sx, 2110.0 - 4.0) };
+        let (bx, by) = layout::cell_origin((4, 4));
+        let board = (bx as f32 + 73.0, by as f32 + 73.0);
+        // The gap between Easier and Same: y 1935–1945 in portrait, 1121–1141 in landscape.
+        let gap = (sx, if landscape { 1131.0 } else { 1940.0 });
+        for to in [documented_level_center(Harder), board, card_frame, gap] {
+            for by in [Tapper::Pen, Tapper::Eraser, Tapper::Finger] {
+                let case = format!("{layout_case}, {by:?}, release at {to:?}");
+                match by {
+                    Tapper::Finger => {
+                        d.send(Input::TouchDown { id: 1, x: sx, y: sy });
+                        d.send(Input::TouchMove { id: 1, x: to.0, y: to.1 });
+                        d.send(Input::TouchUp { id: 1, x: to.0, y: to.1 });
+                    }
+                    _ => {
+                        let tool = if matches!(by, Tapper::Pen) { Tool::Pen } else { Tool::Eraser };
+                        d.send(Input::PenDown { x: sx, y: sy, tool });
+                        d.send(Input::PenMove { x: to.0, y: to.1 });
+                        d.send(Input::PenUp { x: to.0, y: to.1 });
+                    }
+                }
+                d.wait(d.app.pause_ms + 50);
+                assert_eq!(d.app.game, g, "CMP-10 ({case})");
+                assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Closed), "{case}");
+            }
+        }
+        // A tap after this still operates.
+        tap_with(&mut d, Tapper::Finger, (sx, sy));
+        assert_level_game(&d, g.seed, 3, layout_case);
+    });
+}
+
+#[test]
+fn a_gray_level_button_does_nothing() {
+    // CMP-9, CMP-10: Easier after an Easy game (mode 0) and Harder after a Hard game (mode 6) are not
+    // available. A tap on them changes nothing. A level button never gives a mode outside 0..6.
+    use layout::LevelButton::{Easier, Harder};
+    for_each_layout(|layout_case| {
+        for (mode, b) in [(0u8, Easier), (6, Harder)] {
+            let mut d = completed_at(614, mode);
+            let g = d.app.game.clone();
+            let last_mode = d.app.settings.last_mode;
+            for by in [Tapper::Pen, Tapper::Eraser, Tapper::Finger] {
+                let case = format!("{layout_case}, mode {mode}, {b:?}, {by:?}");
+                tap_with(&mut d, by, documented_level_center(b));
+                d.wait(d.app.pause_ms + 50);
+                assert_eq!(d.app.game, g, "CMP-9 ({case})");
+                assert_eq!(d.app.settings.last_mode, last_mode, "CMP-9 ({case})");
+                assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Closed), "{case}");
+            }
+            assert_eq!(b.target(mode), None, "CMP-10 ({layout_case}, mode {mode}, {b:?})");
+            d.app.level_button(b);
+            assert_eq!(d.app.game, g, "CMP-10 ({layout_case}, mode {mode}, {b:?})");
+        }
+    });
+}
+
+#[test]
+fn a_tap_on_the_card_with_a_panel_open_only_closes_the_panel() {
+    // CMP-10, NAV-11, CMP-6: with a panel open, a tap on a level button outside the panel only closes
+    // the panel. The next tap starts the game.
+    use layout::LevelButton::{Easier, Harder, Same};
+    for_each_layout(|layout_case| {
+        for (b, by) in [(Easier, Tapper::Finger), (Same, Tapper::Pen), (Harder, Tapper::Eraser)] {
+            let case = format!("{layout_case}, {b:?}, {by:?}");
+            let mut d = completed_at(615, 3);
+            let g = d.app.game.clone();
+            d.button(Button::Menu);
+            d.button(Button::Colors);
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors), "CMP-6 ({case})");
+            tap_with(&mut d, by, documented_level_center(b));
+            assert_eq!(d.app.game, g, "CMP-10 ({case})");
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-11 ({case})");
+            tap_with(&mut d, by, documented_level_center(b));
+            assert_level_game(&d, g.seed, b.target(3).unwrap(), &case);
+        }
+    });
+}
+
+#[test]
+fn the_same_puzzle_starts_at_completion_by_the_read_of_the_ink() {
+    // PUZ-7, PUZ-5: the read of the ink at the end of the pause (a tick, not an input) completes the
+    // game. At that tick the app already has early_game = (next_seed, mode). Same, Easier and Harder
+    // use that seed, with their own mode.
+    use layout::LevelButton::{Easier, Harder, Same};
+    for b in [Same, Easier, Harder] {
+        let mut d = Driver::from(app_with_game(sudoku::app::new_game(620, 3), START_TIME, 620));
+        assert_eq!(d.app.early_game(), None);
+        let last = empty_cell(&d.app.game);
+        fill_except(&mut d, last);
+        let v = d.app.game.solution[last.0 as usize][last.1 as usize];
+        d.write_strokes(&digit_ink(last, v));
+        assert!(!d.app.game.completed);
+        assert_eq!(d.app.early_game(), None, "PUZ-7: no early game before the completion");
+        let end = d.now + d.app.pause_ms + 500;
+        while !d.app.game.completed {
+            assert!(d.now < end, "the ink was not read");
+            d.now += 10;
+            d.app.tick(d.now);
+        }
+        let (seed, mode) = d.app.early_game().expect("PUZ-7: the early game starts at the completing tick");
+        assert_eq!(mode, 3, "PUZ-7: the Same mode");
+        assert_ne!(seed, d.app.game.seed, "PUZ-7: the next seed");
+        d.wait(2000);
+        assert_eq!(d.app.early_game(), Some((seed, 3)), "PUZ-7");
+        let old = d.app.game.seed;
+        let (x, y) = documented_level_center(b);
+        d.finger_tap(x, y);
+        let target = b.target(3).unwrap();
+        assert_eq!(d.app.game.seed, seed, "PUZ-7: {b:?} uses next_seed");
+        assert_level_game(&d, old, target, &format!("{b:?}"));
+        assert_eq!(d.app.game, sudoku::app::new_game(seed, target), "PUZ-5, PUZ-7 ({b:?})");
+        assert_eq!(d.app.early_game(), None, "PUZ-7: the new game is not complete");
+    }
+}
+
+#[test]
+fn the_same_puzzle_starts_when_a_completed_game_opens_from_the_save() {
+    // PUZ-7: a completed game that opens from the save starts the early game at once, before an input.
+    let done = completed_at(621, 4).app.game;
+    let mut d = Driver::opened(app_with_game(done.clone(), START_TIME, 77));
+    assert!(d.app.game.completed);
+    let (seed, mode) = d.app.early_game().expect("PUZ-7: the early game starts at the open");
+    assert_eq!(mode, 4, "PUZ-7");
+    assert_ne!(seed, done.seed);
+    // A game that is not complete has no early game at the open (the menu is open, no panel).
+    let other = Driver::opened(app_with_game(sudoku::app::new_game(621, 4), START_TIME, 77));
+    assert_eq!(other.app.early_game(), None, "PUZ-7");
+    // Same uses that seed. The app opened with the menu open: after the tap it is closed (NAV-9).
+    d.wait(1000);
+    let (x, y) = documented_level_center(layout::LevelButton::Same);
+    d.finger_tap(x, y);
+    assert_eq!(d.app.game, sudoku::app::new_game(seed, 4), "PUZ-5, PUZ-7");
+    assert_eq!(d.app.ui.menu, Menu::Closed, "NAV-9");
+}
+
+#[test]
+fn the_comparison_uses_the_earlier_results_at_the_same_mode() {
+    // CMP-8: the average (ANA-4) and the minimum of the earlier results at the mode of the game, but not
+    // the result of the game itself (the same seed) and not the results of other modes. After a delete
+    // in Statistics the card shows the new values.
+    use sudoku::app::Comparison;
+    use sudoku::store::NewResult;
+    let mut db = ResultsDb::in_memory();
+    let row = |t: i64, mode: u8, seconds: u64, seed: u64| NewResult { finished_at: 1_700_000_000 + t, mode, givens: 30, seconds, seed, generator: 2 };
+    for r in [row(0, 2, 100, 1), row(1, 2, 300, 2), row(2, 2, 500, 3), row(3, 3, 50, 4), row(4, 1, 20, 5)] {
+        db.insert(&r).unwrap();
+    }
+    let mut d = completed_with(630, 2, db);
+    let own = d.app.results.iter().find(|r| r.seed == d.app.game.seed).expect("CMP-5").seconds;
+    assert!(own < 100);
+    assert_eq!(d.app.card_comparison(), Comparison::Earlier { average: 300, best: 100 }, "CMP-8");
+    // The delete of the oldest result at mode 2 (100 s), in the list of completed games.
+    d.button(Button::Menu);
+    d.button(Button::Statistics);
+    let all = layout::all_games_button();
+    d.finger_tap((all.x0 + 100) as f32, (all.y0 + 20) as f32);
+    let seg = layout::filter_segment(Some(2));
+    d.finger_tap((seg.x0 + 10) as f32, (seg.y0 + 10) as f32);
+    assert_eq!(d.app.page_rows().iter().map(|r| r.seconds).collect::<Vec<_>>(), [own, 500, 300, 100]);
+    let bin = layout::bin_button(3);
+    d.finger_tap(((bin.x0 + bin.x1) / 2) as f32, ((bin.y0 + bin.y1) / 2) as f32);
+    let del = layout::dialog_delete();
+    d.finger_tap((del.x0 + 20) as f32, (del.y0 + 20) as f32);
+    d.finger_tap(40.0, 50.0);
+    d.finger_tap(40.0, 50.0);
+    assert_eq!(d.app.screen, Screen::Game);
+    assert_eq!(d.app.card_comparison(), Comparison::Earlier { average: 400, best: 300 }, "CMP-8 after a delete");
+}
+
+#[test]
+fn the_first_game_at_a_mode_has_no_comparison() {
+    // CMP-8: with no earlier result at the mode (only a result of an other mode and the result of the
+    // game itself), the card shows only "First game at this level". After Same, the completed game
+    // is an earlier result of the next game.
+    use sudoku::app::Comparison;
+    use sudoku::store::NewResult;
+    let mut db = ResultsDb::in_memory();
+    db.insert(&NewResult { finished_at: 1_700_000_000, mode: 3, givens: 30, seconds: 77, seed: 9, generator: 2 }).unwrap();
+    let mut d = completed_with(631, 2, db);
+    assert!(d.app.results.iter().any(|r| r.mode == 2 && r.seed == d.app.game.seed), "CMP-5");
+    assert_eq!(d.app.card_comparison(), Comparison::First, "CMP-8");
+    let first = d.app.results.iter().find(|r| r.seed == d.app.game.seed).unwrap().seconds;
+    let (x, y) = documented_level_center(layout::LevelButton::Same);
+    d.finger_tap(x, y);
+    complete_with_the_pen(&mut d);
+    assert_eq!(d.app.card_comparison(), Comparison::Earlier { average: first, best: first }, "CMP-8");
 }

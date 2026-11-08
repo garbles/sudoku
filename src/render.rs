@@ -8,7 +8,7 @@ use std::sync::OnceLock;
 
 use tiny_skia::{FillRule, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Rect as SkRect, Stroke, Transform};
 
-use crate::app::{average_seconds, App, Menu, Panel, Screen, MANUAL_PAGES};
+use crate::app::{average_seconds, App, Comparison, Menu, Panel, Screen, MANUAL_PAGES};
 use crate::font::{Anchor, Fonts, Weight};
 use crate::game::{cells, format_clock, Board, CellSet, Game};
 use crate::generator::MODES;
@@ -47,6 +47,10 @@ pub const fn gray(n: u32) -> Rgb {
     let v = ((n * 255 + 50) / 100) as u8;
     [v, v, v]
 }
+
+/// The color of all secondary text and marks (gray25, `#404040`; NAV-19, QST-5). No text or mark
+/// uses gray40: it was hard to read on the tablet.
+pub const SECONDARY: Rgb = gray(25);
 
 /// The units of the coordinates that a [`Canvas`] gets.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -196,7 +200,7 @@ impl FrameRecord {
     /// the last copy of the frame to the screen (R§14.4): the cell is an empty cell on the screen and
     /// in the frame, with the same micro-cell lines, thus only its pencil marks, its x or the ink
     /// changed (black or gray15 on white, as the ink). False when the cell has a number or a "?"
-    /// (gray40), when the lines changed, when a panel, a dialog or a different screen covers it, or
+    /// (gray25), when the lines changed, when a panel, a dialog or a different screen covers it, or
     /// when the record does not know the frame or the screen. Then the change needs the UI waveform.
     pub fn cell_change_shows_with_pen(&self, cell: crate::game::Cell) -> bool {
         let (Some(k), Some(shown)) = (&self.known, &self.shown_tiles) else { return false };
@@ -717,10 +721,10 @@ fn draw_game(c: &mut Canvas, app: &App) {
         c.ink(s);
     }
 
-    // The difficulty meter, or "Completed in" (CMP-4, DIF-6).
+    // The difficulty meter, or the result card in its place (CMP-4, DIF-6).
     if g.completed {
-        let text = format!("Completed in {}", format_clock(g.seconds()));
-        c.text(Weight::Medium, 25.0, (board_x() + BOARD_SIZE / 2) as f32, (meter_y() + 9) as f32, Anchor::Middle, &text, BLACK);
+        let look = OverlayLook::Card { mode: g.mode, seconds: g.seconds(), comparison: app.card_comparison() };
+        put_overlay(c, look, |c| draw_result_card(c, g.mode, g.seconds(), app.card_comparison()));
     } else {
         put_overlay(c, OverlayLook::Meter(g.mode), |c| labeled_slider(c, meter_xl(), meter_xr(), meter_y(), g.mode));
     }
@@ -745,12 +749,102 @@ fn draw_game(c: &mut Canvas, app: &App) {
     }
 }
 
+/// The result card of a complete puzzle (REQUIREMENTS.md §8.3, CMP-4, CMP-7 to CMP-9): "Completed
+/// in", the time, the meter of the mode, the comparison with the earlier results at this mode, and
+/// the level buttons Easier, Same and Harder. The three buttons have the same look (Same has no
+/// highlight). A button that is not available has a gray80 frame, a gray70 label and no meter. The
+/// contents of the landscape column are the same for the two hands.
+fn draw_result_card(c: &mut Canvas, mode: u8, seconds: u64, comparison: Comparison) {
+    let r = layout::result_card();
+    let (x0, y0, x1, y1) = (r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32);
+    card_frame(c, r, BLACK);
+    let time = format_clock(seconds);
+    let divider = layout::card_divider() as f32;
+    // The look of a level button: the frame, the label and the mode of its meter.
+    let look = |b: LevelButton| match b.target(mode) {
+        Some(m) => (BLACK, BLACK, Some(m)),
+        None => (gray(80), gray(70), None),
+    };
+    if layout::orientation() == layout::Orientation::Portrait {
+        let tx = x0 + 40.0;
+        c.text(Weight::Regular, 30.0, tx, y0 + 66.0, Anchor::Start, "Completed in", SECONDARY);
+        c.text(Weight::Medium, 96.0, tx, y0 + 180.0, Anchor::Start, &time, BLACK);
+        labeled_slider(c, r.x0 + 40, r.x0 + 40 + DIFF_W, r.y0 + 232, mode);
+        let compare = match comparison {
+            Comparison::Earlier { average, best } => format!("Average {}  ·  Previous best {}", format_clock(average), format_clock(best)),
+            Comparison::First => FIRST_GAME.to_string(),
+        };
+        c.text(Weight::Regular, 25.0, tx, y0 + 293.0, Anchor::Start, &compare, SECONDARY);
+        c.rect(divider - 1.0, y0 + 24.0, divider, y1 - 25.0, gray(70));
+        c.text(Weight::Medium, 28.0, divider + 32.0, y0 + 55.0, Anchor::Start, "New game", BLACK);
+        for b in LevelButton::ALL {
+            let br = layout::level_button(b);
+            let (bx0, by0, bx1, by1) = (br.x0 as f32, br.y0 as f32, br.x1 as f32, br.y1 as f32);
+            let cy = (by0 + by1) / 2.0;
+            let (frame, label, target) = look(b);
+            card_frame(c, br, frame);
+            c.text(Weight::Medium, 30.0, bx0 + 28.0, cy + 11.0, Anchor::Start, b.label(), label);
+            if let Some(m) = target {
+                // The last stop is 40 px from the right frame.
+                meter(c, bx1 - 40.0 - (MODES - 1) as f32 * CARD_BUTTON_STEP, cy, CARD_BUTTON_STEP, m, MeterStyle::ON_WHITE);
+            }
+        }
+    } else {
+        let (tx, cx) = (x0 + 28.0, (x0 + x1) / 2.0);
+        // A centered meter with `step` between its stops.
+        let centered = |step: f32| cx - (MODES - 1) as f32 / 2.0 * step;
+        c.text(Weight::Regular, 30.0, tx, y0 + 70.0, Anchor::Start, "Completed in", SECONDARY);
+        // Medium 72 at all times: a time of one hour or more fits in the column.
+        c.text(Weight::Medium, 72.0, tx, y0 + 185.0, Anchor::Start, &time, BLACK);
+        meter(c, centered(40.0), y0 + 255.0, 40.0, mode, MeterStyle::ON_WHITE);
+        match comparison {
+            Comparison::Earlier { average, best } => {
+                for (k, (label, v)) in [("Average at this level", average), ("Previous best", best)].into_iter().enumerate() {
+                    let y = y0 + 370.0 + k as f32 * 110.0;
+                    c.text(Weight::Regular, 25.0, tx, y, Anchor::Start, label, SECONDARY);
+                    c.text(Weight::Medium, 40.0, tx, y + 48.0, Anchor::Start, &format_clock(v), BLACK);
+                }
+            }
+            Comparison::First => c.text(Weight::Regular, 25.0, tx, y0 + 370.0, Anchor::Start, FIRST_GAME, SECONDARY),
+        }
+        c.rect(tx, divider - 1.0, x1 - 29.0, divider, gray(70));
+        c.text(Weight::Medium, 28.0, tx, divider + 60.0, Anchor::Start, "New game", BLACK);
+        for b in LevelButton::ALL {
+            let br = layout::level_button(b);
+            let by0 = br.y0 as f32;
+            let (frame, label, target) = look(b);
+            card_frame(c, br, frame);
+            c.text(Weight::Medium, 32.0, cx, by0 + 50.0, Anchor::Middle, b.label(), label);
+            if let Some(m) = target {
+                meter(c, centered(36.0), by0 + 88.0, 36.0, m, MeterStyle::ON_WHITE);
+            }
+        }
+    }
+}
+
+/// A frame of 2 px of the result card or of a level button: the pixel columns x0 - 1, x0, x1 - 1
+/// and x1, and the same rows (ui-lib.sh `card_frame`). It has sharp edges.
+fn card_frame(c: &mut Canvas, r: Rect, color: Rgb) {
+    let (x0, y0, x1, y1) = (r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32);
+    c.rect(x0 - 1.0, y0 - 1.0, x1, y0, color);
+    c.rect(x0 - 1.0, y1 - 1.0, x1, y1, color);
+    c.rect(x0 - 1.0, y0 - 1.0, x0, y1, color);
+    c.rect(x1 - 1.0, y0 - 1.0, x1, y1, color);
+}
+
+/// The text of the result card with no earlier result at the mode (CMP-8).
+const FIRST_GAME: &str = "First game at this level";
+/// The step of the small meter of a level button in portrait.
+const CARD_BUTTON_STEP: f32 = 30.0;
+
 /// A group of drawings out of the board that the overlay cache keeps (refer to `put_overlay`): all
 /// that its pixels depend on, with the layout.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum OverlayLook {
     /// The difficulty meter at this mode.
     Meter(u8),
+    /// The result card of a complete game of this mode and time (`draw_result_card`).
+    Card { mode: u8, seconds: u64, comparison: Comparison },
     /// The menu button and, if `panel` is Some, the toolbar with the button of this panel active
     /// (`draw_toolbar`, without the panel). `bookmark` is false when the bookmark is gray (CKP-9).
     Menu { panel: Option<Option<Panel>>, caution: bool, undo: bool, redo: bool, bookmark: bool },
@@ -843,7 +937,7 @@ impl CellLook {
     /// True if the pen waveform of the ink patch can show the change of a cell from the look `from`
     /// to the look `to` (R§14.4): the two are empty cells with the same micro-cell lines, thus only
     /// the pencil marks and the x differ (gray15 on white, as the ink). A number with its color, the
-    /// "?" (gray40) and a change of the lines need the UI waveform. None is the band of the board.
+    /// "?" (gray25) and a change of the lines need the UI waveform. None is the band of the board.
     fn pen_waveform_shows(from: Option<CellLook>, to: Option<CellLook>) -> bool {
         matches!((from, to), (Some(CellLook::Empty(_, a, _)), Some(CellLook::Empty(_, b, _))) if a == b)
     }
@@ -979,7 +1073,7 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
     // (MRK-2), gray15, at their keypad positions (MRK-1).
     match look {
         CellLook::Value(v, _, col) => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, &v.to_string(), col),
-        CellLook::Question => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, "?", gray(40)),
+        CellLook::Question => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, "?", SECONDARY),
         CellLook::Empty(marks, _, refused) => {
             for d in 1..=9u8 {
                 if marks & crate::game::mark_bit(d) != 0 {
@@ -1410,7 +1504,7 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
     let r = layout::settings_row(layout::UPDATE_ROW);
     c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
     if let Some(text) = update.row_text() {
-        c.text(Weight::Regular, 25.0, (pl + 33) as f32, (r.y0 + 65) as f32, Anchor::Start, text, gray(40));
+        c.text(Weight::Regular, 25.0, (pl + 33) as f32, (r.y0 + 65) as f32, Anchor::Start, text, SECONDARY);
     } else if let Some(button) = update.button() {
         // A box with a 2 px border, the icon and the text.
         let b = layout::update_button();
@@ -1615,8 +1709,8 @@ fn draw_checkpoints_panel(c: &mut Canvas, g: &Game, settings: &Settings) {
 
     if n == 0 {
         let (first, second) = layout::CKP_EMPTY_BASELINES;
-        c.text(Weight::Regular, 28.0, at(layout::CKP_EMPTY_CX), first as f32, Anchor::Middle, "No checkpoints", gray(25));
-        c.text(Weight::Regular, 25.0, at(layout::CKP_EMPTY_CX), second as f32, Anchor::Middle, "Save the board before a difficult guess.", gray(40));
+        c.text(Weight::Regular, 28.0, at(layout::CKP_EMPTY_CX), first as f32, Anchor::Middle, "No checkpoints", SECONDARY);
+        c.text(Weight::Regular, 25.0, at(layout::CKP_EMPTY_CX), second as f32, Anchor::Middle, "Save the board before a difficult guess.", SECONDARY);
     }
     for (i, k) in g.checkpoints.iter().enumerate() {
         let y0 = layout::ckp_row_top(i);
@@ -1663,9 +1757,9 @@ fn checkpoint_row(c: &mut Canvas, look: &CheckpointRow, pl: i32, y0: i32, i: usi
 
     let (clock_y, cells_y) = layout::CKP_TEXT_BASELINES;
     let played = format!("{} played", format_clock(look.seconds));
-    c.text(Weight::Regular, 25.0, at(layout::CKP_TEXT_X), (y0 + clock_y) as f32, Anchor::Start, &played, gray(25));
+    c.text(Weight::Regular, 25.0, at(layout::CKP_TEXT_X), (y0 + clock_y) as f32, Anchor::Start, &played, SECONDARY);
     let filled = format!("{} of 81 cells", look.board.filled_count());
-    c.text(Weight::Regular, 25.0, at(layout::CKP_TEXT_X), (y0 + cells_y) as f32, Anchor::Start, &filled, gray(25));
+    c.text(Weight::Regular, 25.0, at(layout::CKP_TEXT_X), (y0 + cells_y) as f32, Anchor::Start, &filled, SECONDARY);
 
     // The button (CKP-2): the pixels from the first to the last x and y of `ckp_button`.
     let b = layout::ckp_button(i);
@@ -1712,7 +1806,7 @@ fn small_board(c: &mut Canvas, look: &CheckpointRow, bx: i32, by: i32) {
         for d in 1..=9 {
             if marks & crate::game::mark_bit(d as u8) != 0 {
                 let (dx, dy) = (x + 3 + 5 * ((d - 1) % 3), y + 3 + 5 * ((d - 1) / 3));
-                c.rect(dx as f32, dy as f32, (dx + 1) as f32, (dy + 1) as f32, gray(40));
+                c.rect(dx as f32, dy as f32, (dx + 1) as f32, (dy + 1) as f32, SECONDARY);
             }
         }
     }
@@ -1802,13 +1896,13 @@ fn draw_summary(c: &mut Canvas, results: &[ResultRow], confirm_all: bool) {
     let (bw, right, count_x) = (summary_box_w(), page_right(), summary_count_x());
     for (x0, label, value) in [(72.0, "Puzzles completed", all.len().to_string()), (100.0 + bw, "Average time", avg_text(&all))] {
         c.stroke_rect(x0, 250.0, x0 + bw, 440.0, 1.7, BLACK);
-        c.text(Weight::Regular, 30.0, x0 + 30.0, 305.0, Anchor::Start, label, gray(40));
+        c.text(Weight::Regular, 30.0, x0 + 30.0, 305.0, Anchor::Start, label, SECONDARY);
         c.text(Weight::Medium, 84.0, x0 + 30.0, 405.0, Anchor::Start, &value, BLACK);
     }
     c.text(Weight::Medium, 50.0, 72.0, 550.0, Anchor::Start, "By difficulty", BLACK);
-    c.text(Weight::Regular, 30.0, 72.0, 615.0, Anchor::Start, "Difficulty", gray(40));
-    c.text(Weight::Regular, 30.0, count_x, 615.0, Anchor::End, "Completed", gray(40));
-    c.text(Weight::Regular, 30.0, right, 615.0, Anchor::End, "Average time", gray(40));
+    c.text(Weight::Regular, 30.0, 72.0, 615.0, Anchor::Start, "Difficulty", SECONDARY);
+    c.text(Weight::Regular, 30.0, count_x, 615.0, Anchor::End, "Completed", SECONDARY);
+    c.text(Weight::Regular, 30.0, right, 615.0, Anchor::End, "Average time", SECONDARY);
     let mut y = SUMMARY_TABLE_Y;
     hline(c, y, 72.0, right);
     // ANA-4
@@ -1872,8 +1966,8 @@ fn dialog_box(c: &mut Canvas, title: &str, lines: [&str; 2], buttons: [&str; 2])
     c.rect(dx0, dy0, dx1, dy1, WHITE);
     c.stroke_rect(dx0, dy0, dx1, dy1, 1.7, BLACK);
     c.text(Weight::Medium, 44.0, dx0 + 40.0, dy0 + 75.0, Anchor::Start, title, BLACK);
-    c.text(Weight::Regular, 34.0, dx0 + 40.0, dy0 + 140.0, Anchor::Start, lines[0], gray(25));
-    c.text(Weight::Regular, 34.0, dx0 + 40.0, dy0 + 190.0, Anchor::Start, lines[1], gray(25));
+    c.text(Weight::Regular, 34.0, dx0 + 40.0, dy0 + 140.0, Anchor::Start, lines[0], SECONDARY);
+    c.text(Weight::Regular, 34.0, dx0 + 40.0, dy0 + 190.0, Anchor::Start, lines[1], SECONDARY);
     hline(c, dy1 - ROW, dx0, dx1);
     let mid = ((dx0 + dx1) / 2.0).floor();
     c.rect(mid, dy1 - ROW, dx1, dy1, BLACK);
@@ -1932,9 +2026,9 @@ fn draw_list(c: &mut Canvas, app: &App) {
     let (x, w) = list_column();
     let rows = app.page_rows();
     debug_assert!(rows.len() <= list_rows());
-    c.text(Weight::Regular, 30.0, x, 395.0, Anchor::Start, "Date", gray(40));
-    c.text(Weight::Regular, 30.0, x + meter_dx, 395.0, Anchor::Start, "Difficulty", gray(40));
-    c.text(Weight::Regular, 30.0, x + time_dx, 395.0, Anchor::End, "Time", gray(40));
+    c.text(Weight::Regular, 30.0, x, 395.0, Anchor::Start, "Date", SECONDARY);
+    c.text(Weight::Regular, 30.0, x + meter_dx, 395.0, Anchor::Start, "Difficulty", SECONDARY);
+    c.text(Weight::Regular, 30.0, x + time_dx, 395.0, Anchor::End, "Time", SECONDARY);
     hline(c, LIST_Y, x, x + w);
     for (i, r) in rows.iter().enumerate() {
         let y = list_row(i);
@@ -1964,14 +2058,14 @@ fn draw_licenses(c: &mut Canvas, app: &App) {
     let pages = crate::licenses::pages(all.crates.len(), layout::licenses_rows());
     chrome(c, "Licenses", Some((app.licenses.page, pages)));
     let (x, w) = list_column();
-    c.text(Weight::Regular, 30.0, x, 270.0, Anchor::Start, "The app contains these open source components.", gray(40));
+    c.text(Weight::Regular, 30.0, x, 270.0, Anchor::Start, "The app contains these open source components.", SECONDARY);
     hline(c, LICENSES_Y, x, x + w);
     for (i, index) in app.licenses_page_rows().enumerate() {
         let k = &all.crates[index];
         let y = layout::licenses_row(i);
         let baseline = y + ROW / 2.0 + 11.0;
         c.text(Weight::Medium, 32.0, x, baseline, Anchor::Start, &k.name, BLACK);
-        c.text(Weight::Regular, 30.0, x + w - 60.0, baseline, Anchor::End, &k.version, gray(40));
+        c.text(Weight::Regular, 30.0, x + w - 60.0, baseline, Anchor::End, &k.version, SECONDARY);
         Icon::OpenList.draw(c, x + w - 15.0, y + ROW / 2.0, BLACK);
         hline(c, y + ROW, x, x + w);
     }
@@ -1984,7 +2078,7 @@ fn draw_license_text(c: &mut Canvas, app: &App) {
     let (lines, pages) = app.license_text_page();
     chrome(c, &k.name, Some((app.licenses.text_page, pages)));
     let (x, w) = list_column();
-    c.text(Weight::Regular, 30.0, x, 232.0, Anchor::Start, &format!("Version {} · {}", k.version, k.license.replace(" OR ", " / ")), gray(40));
+    c.text(Weight::Regular, 30.0, x, 232.0, Anchor::Start, &format!("Version {} · {}", k.version, k.license.replace(" OR ", " / ")), SECONDARY);
     hline(c, 260.0, x, x + w);
     for (i, line) in lines.iter().enumerate() {
         let y = layout::LICENSE_TEXT_Y + i as f32 * layout::LICENSE_LINE;

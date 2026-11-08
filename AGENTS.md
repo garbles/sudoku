@@ -173,7 +173,9 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   After the first attempt, up to 4 threads make batches of attempts; the results are examined in
   the order of the attempts, thus the puzzle does not depend on the threads (PUZ-5). While the New
   game panel is open, the app draws the seed of the next game and makes its puzzle in the
-  background (`generate_early`); Start new game then uses it.
+  background (`generate_early`); Start new game then uses it. While a completed game shows, the
+  app also makes the puzzle of the Same mode, from the completion (`App::start_early_game`); the
+  level buttons of the result card use it.
 - `solver.rs`: the human-style solver. It grades a puzzle by the most difficult technique it needs.
 - `recognizer.rs`: reads handwriting in a cell (it compares the pen direction and pen path features of the ink with the nearest examples). All examples are stored in both pen directions, and the features are calculated at each start. Up to 4
   threads scan ranges of the examples; the main thread plays the accepted examples of all ranges
@@ -181,7 +183,7 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   reading of the pending ink on a background thread (`read_early`). At the end of the pause,
   `recognize` uses that result if the strokes are the same (`early.rs`).
 - `early.rs`: a calculation that starts on a background thread before the app needs its result
-  (the reading of the ink at each pen lift, the puzzle of the next game). The result is a function
+  (the reading of the ink at each pen lift, the puzzle of the next game, also while the result card shows). The result is a function
   of the key only, thus it is the same as a calculation at the time of need.
 - `corpus.rs`: only in the corpus build (Cargo feature `corpus`, a development build). It is the
   separate app `Sudoku (corpus)` on the tablet (`Dockerfile.corpus` gives the name and the folder, and installs `appload/sudoku-corpus/sudoku-corpus-penregion.qmd`, a copy of the ink patch for that name. When you change the ink patch, change the copy also. Only `make install-corpus` installs the copy: a release and `install.sh` do not use it). A blank
@@ -217,6 +219,9 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   and commit the file: `tests/licenses.rs` runs `--check` (thus `Dockerfile.test` has `python3`).
 - `invariants.rs`: checks of the rules in INVARIANTS.md. Debug builds check them after each input.
 - `layout.rs`, `render.rs`, `font.rs`: positions, drawing (tiny-skia) and the font of the tablet.
+  `layout.rs` gives the result card of a completed game (`result_card`, `level_button`) in place of
+  the meter. `render.rs` draws it (`draw_result_card`, `OverlayLook::Card`). `render::SECONDARY`
+  (gray25) is the color of all secondary text and marks; do not use gray40 for text.
   `render.rs` keeps the pixels of each board cell in a cache (tiles at their true position). Each
   `Canvas` operation records the area that it can change (for the `FrameRecord`). On a frame with
   a record, `put_overlay` also keeps the pixels of the meter and of the menu button with the

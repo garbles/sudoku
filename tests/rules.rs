@@ -547,7 +547,7 @@ fn the_meter_shows_the_mode_of_the_game() {
 
 #[test]
 fn colors_and_analytics_operate_on_a_complete_game() {
-    // CMP-6: only Start new game ends the complete state. The other menu items continue to operate.
+    // CMP-6: only Start new game and the level buttons of the card (CMP-10) end the complete state. The other menu items continue to operate.
     let mut d = Driver::new(45);
     solve(&mut d);
     assert!(d.app.game.completed);

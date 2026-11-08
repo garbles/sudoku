@@ -166,7 +166,9 @@ pub fn cell_origin((r, c): Cell) -> (i32, i32) {
 }
 
 /// The difficulty meter below the board (render.sh): "Easy" at `meter_xl`, "Hard" ends at `meter_xr`.
-const DIFF_W: i32 = 440;
+/// `DIFF_W` is the width of a difficulty slider with its labels (below the board, in the New game
+/// panel and in the result card).
+pub const DIFF_W: i32 = 440;
 pub const STOPS: i32 = crate::generator::MODES as i32;
 
 pub fn meter_y() -> i32 {
@@ -179,6 +181,89 @@ pub fn meter_xl() -> i32 {
 
 pub fn meter_xr() -> i32 {
     meter_xl() + DIFF_W
+}
+
+/// The result card of a complete puzzle (REQUIREMENTS.md §8.3, CMP-7). Portrait: below the board,
+/// 49 px from it and 320 px high, the same for the two hands. Landscape: a column of 322 px with the
+/// height of the board, 48 px from the screen edge at the side opposite the toolbar.
+const CARD_GAP: i32 = 49;
+const CARD_H: i32 = 320;
+const CARD_COLUMN_W: i32 = 322;
+const CARD_COLUMN_EDGE: i32 = 48;
+/// Portrait: the x of the divider from the left of the card.
+const CARD_DIVIDER_DX: i32 = 640;
+/// Landscape: the y of the divider from the bottom of the card.
+const CARD_DIVIDER_DY: i32 = 560;
+
+pub fn result_card() -> Rect {
+    if landscape() {
+        let x0 = if right_handed() { screen_w() as i32 - CARD_COLUMN_EDGE - CARD_COLUMN_W } else { CARD_COLUMN_EDGE };
+        Rect::new(x0, board_y(), x0 + CARD_COLUMN_W, board_y() + BOARD_SIZE)
+    } else {
+        let y0 = board_y() + BOARD_SIZE + CARD_GAP;
+        Rect::new(board_x(), y0, board_x() + BOARD_SIZE, y0 + CARD_H)
+    }
+}
+
+/// The center line of the 2 px divider of the card: the x in portrait (between the result and the
+/// level buttons), the y in landscape (above "New game").
+pub fn card_divider() -> i32 {
+    let r = result_card();
+    if landscape() { r.y1 - CARD_DIVIDER_DY } else { r.x0 + CARD_DIVIDER_DX }
+}
+
+/// A level button of the result card (§8.3, CMP-9), in the order from the top.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum LevelButton {
+    Easier,
+    Same,
+    Harder,
+}
+
+impl LevelButton {
+    pub const ALL: [LevelButton; 3] = [LevelButton::Easier, LevelButton::Same, LevelButton::Harder];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LevelButton::Easier => "Easier",
+            LevelButton::Same => "Same",
+            LevelButton::Harder => "Harder",
+        }
+    }
+
+    /// target(b): the mode of the new game after a game of `mode`. None if the button is not
+    /// available (Easier after Easy, Harder after Hard). Thus a level button never gives a mode
+    /// outside 0..MODES (CMP-10).
+    pub fn target(self, mode: u8) -> Option<u8> {
+        let m = match self {
+            LevelButton::Easier => mode.checked_sub(1)?,
+            LevelButton::Same => mode,
+            LevelButton::Harder => mode + 1,
+        };
+        (m < crate::generator::MODES).then_some(m)
+    }
+
+    fn index(self) -> i32 {
+        LevelButton::ALL.iter().position(|&b| b == self).unwrap_or(0) as i32
+    }
+}
+
+/// The rectangle of a level button. Portrait: right of the divider, 70 px high with a pitch of
+/// 80 px. Landscape: below the divider, 120 px high with a pitch of 140 px.
+pub fn level_button(b: LevelButton) -> Rect {
+    let (r, i) = (result_card(), b.index());
+    if landscape() {
+        let y = card_divider() + 90 + i * 140;
+        Rect::new(r.x0 + 20, y, r.x1 - 20, y + 120)
+    } else {
+        let y = r.y0 + 75 + i * 80;
+        Rect::new(card_divider() + 32, y, r.x1 - 32, y + 70)
+    }
+}
+
+/// The level button at a point (available or not).
+pub fn level_button_at(x: f32, y: f32) -> Option<LevelButton> {
+    LevelButton::ALL.into_iter().find(|&b| level_button(b).contains(x, y))
 }
 
 /// The toolbar (the open menu) at the right edge: x 1508 and the bottom slot at y 2048 in portrait.
@@ -282,6 +367,11 @@ impl Rect {
 
     pub fn contains(&self, x: f32, y: f32) -> bool {
         x >= self.x0 as f32 && x < self.x1 as f32 && y >= self.y0 as f32 && y < self.y1 as f32
+    }
+
+    /// True if the two rectangles have a pixel in common.
+    pub fn overlaps(&self, o: &Rect) -> bool {
+        self.x0 < o.x1 && o.x0 < self.x1 && self.y0 < o.y1 && o.y0 < self.y1
     }
 }
 
@@ -918,7 +1008,7 @@ mod tests {
             for (n, bottom) in [(0, 864), (1, 852), (3, 1212), (5, 1572)] {
                 let p = ckp_panel(n);
                 assert_eq!((p.x0, p.x1 - 1, p.y0, p.y1 - 1), (x0, x1, 560, bottom), "{rotation} {right} {n}");
-                // The panel covers no button, not the meter and not "Completed in".
+                // The panel covers no button and not the meter (CKP-9: it never shows with the result card).
                 for (x, y) in [(p.x0, p.y0), (p.x1 - 1, p.y0), (p.x0, p.y1 - 1), (p.x1 - 1, p.y1 - 1)] {
                     assert_eq!(game_button(x as f32, y as f32, true), None, "{rotation} {right} {x} {y}");
                 }

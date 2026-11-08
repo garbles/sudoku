@@ -3,10 +3,10 @@
 //!
 //! Rules about a sequence of states (for example CLK-2 or UND-3) are in the tests.
 
-use crate::app::{App, Menu, Panel, Screen, HAND_TOUCH_MS, MANUAL_PAGES, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
+use crate::app::{average_seconds, App, Comparison, Menu, Panel, Screen, HAND_TOUCH_MS, MANUAL_PAGES, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
 use crate::game::{cells, mark_bit, Board, Change, Game, Group, MAX_CHECKPOINTS};
 use crate::generator::{count_solutions, is_valid_solution, MODES, V1_MODES, VERSION};
-use crate::layout;
+use crate::layout::{self, LevelButton, Rect};
 use crate::settings::Color;
 use crate::update::{has_updates, is_update, PatchChange, UpToDateRow, UpdateState};
 
@@ -14,6 +14,8 @@ use crate::update::{has_updates, is_update, PatchChange, UpToDateRow, UpdateStat
 const _: () = assert!(RECOGNITION_PAUSE_MS == 1000, "INP-23");
 const _: () = assert!(WRITING_IDLE_MS == RECOGNITION_PAUSE_MS, "INP-16");
 const _: () = assert!(HAND_TOUCH_MS == 150, "INP-20");
+// NAV-19, QST-5: the secondary text and marks are gray25 (#404040).
+const _: () = assert!(crate::render::SECONDARY[0] == 0x40 && crate::render::SECONDARY[1] == 0x40 && crate::render::SECONDARY[2] == 0x40, "NAV-19");
 
 fn fail(rule: &str, msg: impl std::fmt::Display) -> Result<(), String> {
     Err(format!("{rule}: {msg}"))
@@ -241,6 +243,75 @@ fn check_panel_layout(app: &App) -> Result<(), String> {
     Ok(())
 }
 
+/// CMP-7: the frame of the result card in the current layout. With the menu closed it touches no
+/// toolbar button, not the close button, not the menu button and not the board. The toolbar column
+/// (all its height) and the card never touch, thus in landscape they are at opposite sides also when
+/// the menu is open.
+fn check_card_layout() -> Result<(), String> {
+    let r = layout::result_card();
+    let expected = match (layout::orientation(), layout::right_handed()) {
+        (layout::Orientation::Portrait, _) => Rect::new(148, 1790, 1471, 2110),
+        (layout::Orientation::Landscape, false) => Rect::new(48, 148, 370, 1471),
+        (layout::Orientation::Landscape, true) => Rect::new(1790, 148, 2112, 1471),
+    };
+    ensure!(r == expected, "CMP-7", "the result card is at {r:?}");
+    let (w, h) = (layout::screen_w() as i32, layout::screen_h() as i32);
+    let toolbar = Rect::new(layout::tb_x(), 0, layout::tb_x() + layout::TB_SLOT, h);
+    let close_x = if layout::right_handed() { w - layout::TB_SLOT } else { 0 };
+    let close = Rect::new(close_x, 0, close_x + layout::TB_SLOT, layout::TB_SLOT);
+    let board = Rect::new(layout::board_x(), layout::board_y(), layout::board_x() + layout::BOARD_SIZE, layout::board_y() + layout::BOARD_SIZE);
+    for (name, o) in [("the toolbar", toolbar), ("the close button", close), ("the board", board)] {
+        ensure!(!r.overlaps(&o), "CMP-7", "the result card {r:?} touches {name} {o:?}");
+    }
+    for b in LevelButton::ALL {
+        let br = layout::level_button(b);
+        ensure!(br.x0 > r.x0 && br.x1 < r.x1 && br.y0 > r.y0 && br.y1 < r.y1, "CMP-9", "{b:?} {br:?} is not in the card {r:?}");
+    }
+    Ok(())
+}
+
+/// CMP-8, CMP-9, PUZ-7: the result card of a complete game.
+fn check_card(app: &App) -> Result<(), String> {
+    let g = &app.game;
+    if !g.completed {
+        return Ok(());
+    }
+    // CMP-9: Easier is available ⇔ mode > 0, Harder ⇔ mode < 6, Same always. CMP-10: a level button
+    // never gives a mode outside 0..6.
+    for b in LevelButton::ALL {
+        let t = b.target(g.mode);
+        let available = match b {
+            LevelButton::Easier => g.mode > 0,
+            LevelButton::Same => true,
+            LevelButton::Harder => g.mode < MODES - 1,
+        };
+        ensure!(t.is_some() == available, "CMP-9", "{b:?} after mode {} gives {t:?}", g.mode);
+        ensure!(t.is_none_or(|m| m < MODES), "CMP-10", "{b:?} gives mode {t:?}");
+    }
+    // CMP-8: the comparison uses the earlier results at the mode, without the current game.
+    let earlier: Vec<_> = app.results.iter().filter(|r| r.mode == g.mode && r.seed != g.seed).collect();
+    let expected = match (average_seconds(earlier.iter().copied()), earlier.iter().map(|r| r.seconds).min()) {
+        (Some(average), Some(best)) => Comparison::Earlier { average, best },
+        _ => Comparison::First,
+    };
+    let shown = app.card_comparison();
+    ensure!(shown == expected, "CMP-8", "the card shows {shown:?}, the results give {expected:?}");
+    if let Comparison::Earlier { average, best } = shown {
+        ensure!(best <= average, "CMP-8", "previous best {best} > average {average}");
+    }
+    // PUZ-7: the puzzle in the background is of the next seed, and on a complete game with no New
+    // game panel it is of the mode of Same. (The start at the completion is a rule about a sequence of
+    // states: the tests examine it.)
+    if let Some((seed, mode)) = app.early_game {
+        ensure!(app.next_seed == Some(seed), "PUZ-7", "early puzzle of seed {seed}, next seed {:?}", app.next_seed);
+        ensure!(mode < MODES, "PUZ-7", "early puzzle of mode {mode}");
+        if app.ui.menu.panel() != Some(Panel::NewGame) {
+            ensure!(mode == g.mode, "PUZ-7", "early puzzle of mode {mode} on a complete game of mode {}", g.mode);
+        }
+    }
+    Ok(())
+}
+
 /// All rules that apply to one state of the app.
 pub fn check_app(app: &App) -> Result<(), String> {
     check_game(&app.game)?;
@@ -314,6 +385,10 @@ pub fn check_app(app: &App) -> Result<(), String> {
     ensure!(app.settings.is_valid(), "COL-5", "settings {:?}", app.settings);
     check_completed_color(app)?;
     check_panel_layout(app)?;
+    if g.completed && app.screen == Screen::Game {
+        check_card_layout()?;
+    }
+    check_card(app)?;
     ensure!((1..=MANUAL_PAGES).contains(&app.manual_page), "MAN-1", "manual page {}", app.manual_page);
 
     // Analytics (ANA-1, ANA-5, ANA-6, ANA-7).

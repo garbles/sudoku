@@ -17,6 +17,9 @@ The file `scripts/ui-lib.sh` has the layout values (board position, toolbar slot
 dimensions of the toolbar, the panels and the fonts come from screenshots of a real Paper Pro
 (`scripts/rmpp-screenshot.sh`).
 
+All secondary text (gray labels, headings, help text, versions and the "?" of an unrecognized cell) is
+`gray25` (#404040). Only the micro-cell line setting 40 of the Cell colors panel uses `gray40`.
+
 [`REQUIREMENTS.md`](../REQUIREMENTS.md) gives the full behavior of the app.
 
 ## Game screens
@@ -26,10 +29,12 @@ dimensions of the toolbar, the panels and the fonts come from screenshots of a r
 | `screen.png` | Empty board, menu closed. It shows only the menu button (top right, closed icon: dot at the bottom left) and the difficulty meter below the board. | The base layout. The board has 9×9 cells of 147 px, at the center, from (148, 418) to (1471, 1741). Each cell has a faint 3×3 grid of 49 px micro-cells. The close button does not show when the menu is closed. |
 | `screen-in-progress.png` | A game in progress: starting numbers (gray background, black digits), your numbers (white background, `#1E1E1E` digits), pencil marks and one clash (two red 9s). Box 0 at the top left is full, but its 9 clashes with a 9 outside the box. Thus the box has no completed color. | The main state of the game. The pencil marks are the possible digits only, because the app hides the marks of the digits of peers. |
 | `screen-highlight.png` | The same game after a tap on a 5. All 5s have the highlight color (Cyan). | Highlights. A tap on the same number again, or a different pen action on the board, removes the highlight. |
-| `screen-unrecognized.png` | The same game immediately after a scribble that the app cannot read. A gray **?** shows in the cell for approximately one second. | The response to writing that is not a number from 1 to 9 (for example a scribble, 0 or 12). After the "?", the cell is the same as before. |
+| `screen-unrecognized.png` | The same game immediately after a scribble that the app cannot read. A gray **?** (`gray25`) shows in the cell for approximately one second. | The response to writing that is not a number from 1 to 9 (for example a scribble, 0 or 12). After the "?", the cell is the same as before. |
 | `screen-invalid-mark.png` | The same game immediately after a pen tap on the micro-cell of digit 6 in the empty cell at row 1, column 6 (from 0). A peer has a 6. A small gray **x** shows only in that micro-cell for approximately one second. The marks 3, 4 and 8 and the micro-cell lines of the cell stay. | The response to a pencil mark that a peer refuses, when "Hide pencil marks automatically" is on. The x has two lines with round ends, each from -10 px to +10 px on the two axes around the anchor point of the mark (20×20 px between the line centers), line width 3 px, `gray15`. After the x, the cell is the same as before. |
 | `screen-completed-group.png` | A game with no clash. Box 0 (top left), column 4 and row 7 are complete. All their cells have the completed color (Green), also the cell where column 4 and row 7 cross, and the starting numbers in these groups. Other starting numbers stay gray. The state is the game of `screen-in-progress.png` without the 9 at row 5, column 1, and with the correct numbers in the cells (2,4), (6,4), (7,1), (7,2), (7,6) and (7,7) (row, column, from 0). | Completed groups. The color comes only from the current numbers. |
-| `screen-completed.png` | The complete board with the normal colors: starting numbers on gray, your numbers on white. It has no completed color. The text "Completed in 23:41" replaces the difficulty meter. | The complete, locked state. |
+| `screen-completed.png` | The complete board with the normal colors: starting numbers on gray, your numbers on white. It has no completed color. The result card replaces the difficulty meter: a frame of 2 px at x 148–1471, y 1790–2110. The left half has "Completed in" (Regular 30, `gray25`), the time "23:41" (Medium 96), the difficulty slider at mode 2 (x 188–628) and "Average 18:55  ·  Previous best 14:51" (Regular 25, `gray25`). A `gray70` line at x 788 divides the card. The right half has "New game" and the buttons Easier, Same and Harder (white inside, black frame), each with a small meter of the mode that it starts (1, 2 and 3). | The complete, locked state, and the result card (REQUIREMENTS.md §8.3). The average and the best come from the results of `analytics.py` at mode 2, without the result of the current game (seed 1). No button is selected. A button that is not available (Easier at mode 0, Harder at mode 6) has a `gray80` frame, a `gray70` label and no meter. |
+| `screen-completed-landscape.png` | `screen-completed.png` in landscape (2160×1620), left-handed, menu closed. The board is at x 418–1741, y 148–1471. The result card is a column at x 48–370, y 148–1471: "Completed in", the time (Medium 72), the meter (step 40 px), "Average at this level" 18:55 and "Previous best" 14:51, a `gray70` line at y 911, "New game" and the three buttons (each 120 px high, with the label and a small meter). | The card in landscape (REQUIREMENTS.md §3.3, §8.3). The card does not touch the toolbar: it is at the side opposite the toolbar. `scripts/toolbar.sh` makes it from `screen-completed.png`. |
+| `screen-completed-landscape-right-handed.png` | The same state for a right-handed player. The menu button is at the top left (mirror icon), and the column is at x 1790–2112, with the same contents. | The card at the other side (REQUIREMENTS.md §3.3). `scripts/toolbar.sh` makes it. |
 
 ## Menu (open)
 
@@ -49,11 +54,11 @@ open, the close button shows at the top left.
 | `settings-menu.png` | The Settings panel is open on the game in progress (the gear is white on black). Three rows: "Highlight numbers", "Hide pencil marks automatically" and "Color completed groups" (two lines), each with a switch (all on). The fourth row is "Version" with the version of a development build ("dev", Regular, black) at the right. The fifth row is "Third-party licenses" with a › at the right (REQUIREMENTS.md §9.4). The panel stays 400 px wide. | The only place to turn the three settings off and on (REQUIREMENTS.md §9.1). |
 | `screen-toolbar-update.png` | The menu is open on the game in progress of a stable build (v0.1.0). An update (v0.2.0) is available: the gear has the red caution icon at its top right. | The caution icon (REQUIREMENTS.md §9.2). |
 | `settings-update.png` | The Settings panel of the stable build v0.1.0 when v0.2.0 is available. The Version row shows "v0.1.0". The sixth row has the button "Update to v0.2.0" with the update icon. The gear has the caution icon. | The update button (REQUIREMENTS.md §9.2). |
-| `settings-up-to-date.png` | The Settings panel of the stable build v0.1.0 just after a check that found no update. The sixth row shows "Sudoku is up to date" (Regular, gray40). No caution icon. | The text states of the update row (REQUIREMENTS.md §9.2). The other texts have the same position and font. |
+| `settings-up-to-date.png` | The Settings panel of the stable build v0.1.0 just after a check that found no update. The sixth row shows "Sudoku is up to date" (Regular, gray25). No caution icon. | The text states of the update row (REQUIREMENTS.md §9.2). The other texts have the same position and font. |
 | `settings-check-updates.png` | The same panel after it closed and opened again. The sixth row has the button "Check for updates" with a circular arrow icon. | The check button (REQUIREMENTS.md §9.2). |
 | `settings-restart.png` | The Settings panel of the stable build v0.1.0 after the update v0.2.0 is installed and replaced the ink patch, and the user tapped "Later". The sixth row has the button "Restart interface" with a power icon. The gear has the caution icon. | The restart button (REQUIREMENTS.md §9.2, UPD-10). The text "Restart Sudoku to update" (no patch change) has the same position and font as "Sudoku is up to date". |
 | `update-restart.png` | `settings-restart.png` with the dialog "Restart the interface?" on the pale screen: two lines of text, "Later" (left) and "Restart" (white on black, right). | The restart dialog (REQUIREMENTS.md §9.2, UPD-10). Same design and position as `analytics-delete.png`. |
-| `screen-completed-menu.png` | The menu is open on a complete puzzle. Undo, redo and the bookmark are gray (`gray70`). | Shows that a complete puzzle is locked. The Checkpoints panel is not available. |
+| `screen-completed-menu.png` | The menu is open on a complete puzzle. Undo, redo and the bookmark are gray (`gray70`). The result card stays below the board. | Shows that a complete puzzle is locked. The Checkpoints panel is not available. |
 | `checkpoints-menu-empty.png` | The Checkpoints panel is open on the game in progress, with no checkpoint: x 908–1507, y 560–864. The bookmark is white on black. "Save checkpoint" is black. "No checkpoints" and one line of help text are below it. | The panel before the first save (REQUIREMENTS.md §9.3). |
 | `checkpoints-menu.png` | The same panel with three rows (y 560–1212), the newest first: 18:32 and 40 cells, 11:07 and 36 cells, 4:15 and 32 cells. Each row has a small board, the clock, the quantity of cells, "Restore" and a bin. The board of a row has the clash color, the completed color, the starting color and a dot for each visible pencil mark. | A checkpoint row (REQUIREMENTS.md §9.3). The rows have the states `clean`, `mid` and `early` of `scripts/board-state.py`. |
 | `checkpoints-menu-current.png` | The same panel with the maximum of five rows (y 560–1572). The first row has the same board as the game (20:14, 41 cells, one clash) and a black "Current" button. The second row (19:26, 46 cells) has three completed groups. "Save checkpoint" is gray (`gray70`). | The "Current" button, the save that is not available, and the maximum size of the panel (REQUIREMENTS.md §9.3). |
@@ -182,7 +187,9 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 - A puzzle is complete when all cells have a number and there is no clash.
 - A complete puzzle shows no completed color: starting numbers have the starting color, and your
   numbers have a white background.
-- The difficulty meter changes to "Completed in m:ss" (h:mm:ss after one hour).
+- The result card replaces the difficulty meter: "Completed in m:ss" (h:mm:ss after one hour), the
+  mode, the average and the best time of the earlier games at this mode, and the buttons Easier,
+  Same and Harder. One tap on a button starts a new game at that mode, with the menu closed.
 - The board locks. Writing, the eraser, pencil marks, highlights, undo, redo and the bookmark have no effect. The +
   button continues to start a new game.
 - The clock operates only when the app is open.
@@ -199,7 +206,7 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
   that you selected. At the first start, it opens at mode 2.
 - "Start new game" replaces the current puzzle immediately.
 - The difficulty meter below the board shows the mode of the current puzzle. When the puzzle is
-  complete, "Completed in m:ss" replaces it. You cannot change the meter.
+  complete, the result card replaces it. You cannot change the meter.
 - The bookmark opens the Checkpoints panel. "Save checkpoint" keeps the numbers, the marks and the clock
   (at most 5 checkpoints). "Restore" puts them back as one new item of the undo history. The bin
   removes the checkpoint at once. A new game removes all checkpoints.

@@ -20,6 +20,7 @@ FONT = os.path.join(HERE, "fonts", "rmsans-400.ttf")
 HEAD = os.path.join(HERE, "fonts", "rmsans-500.ttf")
 SCALE = 1.153846
 STOPS = 7
+TEXT_GRAY = "gray25"   # the secondary text (ui-lib.sh TEXT_GRAY, #404040)
 
 # --- sample results: (finished_at, mode 0-4, seconds). The modes 5 and 6 have no sample results.
 rng = random.Random(7)
@@ -117,13 +118,13 @@ def screens(P):
     total = len(games); avg = sum(g[2] for g in games) / total
     for x0, label, value in [(72, "Puzzles completed", str(total)), (n(100 + P.box_w), "Average time", clock(avg))]:
         out.append(f"fill none stroke black stroke-width 1.7 rectangle {x0},250 {n(x0+P.box_w)},440")
-        text(out, x0+30, 305, 30, "gray40", "start", label)
+        text(out, x0+30, 305, 30, TEXT_GRAY, "start", label)
         text(out, x0+30, 405, 84, "black", "start", value, HEAD)
 
     text(out, 72, 550, 50, "black", "start", "By difficulty", HEAD)
-    text(out, 72, 615, 30, "gray40", "start", "Difficulty")
-    text(out, n(P.count_x), 615, 30, "gray40", "end", "Completed")
-    text(out, n(P.right), 615, 30, "gray40", "end", "Average time")
+    text(out, 72, 615, 30, TEXT_GRAY, "start", "Difficulty")
+    text(out, n(P.count_x), 615, 30, TEXT_GRAY, "end", "Completed")
+    text(out, n(P.right), 615, 30, TEXT_GRAY, "end", "Average time")
     y = 640; hline(out, y, 72, P.right)
     for mode in range(STOPS):
         times = [g[2] for g in games if g[1] == mode]
@@ -167,9 +168,9 @@ def screens(P):
     md, td, bd = P.offsets
     rows = games[:P.per_page]
     cx0 = 72
-    text(out, cx0, 395, 30, "gray40", "start", "Date")
-    text(out, n(cx0+md), 395, 30, "gray40", "start", "Difficulty")
-    text(out, n(cx0+td), 395, 30, "gray40", "end", "Time")
+    text(out, cx0, 395, 30, TEXT_GRAY, "start", "Date")
+    text(out, n(cx0+md), 395, 30, TEXT_GRAY, "start", "Difficulty")
+    text(out, n(cx0+td), 395, 30, TEXT_GRAY, "end", "Time")
     hline(out, 420, cx0, cx0 + P.col_w)
     for i, (when, mode, secs) in enumerate(rows):
         y = 420 + i*ROW
@@ -244,13 +245,13 @@ def licenses(P):
     x, w = 72, P.col_w
     out = []
     chrome(out, P, "Licenses", (1, (len(crates) + rows - 1) // rows))
-    text(out, x, 270, 30, "gray40", "start", "The app contains these open source components.")
+    text(out, x, 270, 30, TEXT_GRAY, "start", "The app contains these open source components.")
     hline(out, LICENSES_Y, x, x + w)
     for i, c in enumerate(crates[:rows]):
         y = LICENSES_Y + i*ROW
         base = n(y + ROW/2 + 11)
         text(out, x, base, 32, "black", "start", c["name"], HEAD)
-        text(out, n(x + w - 60), base, 30, "gray40", "end", c["version"])
+        text(out, n(x + w - 60), base, 30, TEXT_GRAY, "end", c["version"])
         chevron(out, x + w - 15, y + ROW/2)
         hline(out, y + ROW, x, x + w)
     render(out, P, "licenses.png")
@@ -260,7 +261,7 @@ def licenses(P):
     lines, per_page = license_lines(c), 27 if P.landscape else 40
     out = []
     chrome(out, P, c["name"], (1, (len(lines) + per_page - 1) // per_page))
-    text(out, x, 232, 30, "gray40", "start", f"Version {c['version']} · {c['license'].replace(' OR ', ' / ')}")
+    text(out, x, 232, 30, TEXT_GRAY, "start", f"Version {c['version']} · {c['license'].replace(' OR ', ' / ')}")
     hline(out, 260, x, x + w)
     for i, (kind, s) in enumerate(lines[:per_page]):
         y = 320 + i*36

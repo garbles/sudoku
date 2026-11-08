@@ -13,6 +13,8 @@
 #   checkpoints-menu-right-handed.png, checkpoints-menu-landscape.png  checkpoints-menu.png in these layouts
 #   color-menu-right-handed.png  color-menu.png for a right-handed player (toolbar on the left)
 #   color-menu-landscape.png  color-menu.png in landscape (2160x1620)
+#   screen-completed-landscape.png, screen-completed-landscape-right-handed.png  the complete puzzle in landscape,
+#                             menu closed: the result card is a column at the side opposite the toolbar
 #   settings-menu.png         the Settings panel of a development build
 #   screen-toolbar-update.png, settings-update.png, settings-up-to-date.png, settings-check-updates.png,
 #   settings-restart.png                                                      updates (stable build v0.1.0)
@@ -210,7 +212,7 @@ settings_panel() {
   [ $2 -gt $SET_BOTTOM_DEV ] && divider $((SET_UPDATE_Y-2))
   return 0
 }
-gray_text() { echo "stroke none fill gray40 font '$DIGIT_FONT' font-size $UI_SIZE text-anchor $1 text $2,$3 '$4'" >> $M; }
+gray_text() { echo "stroke none fill $TEXT_GRAY font '$DIGIT_FONT' font-size $UI_SIZE text-anchor $1 text $2,$3 '$4'" >> $M; }
 regular_text() { echo "stroke none fill black font '$DIGIT_FONT' font-size $UI_SIZE text-anchor $1 text $2,$3 '$4'" >> $M; }
 
 # caution : the red caution icon at the top right of the gear (slot 2): its center is 16 px to the right of
@@ -299,7 +301,7 @@ ckp_frame() {
   ckp_text "$UI_FONT" 28 "$1" start $CKP_SAVE_TEXT_X $CKP_SAVE_BASE "Save checkpoint"
   if [ "$2" -eq 0 ]; then
     ckp_text "$DIGIT_FONT" 28 gray25 middle $CKP_CX 760 "No checkpoints"
-    ckp_text "$DIGIT_FONT" $UI_SIZE gray40 middle $CKP_CX 800 "Save the board before a difficult guess."
+    ckp_text "$DIGIT_FONT" $UI_SIZE $TEXT_GRAY middle $CKP_CX 800 "Save the board before a difficult guess."
   fi
 }
 # ckp_row I STATE CLOCK BUTTON : row I with the small board of STATE (board-state.py), the clock at the save and the
@@ -368,4 +370,20 @@ landscape color-menu.png color-menu-landscape.png $CM_CROP $CM_PL_LANDSCAPE $CM_
 CKP_CROP=${CKP_W}x$((CKP_ROW0+3*CKP_STEP-CKP_TOP+1))+$CKP_PL+$CKP_TOP   # the panel of checkpoints-menu.png (three rows)
 right_handed checkpoints-menu.png checkpoints-menu-right-handed.png $CKP_CROP $CKP_PL_RIGHT $CKP_TOP
 landscape checkpoints-menu.png checkpoints-menu-landscape.png $CKP_CROP $CKP_PL_LANDSCAPE $CKP_TOP
+
+# --- The complete puzzle in landscape, menu closed (REQUIREMENTS.md §3.3, §8.3). The board and the menu button move by
+# full pixels from screen-completed.png. The result card is a column at the side opposite the toolbar: at the left
+# for a left-handed player, at the right for a right-handed player (the toolbar and the menu button at the left, the
+# menu icon is a mirror image). The contents of the column are the same for the two hands.
+# completed_landscape left|right OUTFILE
+completed_landscape() {
+  result_card $1 $LEVEL > $M
+  if [ $1 = right ]; then mb="-flop"; mx=0; else mb=""; mx=$LS_TB_X; fi
+  magick -size ${LS_W}x${LS_H} xc:white \
+    \( "$OUT/screen-completed.png" -crop 1360x1360+130+400 +repage \) -geometry +$((130+LS_DX))+$((400+LS_DY)) -composite \
+    \( "$OUT/screen-completed.png" -crop 112x112+$TB_X+0 +repage $mb \) -geometry +$mx+0 -composite \
+    -draw @$M -units PixelsPerInch -density 229 "$OUT/$2"
+}
+completed_landscape left screen-completed-landscape.png
+completed_landscape right screen-completed-landscape-right-handed.png
 rm -f $M

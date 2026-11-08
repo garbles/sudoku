@@ -36,6 +36,6 @@ text 180 1634 34 gray25 start "Only the pen closes the game. Thus your hand cann
 echo "fill none stroke black stroke-width 5 circle 112,1698 140,1698 fill black stroke none circle 103,1707 109,1707" >> $M
 text 180 1712 38 gray25 start "Open the menu (top right). Page 7 tells about the menu."
 
-text 702 1785 30 gray40 middle "To turn the page, swipe left or right with your finger, or tap an arrow."
+text 702 1785 30 gray25 middle "To turn the page, swipe left or right with your finger, or tap an arrow."
 pagenum 1 9
 render "$1/manual-how-to-play.png"

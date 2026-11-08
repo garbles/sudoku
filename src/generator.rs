@@ -95,11 +95,12 @@ pub fn generate(seed: u64, mode: u8) -> Puzzle {
     EARLY.get(&(seed, mode), || generate_version(VERSION, seed, mode))
 }
 
-/// The puzzle of the next new game, made while the New game panel is open (PUZ-5: the same puzzle).
+/// The puzzle of the next new game, made while the New game panel is open or the result card shows
+/// (PUZ-5, PUZ-7: the same puzzle).
 static EARLY: crate::early::Early<(u64, u8), Puzzle> = crate::early::Early::new();
 
-/// Starts to make the puzzle of `(seed, mode)` on a background thread, so that Start new game does
-/// not wait for the generator.
+/// Starts to make the puzzle of `(seed, mode)` on a background thread, so that Start new game and a
+/// level button of the result card do not wait for the generator.
 pub fn generate_early(seed: u64, mode: u8) {
     EARLY.start((seed, mode), |&(seed, mode)| generate_version(VERSION, seed, mode));
 }
