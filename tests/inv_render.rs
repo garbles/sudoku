@@ -602,7 +602,7 @@ fn the_summary_shows_the_quantity_and_the_average_of_each_mode() {
     // ANA-3, ANA-4: the total is |results|; each mode shows its quantity and the average of its
     // seconds, or "–" if it has no results. The quantities of the modes add up to the total.
     let fonts = fonts();
-    let row = |id: i64, mode: u8, seconds: u64| ResultRow { id, finished_at: 1_790_000_000 + id, mode, givens: 30, seconds, seed: 0 };
+    let row = |id: i64, mode: u8, seconds: u64| ResultRow { id, finished_at: 1_790_000_000 + id, mode, givens: 30, seconds, seed: 0, symmetric: id % 2 == 0 };
     let mut app = reference::app(&fonts);
     app.screen = Screen::Statistics;
     // Mode 1: 100 s and 300 s (average 3:20). Mode 3: 4000 s (1:06:40). The total average is
@@ -892,21 +892,29 @@ fn assert_grid(pm: &Pixmap, cell: Cell, grid: Option<[u8; 3]>, what: &str) {
     }
 }
 
+/// The seed of the symmetric new game of `the_x_changes_only_its_micro_cell_in_all_layouts`. Its board
+/// has a refused tap for each digit.
+const SYMMETRIC_X_SEED: u64 = 301;
+
 #[test]
 fn the_x_changes_only_its_micro_cell_in_all_layouts() {
     // MRK-13, BRD-6, §15, MRK-1, MRK-7, MRK-10, MRK-14: all 9 digits in all layouts, with the
     // micro-cell lines of the default gray and set to None. The tap makes the x at the lift. All other
     // pixels of the screen stay the same: the other marks and the grid. The x does not show a hidden
-    // mark. After the time of the x, the screen is the same as before.
+    // mark. After the time of the x, the screen is the same as before. The board is a new game that
+    // is not symmetric (the board of this test before the symmetry), and a symmetric new game (PUZ-8).
     let fonts = fonts();
     for (o, right_handed) in LAYOUTS {
         let _layout = InLayout::set(o, right_handed);
-        let mut d = Driver::new(300);
+        for (seed, symmetric) in [(300u64, false), (SYMMETRIC_X_SEED, true)] {
+        let settings = Settings { last_symmetric: symmetric, ..Settings::default() };
+        let mut d = Driver::from(App::new(None, Some(settings), sudoku::store::ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed }), App::placeholder_ng_stops()));
+        assert_eq!(d.app.game.symmetric, symmetric, "DIF-5");
         for line in [LineGray::default(), LineGray::None] {
             d.app.settings.micro_line = line;
             let grid = sudoku::render::line_rgb(line);
             for digit in 1..=9u8 {
-                let what = format!("{o:?}, right-handed {right_handed}, {line:?}, digit {digit}");
+                let what = format!("{o:?}, right-handed {right_handed}, symmetric {symmetric}, {line:?}, digit {digit}");
                 let cell = cell_with_marks(&mut d, digit, digit % 2 == 0);
                 assert_eq!(layout::cell_origin(cell), (board_origin(o).0 + cell.1 as i32 * CELL, board_origin(o).1 + cell.0 as i32 * CELL), "{what}");
                 let center = x_center(board_origin(o), cell, digit);
@@ -941,6 +949,7 @@ fn the_x_changes_only_its_micro_cell_in_all_layouts() {
                 assert!(d.app.redraw, "MRK-14: {what}: the end of the x asks for no redraw");
                 assert_eq!(differences(&draw_app(&d.app, &fonts), &before), vec![], "MRK-13: {what}: the pixels after the x");
             }
+        }
         }
     }
 }

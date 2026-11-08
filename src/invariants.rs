@@ -5,7 +5,7 @@
 
 use crate::app::{average_seconds, App, Comparison, Menu, Panel, Screen, HAND_TOUCH_MS, MANUAL_PAGES, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
 use crate::game::{cells, mark_bit, Board, Change, Game, Group, MAX_CHECKPOINTS};
-use crate::generator::{count_solutions, is_valid_solution, MODES, V1_MODES, VERSION};
+use crate::generator::{count_solutions, is_valid_solution, partner, MODES, V1_MODES, VERSION};
 use crate::layout::{self, LevelButton, Rect};
 use crate::settings::Color;
 use crate::update::{has_updates, is_update, PatchChange, UpToDateRow, UpdateState};
@@ -33,6 +33,7 @@ macro_rules! ensure {
 pub fn check_game(g: &Game) -> Result<(), String> {
     ensure!(g.mode < MODES, "DIF-1", "mode {} is not in 0..6", g.mode);
     ensure!(g.generator == VERSION || (g.generator == 1 && g.mode < V1_MODES), "PUZ-5", "generator {} mode {}", g.generator, g.mode);
+    ensure!(!g.symmetric || g.generator == VERSION, "PUZ-8", "a symmetric game of generator {}", g.generator);
     ensure!(is_valid_solution(&g.solution), "PUZ-1", "the solution is not a correct sudoku");
 
     let mut givens = [[0u8; 9]; 9];
@@ -48,6 +49,16 @@ pub fn check_game(g: &Game) -> Result<(), String> {
         }
     }
     ensure!(count_solutions(&givens, 2) == 1, "PUZ-2", "the starting numbers do not have only one solution");
+    if g.symmetric {
+        // PUZ-8: a half turn of the board does not change the starting cells.
+        for cell @ (r, c) in cells() {
+            let (i, j) = partner(cell);
+            ensure!(g.given[r as usize][c as usize] == g.given[i as usize][j as usize], "PUZ-8", "({r},{c}) and ({i},{j}) of a symmetric game");
+        }
+        // PUZ-9: a symmetric Easy puzzle has 44 or 45 starting numbers.
+        let n = g.givens_count();
+        ensure!(g.mode != 0 || (44..=45).contains(&n), "PUZ-9", "a symmetric Easy game has {n} starting numbers");
+    }
 
     let solved = g.is_solved_board();
     ensure!(g.completed == solved, "CMP-1", "completed = {} but solved board = {}", g.completed, solved);
@@ -300,13 +311,14 @@ fn check_card(app: &App) -> Result<(), String> {
         ensure!(best <= average, "CMP-8", "previous best {best} > average {average}");
     }
     // PUZ-7: the puzzle in the background is of the next seed, and on a complete game with no New
-    // game panel it is of the mode of Same. (The start at the completion is a rule about a sequence of
-    // states: the tests examine it.)
-    if let Some((seed, mode)) = app.early_game {
+    // game panel it is of the mode of Same and of the symmetry of the game. (The start at the
+    // completion is a rule about a sequence of states: the tests examine it.)
+    if let Some((seed, mode, symmetric)) = app.early_game {
         ensure!(app.next_seed == Some(seed), "PUZ-7", "early puzzle of seed {seed}, next seed {:?}", app.next_seed);
         ensure!(mode < MODES, "PUZ-7", "early puzzle of mode {mode}");
         if app.ui.menu.panel() != Some(Panel::NewGame) {
             ensure!(mode == g.mode, "PUZ-7", "early puzzle of mode {mode} on a complete game of mode {}", g.mode);
+            ensure!(symmetric == g.symmetric, "PUZ-7", "early puzzle of symmetry {symmetric} on a complete game of symmetry {}", g.symmetric);
         }
     }
     Ok(())
@@ -381,6 +393,7 @@ pub fn check_app(app: &App) -> Result<(), String> {
     ensure!(ui.slider < MODES && app.settings.last_mode < MODES, "DIF-1", "slider or last mode out of range");
     if ui.menu.panel() != Some(Panel::NewGame) {
         ensure!(ui.slider == app.settings.last_mode, "DIF-4", "the slider keeps a selection after the panel closed");
+        ensure!(ui.symmetric_sel == app.settings.last_symmetric, "DIF-8", "the Symmetrical switch keeps a selection after the panel closed");
     }
     ensure!(app.settings.is_valid(), "COL-5", "settings {:?}", app.settings);
     check_completed_color(app)?;

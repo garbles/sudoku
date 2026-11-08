@@ -1832,12 +1832,21 @@ fn the_recognition_pause_is_1_s_and_it_starts_at_the_pen_lift() {
     assert_eq!(WRITING_IDLE_MS, RECOGNITION_PAUSE_MS, "INP-16");
     let mut d = Driver::new(621);
     assert_eq!(d.app.pause_ms, 1000, "INP-23: the app uses the value of the source");
-    let cell = empty_cells(&d)[0];
-    let v = solution_at(&d.app.game, cell);
-    let ink = digit_ink(cell, v);
+    // The first empty cell whose ink leaves the micro-cell of the pen down at the middle point of the
+    // first stroke: then the touch is writing (INP-2) while the pen stays down. The new game is
+    // symmetric (DIF-9), thus the cell depends on its board.
+    let (cell, ink) = empty_cells(&d)
+        .into_iter()
+        .map(|c| (c, digit_ink(c, solution_at(&d.app.game, c))))
+        .find(|(_, ink)| {
+            let s = &ink[0];
+            layout::board_micro(s[0].0, s[0].1) != layout::board_micro(s[s.len() / 2].0, s[s.len() / 2].1)
+        })
+        .expect("an empty cell whose first stroke leaves its first micro-cell");
     let s = &ink[0];
     d.send(Input::PenDown { x: s[0].0, y: s[0].1, tool: Tool::Pen });
     d.send(Input::PenMove { x: s[s.len() / 2].0, y: s[s.len() / 2].1 });
+    assert_eq!(d.app.ui.pending_ink.as_ref().map(|p| p.cell), Some(cell), "INP-2: the touch is writing");
     // The pen stays down for 3 s: no read.
     d.wait(3000);
     assert!(d.app.ui.pending_ink.is_some() && d.app.game.value_at(cell) == 0, "INP-5: the pause starts at the pen lift");

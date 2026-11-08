@@ -1,12 +1,12 @@
 //! Tests for the rules of INVARIANTS.md about the result card of a complete puzzle and the darker
-//! secondary gray: CMP-4, CMP-6 to CMP-10, CLK-4, DIF-5 to DIF-7, NAV-9, NAV-19, QST-5 and PUZ-7. The
-//! values come from INVARIANTS.md and REQUIREMENTS.md §8.3 and §15, not from the code. Each test makes
+//! secondary gray: CMP-4, CMP-6 to CMP-10, CLK-4, DIF-5 to DIF-8, NAV-9, NAV-19, QST-5, PUZ-7 and
+//! PUZ-8. The values come from INVARIANTS.md and REQUIREMENTS.md §8.3 and §15, not from the code. Each test makes
 //! the state where the rule can break and examines the state or the pixels.
 
 mod common;
 
 use common::*;
-use sudoku::app::{new_game, App, Comparison, Input, Menu, Panel, Screen, Tool};
+use sudoku::app::{new_game_with_symmetry, App, Comparison, Input, Menu, Panel, Screen, Tool};
 use sudoku::font::{Anchor, Fonts, Weight};
 use sudoku::game::{cells, Cell, Game};
 use sudoku::generator::{generate_version, MODES};
@@ -135,7 +135,12 @@ fn clock(s: u64) -> String {
 
 /// A game of (seed, mode) with all cells filled except `missing` (a cell with no starting number).
 fn almost_complete(seed: u64, mode: u8) -> (Game, Cell) {
-    let mut g = new_game(seed, mode);
+    almost_complete_sym(seed, mode, false)
+}
+
+/// A game of (seed, mode, symmetric) with all cells filled except `missing`.
+fn almost_complete_sym(seed: u64, mode: u8, symmetric: bool) -> (Game, Cell) {
+    let mut g = new_game_with_symmetry(seed, mode, symmetric);
     let missing = cells().find(|&c| !g.is_filled(c)).unwrap();
     for c in cells() {
         if c != missing && !g.is_filled(c) {
@@ -148,7 +153,12 @@ fn almost_complete(seed: u64, mode: u8) -> (Game, Cell) {
 
 /// A complete game of (seed, mode) with a final time of `seconds`.
 fn complete(seed: u64, mode: u8, seconds: u64) -> Game {
-    let (mut g, missing) = almost_complete(seed, mode);
+    complete_sym(seed, mode, false, seconds)
+}
+
+/// A complete game of (seed, mode, symmetric) with a final time of `seconds`.
+fn complete_sym(seed: u64, mode: u8, symmetric: bool, seconds: u64) -> Game {
+    let (mut g, missing) = almost_complete_sym(seed, mode, symmetric);
     g.add_number(missing, g.solution[missing.0 as usize][missing.1 as usize]);
     assert!(g.completed, "the full board is not complete");
     g.elapsed_ms = seconds * 1000 + 999;
@@ -156,7 +166,7 @@ fn complete(seed: u64, mode: u8, seconds: u64) -> Game {
 }
 
 fn row(mode: u8, seconds: u64, seed: u64) -> ResultRow {
-    ResultRow { id: seed as i64 + 1, finished_at: 1_700_000_000 + seed as i64, mode, givens: 30, seconds, seed }
+    ResultRow { id: seed as i64 + 1, finished_at: 1_700_000_000 + seed as i64, mode, givens: 30, seconds, seed, symmetric: false }
 }
 
 /// An app that shows the complete game `g` with the menu closed and the results `results`.
@@ -646,9 +656,12 @@ fn board(g: &Game) -> Game {
 fn a_level_button_starts_a_new_game_at_its_target_with_the_menu_closed() {
     // CMP-10, CMP-6, DIF-5, DIF-7, NAV-9, CMP-5, PUZ-7, PUZ-5: in the four layouts, with the pen tip,
     // the eraser and a finger, with the menu closed and open: one tap starts the new game
-    // immediately at target(b), with the next seed. After it the menu is closed with no panel. The
-    // old game is not recorded again. A button that is not available changes nothing.
-    let games: Vec<Game> = [0u8, 3, 6].iter().map(|&m| complete(90 + m as u64, m, 400)).collect();
+    // immediately at target(b), with the next seed and the symmetry of the complete game (PUZ-8).
+    // After it the menu is closed with no panel. The old game is not recorded again. A button that
+    // is not available changes nothing. The setting of the symmetry is the opposite of the game
+    // before the tap: the button must use the game, not the setting (DIF-5).
+    let games: Vec<Game> =
+        [(0u8, false), (0, true), (3, true), (6, false), (6, true)].iter().map(|&(m, s)| complete_sym(90 + m as u64, m, s, 400)).collect();
     let mut tool = 0u8;
     for (o, rh) in LAYOUTS {
         let _l = InLayout::set(o, rh);
@@ -658,32 +671,41 @@ fn a_level_button_starts_a_new_game_at_its_target_with_the_menu_closed() {
                     tool = (tool + 1) % 3;
                     let what = format!("{o:?}, right-handed {rh}, mode {}, {b:?}, {menu:?}, tool {tool}", g.mode);
                     let results = vec![row(g.mode, 999, g.seed), row(g.mode, 500, 1)];
-                    let mut d = Driver::from(card_app(g.clone(), results.clone()));
+                    let mut app = card_app(g.clone(), results.clone());
+                    app.settings.last_symmetric = !g.symmetric;
+                    app.ui.symmetric_sel = !g.symmetric;
+                    let mut d = Driver::from(app);
                     d.app.ui.menu = menu;
                     let early = d.app.early_game();
-                    // PUZ-7: a complete game from the save makes the puzzle of Same at once.
-                    let (seed, early_mode) = early.unwrap_or_else(|| panic!("PUZ-7: {what}: no early game after the open of a complete game"));
+                    // PUZ-7: a complete game from the save makes the puzzle of Same at once, with the
+                    // symmetry of the complete game.
+                    let (seed, early_mode, early_sym) =
+                        early.unwrap_or_else(|| panic!("PUZ-7: {what}: no early game after the open of a complete game"));
                     assert_eq!(early_mode, g.mode, "PUZ-7: {what}: the early game is not the Same mode");
-                    let settings_before = d.app.settings.last_mode;
+                    assert_eq!(early_sym, g.symmetric, "PUZ-7: {what}: the early game does not have the symmetry of the game");
+                    let settings_before = (d.app.settings.last_mode, d.app.settings.last_symmetric);
                     tap_with(&mut d, tool, level_center(b));
                     let a = &d.app;
                     match b.target(g.mode) {
                         Some(target) => {
                             assert!(target < MODES, "CMP-10: {what}");
                             assert_eq!((a.game.seed, a.game.mode, a.settings.last_mode), (seed, target, target), "CMP-10, DIF-5, PUZ-7: {what}");
+                            assert_eq!((a.game.symmetric, a.settings.last_symmetric), (g.symmetric, g.symmetric), "CMP-10, DIF-5: {what}: symmetry");
+                            assert_eq!(a.ui.symmetric_sel, g.symmetric, "DIF-8: {what}");
                             assert!(!a.game.completed && a.game.elapsed_ms == 0, "CMP-6, DIF-5: {what}");
                             assert!(a.game.undo.is_empty() && a.game.redo.is_empty() && a.game.checkpoints.is_empty(), "DIF-5: {what}");
                             assert!(cells().all(|c| a.game.is_given(c) || !a.game.is_filled(c)), "DIF-5: {what}: entries");
                             assert!(cells().all(|c| a.game.marks_at(c) == 0), "DIF-5: {what}: marks");
                             assert_eq!((a.screen, a.ui.menu), (Screen::Game, Menu::Closed), "NAV-9, CMP-10: {what}");
                             assert_eq!(a.results, results, "CMP-5, DIF-7: {what}: the old game is recorded");
-                            let p = generate_version(2, seed, target);
+                            let p = generate_version(2, seed, target, g.symmetric);
                             assert_eq!(a.game.solution, p.solution, "PUZ-7, PUZ-5: {what}");
                             assert_eq!(a.game.given, p.givens.map(|r| r.map(|v| v != 0)), "PUZ-7, PUZ-5: {what}");
                         }
                         None => {
                             assert_eq!(board(&a.game), board(g), "CMP-9: {what}: the button is not available");
-                            assert_eq!((a.screen, a.ui.menu, a.settings.last_mode), (Screen::Game, menu, settings_before), "CMP-9: {what}");
+                            assert_eq!((a.screen, a.ui.menu), (Screen::Game, menu), "CMP-9: {what}");
+                            assert_eq!((a.settings.last_mode, a.settings.last_symmetric), settings_before, "CMP-9: {what}");
                             assert_eq!(a.early_game(), early, "CMP-9: {what}");
                         }
                     }
@@ -759,7 +781,7 @@ fn a_level_button_operates_right_after_back() {
     for b in LevelButton::ALL {
         let g = complete(160, 3, 120);
         let mut d = Driver::from(card_app(g.clone(), vec![]));
-        let (seed, _) = d.app.early_game().expect("PUZ-7");
+        let (seed, _, _) = d.app.early_game().expect("PUZ-7");
         d.button(Button::Menu);
         d.button(Button::Statistics);
         assert_eq!(d.app.screen, Screen::Statistics);
@@ -800,10 +822,11 @@ fn a_level_button_operates_only_on_a_complete_game() {
 #[test]
 fn the_early_game_starts_at_the_completion_by_the_ink() {
     // PUZ-7: the read of the ink at the end of the pause completes the puzzle. At that time, with no
-    // other input, early_game = (next_seed, game.mode). Same then uses this seed, and Easier and
-    // Harder use the same seed with their own mode. The puzzle is the puzzle of (seed, mode).
-    for (b, mode) in [(LevelButton::Same, 6u8), (LevelButton::Easier, 4), (LevelButton::Harder, 1), (LevelButton::Same, 0)] {
-        let (g, missing) = almost_complete(150 + mode as u64, mode);
+    // other input, early_game = (next_seed, game.mode, game.symmetric). Same then uses this seed, and
+    // Easier and Harder use the same seed with their own mode. The puzzle is the puzzle of (seed,
+    // mode, symmetric) (PUZ-5, CMP-10).
+    for (b, mode, sym) in [(LevelButton::Same, 6u8, true), (LevelButton::Easier, 4, false), (LevelButton::Harder, 1, true), (LevelButton::Same, 0, true)] {
+        let (g, missing) = almost_complete_sym(150 + mode as u64, mode, sym);
         let mut d = Driver::from(app_with_game(g.clone(), 1_700_000_000, 21));
         assert_eq!(d.app.early_game(), None, "PUZ-7: mode {mode}: an early game before the completion");
         let v = g.solution[missing.0 as usize][missing.1 as usize];
@@ -812,13 +835,14 @@ fn the_early_game_starts_at_the_completion_by_the_ink() {
         // Only time goes by: the app reads the ink at the end of the pause.
         d.wait(d.app.pause_ms + 50);
         assert!(d.app.game.completed, "mode {mode}: the app did not read {v}");
-        let (seed, early_mode) = d.app.early_game().unwrap_or_else(|| panic!("PUZ-7: mode {mode}: no early game at the completion"));
-        assert_eq!(early_mode, mode, "PUZ-7: the early game is not the Same mode");
+        let (seed, early_mode, early_sym) = d.app.early_game().unwrap_or_else(|| panic!("PUZ-7: mode {mode}: no early game at the completion"));
+        assert_eq!((early_mode, early_sym), (mode, g.symmetric), "PUZ-7: the early game is not the Same mode with the symmetry of the game");
         assert_ne!(seed, g.seed, "PUZ-7: the next seed is the seed of the game");
         let target = b.target(mode).unwrap();
         d.finger_tap(level_center(b).0, level_center(b).1);
         assert_eq!((d.app.game.seed, d.app.game.mode), (seed, target), "PUZ-7: {b:?} after mode {mode}");
-        let p = generate_version(2, seed, target);
+        let p = generate_version(2, seed, target, g.symmetric);
+        assert_eq!(d.app.game.symmetric, g.symmetric, "CMP-10, PUZ-7: symmetry");
         assert_eq!(d.app.game.solution, p.solution, "PUZ-7, PUZ-5");
         assert_eq!(d.app.game.given, p.givens.map(|r| r.map(|v| v != 0)), "PUZ-7, PUZ-5");
         assert_eq!(d.app.ui.menu, Menu::Closed, "NAV-9");
@@ -830,12 +854,17 @@ fn the_new_game_panel_on_a_complete_game_keeps_the_seed_of_the_next_game() {
     // PUZ-7, DIF-5, NAV-9: the New game panel on a complete game. Start new game uses the next seed at
     // the mode of the slider, and the menu stays open (not a level button).
     let mut d = Driver::from(card_app(complete(170, 2, 60), vec![]));
-    let (seed, _) = d.app.early_game().expect("PUZ-7");
+    let (seed, _, _) = d.app.early_game().expect("PUZ-7");
     d.button(Button::Menu);
     d.button(Button::NewGame);
     d.finger_tap(d.app.ng_stops[5], layout::ng_slider_y() as f32);
     d.finger_tap(layout::ng_panel().x0 as f32 + 100.0, (layout::tb_bottom_y() + 56) as f32);
     assert_eq!((d.app.game.seed, d.app.game.mode, d.app.settings.last_mode), (seed, 5, 5), "PUZ-7, DIF-5");
+    // DIF-5, PUZ-7: Start new game uses the switch (the setting, on), not the symmetry of the complete
+    // game (off).
+    assert!(d.app.game.symmetric && d.app.settings.last_symmetric, "DIF-5: the symmetry of the switch");
+    let p = generate_version(2, seed, 5, true);
+    assert_eq!(d.app.game.solution, p.solution, "PUZ-7, PUZ-5");
     assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-9");
 }
 
@@ -889,5 +918,27 @@ fn the_secondary_gray_is_gray25_and_no_text_is_gray40() {
             (0..=1).all(|dy| (0..=1).all(|dx| rgb_at(&pm, x + dx, y + dy) == gray40)) && !(name.starts_with("color-menu") && line_section(x, y))
         });
         assert_eq!(core, None, "NAV-19: {name}: a group of gray40 pixels");
+    }
+}
+
+#[test]
+fn the_card_shows_no_symmetry_information() {
+    // CMP-9: the card has no switch and shows no symmetry information. The same complete game with
+    // `symmetric` true and false gives the same pixels, in the four layouts, with the menu closed and
+    // open. The game is symmetric, thus the two flags are correct for its starting numbers (PUZ-8).
+    let fonts = fonts();
+    let g = complete_sym(180, 3, true, 300);
+    for (o, rh) in LAYOUTS {
+        let _l = InLayout::set(o, rh);
+        for menu in [Menu::Closed, Menu::Open(None)] {
+            let mut sym = card_app(g.clone(), vec![row(3, 500, 1)]);
+            sym.ui.menu = menu;
+            assert_eq!(sym.game, g, "the app uses the complete game");
+            // The flag changes after the open: the app does not open a file with the wrong flag (PUZ-5).
+            let mut flat = card_app(g.clone(), vec![row(3, 500, 1)]);
+            flat.ui.menu = menu;
+            flat.game.symmetric = false;
+            assert_eq!(differences(&draw_app(&sym, &fonts), &draw_app(&flat, &fonts)), vec![], "CMP-9: {o:?}, right-handed {rh}, {menu:?}");
+        }
     }
 }

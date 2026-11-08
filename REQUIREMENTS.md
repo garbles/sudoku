@@ -792,22 +792,27 @@ x0 + 28.
 - The new game is the same as after **Start new game** ([§11](#11-new-game-panel-and-difficulty)):
   the last mode and the slider get the new mode, the clock starts and the checkpoints are removed.
   The difference: after a level button, **the menu is closed** and no panel is open.
+- The new game of a level button has the **symmetry of the completed game**
+  ([§14.5](#145-puzzle-generation)). This symmetry also becomes the saved setting, the same as the
+  mode. The card has no switch and shows no symmetry information (owner approval 2026-11-07).
 - **Not available:** Easier after an Easy game (mode 0) and Harder after a Hard game (mode 6). Such a
   button has a `gray80` frame, a `gray70` label and no meter. A tap on it has no effect.
 - While the card shows, the app makes the puzzle of **Same** in the background, with the next seed
-  (only Same; owner decision 2026-11-07). It starts **immediately at the completion**: also at a
+  (only Same; owner decision 2026-11-07) and the symmetry of the completed game (owner approval
+  2026-11-07). It starts **immediately at the completion**: also at a
   completion by the reading of the ink at the end of the pause, and when a completed game opens from
   the save. It does not wait for the next input. Easier and Harder use the same next seed with their
-  own mode, and the app makes their puzzle at the tap. The puzzle is the same as a puzzle that the app
+  own mode and the same symmetry, and the app makes their puzzle at the tap. The puzzle is the same as a puzzle that the app
   makes at the time of need ([§14.5](#145-puzzle-generation); review finding 2026-11-07).
 
 **Panels, the menu and the layouts.**
 
 - The menu and the panels continue to operate on a completed game. An open panel can cover a part of
-  the card. Example: in portrait, the New game panel covers Same and Harder for a left-handed player,
-  and the left half of the card for a right-handed player. The owner accepted this (owner decision
-  2026-11-07). When a panel is open, a tap outside the panel only closes the panel, also on the card
-  ([§9](#9-the-menu)).
+  the card. Example: in portrait, the New game panel (three rows, [§11](#11-new-game-panel-and-difficulty))
+  covers the three level buttons (Easier, Same and Harder) for a left-handed player, and the left half
+  of the card for a right-handed player. The owner accepted this (owner decision 2026-11-07; before
+  the Symmetrical row, the panel covered only Same and Harder). When a panel is open, a tap outside
+  the panel only closes the panel, also on the card ([§9](#9-the-menu)).
 - With the menu closed, the card never touches the toolbar, the close button, the menu button or the
   board, in the four layouts (portrait and landscape, left and right hand). In landscape with the menu
   open, the toolbar and the column are at opposite sides (owner selection 2026-11-07).
@@ -1396,46 +1401,77 @@ Images: [`images/new-game-menu.png`](images/new-game-menu.png),
 - The panel opens next to the + button (bottom slot). The + button becomes white on black.
 - The panel is 506 px wide. This is wider than the menus of the device, so that the slider is easy to
   use.
-- The panel has two rows. The first row has the **difficulty slider** ("Easy", seven stops, "Hard").
-  A divider line follows. The second row has **Start new game**, next to the + button.
+- The panel has three rows (owner approval 2026-11-07; before: two rows). From the top:
+  1. The **difficulty slider** ("Easy", seven stops, "Hard").
+  2. **Symmetrical**, with an on/off switch (owner approval 2026-11-07).
+  3. **Start new game**, next to the + button.
+
+  A 2 px black divider is between each two rows.
+- Each row is one toolbar slot high (112 px). The panel top is at the top of the bottom toolbar slot
+  − 226 px (portrait: y 2048 − 226 = 1822; before: 1936). The slider row is from the panel top, 112 px
+  high, with the slider at its center (panel top + 56). The Symmetrical row is the 112 px directly
+  above the bottom toolbar slot: its center is 56 px above the top of the bottom slot. Start new game
+  does not move. The width (506 px) and the x position do not change (owner approval 2026-11-07).
 - The slider has the same size and design as the meter below the board.
+- The label **Symmetrical** is reMarkable Sans Medium 25 px, black, at the same x as the "Easy" label
+  and the "Start new game" text (panel left + 33), with its baseline at the row center + 9. The switch
+  is the same as the switches of the Settings panel ([§9.1](#91-settings-panel)): the same drawing,
+  the same size and the same on and off looks. Its right edge is 33 px from the right edge of the
+  panel, and it is at the vertical center of the row (owner approval 2026-11-07).
+- A tap anywhere on the Symmetrical row changes the switch: on to off, or off to on. The press and the
+  release must be on the row, the same as the other controls of the panels (owner approval
+  2026-11-07).
+- **Symmetrical** means 2-way rotational symmetry (a half turn of the board, 180°): cell (r, c) has a
+  starting number if and only if cell (8 − r, 8 − c) has a starting number
+  ([§14.5](#145-puzzle-generation)).
 - There are **seven modes**, from 0 (Easy) to 6 (Hard). Each mode has a level of solving techniques,
   from singles to chains; a mode with a more difficult level needs more difficult techniques. The
   puzzle generator sets the techniques of each mode ([§14.5](#145-puzzle-generation)).
 - When the panel opens, the slider shows the **last mode that you selected**. At the first start, the
   slider shows **mode 2**.
-- When you move the slider, only the selection changes. The game does not change until you tap
-  **Start new game**.
+- When the panel opens, the switch shows the **symmetry of the last new game** (the saved setting,
+  [§14.2](#142-settings-kept-when-the-app-closes)). At the first start, the switch is **on**. Example:
+  after the player starts a game that is not symmetric, the switch is off the next time that the panel
+  opens (owner approval 2026-11-07).
+- When you move the slider or change the switch, only the selection changes. The game does not change
+  until you tap **Start new game**. If the panel closes without Start new game (tap + again or tap
+  outside), the app does not keep the selection of the slider or of the
+  switch (owner approval 2026-11-07 for the switch).
 - **Start new game** replaces the current puzzle immediately. The app does not ask for a
   confirmation. Then the app:
-  - Makes a new puzzle of the selected mode.
+  - Makes a new puzzle of the selected mode, with the selected symmetry.
   - Closes the New game panel. The menu stays open.
   - Removes the undo and redo history and all checkpoints, and sets the clock to zero.
-  - Keeps the selected mode for the next time.
+  - Keeps the selected mode and the selected symmetry for the next time.
 - The meter below the board shows the mode of the current puzzle. When the puzzle is complete,
   the result card replaces the meter ([§8.3](#83-complete)). You cannot change the meter.
 - On a complete puzzle, the level buttons of the result card (**Easier**, **Same**, **Harder**) also
   start a new game, at the mode − 1, the same mode or the mode + 1. They do the same steps as
-  **Start new game**, but the menu closes ([§8.3](#83-complete); owner approval 2026-11-07).
-- While the New game panel is open, the app makes the puzzle of the next game in the background.
-  While the result card shows, it makes the puzzle of **Same** in the background from the completion
-  ([§8.3](#83-complete)). The puzzle is the same as a puzzle that the app makes at the time of need.
+  **Start new game**, but the menu closes ([§8.3](#83-complete); owner approval 2026-11-07). The new
+  game has the symmetry of the completed game, and this symmetry becomes the saved setting. The card
+  has no switch and shows no symmetry information (owner approval 2026-11-07).
+- While the New game panel is open, the app makes the puzzle of the next game in the background, with
+  the selected mode and the selected symmetry. A change of the slider or of the switch starts the
+  background puzzle again for the new selection (owner approval 2026-11-07 for the symmetry).
+  While the result card shows, it makes the puzzle of **Same** in the background from the completion,
+  with the symmetry of the completed game ([§8.3](#83-complete)). The puzzle is the same as a puzzle
+  that the app makes at the time of need.
 
 ```mermaid
 stateDiagram-v2
     direction LR
-    state "Panel open, slider at the last mode" as Open
-    state "Mode selected" as Sel
+    state "Panel open, slider at the last mode, switch at the last symmetry" as Open
+    state "Mode or symmetry selected" as Sel
     [*] --> Open: tap +
-    Open --> Sel: tap or move to a stop
-    Sel --> Sel: select a different stop
+    Open --> Sel: tap or move to a stop, or tap the Symmetrical row
+    Sel --> Sel: select a different stop, or tap the Symmetrical row
     Open --> Generating: Start new game
     Sel --> Generating: Start new game
     state "New puzzle made (with a seed)" as Generating
     Generating --> [*]: the game shows the new puzzle, menu open, no panel
     state "Result card shows (complete puzzle)" as Card
     Card --> Level: tap Easier, Same or Harder (if available)
-    state "New puzzle made at mode − 1, mode or mode + 1" as Level
+    state "New puzzle made at mode − 1, mode or mode + 1, with the symmetry of the completed game" as Level
     Level --> [*]: the game shows the new puzzle, menu closed, no panel
     Open --> [*]: tap + again or tap outside (no change)
     Sel --> [*]: tap + again or tap outside (selection not kept)
@@ -1462,7 +1498,7 @@ stateDiagram-v2
 | 5 | [`manual-helpers.png`](images/manual-helpers.png) | Automatic pencil mark hiding, highlights and completed groups. A full group with no clash gets the completed color. The color is not a check against the solution. A clash with a cell outside the group stops the color (owner approval 2026-11-04 and 2026-11-05). You can turn each helper off in the Settings panel. One sentence, in portrait and in landscape, tells about the x of a refused tap ([§6.1](#61-automatic-pencil-mark-hiding); owner decision 2026-11-04). The text is exactly: "If you tap the micro-cell of a hidden digit, the tap has no effect and a small x shows there for a moment." |
 | 6 | [`manual-mistakes.png`](images/manual-mistakes.png) | Clashes and how to correct them. |
 | 7 | [`manual-menu.png`](images/manual-menu.png) | All the menu buttons, how to select colors, and the Settings panel: the helpers, the version and the third-party licenses ([§9.4](#94-third-party-licenses)). |
-| 8 | [`manual-new-game.png`](images/manual-new-game.png) | How to start a new game, and the meter of the current difficulty. |
+| 8 | [`manual-new-game.png`](images/manual-new-game.png) | How to start a new game, and the meter of the current difficulty. One short sentence, in portrait and in landscape, tells about the Symmetrical switch, for example: "Symmetrical makes a puzzle whose starting numbers are the same after a half turn of the board." If the page shows the New game panel, the picture shows the panel with three rows (owner decision 2026-11-07). |
 | 9 | [`manual-finished.png`](images/manual-finished.png) | Completion, the lock, the clock and the saved results. A completed game shows no completed color. The crop of the board shows the result card. The text tells that the level buttons of the card (Easier, Same, Harder) start a new game; it does not tell "To start a new game, tap + in the menu" (review finding 2026-11-07). |
 
 ```mermaid
@@ -1589,8 +1625,14 @@ The database has one row for each completed puzzle:
 | `mode` | Difficulty, from 0 (Easy) to 6 (Hard) |
 | `givens` | Quantity of starting numbers |
 | `seconds` | Time that the player used (clock time, [§8.4](#84-the-clock)) |
-| `seed` | Random seed of the puzzle generator. With the seed, the generator can make the same puzzle again. |
+| `seed` | Random seed of the puzzle generator. With the seed (and the mode, the version and the symmetry), the generator can make the same puzzle again. |
 | `generator` | The version of the generator that made the puzzle ([§14.5](#145-puzzle-generation)). The seed gives the same puzzle only with the same version. |
+| `symmetric` | True if the puzzle is symmetric ([§14.5](#145-puzzle-generation)). With `seed`, `mode`, `generator` and `symmetric`, the generator makes the same puzzle again. The rows of a database of an earlier version get false (owner decision 2026-11-07). |
+
+Symmetric and non-symmetric games share the averages and the best times (Statistics
+[§13.1](#131-summary) and the comparison of the result card, [§8.3](#83-complete)): only the mode sets
+the group. The completed games list ([§13.2](#132-completed-games-list)) does not show the symmetry
+and does not filter by it (owner decision 2026-11-07).
 
 The app adds a row when a puzzle is complete. Only the bin in the games list and **Delete all games** on the summary remove rows.
 
@@ -1600,6 +1642,8 @@ The app adds a row when a puzzle is complete. Only the bin in the games list and
 - The gray of the micro-cell lines (default: 90). A settings file of an earlier version does not
   have it: the app uses the default.
 - The last selected difficulty mode (default: mode 2).
+- The last selected symmetry: the symmetry of the last new game (default: on). A settings file of an
+  earlier version does not have it: the app uses on (owner approval 2026-11-07).
 - The three switches of the Settings panel: highlight numbers (default: on), hide pencil marks
   automatically (default: on) and color completed groups (default: on). A settings file of an earlier
   version has the name `auto_remove_on` for the second switch. The app reads it.
@@ -1622,7 +1666,11 @@ for a file that breaks COL-5):
 The app saves the current game continuously. When the app opens again, the game is exactly the same.
 The app keeps:
 
-- The puzzle, its seed, its mode and the version of the generator.
+- The puzzle, its seed, its mode, its symmetry (on or off) and the version of the generator. A game
+  file of an earlier version has no symmetry: the game is not symmetric. A symmetric game is always
+  generator version 2: the app does not use a saved game that is symmetric with version 1 (PER-5).
+  When the app opens a saved game, it makes the puzzle again from the seed, the mode, the symmetry and
+  the version, and compares it with the saved puzzle (PUZ-5; owner approval 2026-11-07).
 - All numbers and pencil marks.
 - All of the undo and redo history, with each Restore ([§9.3](#93-checkpoints-panel)).
 - The checkpoints, each with its numbers, its marks and its clock (owner approval 2026-11-06). A game
@@ -1637,6 +1685,10 @@ after each change, also after each save and each delete of a checkpoint (owner a
 An earlier version cannot read a saved game with the new undo item of a Restore. Thus an update to an
 older version loses that game. A preview build can update to an older stable version (review finding
 2026-11-06; refer to `DECISIONS.md`).
+
+An earlier version does not know the symmetry. For the seed of a symmetric game, it makes a different
+puzzle, thus it discards that saved game after an update to an older version (owner approval
+2026-11-07).
 
 The app does **not** keep temporary UI states. The app always opens again at the game screen, with
 the menu open, the panels closed, no highlight, no "?" and no x. The app does not save the x (owner
@@ -1742,7 +1794,7 @@ solution (owner decision, 2026-10-25):
 
 | Mode | Level: the techniques that the mode adds | Starting numbers |
 |---|---|---|
-| 0 (Easy) | Singles: full house, naked single, hidden single | 44 |
+| 0 (Easy) | Singles: full house, naked single, hidden single | 44 (symmetric: 44 or 45) |
 | 1 | Singles | As few as possible |
 | 2 | Locked candidates: pointing, claiming | As few as possible |
 | 3 | Naked and hidden pairs, triples and quads | As few as possible |
@@ -1757,6 +1809,15 @@ For each attempt, the generator:
 2. Removes starting numbers in a random order. A removal stays only if the solver, with only the
    techniques of the level of the mode, can complete the grid. Thus the puzzle has only one solution.
    Easy stops at 44 starting numbers.
+   A **symmetric** puzzle removes a cell and its partner together, in a random order of the pairs.
+   The partner of cell (r, c) is cell (8 − r, 8 − c). The center cell (4, 4) has no partner: it is
+   removed alone. A removal of a pair stays only if the solver (with only the techniques of the level
+   of the mode) can complete the grid; else the two cells come back. A symmetric Easy puzzle never
+   goes below 44 starting numbers: the generator skips a pair that goes below 44, and continues with
+   the other cells. Thus it has 44 or 45 starting numbers (owner decision 2026-11-07: accept 45).
+   81 − 44 = 37 is odd, thus the center must be removed to get 44; when the solver needs the center,
+   the puzzle stops at 45 (16 of 300 sample seeds gave 45). The other modes remove as many as
+   possible, the same as a puzzle that is not symmetric.
 3. Grades the puzzle with all techniques. If the puzzle does not need the level of the mode, the
    generator makes a new attempt (a maximum of 400 attempts). If no attempt of the 400 needs the
    level of the mode, the generator gives the attempt with the most difficult grade (the first of
@@ -1765,6 +1826,16 @@ For each attempt, the generator:
 
 The generator uses its own random number generator (SplitMix64). Thus a change of a library does not
 change the puzzle of a saved seed. The code is in `src/generator.rs`.
+
+**Symmetry** (owner approval 2026-11-07). A symmetric puzzle has 2-way rotational symmetry (a half
+turn, 180°): cell (r, c) is a starting number if and only if cell (8 − r, 8 − c) is a starting
+number. The symmetry is an input of the generator: the puzzle is a function of the seed, the mode, the
+symmetry and the version. A symmetric puzzle uses a different random sequence from the puzzle of the
+same seed that is not symmetric. A puzzle that is not symmetric does not change: the same seed and
+mode give the same puzzle as before the symmetry option, and the generator version stays 2. Version 1
+has no symmetry. In tests on the computer, the symmetric puzzles of all modes got to the level of
+their mode, and the slowest Hard puzzle took 23 ms. The puzzle of the next game that the app makes in
+the background (`early.rs`) has the seed, the mode and the symmetry as its key.
 
 **Versions.** A change of the generator gives a different puzzle for the same seed. Thus each game and
 each result has the version of the generator. Version 1 (before 2026-10-25) had five modes (0 to 4) and
@@ -1882,7 +1953,8 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Checkpoint row | Small board of 155 px with cells of 17 px, digits Regular 14, mark dots of 2×2 px `gray25`; text Regular 25 `gray25`; button 141×71 px, text Medium 25; bin icon of the games list (§9.3; owner approval 2026-11-06) |
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
 | Difficulty meter | "Easy" to "Hard" across 440 px; 7 stops; the current stop is a knob with a radius of 13 px |
-| Switch (Settings panel) | Track 72×36 px, 3 px border; knob of 28 px; 33 px from the right edge of the panel |
+| New game panel | 506 px wide, three rows of 112 px with 2 px black dividers: the slider, Symmetrical, Start new game. Top at the top of the bottom toolbar slot − 226 px (portrait: y 1822; before: y 1936). Label "Symmetrical" Medium 25 px, black, x at panel left + 33, baseline at the row center + 9; the switch of the Settings panel, 33 px from the right edge (§11; owner approval 2026-11-07) |
+| Switch (Settings panel, New game panel) | Track 72×36 px, 3 px border; knob of 28 px; 33 px from the right edge of the panel |
 | Caution icon (gear) | Circle `#D62D20`, radius 10 px, 3 px white border, white "!"; center 16 px right of and 16 px above the gear center |
 
 The values are in [`scripts/ui-lib.sh`](scripts/ui-lib.sh), in the other scripts that make the images, and in the source code of the app (`src/`).
@@ -1940,7 +2012,7 @@ This table gives all the images in [`images/`](images/) and the sections that te
 | [`color-menu.png`](images/color-menu.png) | [§10](#10-cell-colors-panel) |
 | [`color-menu-landscape.png`](images/color-menu-landscape.png) | [§10](#10-cell-colors-panel) |
 | [`color-menu-right-handed.png`](images/color-menu-right-handed.png) | [§3.1](#31-layout), [§10](#10-cell-colors-panel) |
-| [`new-game-menu.png`](images/new-game-menu.png) | [§11](#11-new-game-panel-and-difficulty) |
+| [`new-game-menu.png`](images/new-game-menu.png) (the three-row panel: slider, Symmetrical, Start new game) | [§11](#11-new-game-panel-and-difficulty) |
 | [`analytics.png`](images/analytics.png) | [§13.1](#131-summary) |
 | [`analytics-games.png`](images/analytics-games.png) | [§13.2](#132-completed-games-list) |
 | [`analytics-delete.png`](images/analytics-delete.png) | [§13.2](#132-completed-games-list) |

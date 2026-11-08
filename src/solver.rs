@@ -831,7 +831,7 @@ mod tests {
         // difficult techniques. Each step must agree with the only solution.
         for seed in 0..60 {
             for mode in 0..5 {
-                let p = generate_version(1, seed, mode);
+                let p = generate_version(1, seed, mode, false);
                 solve_checked(&p.givens, &p.solution);
             }
         }

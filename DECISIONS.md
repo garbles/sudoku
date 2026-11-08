@@ -1013,3 +1013,40 @@ Findings of the review: the prototype started the early Same puzzle only at the 
 start at the completion, also at a completion by the reading of the ink and when a completed game
 opens from the save. The comparison does not use the result of the current game (same seed). The
 text of `manual-finished` "To start a new game, tap + in the menu" must change.
+
+### Owner request: a Symmetrical option for new puzzles, 2026-11-07
+
+Request: "lets add a `symmetrical` option for generating puzzles as most sudoku puzzles are
+symmetrical. it can be toggled on and off with the new game pop up. this value is `true` for new
+installs. when toggled, it should persist between new games. [...] for the result card, do not show
+the option to toggle it and just carry forward whatever was used in the completed game."
+
+The owner examined the prototype on the tablet (`dev/symmetric`, epic remarkable-sudoku-r9s) and
+approved it with no change. The owner examined:
+
+- The New game panel with three rows (slider, Symmetrical, Start new game), top at y 1822 in
+  portrait. At a new install, the switch is on, and Start new game gives starting numbers that are
+  symmetric under a half turn.
+- Switch off, Start new game, then open the panel again: the switch is off.
+- Change the switch, tap outside, then open the panel again: the change is lost.
+- Complete a game and tap Same: the new game has the symmetry of the completed game.
+
+Decisions of the owner (2026-11-07):
+
+- Symmetric means 2-way rotational symmetry (180°). A puzzle that is not symmetric does not change
+  for the same seed and mode, and the generator version stays 2.
+- A symmetric Easy puzzle has 44 or 45 starting numbers. Accepted (16 of 300 sample seeds gave 45,
+  because 81 − 44 is odd and the solver can need the center cell).
+- In portrait with a left-handed player, the taller panel covers all three level buttons of the
+  result card (before: Same and Harder). Accepted.
+- The results table gets the column `symmetric` (old rows: false). Symmetric and non-symmetric games
+  share the averages and the best times. The completed games list does not show or filter the
+  symmetry.
+- The manual page about a new game gets one sentence about the Symmetrical switch.
+- Defaults of old files: a settings file with no symmetry gives on; a game file with no symmetry is
+  not symmetric.
+
+Rejected values: none.
+
+Measured on the computer (prototype): the symmetric puzzles of all modes got to the level of their
+mode, and the slowest Hard puzzle took 23 ms.

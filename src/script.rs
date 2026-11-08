@@ -179,11 +179,11 @@ pub struct Script {
 }
 
 impl Script {
-    /// The app at the start of the script: the puzzle of the script, the settings of a player whose
-    /// last new game had the mode of the puzzle (thus the slider is at that mode, DIF-4), no
-    /// results and a fixed clock.
+    /// The app at the start of the script: the puzzle of the script (not symmetric), the settings of
+    /// a player whose last new game had the mode and the symmetry of the puzzle (thus the slider is
+    /// at that mode and the switch is off, DIF-3), no results and a fixed clock.
     pub fn app(&self, fonts: &Fonts) -> App {
-        let settings = crate::settings::Settings { last_mode: self.mode, ..Default::default() };
+        let settings = crate::settings::Settings { last_mode: self.mode, last_symmetric: false, ..Default::default() };
         let app = App::new(Some(new_game(self.seed, self.mode)), Some(settings), ResultsDb::in_memory(), Box::new(FixedEnv(self.seed)), render::ng_stops(fonts));
         let mut app = app;
         // The real app opens with the menu open (PER-2). The scripts start with the menu closed:

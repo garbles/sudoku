@@ -28,6 +28,9 @@ LEVEL=2
 # Thus the New game panel is wider than 400 px (the width of the device menus).
 DIFF_W=440
 NG_PL=$((1507-DIFF_W-65))   # the left edge of the New game panel (inner margins of 33 px and 32 px)
+# The New game panel has three rows of 112 px, with a black line of 2 px between them: the slider, "Symmetrical" with a
+# switch, and "Start new game" next to the +. Its top is 226 px above the bottom toolbar slot (y 1822).
+NG_TOP=$((TB_BOTTOM_Y-226)); NG_SLIDER_Y=$((NG_TOP+56)); NG_SYM_DIVIDER=$((TB_BOTTOM_Y-114)); NG_SYM_Y=$((TB_BOTTOM_Y-56))
 
 # The palette of the cell colors, in panel order. board-state.py and manual-lib.sh have the same values. The digits
 # of the player are #1E1E1E. Starting digits are black.

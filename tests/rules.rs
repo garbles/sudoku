@@ -659,7 +659,7 @@ fn averages_of_the_summary() {
     // of all modes add up to the total.
     use sudoku::app::average_seconds;
     use sudoku::store::ResultRow;
-    let row = |id, mode, seconds| ResultRow { id, finished_at: id, mode, givens: 30, seconds, seed: 0 };
+    let row = |id, mode, seconds| ResultRow { id, finished_at: id, mode, givens: 30, seconds, seed: 0, symmetric: id % 2 == 0 };
     let rows = [row(1, 0, 100), row(2, 0, 200), row(3, 3, 61)];
     assert_eq!(average_seconds([].iter()), None);
     assert_eq!(average_seconds(rows.iter()), Some(120));
@@ -793,8 +793,10 @@ fn no_automatic_removal_when_it_is_off() {
     let mut d = Driver::new(43);
     let cell = empty_cell(&d.app.game);
     let v = d.app.game.solution[cell.0 as usize][cell.1 as usize];
-    let peer = peers(cell).find(|&p| !d.app.game.is_filled(p)).unwrap();
+    // A peer where the tap adds the mark (MRK-7: no peer of it has the number v).
+    let peer = peers(cell).find(|&p| !d.app.game.is_filled(p) && !peer_has(&d.app.game, p, v)).unwrap();
     d.tap_micro(peer, v);
+    assert_eq!(d.app.game.marks_at(peer), mark_bit(v), "the tap adds the mark");
     open_settings(&mut d);
     let (x, y) = switch_point(Switch::HideMarksAutomatically);
     d.finger_tap(x, y);
@@ -816,7 +818,8 @@ fn no_automatic_removal_when_it_is_off() {
     d.finger_tap(x, y);
     d.button(Button::Settings);
     d.write(cell, v);
-    assert_eq!(d.app.game.marks_at(peer) & mark_bit(v), 0, "MRK-4 when the switch is on");
+    assert_eq!(d.app.game.visible_marks(peer, true) & mark_bit(v), 0, "MRK-4 when the switch is on");
+    assert_eq!(d.app.game.marks_at(peer) & mark_bit(v), mark_bit(v), "MRK-5: the number hides the mark, it does not remove it");
 }
 
 #[test]
@@ -944,7 +947,8 @@ fn a_panel_does_not_open_over_waiting_ink() {
 fn a_pen_touch_is_a_tap_only_if_it_stays_in_one_micro_cell() {
     // INP-2: a movement in the micro-cell is a tap. A movement out of it and back is writing.
     let mut d = Driver::new(53);
-    let cell = empty_cell(&d.app.game);
+    // A cell where a tap adds the mark 5 (MRK-7).
+    let cell = free_cell(&d.app, &[5]);
     let (x, y) = micro_center(cell, 5);
     d.send(Input::PenDown { x, y, tool: Tool::Pen });
     d.send(Input::PenMove { x: x + 10.0, y: y - 10.0 });

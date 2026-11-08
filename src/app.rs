@@ -5,7 +5,7 @@
 //! true. Refer to REQUIREMENTS.md §2, §3, §5, §8 to §13 and INVARIANTS.md.
 
 use crate::game::{Cell, Game, Outcome};
-use crate::generator::{generate, generate_early};
+use crate::generator::{generate_early, generate_with_symmetry, PuzzleKey};
 use crate::layout::{self, Button, CheckpointControl, LevelButton, Rect};
 use crate::recognizer::{self, Stroke};
 use crate::settings::{Color, LineGray, Section, Settings, Switch};
@@ -129,6 +129,9 @@ pub struct GameUi {
     pub refused: Option<(Cell, u8, u64)>,
     pub pending_ink: Option<PendingInk>,
     pub slider: u8,
+    /// The selection of the Symmetrical switch in the New game panel (DIF-8). When the panel is not
+    /// open, it is `settings.last_symmetric`.
+    pub symmetric_sel: bool,
     /// The time of the last delete of a checkpoint, during the guard after it (CKP-8). The app does
     /// not save it. It is None when the Checkpoints panel is not open.
     pub delete_guard: Option<u64>,
@@ -137,15 +140,24 @@ pub struct GameUi {
 impl GameUi {
     /// The game screen with the menu open, no panel, no highlight, no "?", no x and no ink. The game
     /// screen shows in this state when the app opens (PER-2), after "< Back" (NAV-3) and after
-    /// Start new game (NAV-9).
-    fn shown(slider: u8) -> GameUi {
-        GameUi { menu: Menu::Open(None), ..GameUi::closed(slider) }
+    /// Start new game (NAV-9). The selections of the New game panel are the saved values (DIF-3).
+    fn shown(settings: &Settings) -> GameUi {
+        GameUi { menu: Menu::Open(None), ..GameUi::closed(settings) }
     }
 
     /// The state of the game screen when a different screen shows (NAV-5), and after a level button
     /// of the result card (NAV-9): the menu is closed.
-    fn closed(slider: u8) -> GameUi {
-        GameUi { menu: Menu::Closed, highlight: None, question: None, refused: None, pending_ink: None, slider, delete_guard: None }
+    fn closed(settings: &Settings) -> GameUi {
+        GameUi {
+            menu: Menu::Closed,
+            highlight: None,
+            question: None,
+            refused: None,
+            pending_ink: None,
+            slider: settings.last_mode,
+            symmetric_sel: settings.last_symmetric,
+            delete_guard: None,
+        }
     }
 }
 
@@ -267,6 +279,8 @@ enum Target {
     /// A control of the Checkpoints panel.
     Checkpoint(CheckpointControl),
     StartNewGame,
+    /// The Symmetrical row of the New game panel (DIF-8).
+    Symmetric,
     /// A level button of the result card (CMP-10). Only an available button is a target.
     Level(LevelButton),
     Back,
@@ -343,9 +357,9 @@ pub struct App {
     /// New game panel is open or the result card shows, so that the generator can make the puzzle
     /// before Start new game or a level button.
     pub(crate) next_seed: Option<u64>,
-    /// The puzzle `(next_seed, mode)` that the generator makes in the background for the next game
-    /// (PUZ-7, `start_early_game`). None: no puzzle started since the last new game.
-    pub(crate) early_game: Option<(u64, u8)>,
+    /// The puzzle `(next_seed, mode, symmetric)` that the generator makes in the background for the
+    /// next game (PUZ-7, `start_early_game`). None: no puzzle started since the last new game.
+    pub(crate) early_game: Option<PuzzleKey>,
 
     pub game_dirty: bool,
     pub settings_dirty: bool,
@@ -373,14 +387,13 @@ impl App {
         let settings = settings.filter(Settings::is_valid).unwrap_or_default();
         let game = match saved.filter(|g| crate::invariants::check_game(g).is_ok() && is_generated(g)) {
             Some(g) => g,
-            None => new_game(env.new_seed(), settings.last_mode),
+            None => new_game_with_symmetry(env.new_seed(), settings.last_mode, settings.last_symmetric),
         };
         let results = db.all().unwrap_or_default();
-        let slider = settings.last_mode;
         let mut app = App {
             screen: Screen::Game,
             game,
-            ui: GameUi::shown(slider),
+            ui: GameUi::shown(&settings),
             manual_page: 1,
             list: ListUi::start(),
             licenses: LicensesUi::start(),
@@ -635,23 +648,24 @@ impl App {
 
     /// Starts to make the puzzle of the next game in the background (§11, PUZ-7), so that the new
     /// game does not wait for the generator. While the New game panel is open: the mode of the
-    /// slider, when no pen or finger is down (not at each stop of a slider move). Else, on a complete
-    /// game (the result card): the mode of Same, immediately, also at a completion by the read of
-    /// the ink at the end of the pause. The result is the same as at the time of need (PUZ-5).
+    /// slider and the selected symmetry, when no pen or finger is down (not at each stop of a slider
+    /// move). Else, on a complete game (the result card): the mode of Same and the symmetry of the
+    /// game, immediately, also at a completion by the read of the ink at the end of the pause. The
+    /// result is the same as at the time of need (PUZ-5).
     fn start_early_game(&mut self) {
-        let mode = if self.ui.menu.panel() == Some(Panel::NewGame) && self.screen == Screen::Game {
+        let (mode, symmetric) = if self.ui.menu.panel() == Some(Panel::NewGame) && self.screen == Screen::Game {
             if self.pen.is_some() || self.touch.is_some() {
                 return;
             }
-            self.ui.slider
+            (self.ui.slider, self.ui.symmetric_sel)
         } else if self.game.completed {
-            self.game.mode
+            (self.game.mode, self.game.symmetric)
         } else {
             return;
         };
         let seed = *self.next_seed.get_or_insert_with(|| self.env.new_seed());
-        self.early_game = Some((seed, mode));
-        generate_early(seed, mode);
+        self.early_game = Some((seed, mode, symmetric));
+        generate_early(seed, mode, symmetric);
     }
 
     /// A press of the pen (`tool` is Some) or of a finger (`tool` is None).
@@ -768,6 +782,9 @@ impl App {
                     if layout::ng_slider_row().contains(x, y) {
                         self.ui.slider = layout::nearest_stop(&self.ng_stops, x);
                         return Gesture::Slider;
+                    }
+                    if layout::ng_symmetric_row().contains(x, y) {
+                        return Gesture::Control(Target::Symmetric);
                     }
                     if layout::ng_start_row().contains(x, y) {
                         return Gesture::Control(Target::StartNewGame);
@@ -1062,6 +1079,7 @@ impl App {
                 seconds: self.game.seconds(),
                 seed: self.game.seed,
                 generator: self.game.generator,
+                symmetric: self.game.symmetric,
             };
             match self.db.insert(&r) {
                 Ok(_) => self.refresh_results(),
@@ -1166,6 +1184,7 @@ impl App {
             Target::LineGray(g) => layout::line_gray_at(x, y) == Some(g),
             Target::Checkpoint(control) => layout::checkpoint_control_at(x, y, self.game.checkpoints.len()) == Some(control),
             Target::StartNewGame => layout::ng_start_row().contains(x, y),
+            Target::Symmetric => layout::ng_symmetric_row().contains(x, y),
             Target::Level(b) => layout::level_button_at(x, y) == Some(b),
             Target::Switch(s) => layout::settings_at(x, y) == Some(s),
             Target::Update => layout::update_button_area().contains(x, y),
@@ -1217,6 +1236,9 @@ impl App {
             }
             Target::Checkpoint(control) => self.checkpoint_control(control, now),
             Target::StartNewGame => self.start_new_game(),
+            // DIF-8: only the selection changes. The background puzzle starts again for the new
+            // selection at the end of the input (PUZ-7).
+            Target::Symmetric => self.ui.symmetric_sel = !self.ui.symmetric_sel,
             Target::Level(b) => self.level_button(b),
             Target::Back => match self.screen {
                 Screen::GamesList => self.screen = Screen::Statistics,
@@ -1380,7 +1402,9 @@ impl App {
         if self.ui.menu.is_open() {
             self.ui.menu = Menu::Open(None);
         }
-        self.ui.slider = self.settings.last_mode; // DIF-4: the selection is not kept.
+        // DIF-4: the selections are not kept.
+        self.ui.slider = self.settings.last_mode;
+        self.ui.symmetric_sel = self.settings.last_symmetric;
         self.ui.delete_guard = None;
         self.cancel_gestures();
     }
@@ -1399,7 +1423,7 @@ impl App {
     }
 
     fn leave_game(&mut self) {
-        self.ui = GameUi::closed(self.settings.last_mode);
+        self.ui = GameUi::closed(&self.settings);
         self.live_stroke = None;
         self.toolbar_ignored_until = None;
         self.cancel_gestures();
@@ -1452,41 +1476,42 @@ impl App {
 
     /// Start new game (§11). The New game panel closes and the menu stays open (NAV-9).
     pub fn start_new_game(&mut self) {
-        let mode = self.ui.slider;
-        self.start_game_at(mode);
-        self.ui = GameUi::shown(mode);
+        self.start_game_at(self.ui.slider, self.ui.symmetric_sel);
+        self.ui = GameUi::shown(&self.settings);
     }
 
     /// A level button of the result card (§8.3, CMP-10): a new game at `target(b)`, with the menu
-    /// closed and no panel (NAV-9). A button that is not available, or a game that is not complete,
-    /// changes nothing.
+    /// closed and no panel (NAV-9), and the symmetry of the completed game. A button that is not
+    /// available, or a game that is not complete, changes nothing.
     pub fn level_button(&mut self, b: LevelButton) {
         let Some(mode) = b.target(self.game.mode).filter(|_| self.game.completed && self.screen == Screen::Game) else {
             return;
         };
-        self.start_game_at(mode);
-        self.ui = GameUi::closed(mode);
+        self.start_game_at(mode, self.game.symmetric);
+        self.ui = GameUi::closed(&self.settings);
         // NAV-16 guards only the second tap of a double tap on "< Back", with the menu open. A level
         // button is a different action, and it closes the menu: the guard stops.
         self.toolbar_ignored_until = None;
     }
 
-    /// The steps of a new game at `mode` (DIF-5), with the seed of the puzzle that the app made in
-    /// the background, if there is one (PUZ-7). The caller sets the menu.
-    fn start_game_at(&mut self, mode: u8) {
-        eprintln!("sudoku: start new game (mode {mode})");
+    /// The steps of a new game at `mode` and `symmetric` (DIF-5), with the seed of the puzzle that the
+    /// app made in the background, if there is one (PUZ-7). The caller sets the menu.
+    fn start_game_at(&mut self, mode: u8, symmetric: bool) {
+        eprintln!("sudoku: start new game (mode {mode}, symmetric {symmetric})");
         self.settings.last_mode = mode;
+        self.settings.last_symmetric = symmetric;
         self.settings_dirty = true;
         let seed = self.next_seed.take().unwrap_or_else(|| self.env.new_seed());
         self.early_game = None;
-        self.game = new_game(seed, mode);
+        self.game = new_game_with_symmetry(seed, mode, symmetric);
         self.game_dirty = true;
         self.live_stroke = None;
         self.cancel_gestures();
     }
 
-    /// The puzzle `(seed, mode)` that the app makes in the background for the next game (PUZ-7).
-    pub fn early_game(&self) -> Option<(u64, u8)> {
+    /// The puzzle `(seed, mode, symmetric)` that the app makes in the background for the next game
+    /// (PUZ-7).
+    pub fn early_game(&self) -> Option<PuzzleKey> {
         self.early_game
     }
 
@@ -1547,7 +1572,7 @@ impl App {
             g.seconds().hash(&mut h);
         }
         let ui = &self.ui;
-        (ui.menu, ui.highlight, ui.question.map(|q| q.0), ui.refused.map(|(cell, digit, _)| (cell, digit)), ui.slider).hash(&mut h);
+        (ui.menu, ui.highlight, ui.question.map(|q| q.0), ui.refused.map(|(cell, digit, _)| (cell, digit)), ui.slider, ui.symmetric_sel).hash(&mut h);
         let pending = ui.pending_ink.as_ref().map_or(0, |i| i.strokes.len());
         let live = usize::from(self.live_stroke.as_ref().is_some_and(|s| s.len() >= 2));
         (pending + live).hash(&mut h);
@@ -1602,17 +1627,24 @@ impl App {
     }
 }
 
+/// A new game that is not symmetric: the puzzle of `(seed, mode)` with the current version of the
+/// generator.
 pub fn new_game(seed: u64, mode: u8) -> Game {
-    let p = generate(seed, mode);
-    Game::new(seed, mode, p.solution, p.givens)
+    new_game_with_symmetry(seed, mode, false)
 }
 
-/// True if the starting numbers and the solution are the puzzle of `(seed, mode)` with the version of
-/// the generator of the game (PUZ-5). The app examines this only when it opens a saved game, because
-/// the generator is slow for each input. `check_game` first makes sure that the version and the mode
-/// are possible.
+/// A new game: the puzzle of `(seed, mode, symmetric)` with the current version of the generator.
+pub fn new_game_with_symmetry(seed: u64, mode: u8, symmetric: bool) -> Game {
+    let p = generate_with_symmetry(seed, mode, symmetric);
+    Game { symmetric, ..Game::new(seed, mode, p.solution, p.givens) }
+}
+
+/// True if the starting numbers and the solution are the puzzle of `(seed, mode, symmetric)` with the
+/// version of the generator of the game (PUZ-5). The app examines this only when it opens a saved
+/// game, because the generator is slow for each input. `check_game` first makes sure that the
+/// version, the mode and the symmetry are possible (PUZ-8).
 fn is_generated(g: &Game) -> bool {
-    let p = crate::generator::generate_version(g.generator, g.seed, g.mode);
+    let p = crate::generator::generate_version(g.generator, g.seed, g.mode, g.symmetric);
     let given = p.givens.map(|row| row.map(|v| v != 0));
     p.solution == g.solution && given == g.given
 }

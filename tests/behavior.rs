@@ -1054,7 +1054,7 @@ fn the_puzzle_made_while_the_panel_is_open_is_the_puzzle_of_the_seed() {
         let mode = d.app.ui.slider;
         start_new_game(&mut d);
         let g = &d.app.game;
-        let p = sudoku::generator::generate_version(g.generator, g.seed, g.mode);
+        let p = sudoku::generator::generate_version(g.generator, g.seed, g.mode, g.symmetric);
         let given = p.givens.map(|row| row.map(|v| v != 0));
         assert_eq!((g.mode, g.solution, g.given), (mode, p.solution, given), "game {k}");
         assert!(!seeds.contains(&g.seed), "game {k}: a new seed");
@@ -2529,7 +2529,8 @@ fn a_new_game_gets_the_colors_of_its_own_numbers() {
     // COL-10: a new game replaces the colors of the old board, in one action and with empty stacks.
     let fonts = fonts();
     for_each_layout(|layout_case| {
-        let settings = Settings { last_mode: 0, ..Settings::default() };
+        // Not symmetric (DIF-3, DIF-5): row 0 of the puzzle of (323, 0, not symmetric) is full.
+        let settings = Settings { last_mode: 0, last_symmetric: false, ..Settings::default() };
         let app = App::new(None, Some(settings), ResultsDb::in_memory(), Box::new(sudoku::script::FixedEnv(323)), App::placeholder_ng_stops());
         let mut d = Driver::from(app);
         d.app.game = order_board();
@@ -5815,7 +5816,12 @@ fn tap_with(d: &mut Driver, by: Tapper, (x, y): (f32, f32)) {
 /// last number completes the game at the read of the ink at the end of the pause (a tick). The menu
 /// is closed.
 fn completed_with(seed: u64, mode: u8, db: ResultsDb) -> Driver {
-    let game = sudoku::app::new_game(seed, mode);
+    completed_sym(seed, mode, false, db)
+}
+
+/// `completed_with` for the game `new_game_with_symmetry(seed, mode, symmetric)`.
+fn completed_sym(seed: u64, mode: u8, symmetric: bool, db: ResultsDb) -> Driver {
+    let game = sudoku::app::new_game_with_symmetry(seed, mode, symmetric);
     let app = App::new(Some(game), None, db, Box::new(TestEnv { time: START_TIME, seed }), App::placeholder_ng_stops());
     let mut d = Driver::from(app);
     complete_with_the_pen(&mut d);
@@ -5835,14 +5841,21 @@ fn completed_at(seed: u64, mode: u8) -> Driver {
 
 /// The new game after a level button: DIF-5 with `mode`, NAV-9 (the menu closed, no panel), PUZ-5.
 fn assert_level_game(d: &Driver, old_seed: u64, mode: u8, case: &str) {
+    assert_level_game_sym(d, old_seed, mode, false, case);
+}
+
+/// `assert_level_game` for a completed game with the symmetry `symmetric`: CMP-10 and DIF-5 give the
+/// new game that symmetry, and `last_symmetric` becomes that symmetry.
+fn assert_level_game_sym(d: &Driver, old_seed: u64, mode: u8, symmetric: bool, case: &str) {
     let g = &d.app.game;
     assert_eq!((g.mode, d.app.settings.last_mode), (mode, mode), "DIF-5, CMP-10 ({case})");
+    assert_eq!((g.symmetric, d.app.settings.last_symmetric), (symmetric, symmetric), "DIF-5, CMP-10: symmetry ({case})");
     assert_ne!(g.seed, old_seed, "DIF-5: a new seed ({case})");
     assert!(!g.completed && g.elapsed_ms < 1000, "CMP-6, DIF-5 ({case})");
     assert!(g.undo.is_empty() && g.redo.is_empty() && g.checkpoints.is_empty(), "DIF-5 ({case})");
     assert!(cells().all(|c| g.is_given(c) || (!g.is_filled(c) && g.marks_at(c) == 0)), "DIF-5 ({case})");
     assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Closed), "NAV-9, CMP-10 ({case})");
-    let p = sudoku::generator::generate_version(2, g.seed, mode);
+    let p = sudoku::generator::generate_version(2, g.seed, mode, symmetric);
     let given = p.givens.map(|row| row.map(|v| v != 0));
     assert_eq!((g.generator, g.solution, g.given), (2, p.solution, given), "PUZ-5, PUZ-7 ({case})");
 }
@@ -6025,11 +6038,11 @@ fn the_same_puzzle_starts_at_completion_by_the_read_of_the_ink() {
             d.now += 10;
             d.app.tick(d.now);
         }
-        let (seed, mode) = d.app.early_game().expect("PUZ-7: the early game starts at the completing tick");
-        assert_eq!(mode, 3, "PUZ-7: the Same mode");
+        let (seed, mode, symmetric) = d.app.early_game().expect("PUZ-7: the early game starts at the completing tick");
+        assert_eq!((mode, symmetric), (3, false), "PUZ-7: the Same mode and the symmetry of the game");
         assert_ne!(seed, d.app.game.seed, "PUZ-7: the next seed");
         d.wait(2000);
-        assert_eq!(d.app.early_game(), Some((seed, 3)), "PUZ-7");
+        assert_eq!(d.app.early_game(), Some((seed, 3, false)), "PUZ-7");
         let old = d.app.game.seed;
         let (x, y) = documented_level_center(b);
         d.finger_tap(x, y);
@@ -6044,11 +6057,13 @@ fn the_same_puzzle_starts_at_completion_by_the_read_of_the_ink() {
 #[test]
 fn the_same_puzzle_starts_when_a_completed_game_opens_from_the_save() {
     // PUZ-7: a completed game that opens from the save starts the early game at once, before an input.
-    let done = completed_at(621, 4).app.game;
+    // The game is symmetric: the key and the game of Same have its symmetry (PUZ-7, CMP-10).
+    let done = completed_sym(621, 4, true, ResultsDb::in_memory()).app.game;
+    assert!(done.symmetric);
     let mut d = Driver::opened(app_with_game(done.clone(), START_TIME, 77));
     assert!(d.app.game.completed);
-    let (seed, mode) = d.app.early_game().expect("PUZ-7: the early game starts at the open");
-    assert_eq!(mode, 4, "PUZ-7");
+    let (seed, mode, symmetric) = d.app.early_game().expect("PUZ-7: the early game starts at the open");
+    assert_eq!((mode, symmetric), (4, true), "PUZ-7");
     assert_ne!(seed, done.seed);
     // A game that is not complete has no early game at the open (the menu is open, no panel).
     let other = Driver::opened(app_with_game(sudoku::app::new_game(621, 4), START_TIME, 77));
@@ -6057,7 +6072,7 @@ fn the_same_puzzle_starts_when_a_completed_game_opens_from_the_save() {
     d.wait(1000);
     let (x, y) = documented_level_center(layout::LevelButton::Same);
     d.finger_tap(x, y);
-    assert_eq!(d.app.game, sudoku::app::new_game(seed, 4), "PUZ-5, PUZ-7");
+    assert_eq!(d.app.game, sudoku::app::new_game_with_symmetry(seed, 4, true), "PUZ-5, PUZ-7");
     assert_eq!(d.app.ui.menu, Menu::Closed, "NAV-9");
 }
 
@@ -6069,7 +6084,7 @@ fn the_comparison_uses_the_earlier_results_at_the_same_mode() {
     use sudoku::app::Comparison;
     use sudoku::store::NewResult;
     let mut db = ResultsDb::in_memory();
-    let row = |t: i64, mode: u8, seconds: u64, seed: u64| NewResult { finished_at: 1_700_000_000 + t, mode, givens: 30, seconds, seed, generator: 2 };
+    let row = |t: i64, mode: u8, seconds: u64, seed: u64| NewResult { finished_at: 1_700_000_000 + t, mode, givens: 30, seconds, seed, generator: 2, symmetric: seed % 2 == 0 };
     for r in [row(0, 2, 100, 1), row(1, 2, 300, 2), row(2, 2, 500, 3), row(3, 3, 50, 4), row(4, 1, 20, 5)] {
         db.insert(&r).unwrap();
     }
@@ -6103,7 +6118,7 @@ fn the_first_game_at_a_mode_has_no_comparison() {
     use sudoku::app::Comparison;
     use sudoku::store::NewResult;
     let mut db = ResultsDb::in_memory();
-    db.insert(&NewResult { finished_at: 1_700_000_000, mode: 3, givens: 30, seconds: 77, seed: 9, generator: 2 }).unwrap();
+    db.insert(&NewResult { finished_at: 1_700_000_000, mode: 3, givens: 30, seconds: 77, seed: 9, generator: 2, symmetric: true }).unwrap();
     let mut d = completed_with(631, 2, db);
     assert!(d.app.results.iter().any(|r| r.mode == 2 && r.seed == d.app.game.seed), "CMP-5");
     assert_eq!(d.app.card_comparison(), Comparison::First, "CMP-8");
@@ -6112,4 +6127,378 @@ fn the_first_game_at_a_mode_has_no_comparison() {
     d.finger_tap(x, y);
     complete_with_the_pen(&mut d);
     assert_eq!(d.app.card_comparison(), Comparison::Earlier { average: first, best: first }, "CMP-8");
+}
+
+// ---- The Symmetrical switch of the New game panel (R§11, DIF-3 to DIF-5, DIF-8, PUZ-7, PUZ-8, CMP-10,
+// PER-9, ANA-1).
+
+/// A tap on the start row of the New game panel, in all layouts.
+fn tap_start(d: &mut Driver) {
+    d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_start_y() as f32);
+}
+
+/// Opens the menu (if it is closed) and the New game panel.
+fn open_new_game_panel(d: &mut Driver) {
+    if d.app.ui.menu == Menu::Closed {
+        d.button(Button::Menu);
+    }
+    d.button(Button::NewGame);
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::NewGame));
+}
+
+/// PUZ-8: the starting numbers are the same after a half turn of the board.
+fn givens_are_symmetric(g: &sudoku::game::Game) -> bool {
+    cells().all(|(r, c)| g.is_given((r, c)) == g.is_given((8 - r, 8 - c)))
+}
+
+/// The points of the Symmetrical row that the tests tap: the four corners and the center. R§11: the
+/// row is the 112 px directly above the bottom toolbar slot, the full width of the panel.
+fn symmetric_row_points() -> Vec<(f32, f32)> {
+    let (x0, x1) = (layout::ng_pl() as f32, layout::ng_pr() as f32);
+    let (y0, y1) = ((layout::tb_bottom_y() - 112) as f32, (layout::tb_bottom_y() - 1) as f32);
+    vec![(x0 + 1.0, y0 + 0.5), (x1 - 1.0, y0 + 0.5), (x0 + 1.0, y1 + 0.5), (x1 - 1.0, y1 + 0.5), ((x0 + x1) / 2.0, (y0 + y1) / 2.0)]
+}
+
+#[test]
+fn the_new_game_panel_has_the_documented_symmetrical_row() {
+    // R§11: in portrait, the panel top is at 2048 - 226 = 1822, the slider at top + 56, and the
+    // Symmetrical row is y 1936 to 2047 (center 1992), from the panel left (1002).
+    assert_eq!(layout::tb_bottom_y(), 2048);
+    assert_eq!(layout::ng_top(), 1822);
+    assert_eq!(layout::ng_slider_y(), 1822 + 56);
+    assert_eq!(layout::ng_symmetric_y(), 1992);
+    let row = layout::ng_symmetric_row();
+    assert_eq!((row.x0, row.y0, row.y1), (1002, 1936, 2048));
+    assert_eq!(row.x1, layout::ng_pr() + 1);
+    assert_eq!(layout::ng_pr() - layout::ng_pl() + 1, 506, "R§11: the width does not change");
+}
+
+#[test]
+fn a_tap_on_the_symmetrical_row_changes_only_the_selection() {
+    // DIF-8, DIF-4, DIF-3, DIF-9: at the first start the switch is on. A tap anywhere on the row (pen
+    // tip or finger) changes symmetric_sel to its opposite value. The game, last_mode, last_symmetric
+    // and the slider do not change, and the panel stays open. In the four layouts.
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(700);
+        assert!(d.app.settings.last_symmetric && d.app.game.symmetric, "DIF-9 ({layout_case})");
+        assert!(givens_are_symmetric(&d.app.game), "PUZ-8, DIF-9 ({layout_case})");
+        open_new_game_panel(&mut d);
+        assert!(d.app.ui.symmetric_sel, "DIF-3 ({layout_case})");
+        let (game, slider) = (d.app.game.clone(), d.app.ui.slider);
+        let mut want = true;
+        for (k, (x, y)) in symmetric_row_points().into_iter().enumerate() {
+            for pen in [false, true] {
+                let case = format!("{layout_case}, point {k}, pen {pen}");
+                if pen {
+                    d.pen_tap(x, y);
+                } else {
+                    d.finger_tap(x, y);
+                }
+                want = !want;
+                assert_eq!(d.app.ui.symmetric_sel, want, "DIF-8 ({case})");
+                assert_eq!(d.app.ui.menu.panel(), Some(Panel::NewGame), "DIF-8: the panel stays open ({case})");
+                assert_eq!(board(&d.app.game), board(&game), "DIF-4 ({case})");
+                assert_eq!((d.app.settings.last_mode, d.app.settings.last_symmetric, d.app.ui.slider), (2, true, slider), "DIF-4 ({case})");
+            }
+        }
+    });
+}
+
+#[test]
+fn a_press_on_the_symmetrical_row_and_a_release_out_of_it_changes_nothing() {
+    // DIF-8: a press on the row and a release on a different place (the slider row, the start row, the
+    // bottom divider, the board) changes nothing, with the pen and a finger. A press on the slider row
+    // or the start row and a release on the Symmetrical row changes nothing also.
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(701);
+        open_new_game_panel(&mut d);
+        let game = d.app.game.clone();
+        let (x, y) = (layout::ng_tx() as f32 + 20.0, layout::ng_symmetric_y() as f32);
+        let (bx, by) = layout::cell_origin((4, 4));
+        let others = [
+            (x, layout::ng_slider_y() as f32 - 40.0),
+            (x, layout::ng_start_y() as f32),
+            (bx as f32 + 73.0, by as f32 + 73.0),
+            (x, (layout::tb_bottom_y() + 1) as f32),
+        ];
+        for to in others {
+            for pen in [false, true] {
+                let case = format!("{layout_case}, {to:?}, pen {pen}");
+                // A press on the board closes the panel (NAV-11): only the press on the row for it.
+                let board_point = to == others[2];
+                let moves: &[((f32, f32), (f32, f32))] = if board_point { &[((x, y), to)] } else { &[((x, y), to), (to, (x, y))] };
+                for &(from, at) in moves {
+                    if pen {
+                        d.send(Input::PenDown { x: from.0, y: from.1, tool: Tool::Pen });
+                        d.send(Input::PenMove { x: at.0, y: at.1 });
+                        d.send(Input::PenUp { x: at.0, y: at.1 });
+                    } else {
+                        d.send(Input::TouchDown { id: 1, x: from.0, y: from.1 });
+                        d.send(Input::TouchMove { id: 1, x: at.0, y: at.1 });
+                        d.send(Input::TouchUp { id: 1, x: at.0, y: at.1 });
+                    }
+                    d.wait(d.app.pause_ms + 50);
+                    assert!(d.app.ui.symmetric_sel, "DIF-8 ({case}, from {from:?})");
+                    assert_eq!(d.app.ui.menu.panel(), Some(Panel::NewGame), "{case}, from {from:?}");
+                    assert_eq!(board(&d.app.game), board(&game), "{case}, from {from:?}");
+                }
+            }
+        }
+        // A tap after this still operates.
+        d.finger_tap(x, y);
+        assert!(!d.app.ui.symmetric_sel, "DIF-8 ({layout_case})");
+    });
+}
+
+#[test]
+fn the_selection_is_lost_when_the_panel_closes() {
+    // DIF-4, DIF-8, DIF-3: the panel closes with a tap on + , a tap out of the panel (the board) or
+    // an other panel (Colors, Settings). The selection is lost: the panel opens again with
+    // last_symmetric, and last_symmetric and the game do not change.
+    for_each_layout(|layout_case| {
+        for last in [true, false] {
+            let settings = Settings { last_symmetric: last, ..Settings::default() };
+            let app = App::new(None, Some(settings), ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed: 702 }), App::placeholder_ng_stops());
+            let mut d = Driver::from(app);
+            assert_eq!(d.app.game.symmetric, last, "DIF-5: the first game has last_symmetric ({layout_case})");
+            let game = d.app.game.clone();
+            let (bx, by) = layout::cell_origin((4, 4));
+            for close in ["+", "board", "colors", "settings"] {
+                let case = format!("{layout_case}, last {last}, close by {close}");
+                open_new_game_panel(&mut d);
+                assert_eq!(d.app.ui.symmetric_sel, last, "DIF-3 ({case})");
+                d.finger_tap(layout::ng_tx() as f32, layout::ng_symmetric_y() as f32);
+                assert_eq!(d.app.ui.symmetric_sel, !last, "DIF-8 ({case})");
+                match close {
+                    "+" => d.button(Button::NewGame),
+                    "board" => d.finger_tap(bx as f32 + 73.0, by as f32 + 73.0),
+                    "colors" => d.button(Button::Colors),
+                    _ => d.button(Button::Settings),
+                }
+                assert_ne!(d.app.ui.menu.panel(), Some(Panel::NewGame), "{case}");
+                assert_eq!(d.app.ui.symmetric_sel, last, "DIF-4, DIF-8: the selection is lost ({case})");
+                assert_eq!(d.app.settings.last_symmetric, last, "DIF-4 ({case})");
+                assert_eq!(board(&d.app.game), board(&game), "DIF-4 ({case})");
+                if d.app.ui.menu.panel().is_some() {
+                    d.button(Button::Menu);
+                }
+                open_new_game_panel(&mut d);
+                assert_eq!(d.app.ui.symmetric_sel, last, "DIF-3: the panel opens with last_symmetric ({case})");
+                d.button(Button::NewGame);
+                if d.app.ui.menu != Menu::Closed {
+                    d.button(Button::Menu);
+                }
+            }
+        }
+    });
+}
+
+#[test]
+fn start_new_game_keeps_the_selected_symmetry() {
+    // DIF-5, DIF-3, PUZ-5, PUZ-8: Start new game makes the puzzle of (next_seed, slider, symmetric_sel)
+    // and keeps the two values. The panel opens again with them. Both directions of the switch, with
+    // a slider change, in the four layouts.
+    for_each_layout(|layout_case| {
+        let mut d = Driver::new(703);
+        let stops = d.app.ng_stops;
+        for (k, (stop, sym)) in [(4usize, false), (0, true), (6, false), (1, false), (3, true)].into_iter().enumerate() {
+            let case = format!("{layout_case}, game {k}");
+            open_new_game_panel(&mut d);
+            if d.app.ui.symmetric_sel != sym {
+                d.pen_tap(layout::ng_tx() as f32 + 100.0, layout::ng_symmetric_y() as f32);
+            }
+            d.finger_tap(stops[stop], layout::ng_slider_y() as f32);
+            assert_eq!((d.app.ui.slider, d.app.ui.symmetric_sel), (stop as u8, sym), "{case}");
+            let old = d.app.game.seed;
+            tap_start(&mut d);
+            let g = &d.app.game;
+            assert_ne!(g.seed, old, "DIF-5 ({case})");
+            assert_eq!((g.mode, g.symmetric, g.generator), (stop as u8, sym, 2), "DIF-5, PUZ-8 ({case})");
+            assert_eq!((d.app.settings.last_mode, d.app.settings.last_symmetric), (stop as u8, sym), "DIF-5 ({case})");
+            assert_eq!(*g, sudoku::app::new_game_with_symmetry(g.seed, stop as u8, sym), "PUZ-5 ({case})");
+            if sym {
+                assert!(givens_are_symmetric(g), "PUZ-8 ({case})");
+            }
+            if sym && stop == 0 {
+                assert!((44..=45).contains(&g.givens_count()), "PUZ-9 ({case})");
+            }
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-9 ({case})");
+            d.button(Button::NewGame);
+            assert_eq!((d.app.ui.slider, d.app.ui.symmetric_sel), (stop as u8, sym), "DIF-3 ({case})");
+            d.button(Button::NewGame);
+        }
+    });
+}
+
+#[test]
+fn the_background_puzzle_of_the_panel_follows_the_switch() {
+    // PUZ-7, DIF-8: while the panel is open, the key of the background puzzle is (next_seed, slider,
+    // symmetric_sel). A change of the switch starts it again for the new key. Start new game gives the
+    // game of that key, the same as the generator makes at the time of need (PUZ-5).
+    let mut d = Driver::new(704);
+    let stops = d.app.ng_stops;
+    open_new_game_panel(&mut d);
+    let (seed, mode, sym) = d.app.early_game().expect("PUZ-7: the panel starts the background puzzle");
+    assert_eq!((mode, sym), (2, true), "PUZ-7");
+    let (x, y) = (layout::ng_tx() as f32, layout::ng_symmetric_y() as f32);
+    d.finger_tap(x, y);
+    assert_eq!(d.app.early_game(), Some((seed, 2, false)), "PUZ-7: a switch change starts it again");
+    d.finger_tap(stops[5], layout::ng_slider_y() as f32);
+    assert_eq!(d.app.early_game(), Some((seed, 5, false)), "PUZ-7");
+    d.finger_tap(x, y);
+    assert_eq!(d.app.early_game(), Some((seed, 5, true)), "PUZ-7");
+    d.finger_tap(x, y);
+    d.wait(2000);
+    assert_eq!(d.app.early_game(), Some((seed, 5, false)), "PUZ-7");
+    tap_start(&mut d);
+    assert_eq!(d.app.game.seed, seed, "PUZ-7: Start new game uses next_seed");
+    let p = sudoku::generator::generate_version(2, seed, 5, false);
+    assert_eq!((d.app.game.solution, d.app.game.given), (p.solution, p.givens.map(|r| r.map(|v| v != 0))), "PUZ-5, PUZ-7");
+    assert!(!d.app.game.symmetric);
+    // The non-symmetric puzzle of a seed is not its symmetric puzzle (R§14.5: a different sequence).
+    assert_ne!(sudoku::generator::generate_version(2, seed, 5, true).givens, p.givens, "R§14.5");
+}
+
+#[test]
+fn a_level_button_keeps_the_symmetry_of_the_completed_game() {
+    // CMP-10, DIF-5, PUZ-7, CMP-9: Easier, Same and Harder start the new game with the symmetry of the
+    // completed game, also when last_symmetric is different. That symmetry becomes last_symmetric, and
+    // the panel opens with it (DIF-3). The background puzzle of the card has the symmetry of the game.
+    use layout::LevelButton::{Easier, Harder, Same};
+    for_each_layout(|layout_case| {
+        for (k, (b, sym)) in [(Same, true), (Easier, true), (Harder, true), (Same, false), (Harder, false)].into_iter().enumerate() {
+            let case = format!("{layout_case}, {b:?}, symmetric {sym}");
+            let seed = 710 + k as u64;
+            let game = sudoku::app::new_game_with_symmetry(seed, 3, sym);
+            // last_symmetric is the opposite of the symmetry of the completed game.
+            let settings = Settings { last_mode: 3, last_symmetric: !sym, ..Settings::default() };
+            let app = App::new(Some(game), Some(settings), ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed }), App::placeholder_ng_stops());
+            let mut d = Driver::from(app);
+            complete_with_the_pen(&mut d);
+            assert_eq!(d.app.settings.last_symmetric, !sym, "the completion does not change it ({case})");
+            assert_eq!(d.app.results.iter().find(|r| r.seed == seed).map(|r| r.symmetric), Some(sym), "CMP-5 ({case})");
+            let (next, mode, key_sym) = d.app.early_game().expect("PUZ-7");
+            assert_eq!((mode, key_sym), (3, sym), "PUZ-7 ({case})");
+            let old = d.app.game.seed;
+            tap_with(&mut d, Tapper::Finger, documented_level_center(b));
+            let target = b.target(3).unwrap();
+            assert_eq!(d.app.game.seed, next, "PUZ-7 ({case})");
+            assert_level_game_sym(&d, old, target, sym, &case);
+            assert_eq!(d.app.game, sudoku::app::new_game_with_symmetry(next, target, sym), "PUZ-5, PUZ-7 ({case})");
+            if sym {
+                assert!(givens_are_symmetric(&d.app.game), "PUZ-8 ({case})");
+            }
+            open_new_game_panel(&mut d);
+            assert_eq!((d.app.ui.slider, d.app.ui.symmetric_sel), (target, sym), "DIF-3 ({case})");
+        }
+    });
+}
+
+#[test]
+fn the_files_of_an_earlier_version_get_the_documented_symmetry() {
+    // PER-9, PER-3, PER-1, PER-5, PUZ-8: a settings file with no symmetry gets last_symmetric = true. A
+    // game file with no symmetry is not symmetric, and the app keeps it. A saved symmetric game stays
+    // symmetric. The app does not use a game whose symmetry does not agree with its puzzle, or a
+    // symmetric game of version 1. Each start gives the same result.
+    use sudoku::game::Game;
+    let dir = std::env::temp_dir().join(format!("sudoku-symmetry-files-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let (gp, sp) = (dir.join("game.json"), dir.join("settings.json"));
+    let start = || App::new(sudoku::store::load_json(&gp), sudoku::store::load_json(&sp), ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 720 }), App::placeholder_ng_stops());
+    // Settings of an earlier version: on. A settings file with false keeps false (PER-3).
+    std::fs::write(&sp, r#"{"color_starting":"Gray","color_clash":"Red","color_highlight":"Cyan","color_completed":"Green","last_mode":4}"#).unwrap();
+    for _ in 0..2 {
+        assert!(start().settings.last_symmetric, "PER-9");
+    }
+    let off = Settings { last_symmetric: false, ..Settings::default() };
+    sudoku::store::save_json(&sp, &off).unwrap();
+    assert!(!start().settings.last_symmetric, "PER-3");
+    // A game file of an earlier version: not symmetric. The app keeps the game (PUZ-5).
+    let old_game = sudoku::app::new_game(721, 3);
+    let json = serde_json::to_string(&old_game).unwrap().replace(r#""symmetric":false,"#, "");
+    assert!(!json.contains("symmetric"));
+    std::fs::write(&gp, &json).unwrap();
+    for _ in 0..2 {
+        let app = start();
+        assert_eq!(app.game, old_game, "PER-9: the game of an earlier version is not symmetric");
+        assert!(!app.game.symmetric);
+    }
+    // A symmetric game keeps its symmetry (PER-1).
+    let sym_game = sudoku::app::new_game_with_symmetry(722, 3, true);
+    sudoku::store::save_json(&gp, &sym_game).unwrap();
+    assert_eq!(start().game, sym_game, "PER-1");
+    // The symmetric puzzle with symmetric = false, and the non-symmetric puzzle with symmetric = true:
+    // not the puzzle of the generator, thus the app makes a new game (PUZ-5, PER-5).
+    for wrong in [Game { symmetric: false, ..sym_game.clone() }, Game { symmetric: true, ..old_game.clone() }] {
+        sudoku::store::save_json(&gp, &wrong).unwrap();
+        let app = start();
+        assert_ne!(app.game.seed, wrong.seed, "PER-5, PUZ-5 (symmetric {})", wrong.symmetric);
+        assert_eq!(app.game.symmetric, false, "DIF-5: the new game has last_symmetric");
+    }
+    // A symmetric game of version 1 (the puzzle of version 1 of this seed): the app does not use it.
+    let p1 = sudoku::generator::generate_version(1, 723, 2, false);
+    let v1 = Game { generator: 1, ..Game::new(723, 2, p1.solution, p1.givens) };
+    sudoku::store::save_json(&gp, &v1).unwrap();
+    assert_eq!(start().game, v1, "PUZ-5: the app keeps a game of version 1");
+    sudoku::store::save_json(&gp, &Game { symmetric: true, ..v1.clone() }).unwrap();
+    assert_ne!(start().game.seed, 723, "PUZ-8, PER-5: symmetric with version 1");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_results_keep_the_symmetry_and_an_earlier_database_gets_false() {
+    // ANA-1, PER-9, CMP-5, ANA-4: a results file of version 2 (no symmetric column) opens with all rows
+    // not symmetric, with the same ids and values. A new result keeps its symmetry, also after the app
+    // opens the file again. The averages do not use the symmetry.
+    let dir = std::env::temp_dir().join(format!("sudoku-symmetry-db-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(sudoku::store::RESULTS_FILE);
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE results (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                finished_at INTEGER NOT NULL,
+                mode        INTEGER NOT NULL CHECK (mode BETWEEN 0 AND 6),
+                givens      INTEGER NOT NULL CHECK (givens BETWEEN 0 AND 81),
+                seconds     INTEGER NOT NULL CHECK (seconds >= 0),
+                seed        INTEGER NOT NULL,
+                generator   INTEGER NOT NULL CHECK (generator >= 1)
+            );
+            INSERT INTO results VALUES (4, 100, 2, 30, 200, 41, 2), (9, 200, 6, 24, 900, 42, 2), (12, 300, 2, 30, 400, 43, 1);
+            PRAGMA user_version = 2;",
+        )
+        .unwrap();
+    }
+    let mut db = ResultsDb::open(&path).unwrap();
+    let rows: Vec<(i64, u8, u64, u64, bool)> = db.all().unwrap().iter().map(|r| (r.id, r.mode, r.seconds, r.seed, r.symmetric)).collect();
+    assert_eq!(rows.len(), 3, "ANA-1: the app uses all rows");
+    for want in [(4, 2, 200, 41, false), (9, 6, 900, 42, false), (12, 2, 400, 43, false)] {
+        assert!(rows.contains(&want), "ANA-1, PER-9: {want:?} in {rows:?}");
+    }
+    let new = db
+        .insert(&sudoku::store::NewResult { finished_at: 400, mode: 2, givens: 30, seconds: 600, seed: 44, generator: 2, symmetric: true })
+        .unwrap();
+    assert!(new.symmetric && new.id > 12, "CMP-5");
+    drop(db);
+    for _ in 0..2 {
+        let db = ResultsDb::open(&path).unwrap();
+        let all = db.all().unwrap();
+        assert_eq!(all.len(), 4, "the migration is done one time");
+        assert_eq!(all.iter().filter(|r| r.symmetric).map(|r| r.seed).collect::<Vec<_>>(), [44], "ANA-1, PER-9");
+        // ANA-4: the mode alone sets the group (200, 400 and 600 s at mode 2).
+        assert_eq!(sudoku::app::average_seconds(all.iter().filter(|r| r.mode == 2)), Some(400), "ANA-4");
+    }
+    // The completion of a symmetric game in the app writes true (CMP-5).
+    let game = sudoku::app::new_game_with_symmetry(724, 1, true);
+    let app = App::new(Some(game), None, ResultsDb::open(&path).unwrap(), Box::new(TestEnv { time: START_TIME, seed: 724 }), App::placeholder_ng_stops());
+    let mut d = Driver::from(app);
+    complete_with_the_pen(&mut d);
+    let row = d.app.results.iter().find(|r| r.seed == 724).expect("CMP-5");
+    assert!(row.symmetric, "CMP-5");
+    drop(d);
+    let again = ResultsDb::open(&path).unwrap().all().unwrap();
+    assert_eq!(again.iter().filter(|r| r.symmetric).count(), 2, "CMP-5: the row is in the file");
+    std::fs::remove_dir_all(&dir).ok();
 }

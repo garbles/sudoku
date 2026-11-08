@@ -1937,3 +1937,137 @@ fn the_frame_of_the_result_card_is_at_the_exact_pixels_of_each_image() {
         assert_eq!((card.x0, card.y0, card.x1 - card.x0, card.y1 - card.y0), (x0, 148, 322, 1323), "right-handed {right_handed}: {card:?}");
     }
 }
+
+/// The box of the switch of the New game panel (render.rs `switch`): the track is 72 px wide and
+/// 36 px high, with a 3 px line. The box has a margin of 3 px for the line and the antialiasing.
+fn ng_switch_box() -> (i32, i32, i32, i32) {
+    let (x1, cy) = (sudoku::layout::ng_pr() - 33, sudoku::layout::ng_symmetric_y());
+    (x1 - 72 - 3, cy - 21, x1 + 3, cy + 21)
+}
+
+/// The pixels of the box `(x0, y0, x1, y1)` (the two limits are in the box).
+fn crop(pm: &tiny_skia::Pixmap, (x0, y0, x1, y1): (i32, i32, i32, i32)) -> Vec<[u8; 3]> {
+    (y0..=y1).flat_map(|y| (x0..=x1).map(move |x| (x, y))).map(|(x, y)| rgb_at(pm, x, y)).collect()
+}
+
+#[test]
+fn the_new_game_image_shows_the_symmetrical_switch_on() {
+    // DIF-3, DIF-8, DIF-9, PER-9: new-game-menu.png is the panel of a new install. The saved symmetry
+    // is on, thus the switch shows on: a black track with a white knob at the right.
+    let fonts = fonts();
+    let mut app = reference::app(&fonts);
+    reference_setup("new-game-menu.png")(&mut app);
+    assert!(app.settings.last_symmetric, "the reference app does not have the default symmetry (on)");
+    assert!(app.ui.symmetric_sel, "the reference state does not select Symmetrical");
+    let (x1, cy) = (sudoku::layout::ng_pr() - 33, sudoku::layout::ng_symmetric_y());
+    // The track is from x1 - 72 to x1. The knob (radius 14) is 18 px from the right end (on) or from
+    // the left end (off). The middle of the track is out of the knob: black when on, white when off.
+    let look = |pm: &tiny_skia::Pixmap| [x1 - 72 + 18, x1 - 36, x1 - 18].map(|x| rgb_at(pm, x, cy));
+    let (on, off) = ([[0; 3], [0; 3], [255; 3]], [[0; 3], [255; 3], [255; 3]]);
+    let pm = draw_app(&fonts, &app);
+    assert_eq!(look(&pm), on, "the switch of the reference state is not on");
+    let want = decode_png(&std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("images/new-game-menu.png")).unwrap());
+    assert_eq!(look(&want), on, "the switch of images/new-game-menu.png is not on");
+    app.ui.symmetric_sel = false;
+    assert_eq!(look(&draw_app(&fonts, &app)), off, "the switch does not show off when the selection is off");
+}
+
+#[test]
+fn the_new_game_panel_has_three_rows_and_the_settings_switch_in_each_layout() {
+    // R§11, R§15, DIF-8: the panel has the slider row, the Symmetrical row and the Start new game row,
+    // each 112 px high, with a 2 px black divider between each two rows. The top is 226 px above the
+    // bottom toolbar slot. The switch has the same pixels as a switch of the Settings panel, in its
+    // on and off looks. The switch selection changes only the pixels of the switch.
+    use sudoku::app::{Menu, Panel};
+    use sudoku::layout::{ng_pl, ng_pr, ng_symmetric_y, ng_top, tb_bottom_y, TB_SLOT};
+    use sudoku::settings::Switch;
+    let fonts = fonts();
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let at = format!("{layout:?}");
+        assert_eq!(ng_top(), tb_bottom_y() - 226, "{at}: the top of the panel");
+        assert_eq!(ng_symmetric_y(), tb_bottom_y() - 56, "{at}: the center of the Symmetrical row");
+        let mut app = reference::app(&fonts);
+        app.game = reference::sample_game();
+        app.ui.menu = Menu::Open(Some(Panel::NewGame));
+        let on = draw_app(&fonts, &app);
+        app.ui.symmetric_sel = false;
+        let off = draw_app(&fonts, &app);
+        let (pl, pr) = (ng_pl(), ng_pr());
+        // The frame line at the top, and the two dividers: at the bottom of the slider row and at the
+        // bottom of the Symmetrical row. Between them, the inner pixels at the right side are white.
+        let mid = (pl + pr) / 2;
+        let dividers = [ng_top(), ng_top() + 1, ng_top() + TB_SLOT, ng_top() + TB_SLOT + 1, tb_bottom_y(), tb_bottom_y() + 1];
+        for y in dividers {
+            assert_eq!(rgb_at(&on, mid, y), [0; 3], "{at}: no black line at ({mid}, {y})");
+        }
+        for y in [ng_top() + TB_SLOT - 1, ng_top() + TB_SLOT + 2, tb_bottom_y() - 1, tb_bottom_y() + 2] {
+            assert_eq!(rgb_at(&on, pr - 10, y), [255; 3], "{at}: the line at ({}, {y}) is too thick", pr - 10);
+        }
+        // The label "Symmetrical" is in the Symmetrical row, from the left text margin.
+        let cy = ng_symmetric_y();
+        let label = (pl + 33..pl + 33 + 160).flat_map(|x| (cy - 12..=cy + 9).map(move |y| (x, y)));
+        assert!(label.clone().any(|(x, y)| rgb_at(&on, x, y)[0] < 60), "{at}: no label in the Symmetrical row");
+        assert!((cy - 12..=cy + 9).all(|y| rgb_at(&on, pl + 31, y) == [255; 3]), "{at}: the label starts left of its margin");
+        // Only the switch changes with the selection.
+        let b = ng_switch_box();
+        let changed = changed_pixels(&on, &off);
+        assert!(!changed.is_empty(), "{at}: the selection does not change the switch");
+        for (x, y) in changed {
+            assert!((b.0..=b.2).contains(&x) && (b.1..=b.3).contains(&y), "{at}: the selection changes ({x}, {y})");
+        }
+        // The switch of the Settings panel in the same look, at the same distance from the right side.
+        let mut settings = reference::app(&fonts);
+        settings.game = reference::sample_game();
+        settings.ui.menu = Menu::Open(Some(Panel::Settings));
+        let s = Switch::ALL[0];
+        let r = sudoku::layout::settings_row(s.row());
+        let sb = |x1: i32, cy: i32| (x1 - 75, cy - 21, x1 + 3, cy + 21);
+        let sbox = sb(sudoku::layout::settings_pr() - 33, r.y0 + 56);
+        for (pm, look) in [(&on, true), (&off, false)] {
+            if settings.settings.is_on(s) != look {
+                settings.settings.toggle(s);
+            }
+            let want = crop(&draw_app(&fonts, &settings), sbox);
+            assert!(crop(pm, b) == want, "{at}: the switch (on: {look}) is not the switch of the Settings panel");
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn a_retained_frame_follows_each_change_of_the_symmetrical_switch() {
+    // DIF-3, DIF-4, DIF-8: the switch changes, the slider changes and the panel closes and opens. Each
+    // retained frame must be the same as a full drawing, in each layout.
+    use sudoku::app::{Menu, Panel};
+    use sudoku::render::{draw, Canvas, FrameRecord};
+    use tiny_skia::Pixmap;
+    let fonts = fonts();
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let (w, h) = (sudoku::layout::screen_w(), sudoku::layout::screen_h());
+        let mut pm = Pixmap::new(w, h).unwrap();
+        let mut record = FrameRecord::default();
+        let mut app = reference::app(&fonts);
+        app.game = reference::sample_game();
+        let steps: [(Menu, u8, bool); 7] = [
+            (Menu::Open(Some(Panel::NewGame)), 2, true),
+            (Menu::Open(Some(Panel::NewGame)), 2, false),
+            (Menu::Open(Some(Panel::NewGame)), 5, false),
+            (Menu::Open(Some(Panel::NewGame)), 5, true),
+            (Menu::Open(None), 5, true),
+            (Menu::Open(Some(Panel::NewGame)), 0, false),
+            (Menu::Closed, 0, false),
+        ];
+        for (i, (menu, slider, symmetric)) in steps.into_iter().enumerate() {
+            app.ui.menu = menu;
+            app.ui.slider = slider;
+            app.ui.symmetric_sel = symmetric;
+            draw(&mut Canvas::retained(&mut pm, &mut record, &fonts), &app);
+            let mut full = Pixmap::new(w, h).unwrap();
+            draw(&mut Canvas::new(&mut full, &fonts), &app);
+            assert!(pm.data() == full.data(), "{layout:?}, step {i}: the retained frame is not the same as a full drawing");
+        }
+    }
+    reset_layout();
+}

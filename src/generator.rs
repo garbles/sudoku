@@ -1,6 +1,7 @@
 //! The puzzle generator (REQUIREMENTS.md §14.5).
 //!
-//! `generate(seed, mode)` always gives the same puzzle for the same pair (INVARIANTS.md PUZ-5). The
+//! `generate_with_symmetry(seed, mode, symmetric)` always gives the same puzzle for the same values
+//! (INVARIANTS.md PUZ-5). `generate(seed, mode)` is the puzzle that is not symmetric. The
 //! generator uses its own random number generator, so that a change of a library does not change the
 //! puzzles of the saved seeds. Each puzzle has only one solution (PUZ-2).
 //!
@@ -8,6 +9,10 @@
 //! difficult technique level, and the puzzle needs a technique of that level (PUZ-6). Version 1 used
 //! only a quantity of starting numbers. The app keeps version 1 only to examine the games that it saved
 //! before version 2 (PUZ-5).
+//!
+//! A symmetric puzzle has 2-way rotational symmetry: cell (r, c) is a starting number if and only if
+//! cell (8 - r, 8 - c) is a starting number (PUZ-8). Only version 2 has the symmetry. A puzzle that is
+//! not symmetric is the same as before the symmetry option.
 
 use crate::game::{cells, Cell};
 use crate::solver::{self, Level};
@@ -15,6 +20,8 @@ use crate::solver::{self, Level};
 pub const MODES: u8 = 7;
 /// The mode of the first game (DIF-2).
 pub const FIRST_MODE: u8 = 2;
+/// The symmetry of the first game, and of a settings file with no symmetry (DIF-9, PER-9).
+pub const FIRST_SYMMETRIC: bool = true;
 
 /// The version of the generator. A different version gives a different puzzle for the same seed.
 pub const VERSION: u8 = 2;
@@ -89,45 +96,61 @@ impl Puzzle {
     }
 }
 
-/// The puzzle of `(seed, mode)` with the current version of the generator. If `generate_early`
-/// started the same puzzle, this gives its result (it waits for the end of that calculation).
+/// The puzzle of `(seed, mode)` that is not symmetric, with the current version of the generator. It
+/// is the same puzzle as before the symmetry option (PUZ-5).
 pub fn generate(seed: u64, mode: u8) -> Puzzle {
-    EARLY.get(&(seed, mode), || generate_version(VERSION, seed, mode))
+    generate_with_symmetry(seed, mode, false)
 }
+
+/// The puzzle of `(seed, mode, symmetric)` with the current version of the generator. If
+/// `generate_early` started the same puzzle, this gives its result (it waits for the end of that
+/// calculation).
+pub fn generate_with_symmetry(seed: u64, mode: u8, symmetric: bool) -> Puzzle {
+    EARLY.get(&(seed, mode, symmetric), || generate_v2(seed, mode, symmetric))
+}
+
+/// The key of a puzzle of the current version: the seed, the mode and the symmetry (PUZ-5, PUZ-7).
+pub type PuzzleKey = (u64, u8, bool);
 
 /// The puzzle of the next new game, made while the New game panel is open or the result card shows
 /// (PUZ-5, PUZ-7: the same puzzle).
-static EARLY: crate::early::Early<(u64, u8), Puzzle> = crate::early::Early::new();
+static EARLY: crate::early::Early<PuzzleKey, Puzzle> = crate::early::Early::new();
 
-/// Starts to make the puzzle of `(seed, mode)` on a background thread, so that Start new game and a
-/// level button of the result card do not wait for the generator.
-pub fn generate_early(seed: u64, mode: u8) {
-    EARLY.start((seed, mode), |&(seed, mode)| generate_version(VERSION, seed, mode));
+/// Starts to make the puzzle of `(seed, mode, symmetric)` on a background thread, so that Start new
+/// game and a level button of the result card do not wait for the generator.
+pub fn generate_early(seed: u64, mode: u8, symmetric: bool) {
+    EARLY.start((seed, mode, symmetric), |&(seed, mode, symmetric)| generate_v2(seed, mode, symmetric));
 }
 
 /// Waits for the end of the puzzle that started early, if there is one (for the bench).
 pub fn finish_early() {
-    EARLY.finish(|&(seed, mode)| generate_version(VERSION, seed, mode));
+    EARLY.finish(|&(seed, mode, symmetric)| generate_v2(seed, mode, symmetric));
 }
 
-/// The puzzle of `(seed, mode)` with a version of the generator. Version 1 has only the modes 0..5.
-pub fn generate_version(version: u8, seed: u64, mode: u8) -> Puzzle {
+/// The puzzle of `(seed, mode, symmetric)` with a version of the generator. Version 1 has only the
+/// modes 0..5 and has no symmetry (PUZ-8): a symmetric puzzle of version 1 is a bug of the caller.
+pub fn generate_version(version: u8, seed: u64, mode: u8, symmetric: bool) -> Puzzle {
     match version {
-        1 => generate_v1(seed, mode),
-        2 => generate_v2(seed, mode),
+        1 => {
+            assert!(!symmetric, "generator version 1 has no symmetry");
+            generate_v1(seed, mode)
+        }
+        2 => generate_v2(seed, mode, symmetric),
         _ => panic!("generator version {version} is not known"),
     }
 }
 
 /// Removes starting numbers while the solver, limited to the level of the mode, can complete the grid.
 /// Then it grades the puzzle. If the puzzle does not need the level of the mode, it starts again.
-fn generate_v2(seed: u64, mode: u8) -> Puzzle {
+/// The symmetry changes the random sequence (the bit 40 of the start value): a puzzle that is not
+/// symmetric has the same sequence as before the symmetry option (PUZ-5).
+fn generate_v2(seed: u64, mode: u8, symmetric: bool) -> Puzzle {
     assert!(mode < MODES, "mode {mode} is not in 0..{MODES}");
     let level = MODE_LEVELS[mode as usize];
     let attempt = |attempt: u64| -> (Level, Puzzle) {
-        let mut rng = Rng::new(seed ^ (u64::from(mode) << 56) ^ (u64::from(VERSION) << 48) ^ attempt.wrapping_mul(0xA24B_AED4_963E_E407));
+        let mut rng = Rng::new(seed ^ (u64::from(mode) << 56) ^ (u64::from(VERSION) << 48) ^ attempt.wrapping_mul(0xA24B_AED4_963E_E407) ^ (u64::from(symmetric) << 40));
         let solution = full_grid(&mut rng);
-        let givens = dig(&mut rng, solution, level, MIN_GIVENS[mode as usize]);
+        let givens = dig(&mut rng, solution, level, MIN_GIVENS[mode as usize], symmetric);
         let grade = solver::grade(&givens, level).expect("the dig keeps a puzzle that the solver completes");
         (grade, Puzzle { solution, givens })
     };
@@ -162,24 +185,46 @@ fn generate_v2(seed: u64, mode: u8) -> Puzzle {
 
 /// Removes starting numbers in a random order. A removal stays only if the solver, limited to `level`,
 /// can complete the grid. Thus the puzzle has only one solution.
-fn dig(rng: &mut Rng, solution: [[u8; 9]; 9], level: Level, min_givens: usize) -> [[u8; 9]; 9] {
+///
+/// If `symmetric`, the order is an order of the pairs: a cell and its partner (`partner`) go out
+/// together, and the center cell goes out alone. A pair that goes below `min_givens` stays, and the
+/// removal continues with the other pairs (thus a symmetric Easy puzzle has 44 or 45 starting
+/// numbers, PUZ-9). If not `symmetric`, the order and the steps are the same as before the symmetry
+/// option (PUZ-5).
+fn dig(rng: &mut Rng, solution: [[u8; 9]; 9], level: Level, min_givens: usize, symmetric: bool) -> [[u8; 9]; 9] {
     let mut givens = solution;
-    let mut order: Vec<Cell> = cells().collect();
+    // One cell of each pair: the cell that is before its partner (or is its partner: the center).
+    let mut order: Vec<Cell> = cells().filter(|&cell| !symmetric || cell <= partner(cell)).collect();
     rng.shuffle(&mut order);
     let mut count = 81;
-    for (r, c) in order {
+    for cell in order {
         if count <= min_givens {
             break;
         }
-        let keep = givens[r as usize][c as usize];
-        givens[r as usize][c as usize] = 0;
+        let other = partner(cell);
+        let group: &[Cell] = if symmetric && other != cell { &[cell, other] } else { &[cell] };
+        if count < min_givens + group.len() {
+            continue;
+        }
+        let keep: [u8; 2] = std::array::from_fn(|k| group.get(k).map_or(0, |&(r, c)| givens[r as usize][c as usize]));
+        for &(r, c) in group {
+            givens[r as usize][c as usize] = 0;
+        }
         if solver::grade(&givens, level).is_some() {
-            count -= 1;
+            count -= group.len();
         } else {
-            givens[r as usize][c as usize] = keep;
+            for (&(r, c), v) in group.iter().zip(keep) {
+                givens[r as usize][c as usize] = v;
+            }
         }
     }
     givens
+}
+
+/// The partner of a cell under a half turn of the board: (8 - r, 8 - c). The center is its own
+/// partner (PUZ-8).
+pub fn partner((r, c): Cell) -> Cell {
+    (8 - r, 8 - c)
 }
 
 fn generate_v1(seed: u64, mode: u8) -> Puzzle {
@@ -418,14 +463,33 @@ mod tests {
             (42, 2, "800500700046180500017230000200006070900700600001008009009000000105070040470600920"),
             (7, 4, "500060000020030900090508000900000400210080000037010002300000890040000050005700000"),
         ] {
-            let p = generate_version(1, seed, mode);
+            let p = generate_version(1, seed, mode, false);
             let s: String = p.givens.iter().flatten().map(|v| char::from(b'0' + v)).collect();
             assert_eq!(s, givens, "seed {seed} mode {mode}");
         }
-        let avg = |mode| (0..8u64).map(|s| generate_version(1, s, mode).givens_count()).sum::<usize>() as f64 / 8.0;
+        let avg = |mode| (0..8u64).map(|s| generate_version(1, s, mode, false).givens_count()).sum::<usize>() as f64 / 8.0;
         let a: Vec<f64> = (0..V1_MODES).map(avg).collect();
         for w in a.windows(2) {
             assert!(w[0] > w[1], "{a:?}");
+        }
+    }
+
+    #[test]
+    fn symmetric_puzzles() {
+        // PUZ-8: a half turn of the board does not change the starting cells. PUZ-9: a symmetric
+        // Easy puzzle has 44 or 45 starting numbers. PUZ-2: only one solution.
+        for seed in 0..4u64 {
+            for mode in 0..MODES {
+                let p = generate_with_symmetry(seed, mode, true);
+                for cell @ (r, c) in cells() {
+                    let (i, j) = partner(cell);
+                    assert_eq!(p.givens[r as usize][c as usize] != 0, p.givens[i as usize][j as usize] != 0, "seed {seed} mode {mode}");
+                }
+                assert_eq!(count_solutions(&p.givens, 2), 1);
+                if mode == 0 {
+                    assert!((44..=45).contains(&p.givens_count()), "seed {seed}: {}", p.givens_count());
+                }
+            }
         }
     }
 }

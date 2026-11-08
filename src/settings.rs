@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::game::{Cell, Game};
-use crate::generator::{FIRST_MODE, MODES};
+use crate::generator::{FIRST_MODE, FIRST_SYMMETRIC, MODES};
 
 /// The color of the starting numbers (BRD-8, §15) and of the lines and the text of the interface.
 pub const BLACK: [u8; 3] = [0, 0, 0];
@@ -197,6 +197,8 @@ pub struct Settings {
     /// The completed color (§6.4). White: no completed color.
     pub color_completed: Color,
     pub last_mode: u8,
+    /// The symmetry of the last new game (§11, §14.2). The New game panel opens with it (DIF-3).
+    pub last_symmetric: bool,
     /// The switches of the Settings panel (REQUIREMENTS.md §9.1).
     pub highlight_on: bool,
     /// Hide pencil marks automatically (§6.1).
@@ -217,6 +219,9 @@ struct SavedSettings {
     /// A file of an earlier version does not have it (PER-8).
     color_completed: Option<Color>,
     last_mode: u8,
+    /// A file of an earlier version does not have it: on (PER-9).
+    #[serde(default = "first_symmetric")]
+    last_symmetric: bool,
     #[serde(default = "on")]
     highlight_on: bool,
     /// Earlier versions saved it as `auto_remove_on`.
@@ -230,6 +235,10 @@ struct SavedSettings {
 
 fn on() -> bool {
     true
+}
+
+fn first_symmetric() -> bool {
+    FIRST_SYMMETRIC
 }
 
 /// The colors are all different, except White (COL-5).
@@ -270,6 +279,7 @@ impl From<SavedSettings> for Settings {
             color_highlight,
             color_completed,
             last_mode: s.last_mode,
+            last_symmetric: s.last_symmetric,
             highlight_on: s.highlight_on,
             auto_hide_on: s.auto_hide_on,
             completed_color_on,
@@ -286,6 +296,7 @@ impl Default for Settings {
             color_highlight: Color::Cyan,
             color_completed: Color::Green,
             last_mode: FIRST_MODE,
+            last_symmetric: FIRST_SYMMETRIC,
             highlight_on: true,
             auto_hide_on: true,
             completed_color_on: true,
@@ -383,6 +394,7 @@ mod tests {
         );
         assert!(s.highlight_on && s.auto_hide_on && s.completed_color_on);
         assert_eq!(s.last_mode, 2);
+        assert!(s.last_symmetric); // DIF-9
         assert!(s.is_valid());
     }
 
@@ -393,6 +405,7 @@ mod tests {
             serde_json::from_str(r#"{"color_starting":"Gray","color_clash":"Red","color_highlight":"Green","last_mode":3}"#).unwrap();
         assert!(s.highlight_on && s.auto_hide_on && s.completed_color_on);
         assert_eq!(s.last_mode, 3);
+        assert!(s.last_symmetric); // PER-9
     }
 
     #[test]

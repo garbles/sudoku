@@ -1449,7 +1449,7 @@ fn draw_panel(c: &mut Canvas, app: &App, panel: Panel) {
     match panel {
         Panel::Colors => draw_colors_panel(c, &app.settings),
         Panel::Settings => draw_settings_panel(c, &app.settings, &app.update),
-        Panel::NewGame => draw_new_game_panel(c, app.ui.slider),
+        Panel::NewGame => draw_new_game_panel(c, app.ui.slider, app.ui.symmetric_sel),
         Panel::Checkpoints => draw_checkpoints_panel(c, &app.game, &app.settings),
     }
 }
@@ -1680,10 +1680,17 @@ fn color_item(c: &mut Canvas, cell: Rect, rgb: Rgb, name: &str, state: Swatch) {
     c.text(Weight::Medium, 25.0, cx, y0 + 76.0, Anchor::Middle, name, fg);
 }
 
-fn draw_new_game_panel(c: &mut Canvas, slider_level: u8) {
+/// The New game panel (§11): the slider, the Symmetrical row with the switch of the Settings panel
+/// (DIF-8), and Start new game, with a divider below each of the first two rows.
+fn draw_new_game_panel(c: &mut Canvas, slider_level: u8, symmetric: bool) {
     panel_frame(c, ng_pl(), ng_pr(), ng_top(), screen_h() as i32);
-    c.rect(ng_pl() as f32, tb_bottom_y() as f32, ng_pr() as f32, (tb_bottom_y() + 1) as f32, BLACK);
+    for below in [layout::ng_slider_row(), layout::ng_symmetric_row()] {
+        c.rect(ng_pl() as f32, below.y1 as f32, ng_pr() as f32, (below.y1 + layout::NG_DIVIDER - 1) as f32, BLACK);
+    }
     labeled_slider(c, ng_tx(), ng_tr(), ng_slider_y(), slider_level);
+    let cy = layout::ng_symmetric_y() as f32;
+    c.text(Weight::Medium, 25.0, ng_tx() as f32, cy + 9.0, Anchor::Start, "Symmetrical", BLACK);
+    switch(c, (ng_pr() - 33) as f32, cy, symmetric);
     c.text(Weight::Medium, 25.0, ng_tx() as f32, (ng_start_y() + 9) as f32, Anchor::Start, "Start new game", BLACK);
 }
 

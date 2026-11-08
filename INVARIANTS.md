@@ -76,12 +76,13 @@ App
   settings        : Settings
   results         : set of Result               (the SQLite table)
   update          : Update
-  early_game      ∈ {None} ∪ (seed, mode)       (the puzzle that the app makes in the background for the next game; default None; not saved; PUZ-7)
+  early_game      ∈ {None} ∪ (seed, mode, symmetric)   (the puzzle that the app makes in the background for the next game; default None; not saved; PUZ-7)
 
 Game
   seed            : integer                    (from the generator; no fixed range)
   mode            ∈ 0..6
   generator       ∈ {1, 2}                     (the version of the generator; 1 only for mode ∈ 0..4)
+  symmetric       : bool                       (2-way rotational symmetry of the starting numbers; default false for a game file of an earlier version; PUZ-8)
   solution[r][c]  ∈ 1..9                       (for r, c ∈ 0..8)
   given[r][c]     ∈ {true, false}
   value[r][c]     ∈ 0..9                       (0 = empty)
@@ -106,6 +107,7 @@ GameUI
   refused         ∈ {None} ∪ (cell, digit, shown_at)   (the temporary x of a refused tap; default None; not saved)
   pending_ink     ∈ {None} ∪ (cell, strokes, last_lift_at)
   slider          ∈ 0..6                       (the selection in the New game panel)
+  symmetric_sel   : bool                       (the selection of the Symmetrical switch in the New game panel; not saved; DIF-8)
   delete_guard    ∈ {None} ∪ deleted_at        (the time of the last delete of a checkpoint, for 0.5 s; default None; not saved; CKP-8)
 
 ListUI
@@ -117,6 +119,7 @@ Settings
   color_starting, color_clash, color_highlight, color_completed ∈ Palette
   micro_line      ∈ {None, gray90, gray80, gray70, gray60, gray55, gray50, gray45, gray40}   (Cell colors panel; default gray90; COL-7)
   last_mode       ∈ 0..6
+  last_symmetric  : bool                       (the symmetry of the last new game; default true, also for a settings file of an earlier version; PER-9)
   highlight_on    : bool                       (Settings panel; default true)
   auto_hide_on    : bool                       (Settings panel; default true)
   completed_color_on : bool                    (Settings panel, "Color completed groups"; default true)
@@ -140,6 +143,7 @@ Result
   givens          ∈ 0..81
   seconds         ≥ 0
   seed, generator
+  symmetric       : bool                       (default false for a row of an earlier database; ANA-1)
 ```
 <!-- invariants:state-model:end -->
 
@@ -176,7 +180,7 @@ Terms:
 - **available(b)**: Easier is available ⇔ `mode > 0`. Harder is available ⇔ `mode < 6`. Same is
   always available. Thus `available(b) ⇒ target(b) ∈ 0..6`.
 - **earlier_results**: `{r ∈ results : r.mode = game.mode, r.seed ≠ game.seed}` (the results at the
-  mode of the game, without the result of the current game).
+  mode of the game, without the result of the current game). The symmetry does not change the group: symmetric and non-symmetric results of a mode are in the same group.
 - **example copy**: one item of the recognizer: one sample or shape of a source, with one slant,
   rotation and width for a digit, and with no change for "not 1–9". The sources are the database of 60
   writers, the typeface shapes and the handwriting of the owner.
@@ -190,9 +194,11 @@ Terms:
 | PUZ-2 | The starting numbers have **only one** solution. That solution is `solution`. | R§14.5 |
 | PUZ-3 | For each starting number, `value = solution`. Thus two starting numbers never clash. | R§14.5 |
 | PUZ-4 | `given` does not change after the generator makes the puzzle. It changes only when a new puzzle replaces the game. | R§4.1 |
-| PUZ-5 | `(seed, mode)` and the version of the generator set the full game. The same values always give the same starting numbers and the same solution. A saved game whose starting numbers or solution are not `generate_version(generator, seed, mode)` is not correct: the app does not use it (PER-5). A new game has the current version (2). Version 1 has only the modes 0..4. A game file with no version is version 1. | R§14.1, R§14.5 (confirmed 2026-10-25; versions: owner decision 2026-10-25) |
-| PUZ-6 | The generator sets the level (the most difficult group of techniques) of each mode. The human-style solver, with all techniques, completes each puzzle, and the most difficult technique that it needs is of the level of the mode. Exception: if no attempt of the 400 needs the level of the mode, the puzzle is the attempt with the most difficult grade, and its level can be easier (R§14.5). Easy has 44 starting numbers. No other part of the app uses a fixed level or a fixed quantity of starting numbers. | R§11, R§14.5 (owner decisions 2026-10-25 and 2026-11-02) |
-| PUZ-7 | When `completed` becomes true, by any cause (also the read of the ink at the end of the pause), and when a completed game opens from the save, the app sets `early_game = (next_seed, game.mode)` (the Same mode only) and starts to make it in the background immediately, not at the next input. A level button b uses `next_seed` and `target(b)`: Same uses `early_game`, Easier and Harder make their puzzle at the tap. In all cases the new game is the same as `generate_version(2, next_seed, target(b))` made at the time of need (PUZ-5). | R§11, R§14.5, owner decision 2026-11-07 |
+| PUZ-5 | `(seed, mode, symmetric)` and the version of the generator set the full game. The same values always give the same starting numbers and the same solution. A saved game whose starting numbers or solution are not `generate_version(generator, seed, mode, symmetric)` is not correct: the app does not use it (PER-5). A new game has the current version (2). Version 1 has only the modes 0..4 and has no symmetry (PUZ-8). A game file with no version is version 1. For `symmetric = false`, the puzzle of each (seed, mode, version) is the same as before the symmetry was added. | R§14.1, R§14.5 (confirmed 2026-10-25; versions: owner decision 2026-10-25; symmetry: owner decision 2026-11-07) |
+| PUZ-6 | The generator sets the level (the most difficult group of techniques) of each mode. The human-style solver, with all techniques, completes each puzzle, and the most difficult technique that it needs is of the level of the mode. Exception: if no attempt of the 400 needs the level of the mode, the puzzle is the attempt with the most difficult grade, and its level can be easier (R§14.5). A non-symmetric Easy puzzle has 44 starting numbers, and a symmetric Easy puzzle has 44 or 45 (PUZ-9). No other part of the app uses a fixed level or a fixed quantity of starting numbers. | R§11, R§14.5 (owner decisions 2026-10-25, 2026-11-02 and 2026-11-07) |
+| PUZ-7 | When `completed` becomes true, by any cause (also the read of the ink at the end of the pause), and when a completed game opens from the save, the app sets `early_game = (next_seed, game.mode, game.symmetric)` (the Same mode only, with the symmetry of the completed game) and starts to make it in the background immediately, not at the next input. A level button b uses `next_seed` and `target(b)`: Same uses `early_game`, Easier and Harder make their puzzle at the tap. In all cases the new game is the same as `generate_version(2, next_seed, target(b), game.symmetric)` made at the time of need (PUZ-5). While `panel = NewGame`, the key of the background puzzle is `(next_seed, slider, symmetric_sel)`: a change of `slider` or of `symmetric_sel` starts it again for the new key, and Start new game gives the same game as `generate_version(2, next_seed, slider, symmetric_sel)` made at the time of need. The app never uses a background puzzle whose key is not the key of the new game. | R§11, R§14.5, owner decision 2026-11-07 |
+| PUZ-8 | `symmetric ⇒ given[r][c] = given[8 − r][8 − c]` for all r, c ∈ 0..8 (2-way rotational symmetry, a half turn of the board). `symmetric ⇒ generator = 2`. A saved game with `symmetric` and version 1 is not correct: the app does not use it (PER-5). | R§11, R§14.3, R§14.5, owner decision 2026-11-07 |
+| PUZ-9 | `symmetric ∧ mode = 0 ⇒` the quantity of starting numbers is 44 or 45. | R§14.5, owner decision 2026-11-07 |
 
 ## 2. Cells
 
@@ -309,12 +315,12 @@ Terms:
 | CMP-2 | Each row, column and box of a complete board has the digits 1–9 one time. Thus a complete board is the same as `solution` (PUZ-2). | R§8.3, R§14.5 |
 | CMP-3 | `completed ⇒` the board, the marks, the stacks and `checkpoints` do not change (INP-9, UND-8, CKP-9), and `panel ≠ Checkpoints`, `highlight = None`, `question = None`, `refused = None`, `pending_ink = None`. | R§8.3, R§9.3, owner decision 2026-11-06 |
 | CMP-4 | `card_shows ⇒` the result card replaces the meter below the board (the meter does not show), and the card shows "Completed in", the final `elapsed` and the meter of `game.mode`. The format of the time is `m:ss`, and `h:mm:ss` after one hour. `¬completed ⇒` the meter shows `mode` and the result card does not show. The meter and the result card never show at the same time. The player cannot change the meter or the meter in the card. | R§3.1, R§8.3, owner decision 2026-11-07 |
-| CMP-5 | Completion adds **one** row to `results`. The row has the `mode`, the quantity of starting numbers, the final `elapsed`, the `seed` and the `generator` version of this game. The app never adds a row for a game that is not complete. | R§8.3, R§14.1 |
+| CMP-5 | Completion adds **one** row to `results`. The row has the `mode`, the quantity of starting numbers, the final `elapsed`, the `seed`, the `generator` version and `symmetric` of this game. The app never adds a row for a game that is not complete. | R§8.3, R§14.1 (symmetric: owner decision 2026-11-07) |
 | CMP-6 | Only Start new game and a level button of the result card (CMP-10) end the `completed` state. Help, Statistics, colors, settings and the menu continue to operate. The Checkpoints panel is not available (CKP-9). | R§8.3, R§9.3, owner decision 2026-11-06 |
 | CMP-7 | The result card shows ⇔ `card_shows`. Its frame is: in portrait, x 148–1471 and y 1790–2110, for the two hands; in landscape, y 148–1471, with x 48–370 for a left-handed player and x 1790–2112 for a right-handed player. In landscape the contents are the same for the two hands (not a mirror image). In all four layouts with `menu = Closed`, the card does not touch the toolbar, the close button, the menu button or the board. In landscape with `menu = Open`, the toolbar and the card are at opposite sides of the board. An open panel can cover a part of the card. | R§3.1, R§3.3, R§8.3, owner decision 2026-11-07 |
 | CMP-8 | The comparison of the card uses only `earlier_results`. If `earlier_results ≠ ∅`, the card shows "Average" = the average of their `seconds` (the same rounding as Statistics, ANA-4) and "Previous best" = the minimum of their `seconds`, in the format of CMP-4. If `earlier_results = ∅`, the card shows only "First game at this level". The values agree with `results` each time that the game screen shows: after a delete in Statistics, the card shows the new values. | R§8.3, R§14, owner decision 2026-11-07 |
-| CMP-9 | The card has three level buttons, from the top: Easier, Same and Harder. The three buttons have the same appearance when they are available: a black frame, a white inside (no fill), a black label and a small meter of `target(b)`. A button that is not `available(b)` has a gray80 frame, a gray70 label and no meter, and a tap on it changes nothing. The card has no other buttons. | R§8.3, R§11, owner decision 2026-11-07 |
-| CMP-10 | When `card_shows` and `panel = None`, a tap (a press and a release on the same button) of the pen tip, the eraser or a finger on an available level button b starts a new game immediately, with no confirmation, as DIF-5 with `mode = target(b)`. After it: `screen = Game`, `menu = Closed`, `panel = None` (NAV-9) and `completed = false`. A press on a button and a release on a different place changes nothing. When `panel ≠ None`, a tap on the card only closes the panel (NAV-11). A level button never makes a game with a mode outside `0..6`. | R§8.3, R§9, R§11, owner decision 2026-11-07 |
+| CMP-9 | The card has three level buttons, from the top: Easier, Same and Harder. The three buttons have the same appearance when they are available: a black frame, a white inside (no fill), a black label and a small meter of `target(b)`. A button that is not `available(b)` has a gray80 frame, a gray70 label and no meter, and a tap on it changes nothing. The card has no other buttons. The card has no switch and shows no symmetry information. | R§8.3, R§11, owner decision 2026-11-07 |
+| CMP-10 | When `card_shows` and `panel = None`, a tap (a press and a release on the same button) of the pen tip, the eraser or a finger on an available level button b starts a new game immediately, with no confirmation, as DIF-5 with `mode = target(b)` and the `symmetric` of the completed game. After it: `screen = Game`, `menu = Closed`, `panel = None` (NAV-9) and `completed = false`. A press on a button and a release on a different place changes nothing. When `panel ≠ None`, a tap on the card only closes the panel (NAV-11). A level button never makes a game with a mode outside `0..6`. | R§8.3, R§9, R§11, owner decision 2026-11-07 |
 
 ## 9. Clock
 
@@ -373,11 +379,12 @@ The x values in this table are for a left-handed player in portrait. In the othe
 |---|---|---|
 | DIF-1 | `game.mode`, `settings.last_mode` and `slider` are in `0..6`. There are seven modes: 0 is Easy and 6 is Hard. | R§11 (owner decision 2026-10-25) |
 | DIF-2 | At the first start, before the player selects a mode, `last_mode = 2` and the first puzzle has mode 2. | R§11 (confirmed again 2026-10-25) |
-| DIF-3 | When the New game panel opens, `slider = last_mode`. | R§11 |
-| DIF-4 | When you move the slider, only `slider` changes. The game, `last_mode` and the meter do not change. If the panel closes before Start new game, the app does not keep `slider`. | R§11 |
-| DIF-5 | Start new game sets `last_mode = slider`. A level button b of the result card sets `last_mode = target(b)` (CMP-10). Each of the two makes a game with `mode = last_mode`, a new seed, `elapsed = 0`, empty stacks, `checkpoints = ∅`, `completed = false`, no entries and no marks. | R§11, R§9.3, owner approval 2026-11-06, owner decision 2026-11-07 |
+| DIF-3 | When the New game panel opens, `slider = last_mode` and `symmetric_sel = last_symmetric`. | R§11 (symmetry: owner decision 2026-11-07) |
+| DIF-4 | When you move the slider, only `slider` changes. When you change the Symmetrical switch, only `symmetric_sel` changes (DIF-8). The game, `last_mode`, `last_symmetric` and the meter do not change. If the panel closes before Start new game, the app does not keep `slider` and `symmetric_sel`. | R§11 (symmetry: owner decision 2026-11-07) |
+| DIF-5 | Start new game sets `last_mode = slider` and `last_symmetric = symmetric_sel`. A level button b of the result card sets `last_mode = target(b)` and `last_symmetric` = the `symmetric` of the completed game (CMP-10). Each of the two makes a game with `mode = last_mode`, `symmetric = last_symmetric`, a new seed, `elapsed = 0`, empty stacks, `checkpoints = ∅`, `completed = false`, no entries and no marks. | R§11, R§9.3, owner approval 2026-11-06, owner decision 2026-11-07 (also the symmetry) |
 | DIF-6 | `¬completed ⇒` the meter below the board shows `game.mode`. When `card_shows`, the result card replaces the meter (CMP-4). The player cannot change the meter. | R§3.1, R§8.3, R§11, owner decision 2026-11-07 |
 | DIF-7 | Start new game and the level buttons of the result card never ask for a confirmation. It never records the old game in `results` (CMP-5). | R§11 |
+| DIF-8 | When `panel = NewGame`, a tap on the Symmetrical row (a press and a release on the row, at any x of the row) sets `symmetric_sel` to its opposite value. It changes nothing else, and the panel stays open. A press on the row and a release on a different place changes nothing. `panel ≠ NewGame ⇒ symmetric_sel = last_symmetric`. The switch shows on exactly when `symmetric_sel`. | R§11, R§15, owner decision 2026-11-07 |
 
 ## 12. Cell colors
 
@@ -419,11 +426,11 @@ The x values in this table are for a left-handed player in portrait. In the othe
 
 | ID | Rule | Source |
 |---|---|---|
-| ANA-1 | Each result has `mode ∈ 0..6`, `seconds ≥ 0`, `givens ∈ 0..81`, a `seed`, a `finished_at`, a `generator` version and a unique `id`. When the app opens, it does not use a row in the results file that breaks this rule. The row stays in the file. | R§14.1 (confirmed 2026-10-25) |
+| ANA-1 | Each result has `mode ∈ 0..6`, `seconds ≥ 0`, `givens ∈ 0..81`, a `seed`, a `finished_at`, a `generator` version, `symmetric` and a unique `id`. A row of an earlier database (with no `symmetric` column) gets `symmetric = false`. When the app opens, it does not use a row in the results file that breaks this rule. The row stays in the file. | R§14.1 (confirmed 2026-10-25; symmetric: owner decision 2026-11-07) |
 | ANA-2 | Only completion adds results (CMP-5). Only a confirmed Delete (one game) or a confirmed Delete all games removes results. (The device test tool `sudoku --test-results` is not a part of the app; refer to DECISIONS.md.) | R§14.1, R§13.1, R§13.2 |
 | ANA-3 | "Puzzles completed" on the summary is `|results|`. "Average time" is the average of `seconds` in `results`, or "–" if there are no results. | R§13.1 |
-| ANA-4 | For each mode m, completed is `|{r ∈ results : r.mode = m}|`. Average is the average of their `seconds`, or "–" if there are none. The sum of the quantities for all modes is equal to the total. | R§13.1 |
-| ANA-5 | The list shows only the results that agree with `filter` (all results for All). The newest `finished_at` is first. Each page has a maximum of `n` results (`n` in ANA-6). All pages before the last page have `n` results. If no results agree with `filter`, the list has no rows. | R§13.2 |
+| ANA-4 | For each mode m, completed is `|{r ∈ results : r.mode = m}|`. Average is the average of their `seconds`, or "–" if there are none. The sum of the quantities for all modes is equal to the total. The mode alone sets the group: symmetric and non-symmetric results are in the same group. | R§13.1, owner decision 2026-11-07 |
+| ANA-5 | The list shows only the results that agree with `filter` (all results for All). The newest `finished_at` is first. Each page has a maximum of `n` results (`n` in ANA-6). All pages before the last page have `n` results. If no results agree with `filter`, the list has no rows. `filter` does not use `symmetric`, and the list does not show it. | R§13.2, owner decision 2026-11-07 |
 | ANA-6 | `1 ≤ page ≤ max(1, ⌈matching / n⌉)`, with `n = 12` in portrait and `n = 6` in landscape. When the list opens, `filter = All` and `page = 1`. A change of filter sets `page = 1`. | R§13.2 |
 | ANA-7 | `confirm ≠ None ⇒` the dialog shows on the pale list, and the list accepts no other input. Cancel sets `confirm = None` and makes no change. Delete removes that one result and then sets `confirm = None`. | R§13.2 |
 | ANA-8 | After a deletion (one game or all games), the summary and the list show the change immediately (ANA-3 to ANA-5 are true). If the current page becomes empty, the list shows the page before it, but not below page 1. Then ANA-6 is true. | R§13.2 |
@@ -436,14 +443,15 @@ The x values in this table are for a left-handed player in portrait. In the othe
 
 | ID | Rule | Source |
 |---|---|---|
-| PER-1 | At each point where the app can close or be suspended, the saved game is equal to the game in memory: `seed`, `mode`, the `generator` version, starting numbers, `value`, `marks`, the two stacks, `checkpoints`, `elapsed` and `completed`. | R§14.3, R§9.3, owner approval 2026-11-06 |
+| PER-1 | At each point where the app can close or be suspended, the saved game is equal to the game in memory: `seed`, `mode`, the `generator` version, `symmetric`, starting numbers, `value`, `marks`, the two stacks, `checkpoints`, `elapsed` and `completed`. | R§14.3, R§9.3, owner approval 2026-11-06 |
 | PER-2 | When the app opens again, it shows the state of PER-1 exactly. It shows the Game screen with `menu = Open`, `panel = None`, `highlight = None`, `question = None`, `refused = None` and `pending_ink = None`. The app does not keep the menu state. This is true for a new game and for a saved game. `checkpoints` is the same as before the close (CKP-5 gives the exception for a game file of an earlier version). | R§9, R§14.3 (owner decision 2026-11-02), R§9.3, owner approval 2026-11-06 |
-| PER-3 | The settings (`color_*`, `micro_line`, `last_mode`, `highlight_on`, `auto_hide_on` and `completed_color_on`) stay the same when the app closes and opens again. | R§14.2, owner decision 2026-11-05 |
+| PER-3 | The settings (`color_*`, `micro_line`, `last_mode`, `last_symmetric`, `highlight_on`, `auto_hide_on` and `completed_color_on`) stay the same when the app closes and opens again. | R§14.2, owner decision 2026-11-05, owner decision 2026-11-07 |
 | PER-4 | `results` stays the same when the app closes and opens again. Only ANA-2 changes it. | R§14.1 |
-| PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. When the app opens, it does not use saved data that breaks a rule (PUZ-5, ANA-1). It uses the default settings in place of a settings file that breaks COL-5 (also PER-8). A saved history that play cannot make, but that agrees with UND-3, is correct: each undo and redo item still changes the board. CKP-5 gives the checks of the checkpoints and of the Restore items. | — (confirmed 2026-10-25; settings: review finding; checkpoints: R§9.3, review finding 2026-11-06) |
+| PER-5 | All saved data agrees with all rules in this document. If a save does not agree with a rule, this is a bug. When the app opens, it does not use saved data that breaks a rule (PUZ-5, PUZ-8, ANA-1). It uses the default settings in place of a settings file that breaks COL-5 (also PER-8). A saved history that play cannot make, but that agrees with UND-3, is correct: each undo and redo item still changes the board. CKP-5 gives the checks of the checkpoints and of the Restore items. | — (confirmed 2026-10-25; settings: review finding; checkpoints: R§9.3, review finding 2026-11-06) |
 | PER-6 | If the app closes during the recognition pause, the app removes the ink. The app never reads it later. | R§14.3 |
 | PER-7 | The app saves the game after each change to the board and after each save and each delete of a checkpoint, the settings after each change, and the clock at least each 5 seconds. It also saves when it closes or gets SIGTERM, SIGINT or SIGHUP. A power loss can lose a maximum of 5 seconds of the clock. | R§14.3 (confirmed 2026-10-25), R§9.3, owner approval 2026-11-06 |
 | PER-8 | When a settings file has no `color_completed`: (1) If its three colors break COL-5, the app uses the default settings (PER-5). (2) Else, if `color_highlight = Green`, it becomes Cyan, or the first free color if another section uses Cyan. A highlight of another color, also White, does not change. (3) Then `color_completed` becomes Green, or the first free color if another section uses Green. (4) `completed_color_on = true`. The first free color is the first color in the order of the Palette (§0, also the order of the panel) that is not White and that no other section uses. A settings file that has `color_completed` does not get these changes, also with `color_highlight = Green`. A settings file that has `color_completed` and no value for the switch gets `completed_color_on = true`, and its colors do not change. Each start gives the same result from the same file. The app changes the file only at the next change of the settings. | R§14.2; part (1): PER-5 and a review finding, not an owner decision; no value for the switch: default of §0; other parts: owner decision 2026-11-05 |
+| PER-9 | A settings file with no value for the symmetry gets `last_symmetric = true`. A game file with no value for the symmetry gets `symmetric = false`. A row of an earlier results database gets `symmetric = false` (ANA-1). Each start gives the same result from the same files. | R§14.1, R§14.2, R§14.3, owner decision 2026-11-07 |
 
 ## 16. Updates
 
@@ -462,5 +470,9 @@ The x values in this table are for a left-handed player in portrait. In the othe
 
 ## 17. Rules to confirm
 
-There are no rules to confirm now. If a rule in this document comes from a conclusion and not from a
-statement in `REQUIREMENTS.md`, put it in this section until the rule is confirmed.
+If a rule in this document comes from a conclusion and not from a statement in `REQUIREMENTS.md`,
+put it in this section until the rule is confirmed.
+
+| ID | Rule | Source |
+|---|---|---|
+| DIF-9 | At the first start (a new install, with no settings file and no game file), `last_symmetric = true` and the first puzzle has `symmetric = true` (as DIF-2 gives mode 2). | Conclusion from R§11 ("At the first start, the switch is on") and DIF-5; not confirmed |

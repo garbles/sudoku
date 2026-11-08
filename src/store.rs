@@ -18,6 +18,9 @@ pub struct ResultRow {
     pub givens: u8,
     pub seconds: u64,
     pub seed: u64,
+    /// The puzzle is symmetric (PUZ-8). A row of an earlier database is not symmetric (ANA-1, PER-9).
+    /// The averages and the best times do not use it (ANA-4, CMP-8).
+    pub symmetric: bool,
 }
 
 /// The file of the results database in the data folder (`data_dir`).
@@ -37,6 +40,8 @@ pub struct NewResult {
     pub seed: u64,
     /// The version of the generator that made the puzzle (PUZ-5).
     pub generator: u8,
+    /// The puzzle is symmetric (PUZ-8, CMP-5).
+    pub symmetric: bool,
 }
 
 pub struct ResultsDb {
@@ -44,28 +49,38 @@ pub struct ResultsDb {
 }
 
 /// The version of the schema (`PRAGMA user_version`). Version 1 (user_version 0) had the modes 0..4
-/// and no generator version.
-const SCHEMA_VERSION: i64 = 2;
+/// and no generator version. Version 2 had no `symmetric` column.
+const SCHEMA_VERSION: i64 = 3;
 
-const SCHEMA: &str = "CREATE TABLE results (
+/// The `symmetric` column (§14.1). Its default lets an earlier version of the app add a row (not
+/// symmetric) after a downgrade, and gives false to the rows of a version 2 database (ANA-1).
+const SYMMETRIC_COLUMN: &str = "symmetric INTEGER NOT NULL DEFAULT 0 CHECK (symmetric IN (0, 1))";
+
+fn schema() -> String {
+    format!(
+        "CREATE TABLE results (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     finished_at INTEGER NOT NULL,
     mode        INTEGER NOT NULL CHECK (mode BETWEEN 0 AND 6),
     givens      INTEGER NOT NULL CHECK (givens BETWEEN 0 AND 81),
     seconds     INTEGER NOT NULL CHECK (seconds >= 0),
     seed        INTEGER NOT NULL,
-    generator   INTEGER NOT NULL CHECK (generator >= 1)
-);";
+    generator   INTEGER NOT NULL CHECK (generator >= 1),
+    {SYMMETRIC_COLUMN}
+);"
+    )
+}
 
-/// Changes a results table of version 1 to version 2, in one transaction. The rows that agree with
-/// ANA-1 go to the new table with generator version 1, with the same id. The rows that the app cannot
-/// use stay in the file, in the table `results_v1` (ANA-1). If there are no such rows, the app removes
-/// that table.
-fn migrate_to_2(conn: &mut Connection) -> rusqlite::Result<()> {
+/// Changes a results table of version 1 to the current version, in one transaction. The rows that
+/// agree with ANA-1 go to the new table with generator version 1, not symmetric, with the same id. The
+/// rows that the app cannot use stay in the file, in the table `results_v1` (ANA-1). If there are no
+/// such rows, the app removes that table.
+fn migrate_from_1(conn: &mut Connection) -> rusqlite::Result<()> {
+    let schema = schema();
     let tx = conn.transaction()?;
     tx.execute_batch(&format!(
         "ALTER TABLE results RENAME TO results_v1;
-         {SCHEMA}
+         {schema}
          INSERT INTO results (id, finished_at, mode, givens, seconds, seed, generator)
              SELECT id, finished_at, mode, givens, seconds, seed, 1 FROM results_v1
              WHERE typeof(finished_at) = 'integer' AND typeof(seed) = 'integer'
@@ -79,6 +94,14 @@ fn migrate_to_2(conn: &mut Connection) -> rusqlite::Result<()> {
         tx.execute_batch("DROP TABLE results_v1;")?;
     }
     tx.execute_batch(&format!("PRAGMA user_version = {SCHEMA_VERSION};"))?;
+    tx.commit()
+}
+
+/// Changes a results table of version 2 to version 3, in one transaction: the new column `symmetric`
+/// is false for all rows (ANA-1, PER-9). The ids and the other values do not change.
+fn migrate_from_2(conn: &mut Connection) -> rusqlite::Result<()> {
+    let tx = conn.transaction()?;
+    tx.execute_batch(&format!("ALTER TABLE results ADD COLUMN {SYMMETRIC_COLUMN}; PRAGMA user_version = {SCHEMA_VERSION};"))?;
     tx.commit()
 }
 
@@ -97,20 +120,22 @@ impl ResultsDb {
         let exists: bool =
             conn.query_row("SELECT count(*) > 0 FROM sqlite_master WHERE type = 'table' AND name = 'results'", [], |r| r.get(0))?;
         if !exists {
-            conn.execute_batch(&format!("{SCHEMA} PRAGMA user_version = {SCHEMA_VERSION};"))?;
+            conn.execute_batch(&format!("{} PRAGMA user_version = {SCHEMA_VERSION};", schema()))?;
         } else if version < SCHEMA_VERSION {
             // The app can still open the file if the migration fails. It tries again the next time.
-            if let Err(e) = migrate_to_2(&mut conn) {
+            let migrated = if version < 2 { migrate_from_1(&mut conn) } else { migrate_from_2(&mut conn) };
+            if let Err(e) = migrated {
                 eprintln!("sudoku: cannot change the results database to version {SCHEMA_VERSION}: {e}");
             }
         }
         Ok(ResultsDb { conn })
     }
 
+    /// Adds the result of a game with its symmetry (CMP-5).
     pub fn insert(&mut self, r: &NewResult) -> rusqlite::Result<ResultRow> {
         self.conn.execute(
-            "INSERT INTO results (finished_at, mode, givens, seconds, seed, generator) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![r.finished_at, r.mode, r.givens, r.seconds as i64, r.seed as i64, r.generator],
+            "INSERT INTO results (finished_at, mode, givens, seconds, seed, generator, symmetric) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![r.finished_at, r.mode, r.givens, r.seconds as i64, r.seed as i64, r.generator, r.symmetric],
         )?;
         Ok(ResultRow {
             id: self.conn.last_insert_rowid(),
@@ -119,6 +144,7 @@ impl ResultsDb {
             givens: r.givens,
             seconds: r.seconds,
             seed: r.seed,
+            symmetric: r.symmetric,
         })
     }
 
@@ -161,11 +187,12 @@ impl ResultsDb {
     /// (for example a database from a different schema). The row stays in the file.
     pub fn all(&self) -> rusqlite::Result<Vec<ResultRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, finished_at, mode, givens, seconds, seed FROM results ORDER BY finished_at DESC, id DESC",
+            "SELECT id, finished_at, mode, givens, seconds, seed, symmetric FROM results ORDER BY finished_at DESC, id DESC",
         )?;
         let rows = stmt.query_map([], |row| {
-            let (mode, givens, seconds): (i64, i64, i64) = (row.get(2)?, row.get(3)?, row.get(4)?);
-            if !((0..crate::generator::MODES as i64).contains(&mode) && (0..=81).contains(&givens) && seconds >= 0) {
+            let (mode, givens, seconds, symmetric): (i64, i64, i64, i64) = (row.get(2)?, row.get(3)?, row.get(4)?, row.get(6)?);
+            let valid = (0..crate::generator::MODES as i64).contains(&mode) && (0..=81).contains(&givens) && seconds >= 0;
+            if !(valid && (0..=1).contains(&symmetric)) {
                 return Ok(None);
             }
             Ok(Some(ResultRow {
@@ -175,6 +202,7 @@ impl ResultsDb {
                 givens: givens as u8,
                 seconds: seconds as u64,
                 seed: row.get::<_, i64>(5)? as u64,
+                symmetric: symmetric == 1,
             }))
         })?;
         // A value of the wrong type (for example text in `mode`) also makes the row not usable.
@@ -371,8 +399,8 @@ mod tests {
     #[test]
     fn insert_list_delete() {
         let mut db = ResultsDb::in_memory();
-        let a = db.insert(&NewResult { finished_at: 100, mode: 1, givens: 37, seconds: 600, seed: u64::MAX, generator: 2 }).unwrap();
-        let b = db.insert(&NewResult { finished_at: 200, mode: 4, givens: 24, seconds: 4000, seed: 5, generator: 2 }).unwrap();
+        let a = db.insert(&NewResult { finished_at: 100, mode: 1, givens: 37, seconds: 600, seed: u64::MAX, generator: 2, symmetric: false }).unwrap();
+        let b = db.insert(&NewResult { finished_at: 200, mode: 4, givens: 24, seconds: 4000, seed: 5, generator: 2, symmetric: false }).unwrap();
         let all = db.all().unwrap();
         assert_eq!(all, vec![b.clone(), a.clone()]);
         assert_eq!(all[1].seed, u64::MAX);
@@ -383,7 +411,7 @@ mod tests {
     #[test]
     fn test_results_are_added_and_removed_exactly() {
         let mut db = ResultsDb::in_memory();
-        let mine = db.insert(&NewResult { finished_at: 5, mode: 2, givens: 31, seconds: 60, seed: 77, generator: 2 }).unwrap();
+        let mine = db.insert(&NewResult { finished_at: 5, mode: 2, givens: 31, seconds: 60, seed: 77, generator: 2, symmetric: false }).unwrap();
         assert_eq!(db.test_results(true).unwrap(), 14);
         assert_eq!(db.test_results(true).unwrap(), 14);
         assert_eq!(db.all().unwrap().len(), 15, "a second add does not make copies");
@@ -399,7 +427,7 @@ mod tests {
         let path = dir.join("results.sqlite");
         {
             let mut db = ResultsDb::open(&path).unwrap();
-            db.insert(&NewResult { finished_at: 1, mode: 0, givens: 44, seconds: 5, seed: 9, generator: 2 }).unwrap();
+            db.insert(&NewResult { finished_at: 1, mode: 0, givens: 44, seconds: 5, seed: 9, generator: 2, symmetric: false }).unwrap();
         }
         assert_eq!(ResultsDb::open(&path).unwrap().all().unwrap().len(), 1);
         fs::remove_dir_all(&dir).unwrap();
@@ -448,7 +476,7 @@ mod tests {
         assert_eq!(generators, vec![1, 1]);
         let tables: i64 = db.conn.query_row("SELECT count(*) FROM sqlite_master WHERE name = 'results_v1'", [], |r| r.get(0)).unwrap();
         assert_eq!(tables, 0, "no row stays in the old table, thus the app removes it");
-        let new = db.insert(&NewResult { finished_at: 300, mode: 6, givens: 24, seconds: 5, seed: 9, generator: 2 }).unwrap();
+        let new = db.insert(&NewResult { finished_at: 300, mode: 6, givens: 24, seconds: 5, seed: 9, generator: 2, symmetric: false }).unwrap();
         assert!(new.id > 8, "a new id is not the id of an old result");
         drop(db);
         // The migration is done one time only.
@@ -466,6 +494,41 @@ mod tests {
         let kept: Vec<i64> =
             db.conn.prepare("SELECT seed FROM results_v1 ORDER BY id").unwrap().query_map([], |r| r.get(0)).unwrap().map(Result::unwrap).collect();
         assert_eq!(kept, vec![12, 13]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn version_2_results_get_the_symmetric_column() {
+        // ANA-1, PER-9: the rows of a version 2 database are not symmetric. The ids and the values do
+        // not change. A new result keeps its symmetry (CMP-5).
+        let (dir, path) = temp_db("migrate-2");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "CREATE TABLE results (
+                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                     finished_at INTEGER NOT NULL,
+                     mode        INTEGER NOT NULL CHECK (mode BETWEEN 0 AND 6),
+                     givens      INTEGER NOT NULL CHECK (givens BETWEEN 0 AND 81),
+                     seconds     INTEGER NOT NULL CHECK (seconds >= 0),
+                     seed        INTEGER NOT NULL,
+                     generator   INTEGER NOT NULL CHECK (generator >= 1)
+                 );
+                 INSERT INTO results VALUES (4, 100, 6, 24, 60, 7, 2);
+                 PRAGMA user_version = 2;",
+            )
+            .unwrap();
+        }
+        let mut db = ResultsDb::open(&path).unwrap();
+        let old = db.all().unwrap();
+        assert_eq!(old, vec![ResultRow { id: 4, finished_at: 100, mode: 6, givens: 24, seconds: 60, seed: 7, symmetric: false }]);
+        let new = db.insert(&NewResult { finished_at: 200, mode: 0, givens: 45, seconds: 5, seed: 9, generator: 2, symmetric: true }).unwrap();
+        assert!(new.symmetric);
+        drop(db);
+        let db = ResultsDb::open(&path).unwrap();
+        assert_eq!(db.all().unwrap().iter().map(|r| (r.id, r.symmetric)).collect::<Vec<_>>(), vec![(new.id, true), (4, false)]);
+        let version: i64 = db.conn.query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap();
+        assert_eq!(version, SCHEMA_VERSION);
         fs::remove_dir_all(&dir).unwrap();
     }
 }

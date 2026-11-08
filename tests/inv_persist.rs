@@ -12,9 +12,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use common::*;
-use sudoku::app::{new_game, App, Env, Panel, Screen};
+use sudoku::app::{new_game, new_game_with_symmetry, App, Env, Panel, Screen};
 use sudoku::game::{cells, mark_bit, peers, Board, Cell, Change, Checkpoint, Game};
-use sudoku::generator::{count_solutions, generate_version, FIRST_MODE, MODES, VERSION};
+use sudoku::generator::{count_solutions, generate_version, partner, FIRST_MODE, FIRST_SYMMETRIC, MODES, VERSION};
 use sudoku::invariants::{check_app, check_game};
 use sudoku::layout::{self, Button};
 use sudoku::settings::{Color, LineGray, Section, Settings, Switch};
@@ -39,7 +39,12 @@ fn open_app(game: Option<Game>, settings: Option<Settings>, db: ResultsDb, seed:
 /// A game of `seed` and `mode` with all cells correct except one. The numbers go into the undo
 /// history in order, as a player adds them. Returns the game and the empty cell.
 fn nearly_complete(seed: u64, mode: u8) -> (Game, Cell) {
-    let mut g = new_game(seed, mode);
+    nearly_complete_sym(seed, mode, false)
+}
+
+/// As `nearly_complete`, for the puzzle of `(seed, mode, symmetric)`.
+fn nearly_complete_sym(seed: u64, mode: u8, symmetric: bool) -> (Game, Cell) {
+    let mut g = new_game_with_symmetry(seed, mode, symmetric);
     let empty: Vec<Cell> = cells().filter(|&c| !g.is_filled(c)).collect();
     let (last, rest) = empty.split_last().unwrap();
     for &(r, c) in rest {
@@ -65,8 +70,9 @@ fn first_seed(seed: u64) -> u64 {
 
 #[test]
 fn settings_and_last_mode_are_kept_when_the_app_opens_again() {
-    // PER-3: the four colors, the micro-cell line gray (COL-7), `last_mode` (from Start new game) and the
-    // three switches go through the settings file. DIF-3: the slider opens at the kept mode.
+    // PER-3: the four colors, the micro-cell line gray (COL-7), `last_mode` and `last_symmetric` (from
+    // Start new game) and the three switches go through the settings file. DIF-3: the slider and the
+    // Symmetrical switch open at the kept values. The kept symmetry is off: the opposite of the default.
     let mut d = Driver::new(61);
     d.button(Button::Menu);
     d.button(Button::Colors);
@@ -85,11 +91,15 @@ fn settings_and_last_mode_are_kept_when_the_app_opens_again() {
     }
     d.button(Button::NewGame);
     d.finger_tap(d.app.ng_stops[4], layout::ng_slider_y() as f32);
+    assert!(d.app.ui.symmetric_sel, "DIF-9: the switch is on at the first start");
+    d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_symmetric_y() as f32);
+    assert!(!d.app.ui.symmetric_sel, "DIF-8");
     d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_start_y() as f32);
     let s = d.app.settings.clone();
     assert_eq!((s.color_starting, s.color_clash, s.color_highlight, s.color_completed), (Color::Yellow, Color::Red, Color::Magenta, Color::Orange));
     assert_eq!(s.micro_line, LineGray::Gray55);
     assert_eq!(s.last_mode, 4);
+    assert!(!s.last_symmetric && !d.app.game.symmetric, "DIF-5");
     assert!(!s.highlight_on && !s.auto_hide_on && !s.completed_color_on);
     assert!(d.app.settings_dirty, "PER-7: Start new game changes the settings");
 
@@ -99,13 +109,13 @@ fn settings_and_last_mode_are_kept_when_the_app_opens_again() {
     save_json(&sp, &d.app.settings).unwrap();
     let app = open_app(load_json(&gp), load_json(&sp), ResultsDb::in_memory(), 3);
     assert_eq!(app.settings, s);
-    assert_eq!(app.ui.slider, 4);
+    assert_eq!((app.ui.slider, app.ui.symmetric_sel), (4, false), "DIF-3");
     assert_eq!(app.game, d.app.game);
 
-    // With no saved game, the new game has the kept mode.
+    // With no saved game, the new game has the kept mode and the kept symmetry.
     let app = open_app(None, load_json(&sp), ResultsDb::in_memory(), 3);
     assert_eq!(app.settings, s);
-    assert_eq!(app.game.mode, 4);
+    assert_eq!((app.game.mode, app.game.symmetric), (4, false));
     // Two more opens do not change the settings.
     save_json(&sp, &app.settings).unwrap();
     let again = open_app(None, load_json(&sp), ResultsDb::in_memory(), 4);
@@ -389,7 +399,7 @@ fn assert_rejected(base: &Game, bad: &Game, rule: &str, name: &str) {
     let app = open_app(Some(loaded), None, ResultsDb::in_memory(), 5);
     std::fs::remove_dir_all(&dir).ok();
     assert_ne!(&app.game, bad, "{name}: the app used a saved game that breaks {rule}");
-    assert_eq!(app.game, new_game(first_seed(5), FIRST_MODE), "{name}: a new game of the last mode");
+    assert_eq!(app.game, new_game_with_symmetry(first_seed(5), FIRST_MODE, FIRST_SYMMETRIC), "{name}: a new game of the last mode");
     check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
 }
 
@@ -457,7 +467,7 @@ fn a_saved_game_file_that_cannot_be_read_is_not_used() {
         let loaded: Option<Game> = load_json(&path);
         assert!(loaded.is_none(), "{name}: the file must not give a game");
         let app = open_app(loaded, None, ResultsDb::in_memory(), 5);
-        assert_eq!(app.game, new_game(first_seed(5), FIRST_MODE), "{name}");
+        assert_eq!(app.game, new_game_with_symmetry(first_seed(5), FIRST_MODE, FIRST_SYMMETRIC), "{name}");
         check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
     }
     std::fs::remove_dir_all(&dir).ok();
@@ -607,6 +617,7 @@ fn saved_settings_that_break_a_rule_are_not_used() {
         let app = open_app(None, load_json(&path), ResultsDb::in_memory(), 5);
         assert_eq!(app.settings, Settings::default(), "{name}");
         assert_eq!((app.game.mode, app.ui.slider), (FIRST_MODE, FIRST_MODE), "{name}");
+        assert_eq!((app.game.symmetric, app.ui.symmetric_sel), (FIRST_SYMMETRIC, FIRST_SYMMETRIC), "DIF-9, PER-5: {name}");
         check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
     }
     std::fs::remove_dir_all(&dir).ok();
@@ -904,7 +915,7 @@ fn a_game_file_with_a_checkpoint_that_cannot_be_read_is_not_used() {
         let loaded: Option<Game> = load_json(&path);
         assert!(loaded.is_none(), "{name}: the file must not give a game");
         let app = open_app(loaded, None, ResultsDb::in_memory(), 5);
-        assert_eq!(app.game, new_game(first_seed(5), FIRST_MODE), "{name}");
+        assert_eq!(app.game, new_game_with_symmetry(first_seed(5), FIRST_MODE, FIRST_SYMMETRIC), "{name}");
     }
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -994,12 +1005,14 @@ fn a_game_file_of_an_earlier_version_has_no_checkpoints() {
     let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     let fields = json.as_object().unwrap();
     assert!(!fields.contains_key("checkpoints"), "PER-1: an empty list does not write the field");
-    let earlier = ["seed", "mode", "generator", "solution", "given", "value", "marks", "undo", "redo", "elapsed_ms", "completed"];
+    // "symmetric" is the only field that is new after the checkpoints (PER-9). An earlier version
+    // does not know it and ignores it.
+    let earlier = ["seed", "mode", "generator", "symmetric", "solution", "given", "value", "marks", "undo", "redo", "elapsed_ms", "completed"];
     let mut keys: Vec<&str> = fields.keys().map(String::as_str).collect();
     keys.sort_unstable();
     let mut want = earlier.to_vec();
     want.sort_unstable();
-    assert_eq!(keys, want, "the file has only the fields of an earlier version");
+    assert_eq!(keys, want, "the file has only the fields of an earlier version and the symmetry");
     let loaded: Game = load_json(&path).expect("the file of an earlier version gives a game");
     std::fs::remove_dir_all(&dir).ok();
     assert!(loaded.checkpoints.is_empty());
@@ -1171,8 +1184,9 @@ fn each_result_has_correct_values_and_a_unique_id() {
     let dir = data_dir("ana1");
     let path = dir.join(RESULTS_FILE);
     let mut games: HashMap<u64, Game> = HashMap::new();
+    // CMP-5: the even games are symmetric, the odd games are not.
     let complete = |games: &mut HashMap<u64, Game>, i: u64, mode: u8| {
-        let (g, last) = nearly_complete(1000 + i, mode);
+        let (g, last) = nearly_complete_sym(1000 + i, mode, i % 2 == 0);
         let mut d = Driver::from(open_app(Some(g), None, ResultsDb::open(&path).unwrap(), 90 + i));
         d.wait(1500 + i * 700);
         write_last_number(&mut d, last);
@@ -1203,6 +1217,7 @@ fn each_result_has_correct_values_and_a_unique_id() {
 
     let results = ResultsDb::open(&path).unwrap().all().unwrap();
     assert_eq!(results.len(), 8);
+    assert!(results.iter().any(|r| r.symmetric) && results.iter().any(|r| !r.symmetric), "CMP-5: the two symmetries");
     let ids: HashSet<i64> = results.iter().map(|r| r.id).collect();
     assert_eq!(ids.len(), results.len(), "each id is unique");
     assert_eq!(results.iter().map(|r| r.mode).collect::<HashSet<_>>(), (0..MODES).collect());
@@ -1210,6 +1225,7 @@ fn each_result_has_correct_values_and_a_unique_id() {
         let g = games.get(&r.seed).unwrap_or_else(|| panic!("no complete game for {r:?}"));
         assert!(r.mode < MODES && r.givens <= 81, "{r:?}");
         assert_eq!((r.mode, r.givens, r.seconds), (g.mode, g.givens_count(), g.seconds()), "{r:?}");
+        assert_eq!(r.symmetric, g.symmetric, "CMP-5: the symmetry of the game: {r:?}");
         assert!(r.seconds >= 1, "the clock operated: {r:?}");
         assert!(r.finished_at > 1_790_000_000, "Unix time of the completion: {r:?}");
     }
@@ -1223,7 +1239,7 @@ fn each_result_has_correct_values_and_a_unique_id() {
 fn a_game_saved_before_generator_version_2_is_used() {
     // PUZ-5, PER-5: a game file of version 1 has no "generator". It is a puzzle of version 1, and the
     // app continues it. The same file with a puzzle of version 2, or with mode 5 or 6, is not correct.
-    let p = generate_version(1, 908, 3);
+    let p = generate_version(1, 908, 3, false);
     let v1 = Game { generator: 1, ..Game::new(908, 3, p.solution, p.givens) };
     let mut json = serde_json::to_value(&v1).unwrap();
     json.as_object_mut().unwrap().remove("generator");
@@ -1242,7 +1258,7 @@ fn a_game_saved_before_generator_version_2_is_used() {
     for (name, bad) in [("version 2 puzzle", v2_puzzle), ("mode 5", v1_mode_5)] {
         let app = open_app(Some(bad.clone()), None, ResultsDb::in_memory(), 5);
         assert_ne!(app.game, bad, "{name}: the app used a game that is not generate_version(1, seed, mode)");
-        assert_eq!(app.game, new_game(first_seed(5), FIRST_MODE), "{name}: a new game of the last mode");
+        assert_eq!(app.game, new_game_with_symmetry(first_seed(5), FIRST_MODE, FIRST_SYMMETRIC), "{name}: a new game of the last mode");
         assert_eq!(app.game.generator, VERSION, "{name}: a new game has the current version");
     }
 }
@@ -1267,7 +1283,7 @@ fn a_saved_game_that_is_not_the_puzzle_of_its_seed_and_mode_is_not_used() {
         std::fs::remove_dir_all(&dir).ok();
         let app = open_app(Some(loaded), None, ResultsDb::in_memory(), 5);
         assert_ne!(app.game, bad, "{name}: the app used a game that is not generate(seed, mode)");
-        assert_eq!(app.game, new_game(first_seed(5), FIRST_MODE), "{name}: a new game of the last mode");
+        assert_eq!(app.game, new_game_with_symmetry(first_seed(5), FIRST_MODE, FIRST_SYMMETRIC), "{name}: a new game of the last mode");
         check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
     }
 }
@@ -1308,6 +1324,7 @@ fn result_rows_that_break_ana_1_are_not_used() {
     assert_eq!(seeds, HashSet::from([11, 19]), "only the rows that agree with ANA-1 are used");
     for r in &app.results {
         assert!(r.mode < MODES && r.givens <= 81, "ANA-1: {r:?}");
+        assert!(!r.symmetric, "ANA-1, PER-9: a row of an earlier database is not symmetric: {r:?}");
     }
     check_app(&app).unwrap();
     std::fs::remove_dir_all(&dir).ok();
@@ -1371,4 +1388,196 @@ fn a_restart_of_the_app_removes_a_highlight() {
     assert_eq!(app.game.value, d.app.game.value, "PER-2: the saved game comes back");
     assert_eq!(app.ui.highlight, None, "HLT-2, PER-2: no highlight at the start");
     check_app(&app).unwrap();
+}
+
+// ---- PUZ-5, PUZ-8, PER-5, PER-9: the symmetry in the saved files.
+
+/// Saves `bad` to a file, opens the app with it and makes sure that the app does not use it (a new
+/// game of the default settings, PER-5). Unlike `assert_rejected`, `check_game` can accept `bad`:
+/// only the generator (PUZ-5) can find the error.
+fn assert_not_used(bad: &Game, name: &str) {
+    let dir = data_dir(name);
+    let path = dir.join("game.json");
+    save_json(&path, bad).unwrap();
+    let loaded: Game = load_json(&path).expect("the file is JSON of a game");
+    std::fs::remove_dir_all(&dir).ok();
+    assert_eq!(&loaded, bad, "{name}");
+    let app = open_app(Some(loaded), None, ResultsDb::in_memory(), 5);
+    assert_ne!(&app.game, bad, "{name}: the app used the saved game");
+    assert_eq!(app.game, new_game_with_symmetry(first_seed(5), FIRST_MODE, FIRST_SYMMETRIC), "{name}: a new game");
+    check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
+}
+
+#[test]
+fn a_symmetric_saved_game_of_version_1_is_not_used() {
+    // PUZ-8, PER-5: version 1 has no symmetry. A game file with `symmetric` and version 1 is not
+    // correct, also when its puzzle is the puzzle of version 1. The same file with no symmetry is used.
+    let p = generate_version(1, 910, 2, false);
+    let v1 = Game { generator: 1, ..Game::new(910, 2, p.solution, p.givens) };
+    assert!(!v1.symmetric);
+    let bad = Game { symmetric: true, ..v1.clone() };
+    // The rule of version 1 is the first part of PUZ-8 that the check finds, also if the starting
+    // numbers are not symmetric.
+    let err = check_game(&bad).expect_err("PUZ-8: a symmetric game of version 1");
+    assert!(err.contains("PUZ-8"), "PUZ-8: {err}");
+    assert_rejected(&v1, &bad, "PUZ-8", "puz8-symmetric-v1");
+}
+
+#[test]
+#[should_panic]
+fn version_1_of_the_generator_has_no_symmetry() {
+    // PUZ-5, PUZ-8: "Version 1 has no symmetry". The generator does not make a symmetric puzzle of
+    // version 1.
+    let _ = generate_version(1, 910, 2, true);
+}
+
+#[test]
+fn a_saved_game_with_the_wrong_symmetry_is_not_used() {
+    // PUZ-5, PER-5: the puzzle must be generate_version(generator, seed, mode, symmetric). A symmetric
+    // game whose flag is false, a symmetric flag on a puzzle that is not symmetric, and a symmetric
+    // puzzle of a different seed are not used. The correct symmetric game is used.
+    for mode in [0u8, 3, 6] {
+        let base = new_game_with_symmetry(911 + mode as u64, mode, true);
+        let control = open_app(Some(base.clone()), None, ResultsDb::in_memory(), 5);
+        assert_eq!(control.game, base, "PUZ-5: mode {mode}: the symmetric game of its own key is used");
+        check_app(&control).unwrap();
+
+        // PUZ-8 applies only to a symmetric game: the check accepts this file. Only PUZ-5 rejects it.
+        let flag_off = Game { symmetric: false, ..base.clone() };
+        assert!(check_game(&flag_off).is_ok(), "mode {mode}: the corruption agrees with the other rules");
+        assert_not_used(&flag_off, &format!("puz5-flag-off-{mode}"));
+
+        let other_seed = Game { seed: base.seed + 1, ..base.clone() };
+        assert!(check_game(&other_seed).is_ok(), "mode {mode}: the corruption agrees with the other rules");
+        assert_not_used(&other_seed, &format!("puz5-sym-seed-{mode}"));
+
+        // The non-symmetric puzzle of the same key with the flag on: not used (PUZ-5, and PUZ-8 if
+        // its starting numbers are not symmetric).
+        let flag_on = Game { symmetric: true, ..new_game(base.seed, mode) };
+        assert_not_used(&flag_on, &format!("puz5-flag-on-{mode}"));
+    }
+}
+
+#[test]
+fn the_files_of_an_earlier_version_get_the_defaults_of_per_9() {
+    // PER-9, DIF-3, PER-5: a settings file with no `last_symmetric` gets true; the other values do not
+    // change. A game file with no `symmetric` is not symmetric: the app uses a game that is not
+    // symmetric, and does not use a symmetric game (its puzzle is not the puzzle of the key with no
+    // symmetry, PUZ-5). Two starts with the same files give the same result.
+    let dir = data_dir("per9");
+    let (gp, sp) = (dir.join("game.json"), dir.join("settings.json"));
+    let settings = Settings { last_mode: 5, last_symmetric: false, highlight_on: false, ..Settings::default() };
+    let mut json = serde_json::to_value(&settings).unwrap();
+    assert_eq!(json["last_symmetric"], false, "the name of INVARIANTS.md §0 in the file");
+    json.as_object_mut().unwrap().remove("last_symmetric");
+    std::fs::write(&sp, json.to_string()).unwrap();
+    let loaded: Settings = load_json(&sp).expect("a settings file of an earlier version");
+    assert_eq!(loaded, Settings { last_symmetric: true, ..settings.clone() }, "PER-9: last_symmetric = true");
+
+    let (mut g, _) = nearly_complete(920, 4);
+    g.elapsed_ms = 70_000;
+    let mut json = serde_json::to_value(&g).unwrap();
+    assert_eq!(json["symmetric"], false, "the name of INVARIANTS.md §0 in the file");
+    json.as_object_mut().unwrap().remove("symmetric");
+    std::fs::write(&gp, json.to_string()).unwrap();
+    for start in 0..2 {
+        let app = open_app(load_json(&gp), load_json(&sp), ResultsDb::in_memory(), 5);
+        assert_eq!(app.game, g, "PER-9: start {start}: the game that is not symmetric is used");
+        assert!(app.settings.last_symmetric && app.ui.symmetric_sel, "PER-9, DIF-3: start {start}");
+        assert_eq!(app.settings.last_mode, 5, "PER-9: start {start}");
+        check_app(&app).unwrap();
+    }
+    // With no game file, the new game uses the settings of the earlier file: symmetric (PER-9, DIF-5).
+    let app = open_app(None, load_json(&sp), ResultsDb::in_memory(), 5);
+    assert_eq!(app.game, new_game_with_symmetry(first_seed(5), 5, true), "PER-9: a symmetric game of the kept mode");
+
+    // A symmetric game in a file with no symmetry value is read as not symmetric: it is not used.
+    let sym = new_game_with_symmetry(921, 2, true);
+    let mut json = serde_json::to_value(&sym).unwrap();
+    json.as_object_mut().unwrap().remove("symmetric");
+    std::fs::write(&gp, json.to_string()).unwrap();
+    let loaded: Game = load_json(&gp).unwrap();
+    assert!(!loaded.symmetric, "PER-9: no value is not symmetric");
+    for start in 0..2 {
+        let app = open_app(load_json(&gp), None, ResultsDb::in_memory(), 5);
+        assert_ne!(app.game.seed, sym.seed, "PUZ-5, PER-9: start {start}: the app used the puzzle with the wrong symmetry");
+        assert_eq!(app.game, new_game_with_symmetry(first_seed(5), FIRST_MODE, FIRST_SYMMETRIC), "start {start}");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_symmetric_game_goes_through_the_file() {
+    // PER-1, PER-2, PUZ-8: the symmetry of a game in progress goes through the file, and the app
+    // continues the same game. The starting numbers in the file are symmetric.
+    for mode in 0..MODES {
+        let (g, _) = nearly_complete_sym(930 + mode as u64, mode, true);
+        let dir = data_dir(&format!("sym-file-{mode}"));
+        let path = dir.join("game.json");
+        save_json(&path, &g).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+        assert_eq!(json["symmetric"], true, "PER-1: mode {mode}");
+        let loaded: Game = load_json(&path).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+        assert!(cells().all(|c| loaded.given[c.0 as usize][c.1 as usize] == {
+            let (i, j) = partner(c);
+            loaded.given[i as usize][j as usize]
+        }), "PUZ-8: mode {mode}");
+        let app = open_app(Some(loaded), None, ResultsDb::in_memory(), 5);
+        assert_eq!(app.game, g, "PER-2: mode {mode}");
+        check_app(&app).unwrap();
+    }
+}
+
+#[test]
+fn a_results_database_of_version_2_gets_the_symmetry_false() {
+    // ANA-1, PER-9, CMP-5: the rows of a version 2 database (with `generator`, with no `symmetric`)
+    // get symmetric = false. The ids and the other values do not change. After the change, a symmetric
+    // result goes into the same file with true. A row with a symmetric value that is not 0 or 1 is not
+    // used (ANA-1), and it stays in the file.
+    let dir = data_dir("ana1-v2");
+    let path = dir.join(RESULTS_FILE);
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE results (
+                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                 finished_at INTEGER NOT NULL,
+                 mode        INTEGER NOT NULL CHECK (mode BETWEEN 0 AND 6),
+                 givens      INTEGER NOT NULL CHECK (givens BETWEEN 0 AND 81),
+                 seconds     INTEGER NOT NULL CHECK (seconds >= 0),
+                 seed        INTEGER NOT NULL,
+                 generator   INTEGER NOT NULL CHECK (generator >= 1)
+             );
+             INSERT INTO results (id, finished_at, mode, givens, seconds, seed, generator) VALUES
+                 (4, 1790000000, 6, 24, 900, 41, 2),
+                 (7, 1790000001, 0, 44, 300, 42, 1);
+             PRAGMA user_version = 2;",
+        )
+        .unwrap();
+    }
+    let mut db = ResultsDb::open(&path).unwrap();
+    let rows = db.all().unwrap();
+    let got: Vec<(i64, u8, u8, u64, u64, bool)> = rows.iter().map(|r| (r.id, r.mode, r.givens, r.seconds, r.seed, r.symmetric)).collect();
+    assert_eq!(got, vec![(7, 0, 44, 300, 42, false), (4, 6, 24, 900, 41, false)], "ANA-1, PER-9");
+    let new = db
+        .insert(&sudoku::store::NewResult { finished_at: 1790000002, mode: 0, givens: 45, seconds: 200, seed: 43, generator: 2, symmetric: true })
+        .unwrap();
+    assert!(new.symmetric, "CMP-5");
+    drop(db);
+    // A changed file: a symmetric value of 2 (the CHECK constraint is not there in a changed file).
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("PRAGMA ignore_check_constraints = ON; INSERT INTO results (finished_at, mode, givens, seconds, seed, generator, symmetric) VALUES (1790000003, 1, 40, 100, 44, 2, 2);").unwrap();
+    }
+    for start in 0..2 {
+        let app = open_app(None, None, ResultsDb::open(&path).unwrap(), 5);
+        let seeds: Vec<(u64, bool)> = app.results.iter().map(|r| (r.seed, r.symmetric)).collect();
+        assert_eq!(seeds, vec![(43, true), (42, false), (41, false)], "ANA-1, PER-9: start {start}");
+        check_app(&app).unwrap();
+    }
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let kept: i64 = conn.query_row("SELECT count(*) FROM results WHERE seed = 44", [], |r| r.get(0)).unwrap();
+    assert_eq!(kept, 1, "ANA-1: the row that the app does not use stays in the file");
+    std::fs::remove_dir_all(&dir).ok();
 }

@@ -40,7 +40,7 @@ pub fn app_with_game(game: Game, time: i64, seed: u64) -> App {
 pub fn app_with_results(n: usize) -> App {
     let mut db = ResultsDb::in_memory();
     for i in 0..n {
-        db.insert(&NewResult { finished_at: 1_700_000_000 + i as i64 * 1000, mode: (i % 5) as u8, givens: 30, seconds: 100 + i as u64, seed: i as u64, generator: 2 })
+        db.insert(&NewResult { finished_at: 1_700_000_000 + i as i64 * 1000, mode: (i % 5) as u8, givens: 30, seconds: 100 + i as u64, seed: i as u64, generator: 2, symmetric: i % 2 == 1 })
             .unwrap();
     }
     App::new(None, None, db, Box::new(TestEnv { time: START_TIME, seed: 1 }), App::placeholder_ng_stops())

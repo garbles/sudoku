@@ -170,12 +170,16 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `game.rs`: the board, the pencil marks, the undo and redo history (also the item of a checkpoint
   restore, which sets the full board), the checkpoints (up to 5, newest first, saved in the game
   file), clashes, completed groups and completion.
-- `generator.rs`: the puzzle generator with a seed (only one solution). Version 1 stays for old saves.
+- `generator.rs`: the puzzle generator with a seed and a symmetry (only one solution). The key of a
+  puzzle is `PuzzleKey = (seed, mode, symmetric)`. A symmetric puzzle removes the givens in pairs
+  (cell and `partner`, rotation by 180 degrees); `generate(seed, mode)` is not symmetric and gives
+  the same puzzle as before. Version 1 stays for old saves (never symmetric).
   After the first attempt, up to 4 threads make batches of attempts; the results are examined in
   the order of the attempts, thus the puzzle does not depend on the threads (PUZ-5). While the New
   game panel is open, the app draws the seed of the next game and makes its puzzle in the
-  background (`generate_early`); Start new game then uses it. While a completed game shows, the
-  app also makes the puzzle of the Same mode, from the completion (`App::start_early_game`); the
+  background (`generate_early`) for the selected level and the selected symmetry; Start new game
+  then uses it. While a completed game shows, the
+  app also makes the puzzle of the Same mode and the same symmetry, from the completion (`App::start_early_game`); the
   level buttons of the result card use it.
 - `solver.rs`: the human-style solver. It grades a puzzle by the most difficult technique it needs.
 - `recognizer.rs`: reads handwriting in a cell (it compares the pen direction and pen path features of the ink with the nearest examples). All examples are stored in both pen directions, and the features are calculated at each start. Up to 4
@@ -234,7 +238,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   must get the rotation and the hand of the main thread: they are thread-local values, and a new
   thread starts with the portrait layout of a left-handed player (`layout::rotation`,
   `layout::right_handed`).
-- `store.rs`, `settings.rs`: the SQLite results, the settings and the saved game (JSON). The main
+- `store.rs`, `settings.rs`: the SQLite results (schema 3, with the column `symmetric`), the settings
+  (also `last_symmetric`) and the saved game (JSON, also `symmetric`). The main
   loop gives the JSON files to `store::Saver`, which writes them (with fsync) on a background
   thread; the completion, the restart of the interface and the close wait for it (`flush`).
 - `update.rs`: the update state, the signed `version.json` and the installation of a release

@@ -282,7 +282,8 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
     crate::layout::set_right_handed(true);
     hashes.insert("draw.states", draw_hash.hex());
 
-    // ---- The generator.
+    // ---- The generator. The puzzles are not symmetric: their hash is the same as before the
+    // symmetry option (PUZ-5).
     if opts.gen_seeds > 0 {
         let mut h = Hash::new();
         for mode in 0..crate::generator::MODES {

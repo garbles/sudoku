@@ -189,7 +189,7 @@ fn empty_game() -> Game {
 pub fn app(fonts: &Fonts) -> App {
     let mut db = ResultsDb::in_memory();
     for (i, (t, mode, seconds)) in analytics_results().into_iter().enumerate() {
-        db.insert(&NewResult { finished_at: t, mode, givens: 30, seconds, seed: i as u64, generator: 2 }).unwrap();
+        db.insert(&NewResult { finished_at: t, mode, givens: 30, seconds, seed: i as u64, generator: 2, symmetric: false }).unwrap();
     }
     let mut app = App::new(None, None, db, Box::new(FixedEnv(7)), render::ng_stops(fonts));
     // The app opens with the menu open (PER-2), but most images show the menu closed. Each state

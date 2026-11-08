@@ -206,6 +206,11 @@ pub struct Game {
     /// version 2 has no version in its file: it is version 1.
     #[serde(default = "first_generator")]
     pub generator: u8,
+    /// The starting numbers have 2-way rotational symmetry (PUZ-8): `given[r][c] = given[8 - r][8 -
+    /// c]`. Only version 2 of the generator makes a symmetric puzzle. A game file of an earlier
+    /// version has no value: the game is not symmetric (PER-9).
+    #[serde(default)]
+    pub symmetric: bool,
     pub solution: [[u8; 9]; 9],
     pub given: [[bool; 9]; 9],
     pub value: [[u8; 9]; 9],
@@ -242,7 +247,8 @@ impl Outcome {
 }
 
 impl Game {
-    /// Makes a game from a puzzle. `givens` has 0 for the empty cells.
+    /// Makes a game from a puzzle. `givens` has 0 for the empty cells. The game is not symmetric:
+    /// `app::new_game` sets `symmetric` for a puzzle of the generator.
     pub fn new(seed: u64, mode: u8, solution: [[u8; 9]; 9], givens: [[u8; 9]; 9]) -> Game {
         let mut given = [[false; 9]; 9];
         for (r, c) in cells() {
@@ -252,6 +258,7 @@ impl Game {
             seed,
             mode,
             generator: crate::generator::VERSION,
+            symmetric: false,
             solution,
             given,
             value: givens,
@@ -715,6 +722,18 @@ mod tests {
         g.toggle_mark_with((0, 0), 6, false);
         assert!(!g.save_checkpoint(), "the list is full");
         assert_eq!(g.checkpoints.iter().map(Checkpoint::seconds).collect::<Vec<_>>(), [5, 4, 3, 2, 1]);
+    }
+
+    #[test]
+    fn a_saved_game_keeps_the_symmetry_and_an_earlier_file_is_not_symmetric() {
+        // PER-1, PER-9
+        let mut g = sample(&[(0, 0)]);
+        g.symmetric = true;
+        let json = serde_json::to_string(&g).unwrap();
+        assert!(serde_json::from_str::<Game>(&json).unwrap().symmetric);
+        let earlier = json.replace(r#""symmetric":true,"#, "");
+        assert!(!earlier.contains("symmetric"));
+        assert!(!serde_json::from_str::<Game>(&earlier).unwrap().symmetric);
     }
 
     #[test]

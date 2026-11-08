@@ -607,7 +607,8 @@ pub fn checkpoint_control_at(x: f32, y: f32, n: usize) -> Option<CheckpointContr
     })
 }
 
-/// The New game panel (toolbar.sh): from the slot above the + to the bottom of the screen.
+/// The New game panel (toolbar.sh, §11): three rows of one toolbar slot with a divider between each
+/// two rows. From the top: the slider, Symmetrical, and Start new game (in the slot of the +).
 pub fn ng_pl() -> i32 {
     panel_x(DIFF_W + 66).0 // 1002 in portrait
 }
@@ -616,8 +617,12 @@ pub fn ng_pr() -> i32 {
     panel_x(DIFF_W + 66).1
 }
 
+/// The height of the black divider between two rows of the New game panel.
+pub const NG_DIVIDER: i32 = 2;
+
+/// The top of the panel: two rows and one divider above the bottom slot (portrait: 2048 - 226 = 1822).
 pub fn ng_top() -> i32 {
-    tb_bottom_y() - 112
+    tb_bottom_y() - 2 * TB_SLOT - NG_DIVIDER
 }
 
 pub fn ng_panel() -> Rect {
@@ -632,8 +637,14 @@ pub fn ng_tr() -> i32 {
     ng_tx() + DIFF_W
 }
 
+/// The center of the slider row.
 pub fn ng_slider_y() -> i32 {
-    tb_bottom_y() - 56
+    ng_top() + TB_SLOT / 2
+}
+
+/// The center of the Symmetrical row: 56 px above the bottom slot.
+pub fn ng_symmetric_y() -> i32 {
+    tb_bottom_y() - TB_SLOT / 2
 }
 
 pub fn ng_start_y() -> i32 {
@@ -641,11 +652,17 @@ pub fn ng_start_y() -> i32 {
 }
 
 pub fn ng_slider_row() -> Rect {
-    Rect::new(ng_pl(), ng_top(), ng_pr() + 1, tb_bottom_y())
+    Rect::new(ng_pl(), ng_top(), ng_pr() + 1, ng_top() + TB_SLOT)
+}
+
+/// The Symmetrical row (DIF-8): the slot directly above the bottom slot, below the divider of the
+/// slider row. A tap anywhere in it changes the switch.
+pub fn ng_symmetric_row() -> Rect {
+    Rect::new(ng_pl(), tb_bottom_y() - TB_SLOT, ng_pr() + 1, tb_bottom_y())
 }
 
 pub fn ng_start_row() -> Rect {
-    Rect::new(ng_pl(), tb_bottom_y() + 2, ng_pr() + 1, screen_h() as i32)
+    Rect::new(ng_pl(), tb_bottom_y() + NG_DIVIDER, ng_pr() + 1, screen_h() as i32)
 }
 
 /// The x positions of the stops of a labeled slider from `xl` to `xr` (ui-lib.sh `labeled_slider`).

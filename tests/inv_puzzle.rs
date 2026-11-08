@@ -1,13 +1,14 @@
-//! Tests for the rules of INVARIANTS.md about the puzzle (§1), the cells (§2) and the clashes (§4).
+//! Tests for the rules of INVARIANTS.md about the puzzle (§1, also the symmetry: PUZ-5 to PUZ-9), the
+//! cells (§2) and the clashes (§4).
 //! Each test gives the rules that it examines. `invariants::check_app` runs only in debug builds, thus
 //! these tests assert the rules directly. They also pass with `cargo test --release`.
 
 mod common;
 
 use common::*;
-use sudoku::app::{new_game, App, Panel};
+use sudoku::app::{new_game, new_game_with_symmetry, App, Input, Panel};
 use sudoku::game::{cells, mark_bit, peers, Cell, Game, ALL_MARKS};
-use sudoku::generator::{count_solutions, generate, is_valid_solution, MODES, MODE_LEVELS};
+use sudoku::generator::{count_solutions, generate, generate_version, generate_with_symmetry, is_valid_solution, Puzzle, MODES, MODE_LEVELS};
 use sudoku::solver::{grade, Level};
 use sudoku::layout::{self, Button};
 use sudoku::settings::Settings;
@@ -32,6 +33,27 @@ fn start_new_game_in_mode(d: &mut Driver, mode: u8) {
     assert_eq!(d.app.ui.slider, mode);
     start_new_game(d);
     assert_eq!(d.app.game.mode, mode);
+}
+
+/// Opens the New game panel, selects `mode` and the symmetry `symmetric`, and starts a new game.
+fn start_new_game_with(d: &mut Driver, mode: u8, symmetric: bool) {
+    if !d.app.ui.menu.is_open() {
+        d.button(Button::Menu);
+    }
+    if d.app.ui.menu.panel() != Some(Panel::NewGame) {
+        d.button(Button::NewGame);
+    }
+    if d.app.ui.symmetric_sel != symmetric {
+        tap_symmetric_row(d);
+    }
+    assert_eq!(d.app.ui.symmetric_sel, symmetric, "DIF-8");
+    start_new_game_in_mode(d, mode);
+    assert_eq!(d.app.game.symmetric, symmetric, "DIF-5");
+}
+
+/// A tap on the Symmetrical row of the New game panel (DIF-8).
+fn tap_symmetric_row(d: &mut Driver) {
+    d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_symmetric_y() as f32);
 }
 
 /// An app that starts with no saved game and the last mode `mode`.
@@ -263,58 +285,202 @@ fn each_starting_number_is_the_solution_in_each_mode() {
 
 #[test]
 fn seed_and_mode_set_the_full_game() {
-    // PUZ-5: the game after Start new game is the game of its (seed, mode). The same pair always gives
-    // the same starting numbers and the same solution.
+    // PUZ-5: the game after Start new game is the game of its (seed, mode, symmetric), with the two
+    // symmetries. The same key always gives the same starting numbers and the same solution.
     let mut d = Driver::new(42);
-    for mode in 0..MODES {
-        start_new_game_in_mode(&mut d, mode);
-        let g = &d.app.game;
-        let again = new_game(g.seed, g.mode);
-        assert_eq!((again.given, again.value, again.solution), (g.given, g.value, g.solution), "PUZ-5: mode {mode}");
-        assert_eq!(generate(g.seed, mode), generate(g.seed, mode));
-        let p = generate(g.seed, mode);
-        assert_eq!((givens_of(g), g.solution), (p.givens, p.solution));
+    for symmetric in [true, false] {
+        for mode in 0..MODES {
+            start_new_game_with(&mut d, mode, symmetric);
+            let g = &d.app.game;
+            let again = new_game_with_symmetry(g.seed, g.mode, g.symmetric);
+            assert_eq!((again.given, again.value, again.solution), (g.given, g.value, g.solution), "PUZ-5: mode {mode}, symmetric {symmetric}");
+            assert_eq!(generate_version(2, g.seed, mode, symmetric), generate_version(2, g.seed, mode, symmetric));
+            let p = generate_version(2, g.seed, mode, symmetric);
+            assert_eq!((givens_of(g), g.solution), (p.givens, p.solution), "PUZ-5: mode {mode}, symmetric {symmetric}");
+        }
     }
-    // A different pair gives a different puzzle (the pair is not ignored).
+    // A different key gives a different puzzle (no part of the key is ignored).
     let seed = d.app.game.seed;
     assert_ne!(generate(seed, 0), generate(seed, 1));
     assert_ne!(generate(seed, 0), generate(seed ^ 1, 0));
-    // A result row keeps (seed, mode). The pair gives the same game again.
-    start_new_game_in_mode(&mut d, 0);
-    let g = d.app.game.clone();
-    solve(&mut d);
-    assert!(d.app.game.completed);
-    let row = d.app.results[0].clone();
-    let again = new_game(row.seed, row.mode);
-    assert_eq!((again.given, again.solution), (g.given, g.solution), "PUZ-5: the result row gives the game again");
+    assert_ne!(generate_version(2, seed, 0, true), generate_version(2, seed, 0, false));
+    // A result row keeps (seed, mode, symmetric). The key gives the same game again.
+    for symmetric in [true, false] {
+        start_new_game_with(&mut d, 0, symmetric);
+        let g = d.app.game.clone();
+        solve(&mut d);
+        assert!(d.app.game.completed);
+        let row = d.app.results.iter().find(|r| r.seed == g.seed).unwrap().clone();
+        assert_eq!((row.mode, row.symmetric), (0, symmetric), "CMP-5");
+        let again = new_game_with_symmetry(row.seed, row.mode, row.symmetric);
+        assert_eq!((again.given, again.solution), (g.given, g.solution), "PUZ-5: the result row gives the game again");
+    }
 }
 
 #[test]
 fn the_quantity_of_starting_numbers_comes_from_the_game() {
-    // PUZ-6: the quantity in each result is the quantity of the game, which the generator sets for the
-    // mode. This test cannot show that no other part of the app uses a fixed quantity (that is a rule
-    // about the code). It shows only that the result agrees with the game for different modes.
+    // PUZ-6, PUZ-9: the quantity in each result is the quantity of the game, which the generator sets
+    // for the mode and the symmetry. This test cannot show that no other part of the app uses a fixed
+    // quantity (that is a rule about the code). It shows only that the result agrees with the game for
+    // different modes and the two symmetries.
     let mut d = Driver::new(43);
-    let mut counts = Vec::new();
-    for mode in [0u8, 4] {
-        start_new_game_in_mode(&mut d, mode);
-        let g = d.app.game.clone();
-        solve(&mut d);
-        assert!(d.app.game.completed);
-        let row = d.app.results.iter().find(|r| r.seed == g.seed).unwrap();
-        let generated = generate(g.seed, mode).givens_count();
-        assert_eq!(row.mode, mode);
-        assert_eq!(row.givens, g.givens_count(), "PUZ-6: result and game, mode {mode}");
-        assert_eq!(row.givens as usize, generated, "PUZ-6: result and generator, mode {mode}");
-        counts.push(row.givens);
+    for symmetric in [true, false] {
+        let mut counts = Vec::new();
+        for mode in [0u8, 4] {
+            start_new_game_with(&mut d, mode, symmetric);
+            let g = d.app.game.clone();
+            solve(&mut d);
+            assert!(d.app.game.completed);
+            let row = d.app.results.iter().find(|r| r.seed == g.seed).unwrap();
+            let generated = generate_version(2, g.seed, mode, symmetric).givens_count();
+            assert_eq!(row.mode, mode);
+            assert_eq!(row.givens, g.givens_count(), "PUZ-6: result and game, mode {mode}, symmetric {symmetric}");
+            assert_eq!(row.givens as usize, generated, "PUZ-6: result and generator, mode {mode}, symmetric {symmetric}");
+            counts.push(row.givens);
+        }
+        assert!(counts[0] > counts[1], "PUZ-6: the quantity changes with the mode: {counts:?}");
+        let easy = if symmetric { 44..=45 } else { 44..=44 };
+        assert!(easy.contains(&counts[0]), "PUZ-6, PUZ-9: Easy, symmetric {symmetric}: {}", counts[0]);
     }
-    assert!(counts[0] > counts[1], "PUZ-6: the quantity changes with the mode: {counts:?}");
-    // The generator sets the most difficult technique of each mode, and each puzzle needs it.
+    // The generator sets the most difficult technique of each mode, and each puzzle needs it, with
+    // the two symmetries.
     for seed in [3u64, 8] {
         for m in 0..MODES {
-            let p = generate(seed, m);
-            assert_eq!(grade(&p.givens, Level::Chains), Some(MODE_LEVELS[m as usize]), "PUZ-6: seed {seed} mode {m}");
+            for symmetric in [false, true] {
+                let p = generate_version(2, seed, m, symmetric);
+                assert_eq!(grade(&p.givens, Level::Chains), Some(MODE_LEVELS[m as usize]), "PUZ-6: seed {seed} mode {m} symmetric {symmetric}");
+            }
         }
+    }
+}
+
+// ---- PUZ-5, PUZ-6, PUZ-7, PUZ-8, PUZ-9: the symmetry.
+
+/// FNV-1a of the starting numbers and the solutions of the puzzles of `seeds`.
+fn puzzles_hash(seeds: &[u64], puzzle: impl Fn(u64) -> Puzzle) -> u64 {
+    let mut h = 0xcbf29ce484222325u64;
+    for &seed in seeds {
+        let p = puzzle(seed);
+        for row in p.givens.iter().chain(p.solution.iter()) {
+            for &v in row {
+                h ^= v as u64;
+                h = h.wrapping_mul(0x100000001b3);
+            }
+        }
+    }
+    h
+}
+
+const HASH_SEEDS: [u64; 6] = [0, 1, 2, 77, 12345, u64::MAX];
+
+#[test]
+fn puzzles_that_are_not_symmetric_did_not_change() {
+    // PUZ-5: "For symmetric = false, the puzzle of each (seed, mode, version) is the same as before
+    // the symmetry was added." The hashes come from `generate(seed, mode)` and
+    // `generate_version(1, seed, mode)` of the app before the change (commit bcdc7f4), for 6 seeds.
+    const V2: [u64; 7] =
+        [0x7e921fddb4b615e6, 0x3ca48556cc1892cb, 0x7224f68ff1e545dc, 0x3f6a18f632ee7b80, 0x912af17b4975f6ca, 0xe44aea34298043c0, 0xd5ffae4ed593f705];
+    const V1: [u64; 5] = [0x17df1cac0077edd9, 0xe4e1af30ce40a16d, 0x6a8335052c12b620, 0x08e983964b6e7207, 0xfb0a129795a626e3];
+    for mode in 0..MODES {
+        let want = V2[mode as usize];
+        assert_eq!(puzzles_hash(&HASH_SEEDS, |s| generate(s, mode)), want, "PUZ-5: generate, mode {mode}");
+        assert_eq!(puzzles_hash(&HASH_SEEDS, |s| generate_version(2, s, mode, false)), want, "PUZ-5: version 2, mode {mode}");
+        assert_eq!(puzzles_hash(&HASH_SEEDS, |s| generate_with_symmetry(s, mode, false)), want, "PUZ-5: mode {mode}");
+        assert_eq!(new_game(HASH_SEEDS[1], mode), new_game_with_symmetry(HASH_SEEDS[1], mode, false), "PUZ-5: mode {mode}");
+    }
+    for mode in 0..5u8 {
+        assert_eq!(puzzles_hash(&HASH_SEEDS, |s| generate_version(1, s, mode, false)), V1[mode as usize], "PUZ-5: version 1, mode {mode}");
+    }
+}
+
+#[test]
+fn the_key_with_the_symmetry_sets_the_puzzle() {
+    // PUZ-5: (seed, mode, symmetric, version) sets the full puzzle. The same key gives the same
+    // puzzle; the symmetric puzzle of a seed is not the puzzle of the same seed with no symmetry (it
+    // uses a different random sequence, R§14.5). PUZ-8: the symmetric puzzle has symmetric starting
+    // numbers, and the puzzle has one solution.
+    for mode in 0..MODES {
+        for seed in [5u64, 6, 1 << 40, u64::MAX] {
+            let a = generate_version(2, seed, mode, true);
+            assert_eq!(a, generate_version(2, seed, mode, true), "PUZ-5: seed {seed} mode {mode}");
+            assert_eq!(a, generate_with_symmetry(seed, mode, true), "PUZ-5: seed {seed} mode {mode}");
+            let b = generate_version(2, seed, mode, false);
+            assert_ne!(a.givens, b.givens, "PUZ-5: seed {seed} mode {mode}: the symmetry changes the puzzle");
+            assert_eq!(count_solutions(&a.givens, 2), 1, "PUZ-2: seed {seed} mode {mode}");
+            assert!(is_complete_sudoku(&a.solution), "PUZ-1: seed {seed} mode {mode}");
+            for (r, c) in cells().map(|(r, c)| (r as usize, c as usize)) {
+                assert_eq!(a.givens[r][c] != 0, a.givens[8 - r][8 - c] != 0, "PUZ-8: seed {seed} mode {mode} ({r}, {c})");
+                assert!(a.givens[r][c] == 0 || a.givens[r][c] == a.solution[r][c], "PUZ-3: seed {seed} mode {mode}");
+            }
+        }
+    }
+}
+
+#[test]
+fn a_symmetric_easy_puzzle_has_44_or_45_starting_numbers() {
+    // PUZ-9, PUZ-6: a symmetric Easy puzzle never goes below 44 and has 44 or 45 starting numbers
+    // (81 - 44 = 37 is odd, thus 44 needs the center cell to be empty). A puzzle with 44 has an empty
+    // center; a puzzle with 45 has the center. A non-symmetric Easy puzzle has 44.
+    let mut seen = [0usize; 2];
+    for seed in 0..120u64 {
+        let p = generate_version(2, seed, 0, true);
+        let n = p.givens_count();
+        assert!((44..=45).contains(&n), "PUZ-9: seed {seed}: {n} starting numbers");
+        assert_eq!(n == 45, p.givens[4][4] != 0, "PUZ-8, PUZ-9: seed {seed}: the center and the odd quantity");
+        seen[n - 44] += 1;
+        assert_eq!(grade(&p.givens, Level::Chains), Some(MODE_LEVELS[0]), "PUZ-6: seed {seed}");
+        assert_eq!(generate_version(2, seed, 0, false).givens_count(), 44, "PUZ-6: seed {seed}, not symmetric");
+    }
+    assert!(seen[0] > 0, "PUZ-9: no symmetric Easy puzzle has 44: {seen:?}");
+}
+
+#[test]
+fn the_background_puzzle_of_the_panel_has_the_key_of_the_selection() {
+    // PUZ-7, DIF-3, DIF-4, DIF-8: while the New game panel is open, the key of the background puzzle
+    // is (next_seed, slider, symmetric_sel). A change of the slider or of the switch changes the key.
+    // Start new game gives the puzzle of that key. A press on the row and a release on a different
+    // place changes nothing. When the panel closes, the selection goes back to the setting.
+    for start_sym in [true, false] {
+        let s = Settings { last_mode: 3, last_symmetric: start_sym, ..Settings::default() };
+        let mut d = Driver::from(App::new(None, Some(s), ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed: 47 }), App::placeholder_ng_stops()));
+        assert_eq!(d.app.game.symmetric, start_sym, "DIF-5");
+        d.button(Button::Menu);
+        d.button(Button::NewGame);
+        assert_eq!((d.app.ui.slider, d.app.ui.symmetric_sel), (3, start_sym), "DIF-3");
+        let (seed, mode, sym) = d.app.early_game().expect("PUZ-7: a background puzzle while the panel is open");
+        assert_eq!((mode, sym), (3, start_sym), "PUZ-7: the key of the panel");
+        tap_symmetric_row(&mut d);
+        assert_eq!(d.app.ui.symmetric_sel, !start_sym, "DIF-8");
+        assert_eq!(d.app.settings.last_symmetric, start_sym, "DIF-4");
+        assert_eq!(d.app.early_game(), Some((seed, 3, !start_sym)), "PUZ-7: the switch changes the key");
+        // DIF-8: a press on the row and a release on the slider row changes nothing.
+        let (x, y) = (layout::ng_pl() as f32 + 50.0, layout::ng_symmetric_y() as f32);
+        d.send(Input::TouchDown { id: 1, x, y });
+        d.send(Input::TouchUp { id: 1, x, y: layout::ng_slider_y() as f32 });
+        assert_eq!(d.app.ui.symmetric_sel, !start_sym, "DIF-8: a release on a different place");
+        d.finger_tap(d.app.ng_stops[6], layout::ng_slider_y() as f32);
+        assert_eq!(d.app.early_game(), Some((seed, 6, !start_sym)), "PUZ-7: the slider changes the key");
+        // The key at the right edge of the row: a tap at any x of the row.
+        d.finger_tap(layout::ng_symmetric_row().x1 as f32 - 2.0, layout::ng_symmetric_y() as f32);
+        assert_eq!(d.app.early_game(), Some((seed, 6, start_sym)), "PUZ-7, DIF-8: the right edge of the row");
+        tap_symmetric_row(&mut d);
+        start_new_game(&mut d);
+        let g = d.app.game.clone();
+        assert_eq!((g.seed, g.mode, g.symmetric), (seed, 6, !start_sym), "PUZ-7, DIF-5");
+        assert_eq!((d.app.settings.last_mode, d.app.settings.last_symmetric), (6, !start_sym), "DIF-5");
+        let p = generate_version(2, seed, 6, !start_sym);
+        assert_eq!((givens_of(&g), g.solution), (p.givens, p.solution), "PUZ-7, PUZ-5");
+
+        // DIF-4, DIF-8: a change of the switch and a close of the panel: the change is lost.
+        d.button(Button::NewGame);
+        assert_eq!(d.app.ui.symmetric_sel, !start_sym, "DIF-3: the symmetry of the last new game");
+        tap_symmetric_row(&mut d);
+        assert_eq!(d.app.ui.symmetric_sel, start_sym);
+        d.button(Button::NewGame);
+        assert_ne!(d.app.ui.menu.panel(), Some(Panel::NewGame));
+        assert_eq!(d.app.ui.symmetric_sel, !start_sym, "DIF-4, DIF-8: the selection after the close");
+        assert_eq!(d.app.settings.last_symmetric, !start_sym, "DIF-4");
+        assert_eq!(Game { elapsed_ms: 0, ..d.app.game.clone() }, Game { elapsed_ms: 0, ..g }, "DIF-4: the game does not change (only the clock)");
     }
 }
 

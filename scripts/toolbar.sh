@@ -2,7 +2,7 @@
 # Makes the open menu (the toolbar on the right) and its panels in $1. The dimensions are the same as the
 # toolbar and the pop-up menus of the device (refer to ui-lib.sh):
 #   screen-toolbar.png        menu open on a new game: cell colors, undo and redo (not available), help, analytics, +
-#   new-game-menu.png         the + panel is open: the difficulty slider and "Start new game"
+#   new-game-menu.png         the + panel is open: the difficulty slider, "Symmetrical" (on) and "Start new game"
 #   color-menu.png            the Cell colors panel is open (two columns: starting, clashing, highlighted; completed,
 #                             micro-cell lines), on a game
 #   color-menu-lines-90.png, color-menu-lines-40.png  color-menu.png with the lightest and the darkest micro-cell lines
@@ -158,10 +158,12 @@ compose screen.png screen-toolbar.png
 
 # --- the New game panel opens from the +. It is wider, so that its slider is the same as the meter below the board.
 PL=$NG_PL; TX=$((PL+33)); TR=$((TX+DIFF_W))
-# One row for the slider (at the last selected mode), then "Start new game" next to the +.
-panel $((TB_BOTTOM_Y-112)); divider $TB_BOTTOM_Y
-R2=$((TB_BOTTOM_Y-56)); R3=$((TB_BOTTOM_Y+56))
-labeled_slider $TX $TR $R2 $LEVEL >> $M; echo >> $M
+# Three rows: the slider (at the last selected mode), "Symmetrical" with its switch (on, the default), then "Start new
+# game" next to the +. The switch has its right end 33 px from the right edge, as in the Settings panel.
+panel $NG_TOP; divider $NG_SYM_DIVIDER; divider $TB_BOTTOM_Y
+R3=$((TB_BOTTOM_Y+56))
+labeled_slider $TX $TR $NG_SLIDER_Y $LEVEL >> $M; echo >> $M
+label $TX $((NG_SYM_Y+9)) start black "Symmetrical"; switch $((PR-33)) $NG_SYM_Y on
 label $TX $((R3+9)) start black "Start new game"
 toolbar gray70 plus
 compose screen.png new-game-menu.png

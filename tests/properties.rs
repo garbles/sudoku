@@ -2,7 +2,7 @@
 //! state rules of INVARIANTS.md (`invariants::check_app`, in `App::handle`). This test also checks the
 //! rules about two states one after the other (CLK-2, CLK-3, CMP-5, INP-1, INP-9, UND-2, UND-3, ANA-2,
 //! NAV-3, NAV-9, NAV-16, MRK-10 to MRK-16, HLT-1 to HLT-9, and the level buttons of the result card:
-//! CMP-9, CMP-10, DIF-5, PUZ-7). The two-hand sequences examine the x of a
+//! CMP-9, CMP-10, DIF-4, DIF-5, DIF-8, PUZ-7, PUZ-8). The two-hand sequences examine the x of a
 //! refused tap, the highlight, the ink and the hand touches at each event (INP-2, INP-5, INP-20, INP-21,
 //! INP-22, INP-24). The group sequences at the end examine COL-8 to COL-12 against a separate model
 //! (`inv_groups`).
@@ -36,6 +36,8 @@ enum Act {
     Suspend,
     /// Opens the New game panel, selects a mode and maybe starts a new game.
     NewGame(u8, bool),
+    /// Opens the New game panel and taps the Symmetrical row (DIF-8).
+    Symmetric,
     /// Opens the Cell colors panel and taps a color.
     PickColor(Section, Color),
     /// A tap on a control of the analytics screens.
@@ -68,6 +70,7 @@ fn act() -> impl Strategy<Value = Act> {
         1 => Just(Act::Solve),
         1 => Just(Act::Suspend),
         1 => (0..5u8, any::<bool>()).prop_map(|(m, s)| Act::NewGame(m, s)),
+        1 => Just(Act::Symmetric),
         // u8 ranges, so that a seed in properties.proptest-regressions gives the same acts.
         2 => (0..Section::ALL.len() as u8, 0..9u8).prop_map(|(s, i)| Act::PickColor(Section::ALL[s as usize], Color::ALL[i as usize])),
         4 => (0..22u8).prop_map(Act::ListControl),
@@ -254,6 +257,23 @@ fn run(d: &mut Driver, a: &Act) {
             if start {
                 d.finger_tap(layout::ng_panel().x0 as f32 + 100.0, (layout::tb_bottom_y() + 56) as f32);
             }
+        }
+        Act::Symmetric => {
+            if d.app.screen != Screen::Game {
+                return;
+            }
+            if !d.app.ui.menu.is_open() {
+                d.button(Button::Menu);
+            }
+            if d.app.ui.menu.panel() != Some(Panel::NewGame) {
+                d.button(Button::NewGame);
+            }
+            // Shortly after "< Back" the toolbar ignores a tap (NAV-16): then the panel is not open,
+            // and the tap must not go to the board or to the result card.
+            if d.app.ui.menu.panel() != Some(Panel::NewGame) {
+                return;
+            }
+            d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_symmetric_y() as f32);
         }
         Act::PickColor(section, color) => {
             if d.app.screen != Screen::Game {
@@ -562,6 +582,7 @@ proptest! {
             let menu_before = d.app.ui.menu;
             let x_before = d.app.ui.refused;
             let early_before = d.app.early_game();
+            let (sel_before, last_sym_before) = (d.app.ui.symmetric_sel, d.app.settings.last_symmetric);
             let level = level_tap(a, &before_act, before.completed);
             let level_with_panel = level_tap_with_panel(a, &before_act, before.completed);
 
@@ -608,6 +629,15 @@ proptest! {
                 prop_assert!(g.undo.is_empty() && g.redo.is_empty() && !g.completed, "UND-6");
                 prop_assert!(g.checkpoints.is_empty(), "UND-6, DIF-5");
                 prop_assert_eq!(g.mode, d.app.settings.last_mode, "DIF-5");
+                prop_assert_eq!(g.symmetric, d.app.settings.last_symmetric, "DIF-5 after {:?}", a);
+                // PUZ-8: the starting numbers of a symmetric game are symmetric under a half turn.
+                if g.symmetric {
+                    prop_assert!(g.generator == 2, "PUZ-8");
+                    for c in cells() {
+                        let (i, j) = sudoku::generator::partner(c);
+                        prop_assert_eq!(g.is_given(c), g.is_given((i, j)), "PUZ-8: {:?} after {:?}", c, a);
+                    }
+                }
                 // NAV-9: after Start new game, the menu is open with no panel. After a level button of
                 // the result card, the menu is closed (CMP-10).
                 let menu = if level.is_some() { Menu::Closed } else { Menu::Open(None) };
@@ -621,10 +651,25 @@ proptest! {
                         prop_assert!(new_game, "CMP-10: {:?} after mode {} did not start a game", b, before.mode);
                         prop_assert!(t < sudoku::generator::MODES, "CMP-10");
                         prop_assert_eq!(g.mode, t, "CMP-10, DIF-5 after {:?}", a);
-                        prop_assert_eq!(Some((g.seed, before.mode)), early_before, "PUZ-7 after {:?}", a);
+                        prop_assert_eq!(Some((g.seed, before.mode, before.symmetric)), early_before, "PUZ-7 after {:?}", a);
+                        prop_assert_eq!(g.symmetric, before.symmetric, "CMP-10, DIF-5: the symmetry of the complete game after {:?}", a);
                     }
                     None => prop_assert!(!new_game, "CMP-9: {:?} after mode {} is not available", b, before.mode),
                 }
+            }
+            // DIF-4, DIF-5: only a new game changes the saved symmetry.
+            if !new_game {
+                prop_assert_eq!(d.app.settings.last_symmetric, last_sym_before, "DIF-4 after {:?}", a);
+            }
+            // DIF-8: a tap on the Symmetrical row of an open New game panel changes only the selection.
+            if matches!(a, Act::Symmetric) && before_act.panel == Some(Panel::NewGame) && before_act.screen == Screen::Game && before_act.ink.is_none() {
+                prop_assert_eq!(d.app.ui.menu.panel(), Some(Panel::NewGame), "DIF-8: the panel stays open");
+                prop_assert_eq!(d.app.ui.symmetric_sel, !sel_before, "DIF-8 after {:?}", a);
+                prop_assert_eq!(board(g), board(&before), "DIF-8");
+            }
+            // DIF-8: when the New game panel is not open, the selection is the setting.
+            if d.app.ui.menu.panel() != Some(Panel::NewGame) {
+                prop_assert_eq!(d.app.ui.symmetric_sel, d.app.settings.last_symmetric, "DIF-8 after {:?}", a);
             }
             // CMP-10, NAV-11: with a panel open, a tap on the card only closes the panel.
             if level_with_panel {
@@ -2460,6 +2505,33 @@ fn group_sequence(seed: u64, acts: &[Act]) -> Result<GroupsReached, String> {
         twin.app.quit = false;
     }
     Ok(reached)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 64, max_shrink_iters: 100, ..ProptestConfig::default() })]
+
+    /// PUZ-8, PUZ-9, PUZ-5, PUZ-2, PUZ-3: for each seed and mode, the symmetric puzzle has starting
+    /// numbers that are the same after a half turn of the board, one solution, starting numbers of the
+    /// solution, and (Easy) 44 or 45 starting numbers. The same key gives the same puzzle again.
+    #[test]
+    fn a_symmetric_puzzle_has_symmetric_starting_numbers(seed in any::<u64>(), mode in 0..sudoku::generator::MODES) {
+        let p = sudoku::generator::generate_version(2, seed, mode, true);
+        for (r, c) in cells() {
+            let (i, j) = sudoku::generator::partner((r, c));
+            prop_assert_eq!((i, j), (8 - r, 8 - c), "partner");
+            let (r, c, i, j) = (r as usize, c as usize, i as usize, j as usize);
+            prop_assert_eq!(p.givens[r][c] != 0, p.givens[i][j] != 0, "PUZ-8: seed {} mode {} ({}, {})", seed, mode, r, c);
+            prop_assert!(p.givens[r][c] == 0 || p.givens[r][c] == p.solution[r][c], "PUZ-3");
+        }
+        prop_assert_eq!(sudoku::generator::count_solutions(&p.givens, 2), 1, "PUZ-2: seed {} mode {}", seed, mode);
+        if mode == 0 {
+            prop_assert!((44..=45).contains(&p.givens_count()), "PUZ-9: seed {}: {}", seed, p.givens_count());
+        }
+        prop_assert_eq!(&p, &sudoku::generator::generate_version(2, seed, mode, true), "PUZ-5");
+        let g = sudoku::app::new_game_with_symmetry(seed, mode, true);
+        prop_assert!(g.symmetric && g.generator == 2, "PUZ-8");
+        sudoku::invariants::check_game(&g).map_err(TestCaseError::fail)?;
+    }
 }
 
 proptest! {

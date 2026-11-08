@@ -41,6 +41,9 @@ paper, and it does the work that paper cannot do.
 
 - 7 difficulty modes, from Easy to Hard. Each mode has a level of solving techniques, from singles to chains.
 - Each puzzle has only one solution, and you never have to guess.
+- The New game panel has a Symmetrical switch (on by default). A symmetrical puzzle has starting
+  numbers that are the same after a half turn of the board. The app keeps your choice for the next
+  game. The result card buttons use the choice of the game that you completed.
 
 **Other**
 
@@ -158,9 +161,9 @@ The app keeps its data in `/home/root/.local/share/rm-sudoku/` on the tablet:
 
 | File             | Contents                                                                                    |
 | ---------------- | ------------------------------------------------------------------------------------------- |
-| `game.json`      | The current game: the puzzle, its seed, its mode and the version of the generator, your numbers and pencil marks, the undo and redo history, your checkpoints, the clock and the completion state |
-| `settings.json`  | The cell colors, the micro-cell line gray, the last difficulty and the three switches of the Settings panel |
-| `results.sqlite` | Your completed games: the date and time, the difficulty, the quantity of starting numbers, the time, the puzzle seed and the generator version |
+| `game.json`      | The current game: the puzzle, its seed, its mode, its symmetry and the version of the generator, your numbers and pencil marks, the undo and redo history, your checkpoints, the clock and the completion state |
+| `settings.json`  | The cell colors, the micro-cell line gray, the last difficulty, the last Symmetrical choice and the three switches of the Settings panel |
+| `results.sqlite` | Your completed games: the date and time, the difficulty, the quantity of starting numbers, the time, the puzzle seed, the generator version and if the puzzle was symmetrical |
 
 To use a different folder, set the environment variable `SUDOKU_DATA_DIR`.
 
