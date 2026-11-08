@@ -349,10 +349,12 @@ impl Presenter {
         // A redraw goes when the player stopped writing and the patch has applied the last change of
         // the pen region.
         if self.deferred_blit && !writing {
-            // The pen waveform shows the marks, the x and the ink of the cell of the region. A redraw
-            // with any other change in that cell (a number, a "?", a panel over it) stops the region
-            // first, and goes when the patch applied the stop: else xochitl sends it with the pen
-            // waveform, which leaves ghosts on gray and colored pixels.
+            // The pen waveform shows the marks, the x and the ink of the cell of the region: they are
+            // crisp drawings, exactly black or gray15 on white (R§14.4, MRK-19, INP-25), thus the
+            // pixel conversion of the pen waveform does not dither them. A redraw with any other
+            // change in that cell (a number, a "?", a panel over it) stops the region first, and
+            // goes when the patch applied the stop: else xochitl sends it with the pen waveform,
+            // which leaves ghosts on gray and colored pixels.
             if self.pen_cell.is_some_and(|cell| !self.record.cell_change_shows_with_pen(cell)) {
                 self.set_region(None, now);
             }

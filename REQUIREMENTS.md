@@ -94,7 +94,7 @@ open ([§9](#9-the-menu)): refer to [`screen-toolbar.png`](images/screen-toolbar
 | Item | Position and size | Notes |
 |---|---|---|
 | Board | 9×9 cells of **147 px**; x 148–1471, y 418–1741 (at the center of the screen) | Lines of 13 px are around the board and the 3×3 boxes. Lines of 3 px are between the cells. |
-| Micro-cells | Each cell has a very faint 3×3 grid of **49 px** micro-cells (2 px lines, default `gray90`; the player can select a different gray or no lines, §10) | Each micro-cell is for one digit. The positions are the same as a keypad: 1 2 3 / 4 5 6 / 7 8 9. |
+| Micro-cells | Each cell has a very faint 3×3 grid of **49 px** micro-cells (2 px lines, default `gray90`; the player can select a different gray or no lines, §10). Each line is a dotted pattern of `gray15` and white pixels with the darkness of the selected gray ([§4.1](#41-types-of-cell); owner approval 2026-11-08) | Each micro-cell is for one digit. The positions are the same as a keypad: 1 2 3 / 4 5 6 / 7 8 9. |
 | Difficulty meter | Below the board, at the center, 50 px from the board | The player cannot change it. It shows "Easy", seven stops and "Hard". The large knob shows the mode of the current puzzle. When the puzzle is complete, the **result card** replaces the meter ([§8.3](#83-complete); owner approval 2026-11-07). |
 | Result card | Only on a complete puzzle: x 148–1471, y 1790–2110 (49 px below the board, 320 px high). The same for a left-handed and a right-handed player | The time, the comparison with the earlier results and the level buttons Easier, Same and Harder ([§8.3](#83-complete)). |
 | Menu button | Top right, circle of 38 px, center at (1563.5, 55.5) | Closed icon: dot at the bottom left. Open icon: dot at the top left. Each icon is a ring (radius 18 px, line of 3 px) and a dot (radius 4.5 px), 5.5 px left of the center and 5.5 px below it (closed) or above it (open). |
@@ -237,7 +237,43 @@ If automatic hiding is on, a tap on a micro-cell whose digit is a number in a pe
 approximately one second in that micro-cell (owner approval 2026-11-04).
 
 Digits use reMarkable Sans Regular: 104 px for numbers and 31 px for pencil marks. Starting numbers
-are black. Your numbers are dark gray (`#1E1E1E`; owner approval 2026-11-04 and 2026-11-05).
+are black. Your numbers are dark gray (`#1E1E1E`; owner approval 2026-11-04 and 2026-11-05). The
+numbers have anti-aliasing. The pencil marks have no anti-aliasing: each pixel of a mark is `gray15`
+or the pixel of the empty cell under it ([§15](#15-visual-specification); owner approval 2026-11-07).
+
+The **micro-cell lines** of an empty cell are a pattern of `gray15` and white pixels with the darkness
+of the gray that the Micro-cell lines section selects ([§10](#10-cell-colors-panel); owner approval
+2026-11-08, on the tablet). The pattern is an ordered 4×4 Bayer dither with the matrix
+`[[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]`: a pixel is `gray15` when
+`matrix × 16 + 8 <= 255 − gray` (the gray as a value from 0, black, to 255, white), else white. The
+pattern starts at the origin of each line (the first pixel of the line), thus all lines of the board
+have the same density, in all cells and in the two directions. Each line is exactly 2 px wide, on the
+pixels of a crisp line: the offset pixel (49 px or 98 px from the cell origin) and the pixel after it,
+over the full cell (147 px). No pixel of a line is a gray other than `gray15`, and no pixel has an
+intermediate value: each pixel of an empty cell with no marks is white or `gray15`. Orientation of
+the matrix (owner decision 2026-11-08): the row index of the matrix is the position along the line
+(the pixel index from the origin of the line, modulo 4), and the column index is the position across
+the line (0 for the offset pixel, 1 for the pixel after it). Thus a vertical line uses
+`matrix[dy mod 4][dx]` and a horizontal line uses `matrix[dx mod 4][dy]`, and the two directions
+sample the same 8 entries of the matrix (the columns 0 and 1: 0, 12, 3, 15 and 8, 4, 11, 7). In each
+run of 2×4 px of a line, the quantity of `gray15` pixels is the darkness of the gray, the same in the
+two directions: `gray90` 1 of 8, `gray80` 1 of 8, `gray70` 3 of 8, `gray60` 3 of 8, `gray55` 3 of 8,
+`gray50` 4 of 8, `gray45` 5 of 8, `gray40` 5 of 8 (count the entries m of the 8 with
+`m × 16 + 8 <= 255 − gray`). The pattern of a line writes only its `gray15` pixels; the other pixels
+keep what is under them (white). Thus at a crossing of a vertical and a horizontal micro-cell line (a
+2×2 px square), a pixel is `gray15` when one of the two lines has a `gray15` pixel there (the union of
+the two patterns). The disc of a swatch is the same: white first, then the `gray15` pixels of the
+pattern ([§10](#10-cell-colors-panel); owner decision 2026-11-08). The setting None gives no lines. The pattern is a function of the position in the
+line and of the darkness only: the first frame, a redraw, the snapshot tool, the bench and the videos
+give the same pixels. The dots are `gray15` and not black: with black dots, an empty cell was a pure
+black and white area, and xochitl selected its mono waveform when a color appeared in the cell (a
+written digit that clashes), thus the clash color was washed out. With `gray15` dots the clash color
+is correct, and the dots look nearly black on the panel ([§14.4](#144-launcher); owner test
+2026-11-08). The board lines (3 px and 13 px, black) have no anti-aliasing (owner approval
+2026-11-08, on the tablet). Before, each board line had one faint anti-aliased pixel (value 191 of
+255) on its right or bottom side (at offset + 2 for a 3 px line, offset + 7 for a 13 px line), and
+the ends of the border had pixels of 143. With the crisp lines these pixels are white: the black
+pixels do not change, the faint edge pixels go away.
 
 ```mermaid
 stateDiagram-v2
@@ -313,7 +349,12 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
   micro-cell before it lifts, the touch is writing, not a tap. While ink waits in a cell, each pen
   touch that starts in that cell is writing, also if it stays in one micro-cell. Thus a short stroke
   of a number (for example the bar of a 7) does not become a pencil mark (confirmed 2026-10-25).
-- A pen touch that starts on an **empty cell** shows ink from the pen down, also for a tap. A pen touch
+- A pen touch that starts on an **empty cell** shows ink from the pen down, also for a tap. The ink is
+  a black line of 5 px with round ends and joins; the ink of a tap is a dot with a radius of 2.5 px.
+  The ink has **no anti-aliasing**: each pixel of a stroke or of the dot is black or the pixel that
+  was under it, also where a stroke crosses a filled cell, also in the corpus build. The pen waveform
+  of the ink patch gives crisp pixels a smoother stroke ([§14.4](#144-launcher),
+  [§15](#15-visual-specification); owner approval 2026-11-07). A pen touch
   that starts on a **filled cell** shows no ink and starts no pen area ([§14.4](#144-launcher)). This
   includes a tap on a number and a stroke that starts on a number. A stroke that starts on an empty cell
   and crosses a filled cell still shows ink. The corpus build still logs the strokes that do not show
@@ -498,6 +539,8 @@ portrait, landscape, left-handed and right-handed. Image:
   grid of the cell stay visible and do not change. This is different from the "?", which hides the
   marks of its cell. With the micro-cell lines set to None, the x shows with no grid. After the x, the
   pixels of the cell are the same as before the x. [§15](#15-visual-specification) gives the sizes.
+- **Pixels.** The x has no anti-aliasing: each pixel that the x changes is `gray15`, the same as the
+  pencil marks. Its geometry does not change (owner approval 2026-11-07).
 - **Repeated taps.** A new refused tap removes the x at the press and shows it again at the lift. The
   time starts again. At most one x shows.
 - **No effect on the game.** The x does not change the numbers, the marks, the undo or redo history,
@@ -1365,7 +1408,16 @@ The positions, the sizes, the sections and the colors of this section have the o
   ([§9.1](#91-settings-panel)) is off, and its color stays not available for the other sections.
 - The **Micro-cell lines** section selects the gray of the micro-cell lines (§4.1). Its nine items
   are, from the top left: **None** (no lines, a white dot), then the grays 90, 80, 70, 60, 55, 50,
-  45 and 40 (ImageMagick `grayN`: N percent of white; the dot has that gray). The default is **90**.
+  45 and 40 (ImageMagick `grayN`: N percent of white). The dot of each gray item shows the pattern of
+  its gray inside its ring, the same pattern as the lines of the board ([§4.1](#41-types-of-cell)): a
+  white disc with a radius of 17.5 px inside the 19 px circle with its 2 px ring, and the pattern of
+  `gray15` dots over the white. The pattern starts at the pixel (cx − 19, cy − 19), the top left of
+  the box of the 19 px circle with the center (cx, cy): `floor(cx − 17.5) − 1` for the integer
+  centers. The disc uses the plain orientation `matrix[dy mod 4][dx mod 4]`, thus all 16 entries of
+  the matrix: its density is the quantity of entries m with `m × 16 + 8 <= 255 − gray` out of 16
+  (gray90 2, gray80 3, gray70 5, gray60 6, gray55 7, gray50 8, gray45 9, gray40 10 of 16), not the
+  density of the lines (owner decision 2026-11-08). The None dot stays white. The selected item keeps its black box and its white ring. The other four sections (the
+  colors) do not change (owner approval 2026-11-08). The default is **90**.
   All items are always available. A tap selects the gray immediately, and the board shows the new
   lines immediately. The app keeps the selection when you close the app. Images:
   [`color-menu-lines-90.png`](images/color-menu-lines-90.png) and
@@ -1748,7 +1800,8 @@ reads it each 15 ms:
   first (a number or a "?" in the cell, a change of the micro-cell lines, a panel, a dialog or a
   different screen over the cell): the redraw goes when the patch applied the stop (45 ms); the cell
   becomes filled (a Redo or a Restore): the area stops at once; a turn of the tablet stops it. The pen
-  waveform shows the pencil marks, the x and the ink of the cell (black or gray15 on white): a redraw
+  waveform shows the pencil marks, the x and the ink of the cell (exactly black or `gray15` on white:
+  these three drawings have no anti-aliasing, [§15](#15-visual-specification)): a redraw
   with only these changes in the cell goes with the area on. Thus the end of the x also goes inside
   the area, in the micro-cell. The area never covers a filled cell (owner request 2026-11-07).
 - A pen touch that starts on a filled cell starts no area ([§5.1](#51-rules); owner approval 2026-11-07).
@@ -1771,6 +1824,27 @@ reads it each 15 ms:
   changed pixels of an update in progress.
 - An update of the tablet software or of AppLoad can stop the patch. Then the window opens, but the
   ink can have gaps.
+
+**Crisp pixels in the pen area** (owner approval 2026-11-07, on the tablet). The pixel conversion of
+xochitl for the pen waveform sends gray pixels (the anti-aliased edges of a drawing) through the
+color dither of the panel. Thus the ink of the pen, the pencil marks and the x have no anti-aliasing:
+each pixel of these drawings is fully the color of the drawing (black for the ink, `gray15` for the
+marks and the x) or the pixel that was under it. The gain comes from the crisp pixels, not from a
+different waveform. The board lines and the micro-cell lines also have no anti-aliasing (owner
+approval 2026-11-08): the board lines are black on full pixels, and the micro-cell lines show the
+selected gray as a pattern of `gray15` and white pixels ([§4.1](#41-types-of-cell)). The panel has no
+gray particle: a flat gray pixel is a colored dither on the panel, and a 16×16 tile with 16 or more
+flat gray pixels loses the clean text path for the digits in it. Thus a lighter line must be a
+pattern of dark and white pixels. All other drawings keep their anti-aliasing: the numbers, the "?",
+the menu, the panels, the dialogs, the texts, the manual pages, the result card and the small boards
+of the Checkpoints panel (their mark dots stay as they are). The micro-cell lines and the swatches of
+the Micro-cell lines section ([§10](#10-cell-colors-panel)) are the only drawings that show a gray
+as a pattern. The dots of the pattern are `gray15`, not black: the display code of xochitl gives a
+rectangle that was pure black and white a mono waveform, and a color that then appears in it is
+washed out or has a wrong tint (DECISIONS.md, 2026-11-07 iteration 1 and 2026-11-08 iteration 1
+rejected). This is the behavior for all players: no setting, no
+environment variable and no file changes it, and it is the same in all four layouts, in the first
+frame, in a redraw, in the snapshot tool, in the bench and in the videos.
 
 **Stamp file** (owner decision 2026-11-01). Next to the patch, the file
 `/home/root/xovi/exthome/qt-resource-rebuilder/sudoku-penregion.json` gives the version that
@@ -1931,24 +2005,27 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 |---|---|
 | Screen | 1620×2160, 229 DPI |
 | Board | Cells of 147 px, micro-cells of 49 px, origin (148, 418) |
-| Board lines | Box and border 13 px black; cell 3 px black; micro-cell 2 px, default `gray90` (§10) |
+| Board lines | Box and border 13 px black; cell 3 px black. No anti-aliasing: each pixel is black or white. Before, each board line had one faint anti-aliased pixel (value 191 of 255) on its right or bottom side (at offset + 2 for a 3 px line, offset + 7 for a 13 px line), and the ends of the border had pixels of 143. With the crisp lines these pixels are white: the black pixels do not change, the faint edge pixels go away (§4.1; owner approval 2026-11-08) |
+| Micro-cell lines | 2 px, at 49 px and 98 px from the cell origin and the pixel after, over the full cell. A pattern of `gray15` and white pixels with the darkness of the selected gray (default `gray90`, §10): ordered 4×4 Bayer dither, matrix `[[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]`, a pixel is `gray15` when `matrix × 16 + 8 <= 255 − gray`. The pattern starts at the first pixel of each line; the row index of the matrix is the position along the line (modulo 4), the column index is the position across it (0 the offset pixel, 1 the next): `matrix[dy mod 4][dx]` for a vertical line, `matrix[dx mod 4][dy]` for a horizontal line. No other gray and no intermediate value (§4.1; owner approval 2026-11-08) |
 | Numbers | reMarkable Sans Regular 104 px; starting numbers black, your numbers dark gray (`#1E1E1E`; owner approval 2026-11-04 and 2026-11-05) |
-| Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell |
+| Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell. No anti-aliasing: each pixel is `gray15` or the pixel of the empty cell under it (owner approval 2026-11-07) |
+| Ink of the pen (§5.1) | Black line of 5 px with round ends and joins; the ink of a tap is a dot with a radius of 2.5 px. No anti-aliasing: each pixel is black or the pixel under it, also over a filled cell (§14.4; owner approval 2026-11-07) |
 | "?" | reMarkable Sans Regular 104 px, `gray25` (owner request 2026-11-07) |
-| x of a refused tap (§6.1) | Two straight lines with round ends, line width 3 px, `gray15` (the same as the pencil marks). Each line goes from -10 px to +10 px on the two axes around the center: 20×20 px between the line centers, visible extent of approximately 23×23 px. The center is the anchor point of the pencil mark of that digit: 24, 74 or 122 px from the cell origin on each axis, at the keypad position of the digit (1 at the top left, 9 at the bottom right). The x stays in its micro-cell and does not touch the cell lines. Time: the same value as the "?" (1000 ms) (owner approval 2026-11-04). |
+| x of a refused tap (§6.1) | Two straight lines with round ends, line width 3 px, `gray15` (the same as the pencil marks). Each line goes from -10 px to +10 px on the two axes around the center: 20×20 px between the line centers, visible extent of approximately 23×23 px. The center is the anchor point of the pencil mark of that digit: 24, 74 or 122 px from the cell origin on each axis, at the keypad position of the digit (1 at the top left, 9 at the bottom right). The x stays in its micro-cell and does not touch the cell lines. Time: the same value as the "?" (1000 ms) (owner approval 2026-11-04). No anti-aliasing: each changed pixel is `gray15` (owner approval 2026-11-07). |
+| Anti-aliasing | Only the ink of the pen, the pencil marks, the x, the board lines, the micro-cell lines and the icons (all icons of the app, also on the icon sheet `icons.png`; owner approval 2026-11-08) have no anti-aliasing. All other drawings have anti-aliasing: the numbers, the "?", the menu frame, the panels, the dialogs, the texts, the manual pages, the result card and the small boards of the Checkpoints panel with their mark dots. The micro-cell lines and the swatches of the Micro-cell lines section are the only drawings that show a gray as a pattern; no other gray becomes a black and white pattern (§14.4; owner approval 2026-11-07 and 2026-11-08) |
 | Highlight | The same color rules as before (§4.2). It can also show while the menu or a panel is open, on the part of the board that the panel does not cover (§6.2; owner approval 2026-11-07) |
 | Times of writing | Recognition pause 1000 ms from the pen lift. Redraw wait 1000 ms after the last stroke. A touch that starts less than 150 ms after a pen lift has no effect (§5.1, §14.4; owner approval 2026-11-07) |
 | Palette | Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue `#408CFF`, Red `#FF8E8E`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0`, Orange `#FF9A1F` (owner approval 2026-11-04 and 2026-11-05). The board, the panel dots, the manual and the images all use this palette. |
 | Default colors | Starting Gray `#AEAEAE`, clash Red `#FF8E8E`, highlight Cyan `#6FCFE6`, completed groups Green `#48D630` |
 | Background of a filled cell | First rule that applies: clash, highlight, completed, starting number, white (§4.2) |
 | UI text | reMarkable Sans Medium 25 px (menus, meter labels). The version value and the text of an update state are reMarkable Sans Regular 25 px (§9.1, §9.2). |
-| Secondary text | `gray25` (`#404040`) for all secondary text and marks: the result card text, the "?", the box labels and the column headings of Statistics and of the completed games list, the help line of the Checkpoints panel and the mark dots of the small boards, the Licenses screens (intro text, versions, the version and license line), the text rows of the update states, the pages of the manual and the labels of the icon sheet `images/icons.png`. No text uses `gray40` (`#666666`): it was hard to read on the tablet (owner request 2026-11-07). The micro-cell line setting 40 of the Cell colors panel stays (§10), and the other grays do not change. |
+| Secondary text | `gray25` (`#404040`) for all secondary text and marks: the result card text, the "?", the box labels and the column headings of Statistics and of the completed games list, the help line of the Checkpoints panel and the mark dots of the small boards, the Licenses screens (intro text, versions, the version and license line), the text rows of the update states, the pages of the manual and the labels of the icon sheet `images/icons.png`. No text uses `gray40` (`#666666`): it was hard to read on the tablet (owner request 2026-11-07). The micro-cell line setting 40 of the Cell colors panel stays (§10), and the other grays do not change. Since 2026-11-08 no pixel of the app is `gray40`: the micro-cell lines show the selected gray as a pattern of `gray15` and white (§4.1). |
 | Result card | 2 px black frame, white. Portrait: x 148–1471, y 1790–2110. Landscape: a column of 322 px, y 148–1471, x 48–370 (left-handed) or x 1790–2112 (right-handed). "Completed in" Regular 30 `gray25`; time Medium 96 (portrait) or Medium 72 (landscape), black; comparison Regular 25 `gray25`; divider 2 px `gray70`; "New game" Medium 28; level buttons with a 2 px black frame (not available: `gray80` frame, `gray70` label, no meter). §8.3 gives all positions (owner approval 2026-11-07). |
 | Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |
 | Bookmark icon | Closed line of 3 px through (-12,-18), (12,-18), (12,18), (0,8), (-12,18) from the center of top slot 5 (y 560–671). Black; white on black while its panel is open; `gray70` on a complete puzzle (owner approval 2026-11-06) |
 | Panels | 2 px black border, rows of 112 px, 2 px dividers, inner margin of 33 px |
 | Settings panel | 400 px wide (x 1108–1507 for a left-handed player in portrait). Three switch rows, the version row and, in a stable or preview build, the update row (§9.1, §9.2) |
-| Cell colors panel | 800 px wide (two columns of 400 px), three rows of 360 px, y 112–1192. x 708–1507 (left-handed, portrait), x 1248–2047 (left-handed, landscape), x 112–911 (right-handed). Vertical line of 2 px at 400 px from the left of the panel. Section title 33 px, grid 32 px from the left of the column; grid cells 112×90 px (owner approval 2026-11-04 and 2026-11-05) |
+| Cell colors panel | 800 px wide (two columns of 400 px), three rows of 360 px, y 112–1192. x 708–1507 (left-handed, portrait), x 1248–2047 (left-handed, landscape), x 112–911 (right-handed). Vertical line of 2 px at 400 px from the left of the panel. Section title 33 px, grid 32 px from the left of the column; grid cells 112×90 px (owner approval 2026-11-04 and 2026-11-05). Swatches of the Micro-cell lines section: a 19 px circle with a 2 px ring; the gray items show their pattern (§4.1) on a white disc with a radius of 17.5 px inside the ring, the pattern `matrix[dy mod 4][dx mod 4]` from the pixel (cx − 19, cy − 19); None is a white dot (§10; owner approval 2026-11-08) |
 | Checkpoints panel | 600 px wide, top at y 560. x 908–1507 (left-handed, portrait), x 1448–2047 (left-handed, landscape), x 112–711 (right-handed). White, 2 px black border. Save row of 112 px; no checkpoint: the panel ends at y 864; else rows of 180 px, the panel ends at y 672 + 180 n, at most y 1572 (§9.3; owner approval 2026-11-06) |
 | Checkpoint row | Small board of 155 px with cells of 17 px, digits Regular 14, mark dots of 2×2 px `gray25`; text Regular 25 `gray25`; button 141×71 px, text Medium 25; bin icon of the games list (§9.3; owner approval 2026-11-06) |
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
@@ -1988,11 +2065,24 @@ These items are closed:
 - **E-ink check** (closed 2026-10-25). The owner examined the faint micro-cell lines, the first
   palette and the gray icons on the device. All are clear. Later, the owner found the first palette too
   faint on the tablet and approved the palette in §15 (owner approval 2026-11-04 and 2026-11-05).
+  On 2026-11-08 the owner approved the micro-cell lines as a pattern of `gray15` dots (§4.1).
 - **Puzzle generator** (closed 2026-10-25). Refer to §14.5.
 
 ## 17. Image reference
 
-This table gives all the images in [`images/`](images/) and the sections that tell about them:
+This table gives all the images in [`images/`](images/) and the sections that tell about them. The
+images that show pencil marks or an x on the board (for example `screen-in-progress.png` and
+`screen-invalid-mark.png`) show them with no anti-aliasing, as the app draws them
+([§15](#15-visual-specification); owner decision 2026-11-07). The images that show an empty cell
+of the board, and `box.png` and `cell.png`, show the micro-cell lines as the pattern of `gray15` dots
+of [§4.1](#41-types-of-cell), and all images with the board show the crisp board lines (the faint edge
+pixels of the lines go away, [§4.1](#41-types-of-cell)), and the Cell colors panel images (`color-menu*.png`) show the swatches of the Micro-cell lines section
+with the pattern of their gray ([§10](#10-cell-colors-panel); owner approval 2026-11-08). The manual
+pages keep their gray lines (they are illustrations), except that the "helpers" pages
+(`manual-helpers.png` and `manual-helpers-landscape.png`) show a scaled picture of
+`screen-highlight.png` with pencil marks and the pattern, which changed with the screen. The manual
+scripts and the manual text do not change. The small boards of the Checkpoints panel draw no
+micro-cell lines.
 
 | Image | Section |
 |---|---|

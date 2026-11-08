@@ -903,20 +903,17 @@ fn the_secondary_gray_is_gray25_and_no_text_is_gray40() {
     // earlier images had hundreds). The antialiased edges of a darker gray have the value only at
     // single pixels. Thus no reference state (the card, the "?", Statistics, the list of completed
     // games, the Checkpoints panel, the Licenses screens, the update rows, the manual) has such a
-    // group. The only exception is the item gray40 of the Micro-cell lines section of the Cell colors
-    // panel (COL-7: a setting, not a text color).
+    // group. Since owner decision 2026-11-08 there is no exception: the item gray40 of the Micro-cell
+    // lines section of the Cell colors panel (COL-7) and the micro-cell lines show the gray as a
+    // pattern of gray15 and white pixels (BRD-9, COL-13). tests/inv_render.rs examines each pixel of
+    // the lines and of the swatches.
     assert_eq!(SECONDARY, GRAY25, "NAV-19: the secondary gray");
     let fonts = fonts();
     let gray40 = [0x66, 0x66, 0x66];
-    // The Micro-cell lines section in portrait (NAV-17: the right column, the second row), for the
-    // left hand (x 708–1507) and the right hand (x 112–911).
-    let line_section = |x: i32, y: i32| (472..833).contains(&y) && ((1108..1508).contains(&x) || (512..912).contains(&x));
     for (name, setup) in sudoku::reference::states() {
         let pm = sudoku::reference::render(&fonts, setup);
         let (w, h) = (pm.width() as i32, pm.height() as i32);
-        let core = (0..h - 1).flat_map(|y| (0..w - 1).map(move |x| (x, y))).find(|&(x, y)| {
-            (0..=1).all(|dy| (0..=1).all(|dx| rgb_at(&pm, x + dx, y + dy) == gray40)) && !(name.starts_with("color-menu") && line_section(x, y))
-        });
+        let core = (0..h - 1).flat_map(|y| (0..w - 1).map(move |x| (x, y))).find(|&(x, y)| (0..=1).all(|dy| (0..=1).all(|dx| rgb_at(&pm, x + dx, y + dy) == gray40)));
         assert_eq!(core, None, "NAV-19: {name}: a group of gray40 pixels");
     }
 }

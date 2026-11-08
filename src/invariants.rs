@@ -16,6 +16,53 @@ const _: () = assert!(WRITING_IDLE_MS == RECOGNITION_PAUSE_MS, "INP-16");
 const _: () = assert!(HAND_TOUCH_MS == 150, "INP-20");
 // NAV-19, QST-5: the secondary text and marks are gray25 (#404040).
 const _: () = assert!(crate::render::SECONDARY[0] == 0x40 && crate::render::SECONDARY[1] == 0x40 && crate::render::SECONDARY[2] == 0x40, "NAV-19");
+// MRK-19, NAV-19: the pencil marks and the x are gray15 (#262626), Regular 31 px. INP-25: the ink is
+// 5 px wide, and the dot of a tap has a radius of 2.5 px. The crisp pixels of these drawings and the
+// anti-aliasing of all other drawings (NAV-20) are pixel rules: the tests examine them.
+const _: () = assert!(crate::render::MARK_COLOR[0] == 0x26 && crate::render::MARK_COLOR[1] == 0x26 && crate::render::MARK_COLOR[2] == 0x26, "MRK-19");
+const _: () = assert!(crate::render::MARK_SIZE == 31.0, "MRK-19");
+const _: () = assert!(crate::render::INK_WIDTH == 5.0 && crate::render::INK_DOT_RADIUS == 2.5, "INP-25");
+// BRD-9: the dots of the micro-cell lines are gray15 (not black: the mono waveform), the pattern is
+// the 4x4 Bayer matrix, and each 2x4 px run of a line has the quantity of dots of its gray (the same
+// in the two directions: both sample the columns 0 and 1 of the matrix). BRD-10, BRD-11 and COL-13
+// are pixel rules: the tests examine them.
+const _: () = assert!(crate::render::LINE_DOT[0] == 0x26 && crate::render::LINE_DOT[1] == 0x26 && crate::render::LINE_DOT[2] == 0x26, "BRD-9");
+const _: () = {
+    let m = crate::render::BAYER;
+    assert!(m[0][0] == 0 && m[0][1] == 8 && m[0][2] == 2 && m[0][3] == 10, "BRD-9");
+    assert!(m[1][0] == 12 && m[1][1] == 4 && m[1][2] == 14 && m[1][3] == 6, "BRD-9");
+    assert!(m[2][0] == 3 && m[2][1] == 11 && m[2][2] == 1 && m[2][3] == 9, "BRD-9");
+    assert!(m[3][0] == 15 && m[3][1] == 7 && m[3][2] == 13 && m[3][3] == 5, "BRD-9");
+};
+const _: () = {
+    // gray90, gray80, gray70, gray60, gray55, gray50, gray45, gray40 (the order of `LineGray::ALL`
+    // after None) and the dots in each 2x4 px run.
+    let percents = [90, 80, 70, 60, 55, 50, 45, 40];
+    let dots = [1, 1, 3, 3, 3, 4, 5, 5];
+    let mut i = 0;
+    while i < 8 {
+        assert!(pattern_dots_per_run(crate::render::gray(percents[i])[0]) == dots[i], "BRD-9");
+        i += 1;
+    }
+};
+
+/// BRD-9: the quantity of gray15 pixels in a 2x4 px run of a micro-cell line of the gray `gray`
+/// (2 px across the line, 4 px along it), the same for the two directions.
+const fn pattern_dots_per_run(gray: u8) -> u32 {
+    let mut n = 0;
+    let mut along = 0;
+    while along < 4 {
+        let mut across = 0;
+        while across < 2 {
+            if crate::render::pattern_dot(gray, along, across) {
+                n += 1;
+            }
+            across += 1;
+        }
+        along += 1;
+    }
+    n
+}
 
 fn fail(rule: &str, msg: impl std::fmt::Display) -> Result<(), String> {
     Err(format!("{rule}: {msg}"))

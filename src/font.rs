@@ -112,10 +112,17 @@ impl Font {
         text.chars().map(|ch| self.advance(self.glyph(ch), s)).sum()
     }
 
-    /// Draws a text with its baseline at y. `transform` maps the result to the screen. Returns the
-    /// path of the glyphs (None: no glyph outline).
+    /// Draws a text with anti-aliasing, with its baseline at y. `transform` maps the result to the
+    /// screen. Returns the path of the glyphs (None: no glyph outline).
     #[allow(clippy::too_many_arguments)]
     pub fn draw(&self, pixmap: &mut Pixmap, size: f32, x: f32, y: f32, anchor: Anchor, text: &str, color: [u8; 3], transform: Transform) -> Option<tiny_skia::Path> {
+        self.draw_edges(pixmap, size, x, y, anchor, text, color, true, transform)
+    }
+
+    /// As `draw`, with a choice of the edges: `anti_alias` false gives a crisp text (the pencil
+    /// marks, MRK-19): each pixel is fully `color` or stays as it was.
+    #[allow(clippy::too_many_arguments)]
+    pub fn draw_edges(&self, pixmap: &mut Pixmap, size: f32, x: f32, y: f32, anchor: Anchor, text: &str, color: [u8; 3], anti_alias: bool, transform: Transform) -> Option<tiny_skia::Path> {
         let s = self.scale(size);
         let w = self.width(size, text);
         let mut pen_x = match anchor {
@@ -137,7 +144,7 @@ impl Font {
         if let Some(path) = pb.finish() {
             let mut paint = Paint::default();
             paint.set_color_rgba8(color[0], color[1], color[2], 255);
-            paint.anti_alias = true;
+            paint.anti_alias = anti_alias;
             pixmap.fill_path(&path, &paint, FillRule::Winding, transform, None);
             return Some(path);
         }

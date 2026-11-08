@@ -1,7 +1,17 @@
 //! The app draws the same pixels as the reference images in `images/` (REQUIREMENTS.md §15). The
 //! renderer (tiny-skia) and ImageMagick (FreeType) use different antialiasing. Thus a difference is
 //! permitted only on the pixels at the edge of a line or a glyph (within 1 px; 2 px for a maximum of
-//! two pixels).
+//! two pixels). There is one exception: the pencil marks are crisp drawings (MRK-19). ImageMagick
+//! draws them with the hinting of FreeType (the stems snap to full pixels), and tiny-skia has no
+//! hinting. Thus a stem of a mark can be 1 px to the side. In a micro-cell that shows a mark, a pixel
+//! that has the color of the mark (gray15, also under the veil of a dialog) in one picture and the
+//! pixel of the cell with no marks in the other picture (within 2 per channel) is not counted in the
+//! limit of 1 px (refer to `without_mark_stem_shifts`). There is a second exception: a glyph edge
+//! directly under a horizontal panel line. The two pictures can start the glyph one row apart. Then
+//! the black line above the glyph hides the edge of the glyph from the test of 1 px in the
+//! reference. A pixel is not counted in the limit of 1 px only if the two rows directly above it are
+//! black over 21 px in the two pictures (a line, not a glyph), and the app has an edge within 1 px of
+//! the pixel (refer to `without_glyph_edges_under_lines`). All other drawings keep the limits above.
 
 mod common;
 
@@ -23,6 +33,8 @@ fn limits(name: &str) -> (f64, f64) {
 
 #[test]
 fn screens_agree_with_the_reference_images() {
+    // §15, R§17, MRK-19, MRK-13, NAV-20: each reference state agrees with its image (refer to the
+    // start of this file for the limits).
     reference::use_utc();
     let fonts = fonts();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -35,9 +47,86 @@ fn screens_agree_with_the_reference_images() {
         // Each pixel that differs is at the edge of an item: no item is missing, extra or moved.
         let off2 = reference::differences_off_edges(&pm, &want, 2);
         assert!(off2.is_empty(), "{name}: pixels that differ away from all edges: {:?}", &off2[..off2.len().min(10)]);
-        let off1 = reference::differences_off_edges(&pm, &want, 1);
+        let off1 = without_mark_stem_shifts(&fonts, setup, &pm, &want, reference::differences_off_edges(&pm, &want, 1));
+        let off1 = without_glyph_edges_under_lines(&pm, &want, off1);
         assert!(off1.len() <= 2, "{name}: pixels that differ more than 1 px from an edge: {:?}", &off1[..off1.len().min(10)]);
     }
+}
+
+/// The pixels of `off` that are not only a glyph edge directly under a horizontal panel line (§15;
+/// refer to the comment at the start of this file). A pixel is removed only if the two rows directly
+/// above it are black from 10 px at its left to 10 px at its right in the two pictures (a line of the
+/// panel, the same in the two pictures), and if `ours` has an edge within 1 px of it (the luminance
+/// in the 3x3 px around it changes by more than 64, as `reference::differences_off_edges` measures).
+fn without_glyph_edges_under_lines(ours: &tiny_skia::Pixmap, want: &tiny_skia::Pixmap, off: Vec<(u32, u32)>) -> Vec<(u32, u32)> {
+    let lum = |pm: &tiny_skia::Pixmap, x: i32, y: i32| {
+        let [r, g, b] = rgb_at(pm, x, y);
+        (r as i32 * 299 + g as i32 * 587 + b as i32 * 114) / 1000
+    };
+    let (w, h) = (want.width() as i32, want.height() as i32);
+    off.into_iter()
+        .filter(|&(x, y)| {
+            let (x, y) = (x as i32, y as i32);
+            if y < 2 || y + 1 >= h || x < 10 || x + 10 >= w {
+                return true;
+            }
+            let line = (y - 2..y).all(|v| (x - 10..=x + 10).all(|u| rgb_at(ours, u, v) == [0, 0, 0] && rgb_at(want, u, v) == [0, 0, 0]));
+            let around = (y - 1..=y + 1).flat_map(|v| (x - 1..=x + 1).map(move |u| (u, v)));
+            let (lo, hi) = around.fold((255, 0), |(lo, hi), (u, v)| (lo.min(lum(ours, u, v)), hi.max(lum(ours, u, v))));
+            !(line && hi - lo > 64)
+        })
+        .collect()
+}
+
+/// The pixels of `off` that are not only a stem of a pencil mark at a different position (MRK-19,
+/// §15; refer to the comment at the start of this file). A pixel is removed only if it is in a
+/// micro-cell that shows a mark in the app (the app with the marks and the app with no marks are
+/// different in that micro-cell), and if one picture has the color of the mark there (gray15, also
+/// under the veil of a dialog) and the other picture has the pixel of the app with no marks (each
+/// within 2 per channel: the rounding of the veil). `setup` is the state of `ours`, drawn as `reference::render` does.
+fn without_mark_stem_shifts(
+    fonts: &sudoku::font::Fonts,
+    setup: reference::Setup,
+    ours: &tiny_skia::Pixmap,
+    want: &tiny_skia::Pixmap,
+    off: Vec<(u32, u32)>,
+) -> Vec<(u32, u32)> {
+    use sudoku::layout::{cell_origin, micro_offset};
+    if off.is_empty() {
+        return off;
+    }
+    let orientation = sudoku::layout::orientation();
+    sudoku::layout::set_right_handed(false);
+    let mut app = reference::app(fonts);
+    setup(&mut app);
+    app.game.marks = [[0; 9]; 9];
+    app.ui.refused = None;
+    let bare = draw_app(fonts, &app);
+    // The micro-cells that show a mark: (left, top, right, bottom), the right and the bottom excluded,
+    // and the color of the mark pixels (gray15, or gray15 under the veil of a dialog).
+    let mut micro = Vec::new();
+    for cell in cells() {
+        let (ox, oy) = cell_origin(cell);
+        for (i, j) in (0..3).flat_map(|i| (0..3).map(move |j| (i, j))) {
+            let r = (ox + micro_offset(i), oy + micro_offset(j), ox + micro_offset(i + 1), oy + micro_offset(j + 1));
+            let mark = (r.1..r.3).flat_map(|y| (r.0..r.2).map(move |x| (x, y))).find(|&(x, y)| rgb_at(ours, x, y) != rgb_at(&bare, x, y));
+            if let Some((x, y)) = mark {
+                micro.push((r, rgb_at(ours, x, y)));
+            }
+        }
+    }
+    sudoku::layout::set_right_handed(false);
+    sudoku::layout::set_orientation(orientation);
+    off.into_iter()
+        .filter(|&(x, y)| {
+            let (x, y) = (x as i32, y as i32);
+            let (p, q, b) = (rgb_at(ours, x, y), rgb_at(want, x, y), rgb_at(&bare, x, y));
+            // The veil of the app and of ImageMagick can round a gray to a different value by 1.
+            let near = |u: [u8; 3], v: [u8; 3]| u.iter().zip(v).all(|(&a, b)| (a as i32 - b as i32).abs() <= 2);
+            let shift = |dark: [u8; 3]| (near(p, dark) && near(q, b)) || (near(q, dark) && near(p, b));
+            !micro.iter().any(|&(r, dark)| x >= r.0 && x < r.2 && y >= r.1 && y < r.3 && shift(dark))
+        })
+        .collect()
 }
 
 #[test]
@@ -108,7 +197,7 @@ fn ink_shows_while_it_waits() {
 
 #[test]
 fn ink_drawn_in_parts_is_the_same_as_ink_drawn_at_once() {
-    // The platform draws the live stroke in parts while the pen moves (platform/mod.rs).
+    // INP-25: the platform draws the live stroke in parts while the pen moves (platform/mod.rs).
     let fonts = fonts();
     let stroke: Vec<(f32, f32)> = (0..40).map(|i| (320.0 + (i as f32 * 0.3).sin() * 30.0, 980.0 + i as f32 * 3.0)).collect();
     let full = reference::render(&fonts, |a| {
@@ -121,11 +210,13 @@ fn ink_drawn_in_parts_is_the_same_as_ink_drawn_at_once() {
     });
     let mut drawn = 2;
     for end in [7, 15, 16, 30, 40] {
-        sudoku::render::Canvas::new(&mut parts, &fonts).polyline(&stroke[drawn - 1..end], sudoku::render::INK_WIDTH, sudoku::render::BLACK, true);
+        // INP-25: the same crisp ink drawing as the output of the main loop (present.rs).
+        sudoku::render::Canvas::new(&mut parts, &fonts).ink(&stroke[drawn - 1..end]);
         drawn = end;
     }
-    let (mean, big) = reference::compare(&parts, &full);
-    assert!(big < 0.00002 && mean < 0.01, "mean {mean}, {big}");
+    // With no anti-aliasing, a pixel is black or not: the parts give exactly the same pixels.
+    let changed = changed_pixels(&parts, &full);
+    assert!(changed.is_empty(), "{} pixels differ, for example {:?}", changed.len(), &changed[..changed.len().min(10)]);
 }
 
 #[test]
@@ -1292,7 +1383,10 @@ fn landscape_checkpoints_menu_agrees_with_the_reference_image() {
     assert!(mean < 1.5 && big < 0.008, "mean difference {mean:.2}, {:.3}% of pixels differ", big * 100.0);
     let off2 = reference::differences_off_edges(&pm, &want, 2);
     assert!(off2.is_empty(), "pixels that differ away from all edges: {:?}", &off2[..off2.len().min(10)]);
-    let off1 = reference::differences_off_edges(&pm, &want, 1);
+    // MRK-19: the stems of the crisp marks can be 1 px to the side (refer to the start of this file).
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Landscape);
+    let off1 = without_mark_stem_shifts(&fonts, reference_setup("checkpoints-menu.png"), &pm, &want, reference::differences_off_edges(&pm, &want, 1));
+    sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
     assert!(off1.len() <= 2, "pixels that differ more than 1 px from an edge: {:?}", &off1[..off1.len().min(10)]);
 }
 
@@ -2070,4 +2164,327 @@ fn a_retained_frame_follows_each_change_of_the_symmetrical_switch() {
         }
     }
     reset_layout();
+}
+
+/// The number of different colors in the cell, inside a margin of 6 px from its borders.
+fn colors_in_cell(pm: &tiny_skia::Pixmap, cell: sudoku::game::Cell) -> usize {
+    let (ox, oy) = sudoku::layout::cell_origin(cell);
+    let mut seen = std::collections::HashSet::new();
+    for y in oy + 6..oy + sudoku::layout::CELL - 6 {
+        for x in ox + 6..ox + sudoku::layout::CELL - 6 {
+            seen.insert(rgb_at(pm, x, y));
+        }
+    }
+    seen.len()
+}
+
+#[test]
+fn the_marks_the_x_and_the_ink_are_crisp_in_each_layout() {
+    // MRK-19, MRK-13, NAV-19, INP-25, INP-22, NAV-20: the reference game with its marks, the x of
+    // screen-invalid-mark.png, the dot of a tap and a live stroke that goes from an empty cell into a
+    // filled cell. In the four layouts, with the micro-cell lines None, gray90 (default) and gray50.
+    // Each layout draws on a new thread: the first drawing has no tiles in the cache, thus it draws
+    // the board in stripes on threads (render::draw_board_stripes); the second drawing uses the tiles.
+    use sudoku::settings::LineGray;
+    let lines = [LineGray::None, LineGray::default(), LineGray::Gray50];
+    for layout in LAYOUTS {
+        for line in lines {
+            std::thread::spawn(move || {
+                let fonts = fonts();
+                set_layout(layout);
+                let what = format!("{layout:?}, {line:?}");
+                let (empty, filled) = ((4, 1), (3, 1));
+                let mut app = reference::app(&fonts);
+                app.settings.micro_line = line;
+                app.game = reference::sample_game();
+                assert!(!app.game.is_filled(empty) && app.game.is_filled(filled), "the cells of the ink");
+                app.ui.refused = Some(((1, 6), 6, 0));
+                // The first drawing (stripes) and the drawing from the tile cache are the same (NAV-20).
+                let marks = draw_app(&fonts, &app);
+                assert!(marks.data() == draw_app(&fonts, &app).data(), "{what}: the stripes and the tiles are not the same");
+                // MRK-19, MRK-13, NAV-19: each pixel that the marks and the x change is gray15.
+                let mut bare_app = reference::app(&fonts);
+                bare_app.settings.micro_line = line;
+                bare_app.game = reference::sample_game();
+                bare_app.game.marks = [[0; 9]; 9];
+                let bare = draw_app(&fonts, &bare_app);
+                let changed = changed_pixels(&marks, &bare);
+                assert!(changed.len() > 1000, "{what}: only {} pixels of marks", changed.len());
+                for &(x, y) in &changed {
+                    assert_eq!(rgb_at(&marks, x, y), sudoku::render::MARK_COLOR, "{what}: a pixel of a mark or of the x at ({x}, {y})");
+                }
+                let (ox, oy) = sudoku::layout::cell_origin((1, 6));
+                let (ax, ay) = x_center(6);
+                assert_eq!(rgb_at(&marks, ox + ax, oy + ay), sudoku::render::MARK_COLOR, "{what}: no x at its center");
+                // INP-25, INP-22: each pixel that the ink changes is black, also in the filled cell.
+                let (ex, ey) = sudoku::layout::cell_origin(empty);
+                let (fx, fy) = sudoku::layout::cell_origin(filled);
+                let (dot, a, b) = ((ex as f32 + 30.5, ey as f32 + 120.5), (ex as f32 + 100.3, ey as f32 + 100.7), (fx as f32 + 100.3, fy as f32 + 40.2));
+                app.ui.pending_ink = Some(sudoku::app::PendingInk { cell: empty, strokes: vec![vec![dot]], last_lift_at: Some(0) });
+                app.live_stroke = Some(vec![a, ((a.0 + b.0) / 2.0 + 7.0, (a.1 + b.1) / 2.0), b]);
+                let ink = draw_app(&fonts, &app);
+                let changed = changed_pixels(&ink, &marks);
+                assert!(changed.len() > 300, "{what}: only {} pixels of ink", changed.len());
+                for &(x, y) in &changed {
+                    assert_eq!(rgb_at(&ink, x, y), [0, 0, 0], "{what}: a pixel of the ink at ({x}, {y})");
+                }
+                let in_filled = |&&(x, y): &&(i32, i32)| x >= fx && x < fx + sudoku::layout::CELL && y >= fy && y < fy + sudoku::layout::CELL;
+                assert!(changed.iter().filter(in_filled).count() > 100, "{what}: the ink does not cross the filled cell");
+                assert_eq!(rgb_at(&ink, dot.0 as i32, dot.1 as i32), [0, 0, 0], "{what}: no dot");
+                // NAV-20: the numbers and the "?" keep their anti-aliasing (intermediate colors at the edges).
+                app.ui.question = Some((empty, 0));
+                app.ui.pending_ink = None;
+                app.live_stroke = None;
+                let question = draw_app(&fonts, &app);
+                for cell in [filled, (0, 0)] {
+                    assert!(app.game.is_filled(cell), "{what}: cell {cell:?} has no number");
+                    let n = colors_in_cell(&question, cell);
+                    assert!(n > 8, "{what}: the number of cell {cell:?} has only {n} colors");
+                }
+                let n = colors_in_cell(&question, empty);
+                assert!(n > 8, "{what}: the \"?\" has only {n} colors");
+            })
+            .join()
+            .unwrap();
+        }
+    }
+}
+
+#[test]
+fn the_panels_keep_their_anti_aliasing_and_the_crisp_mode_ends() {
+    // NAV-20: the text of a panel over the board keeps its anti-aliasing. A crisp drawing inside a
+    // crisp drawing gives the previous value back when it ends, and after the outer crisp drawing
+    // the canvas draws with anti-aliasing again.
+    use sudoku::font::{Anchor, Weight};
+    use sudoku::render::{Canvas, BLACK, MARK_COLOR, MARK_SIZE};
+    reference::use_utc();
+    let fonts = fonts();
+    let pm = reference::render(&fonts, reference_setup("settings-menu.png"));
+    let grays: std::collections::HashSet<[u8; 3]> =
+        pm.pixels().iter().map(|p| [p.red(), p.green(), p.blue()]).filter(|c| c[0] == c[1] && c[1] == c[2]).collect();
+    assert!(grays.len() > 50, "settings-menu.png: only {} grays", grays.len());
+
+    let colors = |pm: &tiny_skia::Pixmap, x0: i32| {
+        let mut seen = std::collections::HashSet::new();
+        for y in 0..100 {
+            for x in x0..x0 + 100 {
+                seen.insert(rgb_at(pm, x, y));
+            }
+        }
+        seen
+    };
+    let mut smooth = tiny_skia::Pixmap::new(300, 100).unwrap();
+    smooth.fill(tiny_skia::Color::WHITE);
+    Canvas::new(&mut smooth, &fonts).text(Weight::Regular, 60.0, 250.0, 50.0, Anchor::Middle, "8", BLACK);
+    let mut pm = tiny_skia::Pixmap::new(300, 100).unwrap();
+    pm.fill(tiny_skia::Color::WHITE);
+    let mut c = Canvas::new(&mut pm, &fonts);
+    c.crisp(|c| {
+        c.crisp(|c| c.text(Weight::Regular, MARK_SIZE, 50.0, 50.0, Anchor::Middle, "8", MARK_COLOR));
+        // Still crisp after the inner drawing.
+        c.text(Weight::Regular, MARK_SIZE, 150.0, 50.0, Anchor::Middle, "8", MARK_COLOR);
+    });
+    c.text(Weight::Regular, 60.0, 250.0, 50.0, Anchor::Middle, "8", BLACK);
+    let white = [255, 255, 255];
+    for x0 in [0, 100] {
+        let set = colors(&pm, x0);
+        assert!(set.len() == 2 && set.contains(&MARK_COLOR) && set.contains(&white), "mark at {x0}: {set:?}");
+    }
+    assert!(colors(&pm, 200).len() > 8, "the text after the crisp drawing has no anti-aliasing");
+    assert_eq!(colors(&pm, 200), colors(&smooth, 200), "the text after the crisp drawing is not the same");
+}
+
+/// The matrix of the pattern of the micro-cell lines, as BRD-9 gives it. The tests do not use the
+/// matrix of the app (`render::BAYER`).
+const PATTERN: [[u32; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+const GRAY15: [u8; 3] = [0x26, 0x26, 0x26];
+
+/// The darkness of each value of `micro_line` (COL-7): the n of grayN, or None.
+fn line_level(g: sudoku::settings::LineGray) -> Option<u32> {
+    use sudoku::settings::LineGray::*;
+    match g {
+        None => Option::None,
+        Gray90 => Some(90),
+        Gray80 => Some(80),
+        Gray70 => Some(70),
+        Gray60 => Some(60),
+        Gray55 => Some(55),
+        Gray50 => Some(50),
+        Gray45 => Some(45),
+        Gray40 => Some(40),
+    }
+}
+
+/// BRD-9: true if the pixel `along` px along the line from its first pixel and `across` px across it
+/// is gray15 for the gray grayN (the value (n * 255 + 50) / 100 of 255).
+fn pattern_dot(level: u32, along: i32, across: i32) -> bool {
+    let gray = (level * 255 + 50) / 100;
+    PATTERN[along.rem_euclid(4) as usize][across.rem_euclid(4) as usize] * 16 + 8 <= 255 - gray
+}
+
+/// BRD-9, BRD-10: the pixel at (dx, dy) from the origin of an empty cell with no marks. The lines are
+/// at the offsets 49 px and 98 px, 2 px wide, over the full cell. A crossing is the union of the two
+/// lines.
+fn empty_cell_pixel(level: Option<u32>, dx: i32, dy: i32) -> [u8; 3] {
+    let Some(level) = level else { return WHITE };
+    let vertical = [49, 98].iter().any(|&o| (o..o + 2).contains(&dx) && pattern_dot(level, dy, dx - o));
+    let horizontal = [49, 98].iter().any(|&o| (o..o + 2).contains(&dy) && pattern_dot(level, dx, dy - o));
+    if vertical || horizontal { GRAY15 } else { WHITE }
+}
+
+#[test]
+fn the_pattern_of_the_test_has_the_density_of_the_rule() {
+    // BRD-9: the gray15 pixels in each 2x4 px run of a line, for gray90 to gray40: 1, 1, 3, 3, 3, 4, 5,
+    // 5 of 8, in the two directions and at each start along the line. This examines the function
+    // that the snapshot tests below use.
+    let levels = [(90, 1), (80, 1), (70, 3), (60, 3), (55, 3), (50, 4), (45, 5), (40, 5)];
+    for (level, want) in levels {
+        for start in 0..147 - 4 {
+            let vertical = (start..start + 4).flat_map(|y| (49..51).map(move |x| (x, y)));
+            let n = vertical.filter(|&(x, y)| empty_cell_pixel(Some(level), x, y) == GRAY15).count();
+            // The runs that do not cross a horizontal line.
+            if !(45..53).contains(&start) && !(94..102).contains(&start) {
+                assert_eq!(n, want, "gray{level}: vertical run at {start}");
+            }
+            let horizontal = (start..start + 4).flat_map(|x| (98..100).map(move |y| (x, y)));
+            let n = horizontal.filter(|&(x, y)| empty_cell_pixel(Some(level), x, y) == GRAY15).count();
+            if !(45..53).contains(&start) && !(94..102).contains(&start) {
+                assert_eq!(n, want, "gray{level}: horizontal run at {start}");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_empty_cells_of_the_images_and_of_the_app_have_the_pattern_of_the_rule() {
+    // BRD-6, BRD-9, BRD-10, MRK-19, §15: in each reference image with empty cells, and in the app for
+    // the same state, an empty cell with no marks has the exact pixels of the rule (white, and gray15
+    // in the pattern of the gray of `micro_line`, gray90 and gray40), and each pixel of an empty cell
+    // with marks or an x is white or gray15. The cells under a panel and the 8 px at the border of
+    // each cell (the board lines) are not examined.
+    use sudoku::layout::{cell_origin, CELL};
+    reference::use_utc();
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let names = [
+        "screen.png",
+        "screen-in-progress.png",
+        "screen-invalid-mark.png",
+        "color-menu.png",
+        "color-menu-lines-90.png",
+        "color-menu-lines-40.png",
+    ];
+    for name in names {
+        let setup = reference_setup(name);
+        let pm = reference::render(&fonts, setup);
+        let want = decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
+        let mut app = reference::app(&fonts);
+        setup(&mut app);
+        reset_layout();
+        let level = line_level(app.settings.micro_line);
+        let panel = matches!(app.ui.menu, sudoku::app::Menu::Open(Some(_))).then(sudoku::layout::colors_panel);
+        let (mut exact, mut marked) = (0, 0);
+        for cell in cells() {
+            let (ox, oy) = cell_origin(cell);
+            let covered = panel.is_some_and(|p| ox < p.x1 + 3 && ox + CELL > p.x0 - 3 && oy < p.y1 + 3 && oy + CELL > p.y0 - 3);
+            if app.game.is_filled(cell) || covered {
+                continue;
+            }
+            let (r, c) = cell;
+            let refused = app.ui.refused.is_some_and(|(at, _, _)| at == cell);
+            let plain = app.game.marks[r as usize][c as usize] == 0 && !refused;
+            // The board lines (up to 7 px from the border of a cell) cover the ends of the micro-cell
+            // lines; the next test examines them.
+            for dy in 8..CELL - 8 {
+                for dx in 8..CELL - 8 {
+                    let (x, y) = (ox + dx, oy + dy);
+                    for (what, p) in [("app", rgb_at(&pm, x, y)), ("image", rgb_at(&want, x, y))] {
+                        if plain {
+                            assert_eq!(p, empty_cell_pixel(level, dx, dy), "{name}, {what}: cell {cell:?} at ({dx}, {dy})");
+                        } else {
+                            assert!(p == WHITE || p == GRAY15, "{name}, {what}: cell {cell:?} at ({dx}, {dy}) is {p:?}");
+                        }
+                    }
+                }
+            }
+            if plain { exact += 1 } else { marked += 1 }
+        }
+        assert!(exact >= 5, "{name}: only {exact} empty cells with no marks");
+        if name != "screen.png" {
+            assert!(marked >= 1, "{name}: no empty cell with marks");
+        }
+    }
+}
+
+#[test]
+fn the_board_lines_of_the_image_and_of_the_app_are_black_and_crisp() {
+    // BRD-11, BRD-10, BRD-9: screen.png shows an empty board. In the app and in the image, each pixel
+    // of the board and of its border is black, white or gray15 (no faint edge of a board line, no
+    // anti-aliased micro-cell line), and the two pictures are the same there.
+    use sudoku::layout::{board_x, board_y, BOARD_SIZE};
+    reference::use_utc();
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let pm = reference::render(&fonts, reference_setup("screen.png"));
+    let want = decode_png(&std::fs::read(root.join("images/screen.png")).unwrap());
+    let (x0, y0) = (board_x() - 12, board_y() - 12);
+    let mut black = 0;
+    for y in y0..board_y() + BOARD_SIZE + 12 {
+        for x in x0..board_x() + BOARD_SIZE + 12 {
+            let (p, q) = (rgb_at(&pm, x, y), rgb_at(&want, x, y));
+            assert!(p == [0, 0, 0] || p == WHITE || p == GRAY15, "app: ({x}, {y}) is {p:?}");
+            assert_eq!(p, q, "the app and screen.png at ({x}, {y})");
+            black += (p == [0, 0, 0]) as usize;
+        }
+    }
+    // 4 thick lines and 6 thin lines in each direction, about 1350 px long.
+    assert!(black > 2 * (4 * 13 + 6 * 3) * 1300, "only {black} black pixels");
+}
+
+#[test]
+fn the_swatches_of_the_micro_cell_lines_have_the_pattern_of_their_gray() {
+    // COL-13, BRD-9, §15: in each color menu image and in the app for the same state, the disc of each
+    // gray item has the exact pixels of the pattern of its gray (from the top left of the box of the
+    // disc, `M[dy mod 4][dx mod 4]`), the None item is a white dot, and each pixel of the disc is white
+    // or gray15. The selected item (black box, white ring) has the same disc. The pixels at the inner
+    // edge of the ring (more than 15.5 px from the center) are not examined: the ring is anti-aliased.
+    use sudoku::settings::LineGray;
+    reference::use_utc();
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let names = ["color-menu.png", "color-menu-right-handed.png", "color-menu-lines-90.png", "color-menu-lines-40.png"];
+    for name in names {
+        let setup = reference_setup(name);
+        let pm = reference::render(&fonts, setup);
+        let want = decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
+        let mut app = reference::app(&fonts);
+        setup(&mut app);
+        for g in LineGray::ALL {
+            let cell = sudoku::layout::line_gray_cell(g);
+            let (cx, cy) = (cell.x0 + sudoku::layout::COLOR_CELL / 2, cell.y0 + 30);
+            let (ox, oy) = (cx - 19, cy - 19);
+            let mut dots = 0;
+            for y in cy - 16..=cy + 16 {
+                for x in cx - 16..=cx + 16 {
+                    let d2 = (x - cx).pow(2) + (y - cy).pow(2);
+                    if d2 * 4 > 31 * 31 {
+                        continue;
+                    }
+                    let dot = line_level(g).is_some_and(|level| pattern_dot(level, y - oy, x - ox));
+                    let expected = if dot { GRAY15 } else { WHITE };
+                    dots += dot as usize;
+                    for (what, p) in [("app", rgb_at(&pm, x, y)), ("image", rgb_at(&want, x, y))] {
+                        assert_eq!(p, expected, "{name}, {what}: the swatch {g:?} at ({x}, {y})");
+                    }
+                }
+            }
+            if g != LineGray::None {
+                assert!(dots > 50, "{name}: the swatch {g:?} has only {dots} dots");
+            }
+            // The selected item keeps its black box.
+            let corner = rgb_at(&pm, cell.x0 + 2, cell.y0 + 2);
+            assert_eq!(corner == [0, 0, 0], g == app.settings.micro_line, "{name}: the box of {g:?}");
+        }
+        reset_layout();
+    }
 }

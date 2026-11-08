@@ -115,7 +115,8 @@ panel() {
 divider() { echo "stroke none fill black rectangle $PL,$1 $PR,$(($1+1))" >> $M; }
 label() { echo "stroke none fill ${4:-black} font '$UI_FONT' font-size $UI_SIZE text-anchor ${3:-start} text $1,$2 '$5'" >> $M; }
 
-# The micro-cell line grays of the last section of the color panel (settings::LineGray). None is a white dot.
+# The micro-cell line grays of the last section of the color panel (settings::LineGray). None is a white dot. Each
+# gray item shows the pattern of its gray (ui-lib.sh bayer_points) inside its ring.
 LINE_GRAYS="None:white 90:gray90 80:gray80 70:gray70 60:gray60 55:gray55 50:gray50 45:gray45 40:gray40"
 
 # color_section COL ROW TITLE ITEMS SELECTED TAKEN... : the section in column COL (0, 1) and row ROW (0-2) of the color
@@ -140,7 +141,13 @@ color_section() {
       echo "fill none stroke gray50 stroke-width 2.5 stroke-linecap round line $((cx-17)),$((cy+17)) $((cx+17)),$((cy-17))" >> $M
       label $cx $((gy+76)) middle $fg "$name"; i=$((i+1)); continue
     fi
-    echo "fill $col stroke $ring stroke-width 2 circle $cx,$cy $((cx+19)),$cy" >> $M
+    case $col in
+      gray*)  # an item of the Micro-cell lines section: a white disc with the pattern of its gray inside the ring, in a
+              # disc of radius 17.5 px. The pattern starts at the top left of the box of the disc (REQUIREMENTS.md §10).
+        echo "fill white stroke $ring stroke-width 2 circle $cx,$cy $((cx+19)),$cy" >> $M
+        bayer_points $(gray_level $col) $((cx-19)) $((cy-19)) $((cx-18)) $((cy-18)) $((cx+18)) $((cy+18)) y $cx $cy 17.5 >> $M ;;
+      *) echo "fill $col stroke $ring stroke-width 2 circle $cx,$cy $((cx+19)),$cy" >> $M ;;
+    esac
     label $cx $((gy+76)) middle $fg "$name"
     i=$((i+1))
   done
@@ -187,7 +194,7 @@ color_menu() {
   compose "$1" "$2"
 }
 color_menu screen-in-progress.png color-menu.png gray90
-# The same panel with the lightest and the darkest lines: the board below the panel has these lines.
+# The same panel with the lightest and the darkest lines: the board below the panel has the pattern of that gray.
 for g in 90 40; do
   T=$(mktemp -d)
   FAINT=gray$g sh "$(dirname "$0")/render.sh" "$T"

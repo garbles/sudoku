@@ -19,6 +19,36 @@ menu_icon() {
 # (x>=1508) does not cover the board (gap of 37 px).
 C=147; X0=$(((1620-9*C)/2)); Y0=$(((2160-9*C)/2))
 
+# The micro-cell lines of an empty cell (REQUIREMENTS.md §4.1): two vertical and two horizontal lines of 2 px, on the
+# pixels MICRO_OFF1, MICRO_OFF1+1, MICRO_OFF2 and MICRO_OFF2+1 from the cell origin, over the full cell. Each pixel of a
+# line is LINE_DOT or white, by an ordered 4x4 Bayer dither with the darkness of the selected gray: a pixel is LINE_DOT
+# when BAYER[i][j] * 16 + 8 <= 255 - gray, where gray is the level of the setting (gray90 = 230). The row index i is the
+# position along the line from its origin (the first pixel of the line), modulo 4, and the column index j is the
+# position across the line (0 for the offset pixel, 1 for the pixel after it): a vertical line with its origin at
+# (ox, oy) uses BAYER[(y-oy) mod 4][x-ox], a horizontal line uses BAYER[(x-ox) mod 4][y-oy]. The other pixels do not
+# change. The swatches of the Micro-cell lines section of the Cell colors panel show the same pattern in a disc, in the
+# plain orientation BAYER[(y-oy) mod 4][(x-ox) mod 4] from the top left of the box of the disc (toolbar.sh).
+MICRO_OFF1=49; MICRO_OFF2=98
+BAYER="0 8 2 10 12 4 14 6 3 11 1 9 15 7 13 5"
+LINE_DOT=gray15
+# gray_level grayNN : the level (0-255) of the gray, as the value of the setting (gray90 = 230, gray40 = 102)
+gray_level() { echo "${1#gray}" | awk '{ printf "%d", $1*255/100+0.5 }'; }
+# bayer_points GRAY OX OY XA YA XB YB AXIS [CX CY R] : the MVG points (fill LINE_DOT, one pixel each, no anti-aliasing)
+# of the pattern of the gray level GRAY (0-255) with its origin at (OX, OY), in the pixels XA..XB x YA..YB. AXIS is the
+# axis of the row index of the matrix: y (the plain orientation, a vertical line, the disc) or x (a horizontal line).
+# With CX CY R, only the pixels inside the disc: (x-cx)^2 + (y-cy)^2 < r^2, with x and y the integer pixel coordinates.
+bayer_points() {
+  awk -v g=$1 -v ox=$2 -v oy=$3 -v xa=$4 -v ya=$5 -v xb=$6 -v yb=$7 -v axis=$8 -v cx=$9 -v cy=${10} -v r=${11} \
+      -v m="$BAYER" -v dot=$LINE_DOT 'BEGIN{
+    split(m, b, " "); s="stroke none fill " dot
+    for (y=ya;y<=yb;y++) for (x=xa;x<=xb;x++) {
+      if (r!="" && (x-cx)^2+(y-cy)^2 >= r*r) continue
+      dy=((y-oy)%4+4)%4; dx=((x-ox)%4+4)%4
+      if (axis=="x") { i=dx; j=dy } else { i=dy; j=dx }
+      if (b[i*4+j+1]*16+8 <= 255-g) s=s sprintf(" point %d,%d", x, y) }
+    print s }'
+}
+
 # Seven difficulty modes (0-6). LEVEL is the mode of the current puzzle. The New game panel opens at the last
 # selected mode. At the first start, this is mode 2. The generator sets the techniques that each mode needs.
 STOPS=7

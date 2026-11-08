@@ -31,15 +31,52 @@ const TEXT_OFFSET_PAGE: (f32, f32) = (-0.5, -0.5);
 /// difference to the reference images.
 const STROKE_EXTRA: f32 = 0.25;
 
-/// The width of the ink of the pen (px).
+/// The width of the ink of the pen (px). The ink is a crisp drawing (INP-25): each pixel is black or
+/// the pixel that was under it.
 pub const INK_WIDTH: f32 = 5.0;
+/// The radius of the dot of a tap (px, R§5.1).
+pub const INK_DOT_RADIUS: f32 = 2.5;
 const WHITE: Rgb = [255, 255, 255];
 /// The caution icon on the gear (REQUIREMENTS.md §9.2).
 pub const CAUTION_RED: Rgb = [0xD6, 0x2D, 0x20];
 
-/// The color of the micro-cell lines (BRD-6, the setting of §10). None: no lines.
+/// The gray of the micro-cell lines (BRD-6, the setting of §10), as a value. No pixel has this gray:
+/// the lines show it as a pattern of gray15 and white pixels with its darkness (BRD-9, NAV-19). None:
+/// no lines.
 pub fn line_rgb(g: LineGray) -> Option<Rgb> {
     g.percent().map(gray)
+}
+
+/// The darkness of the micro-cell lines: the gray (0 black to 255 white) that the pattern shows
+/// (BRD-9). None: no lines.
+pub fn line_shade(g: LineGray) -> Option<u8> {
+    line_rgb(g).map(|c| c[0])
+}
+
+/// The pattern of the micro-cell lines (BRD-9): an ordered 4x4 Bayer dither. The row index is the
+/// position along the line (modulo 4), the column index is the position across it.
+pub const BAYER: [[u8; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+
+/// The color of the dots of the pattern of the micro-cell lines (BRD-9): gray15, the gray of the
+/// pencil marks. Not black: with black dots, an empty cell was a pure black and white area, and
+/// xochitl selected its mono waveform when a color appeared in the cell (R§4.1).
+pub const LINE_DOT: Rgb = MARK_COLOR;
+
+/// True if the pattern of the gray `gray` (0 to 255) has a dot (gray15) at the pixel `along` px from
+/// the first pixel of the line and `across` px from its offset pixel (BRD-9): `m * 16 + 8 <= 255 -
+/// gray` for the entry m = `BAYER[along mod 4][across mod 4]`.
+pub const fn pattern_dot(gray: u8, along: i32, across: i32) -> bool {
+    BAYER[along.rem_euclid(4) as usize][across.rem_euclid(4) as usize] as u32 * 16 + 8 <= 255 - gray as u32
+}
+
+/// The axis along which a pattern runs (BRD-9): the row index of `BAYER` is the position on this
+/// axis, and the column index is the position on the other axis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Axis {
+    /// A horizontal line: `BAYER[dx mod 4][dy]`.
+    X,
+    /// A vertical line, or the disc of a swatch: `BAYER[dy mod 4][dx]`.
+    Y,
 }
 
 /// ImageMagick grayN: N percent of white.
@@ -79,10 +116,29 @@ impl Units {
     }
 }
 
+/// The edges of a drawing (R§15 "Anti-aliasing", NAV-20).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Edges {
+    /// Anti-aliasing: a pixel at the edge of the drawing gets an intermediate color. All drawings
+    /// except the ink, the pencil marks, the x, the board lines and the micro-cell lines have these
+    /// edges.
+    Smooth,
+    /// No anti-aliasing (a crisp drawing): each pixel is fully the color of the drawing, or it stays
+    /// the pixel that was under it. The ink of the pen (INP-25), the pencil marks and the x of a
+    /// refused tap (MRK-19) and the board lines (BRD-11) have these edges: the pen waveform of the
+    /// ink patch shows them with no dither (R§14.4). The micro-cell lines are also crisp: they are a
+    /// pattern of gray15 and white pixels that `Canvas::pattern` writes (BRD-9).
+    Crisp,
+}
+
 pub struct Canvas<'a> {
     pm: &'a mut Pixmap,
     pub fonts: &'a Fonts,
     units: Units,
+    /// The edges of the next drawings. `Smooth` except inside `crisp` (NAV-20): a value of this
+    /// canvas, not of the thread or of the program, thus a new canvas on a drawing thread starts
+    /// with `Smooth`.
+    edges: Edges,
     /// The record of the frame (refer to [`FrameRecord`]). None: each drawing writes the full frame.
     record: Option<&'a mut FrameRecord>,
     /// The screen row of the first row of `pm` (not 0 only for a stripe of the board, refer to
@@ -199,7 +255,7 @@ impl FrameRecord {
     /// True if the pen waveform of the ink patch can show the change of the board cell `cell` since
     /// the last copy of the frame to the screen (R§14.4): the cell is an empty cell on the screen and
     /// in the frame, with the same micro-cell lines, thus only its pencil marks, its x or the ink
-    /// changed (black or gray15 on white, as the ink). False when the cell has a number or a "?"
+    /// changed (crisp drawings, exactly black or gray15 on white, MRK-19 and INP-25). False when the cell has a number or a "?"
     /// (gray25), when the lines changed, when a panel, a dialog or a different screen covers it, or
     /// when the record does not know the frame or the screen. Then the change needs the UI waveform.
     pub fn cell_change_shows_with_pen(&self, cell: crate::game::Cell) -> bool {
@@ -267,10 +323,11 @@ impl Known {
     }
 }
 
-fn paint(c: Rgb) -> Paint<'static> {
+/// The paint of a drawing of the color `c` with the edges `edges`.
+fn paint(c: Rgb, edges: Edges) -> Paint<'static> {
     let mut p = Paint::default();
     p.set_color_rgba8(c[0], c[1], c[2], 255);
-    p.anti_alias = true;
+    p.anti_alias = edges == Edges::Smooth;
     p
 }
 
@@ -285,13 +342,13 @@ fn stroke(w: f32, round: bool) -> Stroke {
 
 impl<'a> Canvas<'a> {
     pub fn new(pm: &'a mut Pixmap, fonts: &'a Fonts) -> Canvas<'a> {
-        Canvas { pm, fonts, units: Units::Screen, record: None, top: 0, ink: false }
+        Canvas { pm, fonts, units: Units::Screen, edges: Edges::Smooth, record: None, top: 0, ink: false }
     }
 
     /// A canvas that keeps `record` (refer to [`FrameRecord`]). All drawings on `pm` after the first
     /// drawing with `record` must use the same record.
     pub fn retained(pm: &'a mut Pixmap, record: &'a mut FrameRecord, fonts: &'a Fonts) -> Canvas<'a> {
-        Canvas { pm, fonts, units: Units::Screen, record: Some(record), top: 0, ink: false }
+        Canvas { pm, fonts, units: Units::Screen, edges: Edges::Smooth, record: Some(record), top: 0, ink: false }
     }
 
     /// Records that a drawing in the box `b` (screen px), with `margin` px more on each side, can
@@ -304,17 +361,66 @@ impl<'a> Canvas<'a> {
         }
     }
 
-    /// Draws one stroke of the ink of the pen (`INK_WIDTH`, black): a dot for one point, else a line
-    /// with round ends. The ink is not a drawing that covers a board cell (refer to
-    /// `FrameRecord::cell_change_shows_with_pen`).
+    /// The paint of the color `c` with the edges of this canvas.
+    fn paint(&self, c: Rgb) -> Paint<'static> {
+        paint(c, self.edges)
+    }
+
+    /// Calls `draw` with crisp edges (`Edges::Crisp`, no anti-aliasing), then gives the edges that
+    /// the canvas had before back (NAV-20). Thus the crisp mode is off after each drawing, and a
+    /// crisp drawing inside a crisp drawing gives the previous value back when it ends.
+    pub fn crisp(&mut self, draw: impl FnOnce(&mut Self)) {
+        let before = std::mem::replace(&mut self.edges, Edges::Crisp);
+        draw(self);
+        self.edges = before;
+    }
+
+    /// Draws one stroke of the ink of the pen (`INK_WIDTH`, black): a dot of `INK_DOT_RADIUS` for one
+    /// point, else a line with round ends and joins. The ink is a crisp drawing (INP-25): each pixel
+    /// is black or the pixel under it, also over a filled cell. The ink is not a drawing that
+    /// covers a board cell (refer to `FrameRecord::cell_change_shows_with_pen`).
     pub fn ink(&mut self, stroke: &[(f32, f32)]) {
         self.ink = true;
-        match stroke {
+        self.crisp(|c| match stroke {
             [] => {}
-            [(x, y)] => self.circle(*x, *y, 2.5, Some(BLACK), None),
-            _ => self.polyline(stroke, INK_WIDTH, BLACK, true),
-        }
+            [(x, y)] => c.circle(*x, *y, INK_DOT_RADIUS, Some(BLACK), None),
+            _ => c.polyline(stroke, INK_WIDTH, BLACK, true),
+        });
         self.ink = false;
+    }
+
+    /// Writes the dots of the pattern of the micro-cell lines (BRD-9) in the box with its top left at
+    /// (x, y) (screen px) and the size `w` x `h` px: the pixel (dx, dy) of the box, from its top left,
+    /// gets gray15 (`LINE_DOT`) when `keep(dx, dy)` is true and the pattern of the gray `gray` has a
+    /// dot there (`pattern_dot`; the position along the line is dy for `Axis::Y` and dx for
+    /// `Axis::X`). The other pixels keep what is under them, thus two patterns that cross give the
+    /// union. A direct write of pixels, with no anti-aliasing: no pixel gets an intermediate value,
+    /// and the pixels are a function of the position in the box and of the gray only (NAV-20), on
+    /// each thread (a stripe with `top`) and in each frame.
+    pub fn pattern(&mut self, x: i32, y: i32, w: i32, h: i32, along: Axis, gray: u8, keep: impl Fn(i32, i32) -> bool) {
+        debug_assert_eq!(self.units, Units::Screen, "the pattern is in screen pixels");
+        let (fw, fh, top) = (self.pm.width() as i32, self.pm.height() as i32, self.top);
+        let data = self.pm.data_mut();
+        let dot = [LINE_DOT[0], LINE_DOT[1], LINE_DOT[2], 255];
+        for dy in 0..h {
+            let row = y + dy - top;
+            if row < 0 || row >= fh {
+                continue;
+            }
+            for dx in (0..w).filter(|&dx| (0..fw).contains(&(x + dx))) {
+                let (along_px, across_px) = match along {
+                    Axis::X => (dx, dy),
+                    Axis::Y => (dy, dx),
+                };
+                if keep(dx, dy) && pattern_dot(gray, along_px, across_px) {
+                    let o = ((row * fw + x + dx) * 4) as usize;
+                    data[o..o + 4].copy_from_slice(&dot);
+                }
+            }
+        }
+        if let Some(r) = SkRect::from_ltrb(x as f32, y as f32, (x + w) as f32, (y + h) as f32) {
+            self.touched(r, 0.0);
+        }
     }
 
     /// Records that a drawing can change all pixels.
@@ -424,7 +530,7 @@ impl<'a> Canvas<'a> {
         let h = 0.5 / self.units.scale();
         if let Some(r) = SkRect::from_ltrb(x0 - h, y0 - h, x1 + h, y1 + h) {
             let tf = self.tf();
-            self.pm.fill_rect(r, &paint(c), tf, None);
+            self.pm.fill_rect(r, &self.paint(c), tf, None);
             self.touched_path(&PathBuilder::from_rect(r), tf, 0.0);
         }
     }
@@ -476,7 +582,7 @@ impl<'a> Canvas<'a> {
         if let Some(r) = SkRect::from_ltrb(x0, y0, x1, y1) {
             let path = PathBuilder::from_rect(r);
             let tf = self.tf();
-            self.pm.stroke_path(&path, &paint(c), &stroke(w, false), tf, None);
+            self.pm.stroke_path(&path, &self.paint(c), &stroke(w, false), tf, None);
             self.touched_path(&path, tf, w);
         }
     }
@@ -489,7 +595,7 @@ impl<'a> Canvas<'a> {
         }
         if let Some(path) = pb.finish() {
             let tf = self.tf();
-            self.pm.stroke_path(&path, &paint(c), &stroke(w, round), tf, None);
+            self.pm.stroke_path(&path, &self.paint(c), &stroke(w, round), tf, None);
             self.touched_path(&path, tf, w);
         }
     }
@@ -507,7 +613,7 @@ impl<'a> Canvas<'a> {
         let mut s = stroke(w, false);
         s.line_cap = LineCap::Square;
         let tf = self.tf();
-        self.pm.stroke_path(&path, &paint(c), &s, tf, None);
+        self.pm.stroke_path(&path, &self.paint(c), &s, tf, None);
         self.touched_path(&path, tf, w);
     }
 
@@ -520,10 +626,10 @@ impl<'a> Canvas<'a> {
         let Some(path) = PathBuilder::from_circle(cx, cy, r) else { return };
         let tf = self.tf();
         if let Some(f) = fill {
-            self.pm.fill_path(&path, &paint(f), FillRule::Winding, tf, None);
+            self.pm.fill_path(&path, &self.paint(f), FillRule::Winding, tf, None);
         }
         if let Some((c, w)) = line {
-            self.pm.stroke_path(&path, &paint(c), &stroke(w, true), tf, None);
+            self.pm.stroke_path(&path, &self.paint(c), &stroke(w, true), tf, None);
         }
         self.touched_path(&path, tf, line.map_or(0.0, |l| l.1));
     }
@@ -531,7 +637,7 @@ impl<'a> Canvas<'a> {
     fn path_stroke(&mut self, pb: PathBuilder, tf: Transform, w: f32, c: Rgb) {
         if let Some(path) = pb.finish() {
             let tf = tf.post_concat(self.tf());
-            self.pm.stroke_path(&path, &paint(c), &stroke(w, true), tf, None);
+            self.pm.stroke_path(&path, &self.paint(c), &stroke(w, true), tf, None);
             self.touched_path(&path, tf, w);
         }
     }
@@ -539,7 +645,7 @@ impl<'a> Canvas<'a> {
     fn path_fill(&mut self, pb: PathBuilder, tf: Transform, c: Rgb) {
         if let Some(path) = pb.finish() {
             let tf = tf.post_concat(self.tf());
-            self.pm.fill_path(&path, &paint(c), FillRule::Winding, tf, None);
+            self.pm.fill_path(&path, &self.paint(c), FillRule::Winding, tf, None);
             self.touched_path(&path, tf, 0.0);
         }
     }
@@ -550,7 +656,8 @@ impl<'a> Canvas<'a> {
         let tf = self.tf();
         let (dx, dy) = self.units.text_offset();
         let scale = self.units.scale();
-        if let Some(path) = font.draw(self.pm, size, x + dx / scale, y + dy / scale, anchor, s, c, tf) {
+        let anti_alias = self.edges == Edges::Smooth;
+        if let Some(path) = font.draw_edges(self.pm, size, x + dx / scale, y + dy / scale, anchor, s, c, anti_alias, tf) {
             self.touched_path(&path, tf, 0.0);
         }
     }
@@ -739,7 +846,8 @@ fn draw_game(c: &mut Canvas, app: &App) {
         bookmark: !app.game.completed,
     };
     put_overlay(c, menu, |c| {
-        menu_icon(c, tb_cx(), tb_cy(0), app.ui.menu.is_open(), layout::right_handed(), BLACK);
+        // The menu button is an icon: a crisp drawing (NAV-20).
+        c.crisp(|c| menu_icon(c, tb_cx(), tb_cy(0), app.ui.menu.is_open(), layout::right_handed(), BLACK));
         if let Menu::Open(panel) = app.ui.menu {
             draw_toolbar(c, app, panel);
         }
@@ -928,9 +1036,10 @@ enum CellLook {
     Value(u8, Rgb, Rgb),
     /// The "?" of a number that the app did not know (INP-7).
     Question,
-    /// An empty cell with its pencil marks, the color of its micro-cell lines (None: no lines) and the
-    /// digit of the micro-cell that shows the x of a refused tap (None: no x).
-    Empty(crate::game::Marks, Option<Rgb>, Option<u8>),
+    /// An empty cell with its pencil marks, the gray of its micro-cell lines (`LineGray::None`: no
+    /// lines; the lines show the gray as a pattern, BRD-9) and the digit of the micro-cell that shows
+    /// the x of a refused tap (None: no x).
+    Empty(crate::game::Marks, LineGray, Option<u8>),
 }
 
 impl CellLook {
@@ -1045,40 +1154,55 @@ fn mark_anchor(xf: f32, yf: f32, digit: u8) -> (f32, f32) {
     (xf + MARK_POS[i % 3], yf + MARK_POS[i / 3])
 }
 
-/// The color of the pencil marks and of the x of a refused tap (§15).
-const MARK_COLOR: Rgb = gray(15);
+/// The color of the pencil marks and of the x of a refused tap (§15). They are crisp drawings
+/// (MRK-19): each pixel of them is this color.
+pub const MARK_COLOR: Rgb = gray(15);
+/// The text size of the pencil marks (px, §15).
+pub const MARK_SIZE: f32 = 31.0;
 /// The x of a refused tap (§15, MRK-13): each line goes this distance on the two axes from the center.
 const REFUSED_X_HALF: f32 = 10.0;
 /// The line width of the x of a refused tap (§15, MRK-13).
 const REFUSED_X_WIDTH: f32 = 3.0;
 
-/// Draws one cell with its top left at (xf, yf): the background or the faint micro-cell grid, then
-/// the number, the "?" or the pencil marks and the x of a refused tap.
+/// Draws one cell with its top left at (xf, yf; integer screen px): the background or the faint
+/// micro-cell grid (a pattern, BRD-9), then the number, the "?" (with anti-aliasing) or the pencil
+/// marks and the x of a refused tap (crisp, MRK-19). The cell is drawn the same on the main thread,
+/// on a stripe thread and into a tile (NAV-20): the edges are a value of the canvas, `crisp` gives
+/// the smooth edges back, and the pattern is a function of the position in the cell only.
 fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
     let cs = CELL as f32;
     match look {
         CellLook::Value(_, bg, _) => c.rect(xf, yf, xf + cs, yf + cs, bg),
         CellLook::Question => {}
-        CellLook::Empty(_, None, _) => {}
-        CellLook::Empty(_, Some(line), _) => {
-            // The micro-cell grid of an empty cell, in the gray of the setting (BRD-6).
-            for k in 1..=2 {
-                let o = micro_offset(k) as f32;
-                c.line_butt(xf + o, yf, xf + o, yf + cs, 2.0, line);
-                c.line_butt(xf, yf + o, xf + cs, yf + o, 2.0, line);
+        CellLook::Empty(_, lines, _) => {
+            // The micro-cell grid of an empty cell (BRD-6): 2 px lines on the pixels `micro_offset(k)`
+            // and the pixel after it, over the full cell, as a pattern of gray15 and white pixels with
+            // the darkness of the gray of the setting (BRD-9). The pattern starts at the first pixel of
+            // each line: the row index of the matrix is the position along the line, the column index
+            // the position across it. A line writes only its gray15 pixels, thus a crossing is the
+            // union of the two patterns. None: no lines.
+            if let Some(shade) = line_shade(lines) {
+                let (x, y) = (xf as i32, yf as i32);
+                for k in 1..=2 {
+                    let o = micro_offset(k);
+                    c.pattern(x + o, y, 2, CELL, Axis::Y, shade, |_, _| true);
+                    c.pattern(x, y + o, CELL, 2, Axis::X, shade, |_, _| true);
+                }
             }
         }
     }
-    // Numbers: starting numbers black, your numbers `ENTRY_DIGIT` (BRD-8). Pencil marks only on empty cells
-    // (MRK-2), gray15, at their keypad positions (MRK-1).
+    // Numbers: starting numbers black, your numbers `ENTRY_DIGIT` (BRD-8), with anti-aliasing (NAV-20).
+    // Pencil marks only on empty cells (MRK-2), gray15, at their keypad positions (MRK-1).
     match look {
         CellLook::Value(v, _, col) => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, &v.to_string(), col),
         CellLook::Question => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, "?", SECONDARY),
-        CellLook::Empty(marks, _, refused) => {
+        // The marks and the x are crisp drawings (MRK-19): each pixel is gray15 or the pixel of the
+        // cell without them (white, or a gray15 dot of the grid). The background keeps its anti-aliasing.
+        CellLook::Empty(marks, _, refused) => c.crisp(|c| {
             for d in 1..=9u8 {
                 if marks & crate::game::mark_bit(d) != 0 {
                     let (cx, cy) = mark_anchor(xf, yf, d);
-                    c.text(Weight::Regular, 31.0, cx, cy + 11.0, Anchor::Middle, &d.to_string(), MARK_COLOR);
+                    c.text(Weight::Regular, MARK_SIZE, cx, cy + 11.0, Anchor::Middle, &d.to_string(), MARK_COLOR);
                 }
             }
             // MRK-13: only in its micro-cell. It does not touch the lines or the other marks, and a
@@ -1089,15 +1213,21 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
                 c.line(cx - h, cy - h, cx + h, cy + h, REFUSED_X_WIDTH, MARK_COLOR);
                 c.line(cx - h, cy + h, cx + h, cy - h, REFUSED_X_WIDTH, MARK_COLOR);
             }
-        }
+        }),
     }
 }
 
 /// The lines of the board, in the order of the drawing: the thin lines, then the thick lines. Only the
 /// lines that `keep` accepts (the index 0 to 9 and true for a vertical line). With `near`, only the
 /// part of each line near the area (x0, y0, x1, y1): the pixels of that area are the same as with the
-/// full lines, because the lines are straight and the ends of the parts are out of the area.
+/// full lines, because the lines are straight and the ends of the parts are out of the area. The
+/// lines are crisp drawings (BRD-11): black on full pixels, with no anti-aliasing.
 fn board_lines(c: &mut Canvas, keep: impl Fn(i32, bool) -> bool, near: Option<(i32, i32, i32, i32)>) {
+    c.crisp(|c| board_lines_smooth(c, keep, near));
+}
+
+/// The lines of `board_lines` with the edges of the canvas.
+fn board_lines_smooth(c: &mut Canvas, keep: impl Fn(i32, bool) -> bool, near: Option<(i32, i32, i32, i32)>) {
     let (x0, y0, b) = (board_x() as f32, board_y() as f32, BOARD_SIZE as f32);
     // The part of a line from `a` to `a + b` near the span s0..s1 (with a margin larger than the
     // ends of the thick lines).
@@ -1277,7 +1407,7 @@ fn draw_board_stripes(c: &mut Canvas, (ax, ay, aw, ah): (usize, usize, usize, us
                     let top = y0 - STRIPE_MARGIN.min(y0);
                     let mut pm = Pixmap::new(fw, (y0 - top + h + STRIPE_MARGIN) as u32).unwrap();
                     pm.fill(tiny_skia::Color::WHITE);
-                    let mut s = Canvas { pm: &mut pm, fonts, units: Units::Screen, record: None, top: top as i32, ink: false };
+                    let mut s = Canvas { pm: &mut pm, fonts, units: Units::Screen, edges: Edges::Smooth, record: None, top: top as i32, ink: false };
                     for &(cell, look) in looks {
                         let (x, y) = cell_origin(cell);
                         draw_cell(&mut s, look, x as f32, y as f32);
@@ -1371,7 +1501,7 @@ fn cell_look(g: &Game, settings: &Settings, colors: &BoardColors, overlays: Boar
         CellLook::Question
     } else {
         let refused = overlays.refused.filter(|&(x_cell, _)| x_cell == cell).map(|(_, digit)| digit);
-        CellLook::Empty(g.visible_marks(cell, settings.auto_hide_on), line_rgb(settings.micro_line), refused)
+        CellLook::Empty(g.visible_marks(cell, settings.auto_hide_on), settings.micro_line, refused)
     }
 }
 
@@ -1564,17 +1694,31 @@ fn draw_colors_panel(c: &mut Canvas, settings: &Settings) {
             } else {
                 Swatch::Available
             };
-            (color.rgb(), color.name().to_string(), state)
+            (Dot::Color(color.rgb()), color.name().to_string(), state)
         });
         color_section(c, section.panel_index(), section.title(), &items);
     }
-    // The Micro-cell lines section: "None" is a white dot.
+    // The Micro-cell lines section: the pattern of each gray on a white disc, "None" a white dot (COL-13).
     let items = LineGray::ALL.map(|g| {
         let state = if g == settings.micro_line { Swatch::Selected } else { Swatch::Available };
-        (line_rgb(g).unwrap_or(WHITE), g.name(), state)
+        (Dot::Lines(g), g.name(), state)
     });
     color_section(c, LINES_SECTION, "Micro-cell lines", &items);
 }
+
+/// The dot of an item of the Cell colors panel: all that its pixels depend on, except its state.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+enum Dot {
+    /// A color of the four color sections.
+    Color(Rgb),
+    /// An item of the Micro-cell lines section: the pattern of its gray on a white disc (COL-13), or
+    /// a white dot for `LineGray::None`.
+    Lines(LineGray),
+}
+
+/// The radius of the white disc of a swatch of the Micro-cell lines section, inside its ring
+/// (COL-13): the pattern writes only the pixels inside it.
+const SWATCH_DISC_RADIUS: f32 = 17.5;
 
 /// The state of an item in a section of the Cell colors panel.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
@@ -1588,25 +1732,26 @@ enum Swatch {
 /// One section of the Cell colors panel (toolbar.sh `color_section`): the divider above it across its
 /// column (except the first section of a column), the title, and a 3x3 grid of swatches with their names. A black box shows the
 /// selected item. A taken item has a gray ring, a gray name and a line through the dot.
-fn color_section(c: &mut Canvas, index: usize, title: &str, items: &[(Rgb, String, Swatch); 9]) {
+fn color_section(c: &mut Canvas, index: usize, title: &str, items: &[(Dot, String, Swatch); 9]) {
     let (left, top) = (layout::color_section_left(index), layout::color_section_top(index));
     if top > COLORS_TOP {
         c.rect(left as f32, top as f32, (left + COLOR_COLUMN_W - 1) as f32, (top + 1) as f32, BLACK);
     }
     c.text(Weight::Medium, 25.0, (left + 33) as f32, (top + COLOR_TITLE_Y) as f32, Anchor::Start, title, BLACK);
-    for (i, (rgb, name, state)) in items.iter().enumerate() {
+    for (i, (dot, name, state)) in items.iter().enumerate() {
         let cell = layout::color_grid_cell(index, i);
         // The panel is white under the item, and the item draws only in its cell.
-        let look = BoxLook::Swatch(*rgb, name.clone(), *state);
-        put_box(c, (cell.x0, cell.y0, cell.x1, cell.y1), look, |c| color_item(c, cell, *rgb, name, *state));
+        let look = BoxLook::Swatch(*dot, name.clone(), *state);
+        put_box(c, (cell.x0, cell.y0, cell.x1, cell.y1), look, |c| color_item(c, cell, *dot, name, *state));
     }
 }
 
 /// A drawing that the box cache keeps (refer to `put_box`): all that its pixels depend on.
 #[derive(Clone, PartialEq, Eq, Hash)]
 enum BoxLook {
-    /// An item of the Cell colors panel: its color, its name and its state.
-    Swatch(Rgb, String, Swatch),
+    /// An item of the Cell colors panel: its dot (a color, or the gray of the pattern), its name and
+    /// its state.
+    Swatch(Dot, String, Swatch),
     /// A row of the list of completed games: the date, the mode and the time.
     ListRow(String, u8, String),
     /// A row of the Checkpoints panel.
@@ -1660,8 +1805,9 @@ fn put_box(c: &mut Canvas, (x0, y0, x1, y1): (i32, i32, i32, i32), look: BoxLook
     });
 }
 
-/// One item of the Cell colors panel: the swatch, and its name below it.
-fn color_item(c: &mut Canvas, cell: Rect, rgb: Rgb, name: &str, state: Swatch) {
+/// One item of the Cell colors panel: the swatch (a 19 px circle with a 2 px ring), and its name
+/// below it. A `Dot::Lines` swatch is white, with the pattern of its gray inside the ring (COL-13).
+fn color_item(c: &mut Canvas, cell: Rect, dot: Dot, name: &str, state: Swatch) {
     let (x0, y0) = (cell.x0 as f32, cell.y0 as f32);
     // The swatch: centered in the width of the cell, above the name.
     let (cx, cy) = (x0 + (COLOR_CELL / 2) as f32, y0 + 30.0);
@@ -1673,7 +1819,26 @@ fn color_item(c: &mut Canvas, cell: Rect, rgb: Rgb, name: &str, state: Swatch) {
         Swatch::Taken => (gray(70), gray(70)),
         Swatch::Available => (BLACK, BLACK),
     };
-    c.circle(cx, cy, 19.0, Some(rgb), Some((ring, 2.0)));
+    let fill = match dot {
+        Dot::Color(rgb) => rgb,
+        Dot::Lines(_) => WHITE,
+    };
+    c.circle(cx, cy, 19.0, Some(fill), Some((ring, 2.0)));
+    if let Dot::Lines(g) = dot {
+        if let Some(shade) = line_shade(g) {
+            // COL-13: the pattern of the gray on the white disc of SWATCH_DISC_RADIUS inside the ring,
+            // from the top left of the box of the disc (`BAYER[dy mod 4][dx mod 4]`). A pixel (integer
+            // screen position, the center of the pixel in the coordinates of the canvas) is inside the
+            // disc when its distance to the center is less than the radius.
+            let r = SWATCH_DISC_RADIUS;
+            let (ox, oy) = ((cx - r).floor() as i32 - 1, (cy - r).floor() as i32 - 1);
+            let size = 2 * (r.ceil() as i32 + 1);
+            c.pattern(ox, oy, size, size, Axis::Y, shade, |dx, dy| {
+                let (px, py) = ((ox + dx) as f32 - cx, (oy + dy) as f32 - cy);
+                px * px + py * py < r * r
+            });
+        }
+    }
     if state == Swatch::Taken {
         c.line(cx - 17.0, cy + 17.0, cx + 17.0, cy - 17.0, 2.5, gray(50));
     }
@@ -2168,8 +2333,12 @@ impl Icon {
     }
 
     /// Draws the icon with its center at (cx, cy). The caution icon uses `col` for its border and its
-    /// mark.
+    /// mark. Each icon is a crisp drawing (no anti-aliasing; NAV-20, owner approval 2026-11-08).
     pub fn draw(self, c: &mut Canvas, cx: f32, cy: f32, col: Rgb) {
+        c.crisp(|c| self.draw_shapes(c, cx, cy, col));
+    }
+
+    fn draw_shapes(self, c: &mut Canvas, cx: f32, cy: f32, col: Rgb) {
         match self {
             Icon::MenuClosed | Icon::MenuOpen => menu_icon(c, cx, cy, self == Icon::MenuOpen, false, col),
             Icon::Close => {
@@ -2330,8 +2499,8 @@ mod tests {
                     let k = (cell.0 * 9 + cell.1) as usize;
                     let look = match pattern {
                         0..=8 => CellLook::Value(((k + pattern) % 9) as u8 + 1, if k.is_multiple_of(2) { WHITE } else { gray(90) }, BLACK),
-                        9 => CellLook::Empty(0x1FF, Some(gray(50)), None),
-                        10 => CellLook::Empty(0, None, Some((k % 9) as u8 + 1)),
+                        9 => CellLook::Empty(0x1FF, LineGray::Gray50, None),
+                        10 => CellLook::Empty(0, LineGray::None, Some((k % 9) as u8 + 1)),
                         _ => CellLook::Question,
                     };
                     (cell, look)

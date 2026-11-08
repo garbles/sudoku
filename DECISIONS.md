@@ -14,6 +14,12 @@ a glyph (antialiasing): all differences are within 2 px of an edge, and all exce
 pixels are within 1 px. A maximum of 0.6 % of the pixels differ by more than 25 %. The manual pages are
 the images of `images/` in the app.
 
+Since 2026-11-07, the ink of the pen, the pencil marks and the x of a refused tap have no
+anti-aliasing, in the app and in the images (REQUIREMENTS.md §15). Since 2026-11-08, the board lines
+and the micro-cell lines also have no anti-aliasing: the micro-cell lines are a pattern of `gray15`
+and white pixels with the darkness of the selected gray, and ImageMagick draws the same pattern pixel
+for pixel (REQUIREMENTS.md §4.1). All other drawings keep their anti-aliasing.
+
 In `color-menu.png`, the redo button is black. UND-7 tells that redo is black only if a redo is
 available. Thus the test makes the image state with one change that was undone.
 
@@ -1050,3 +1056,110 @@ Rejected values: none.
 
 Measured on the computer (prototype): the symmetric puzzles of all modes got to the level of their
 mode, and the slowest Hard puzzle took 23 ms.
+
+### Owner request: crisp ink, pencil marks and x (no anti-aliasing), 2026-11-07
+
+Request: after a review of the decompiled xochitl source (`.scratchpad/xochitl-source/FINDINGS.md`),
+the owner asked "can we try 1": pure black and white UI pixels, so that the display code of xochitl
+gives the rectangles a faster waveform. Epic remarkable-sudoku-ol6.
+
+**Iteration 1, rejected** (build `dev/bw-pixels`). All drawings lost their anti-aliasing, and each
+gray pixel became black or white with an ordered dither (the colors stayed). The owner examined it on
+the tablet and rejected it: the colored cells were washed out or had a wrong tint, and the close of
+the menu left a ghost over the colored cells. The owner saw no white speckles in the digits or the
+marks. Cause (inferred from the xochitl source): the display code selects a fast mono waveform for a
+rectangle whose area was pure black and white before the update; a color that then appears in such
+an area is driven by a mono waveform. Thus: **no drawing other than the ink, the marks and the x may
+lose its anti-aliasing, and no gray may become a black and white pattern.** Do not try this again.
+Correction 2026-11-08: the micro-cell lines are the exception. They show the selected gray as a
+pattern of `gray15` and white pixels (the entry of 2026-11-08, below). The dots are `gray15` and not
+black, because black dots gave an empty cell the mono waveform for a color that appeared in it. A
+full black and white interface stays rejected.
+
+**Iteration 2, approved** (build `dev/crisp-ink`, owner approval on the tablet 2026-11-07). Only the
+ink of the pen (the strokes and the dot of a tap), the pencil marks and the x of a refused tap are
+drawn with no anti-aliasing. Each pixel of these drawings is fully black (the ink) or `gray15` (the
+marks and the x), or the pixel that was under it. All other drawings keep their anti-aliasing. The
+colors, the grays and the geometry do not change. The owner examined:
+
+- Writing a digit in an empty cell: the stroke has crisp edges. "The writing is significantly
+  smoother" (the ink while the pen moves, and the mark, the x and the number after the lift).
+- A tap on a micro-cell: the pencil mark has crisp edges. A tap on a mark that a peer hides: the x
+  has crisp edges.
+- The menu and a panel over colored cells, opened and closed: "Smoother, colors correct". The colored
+  cells look as before the change. No ghost.
+
+Why it helps: the ink goes to the panel in the pen area of the ink patch with the pen waveform. The
+pixel conversion of xochitl for the pen waveform sends gray pixels (the anti-aliased edges) through
+the color dither of the panel. Pure black (and `gray15`) pixels give a cleaner stroke. The gain comes
+from the crisp pixels, not from a faster waveform.
+
+Decisions of the owner (2026-11-07):
+
+- The dot of a tap and the x are crisp too: "Crisp, as in the prototype".
+- The design images with pencil marks or an x are made again with crisp marks and x: "Make the
+  images again". The manual scripts and the manual text do not change; the "helpers" pages
+  changed only because they show a scaled picture of the screen with pencil marks.
+- This is the default behavior for all players. There is no setting, no switch, no environment
+  variable and no file that changes it (the prototype used the test switch `bw`; the final change
+  has none). It is the same in all four layouts, in the first frame, in a redraw, in the snapshot
+  tool, in the bench and in the videos.
+
+Rejected values: the full black and white interface with an ordered dither of the grays
+(iteration 1, above).
+
+### Owner request: the micro-cell grid as a dotted pattern of gray15, crisp board lines, 2026-11-08
+
+Request: "are the grids drawn with crisp? if not, can we try doing that? i'm particularly interested
+in the micro-cell grid. if we have to use dithering to achieve lighter colors then i would like to
+see it". Epic remarkable-sudoku-bzk. Background from the review of the xochitl source
+(`.scratchpad/xochitl-source/FINDINGS.md`): the panel has no gray particle. A flat gray pixel is a
+colored dither on the panel, and a 16x16 tile with 16 or more flat gray pixels loses the clean text
+path for the digits in it. Thus a lighter line must be a pattern of dark and white pixels.
+
+**Iteration 1, rejected** (build `dev/crisp-grid`, test setting `grid = dither`, black dots). The
+micro-cell lines were an ordered 4x4 Bayer pattern of black and white pixels with the darkness of
+the selected gray, relative to the screen position. The owner examined it on the tablet: "Dither is
+the one" (the grid), and "Correct" (the grid with the dithered swatches of the Cell colors panel).
+Two problems: an empty cell was a pure black and white area, and xochitl selected its mono waveform
+when a color appeared in the cell (a written digit that clashes): the clash color was washed out.
+And for gray80, 70, 55 and 45 some cells showed darker lines than their neighbors: the cell is
+147 px and the offsets 49 and 98 px are not multiples of 4, thus the pattern relative to the screen
+cut the lines at different phases.
+
+**Iteration 2, approved** (the same build, owner approval on the tablet 2026-11-08). The dots are
+`gray15` (the gray of the pencil marks), and the pattern starts at the first pixel of each line. The
+owner examined a written digit that clashes in a previously empty cell and the lines of all cells:
+"Clash color correct, lines uniform". The dots look nearly black on the panel. The swatches of the
+Micro-cell lines section show the pattern of their level inside the ring (a white disc with a radius
+of 17.5 px, the pattern from the top left of the box of the disc); the None swatch stays a white
+dot. The board lines (3 px and 13 px, black) have no anti-aliasing. Before, each board line had one faint anti-aliased pixel (value 191 of 255) on its right or bottom side (at
+offset + 2 for a 3 px line, offset + 7 for a 13 px line), and the ends of the
+border had pixels of 143. With the crisp lines these pixels are white: the black pixels do not change,
+the faint edge pixels go away. The design images get the
+same crisp board lines.
+
+Decisions of the owner (2026-11-08):
+
+- The micro-cell lines are the only drawing that shows a gray as a pattern (with their swatches).
+  The correction of the record of 2026-11-07 is above.
+- This is the default behavior for all players. There is no setting, no switch, no environment
+  variable and no file that changes it (the prototype used the test setting `grid`; the final
+  change has none). It is the same in the four layouts, in the first frame, in a redraw, in the
+  snapshot tool, in the bench and in the videos.
+- The manual pages keep their gray lines (they are illustrations); the "helpers" pages show a scaled
+  picture of the screen, which changes with the board. The small boards of the Checkpoints panel
+  draw no micro-cell lines. The pen area rule stays: a change of the micro-cell lines stops the pen
+  area and goes with the UI waveform (REQUIREMENTS.md §14.4).
+
+Rejected values: black dots (iteration 1: the clash color washed out by the mono waveform); the
+pattern relative to the screen position (iteration 1: some cells had darker lines). Not shown to the
+owner: flat gray lines with no anti-aliasing (the `crisp` variant of the test setting).
+
+The owner also reported "the writing is very choppy only in landscape mode". The same build without
+the grid pattern gave the same result, thus the grid is not the cause; a separate beads bug issue
+records it.
+
+### Owner request: crisp icons, 2026-11-08
+
+The owner asked: "can you make all of the icons render with crisp too?" The prototype (build `dev/crisp-icons`) draws each `render::Icon` with no anti-aliasing. The owner approved it on the tablet ("Correct") and asked to skip the team procedure: the images were made again (the icon sheet `icons.png` and the screens with icons), the tests pass, and NAV-20 and the §15 row "Anti-aliasing" list the icons. The ImageMagick icons of the design images keep their anti-aliasing: the snapshot tests accept the edge pixels.

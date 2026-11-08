@@ -160,20 +160,25 @@ for r, c in covered:
     out.append(f"stroke none fill {bg} rectangle {x},{y} {x+C},{y+C}")
 thin = " ".join(f"line {X0+i*C},{Y0} {X0+i*C},{Y0+9*C} line {X0},{Y0+i*C} {X0+9*C},{Y0+i*C}" for i in range(10) if i % 3)
 thick = " ".join(f"line {X0+i*C},{Y0} {X0+i*C},{Y0+9*C} line {X0},{Y0+i*C} {X0+9*C},{Y0+i*C}" for i in range(0, 10, 3))
-out.append(f"fill none stroke black stroke-width 3 {thin}")
-out.append(f"stroke-width 12 stroke-linecap square {thick}")
+# The board lines have no anti-aliasing, as render.sh: the pixels whose centers are inside the stroke are black.
+out.append(f"stroke-antialias 0 fill none stroke black stroke-width 3 {thin}")
+out.append(f"stroke-width 12 stroke-linecap square {thick} stroke-antialias 1")
 # numbers: starting numbers black, player numbers #1E1E1E
 for r, c in filled:
     x, y = X0+c*C, Y0+r*C
     color = "black" if GIVENS[r][c] != "." else PLAYER_DIGIT
     out.append(f"stroke none fill {color} font '{FONT}' font-size 104 text-anchor middle text {x+C//2},{y+111} '{grid[r][c]}'")
-# pencil marks: the possible digits of each cell with marks
+# pencil marks: the possible digits of each cell with marks. The app draws the marks with no anti-aliasing
+# (REQUIREMENTS.md §15): each pixel is gray15 or the pixel under it. All other drawings keep their anti-aliasing,
+# thus the primitive goes back to 1 after the marks.
+out.append("text-antialias 0")
 for r, c in MARKED:
     assert not grid[r][c]
     x, y = X0+c*C, Y0+r*C
     for d in candidates(r, c):
         cx, cy = mark_anchor(x, y, d)
         out.append(f"stroke none fill gray15 font '{FONT}' font-size 31 text-anchor middle text {cx},{cy+11} '{d}'")
+out.append("text-antialias 1")
 
 if MODE == "unrecognized":
     r, c = UNRECOGNIZED; x, y = X0+c*C, Y0+r*C
@@ -182,10 +187,11 @@ if MODE == "invalid-mark":
     # only the micro-cell changes: the other marks and the micro-cell lines of the cell stay
     r, c, d = INVALID_MARK
     assert not grid[r][c] and d not in candidates(r, c)
+    # The app draws the x with no anti-aliasing, as the marks: each pixel is gray15 or the pixel under it.
     cx, cy = mark_anchor(X0+c*C, Y0+r*C, d)
     h = X_HALF
-    out.append(f"fill none stroke gray15 stroke-width {X_WIDTH} stroke-linecap round "
-               f"line {cx-h},{cy-h} {cx+h},{cy+h} line {cx-h},{cy+h} {cx+h},{cy-h}")
+    out.append(f"stroke-antialias 0 fill none stroke gray15 stroke-width {X_WIDTH} stroke-linecap round "
+               f"line {cx-h},{cy-h} {cx+h},{cy+h} line {cx-h},{cy+h} {cx+h},{cy-h} stroke-antialias 1")
 if MODE == "completed":
     # the result card replaces the difficulty meter below the board (ui-lib.sh result_card, mode 2 = LEVEL)
     dy = Y0 + 9*C + 50

@@ -55,6 +55,16 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
   area one time. Thus the area must not touch the cells around the written cell.
 - **The Pen waveform cannot drive colors.** Gray and colored pixels that the Pen waveform changes get
   ghosts. Thus a redraw of the cell (the recognized digit) must wait until the Pen area stopped.
+  Pure black or gray15 pixels with no anti-aliasing give smoother ink in the pen area: the pixel
+  conversion for the Pen waveform sends gray pixels through the color dither.
+- **A full black and white UI is wrong.** With all grays dithered to black and white, xochitl chose a
+  mono waveform for the areas that were black and white before an update. The colors were washed out,
+  and a ghost stayed over the colored cells after the menu closed (owner test 2026-11-07). Thus only
+  the ink, the marks and the x are crisp (REQUIREMENTS.md §14.4). The micro-cell lines are the one
+  drawing that shows a gray as a pattern, and the dots of the pattern are gray15, not black. With
+  black dots an empty cell was a pure black and white area, and xochitl selected the mono waveform
+  when a color appeared in it (a clash): the clash color was washed out (owner test 2026-11-08).
+  Rule: a drawing must keep at least some gray pixels where a color can appear later.
 - **The pen area starts at each pen down on an empty cell, and it stays after the lift.** The
   area starts 2 to 12 ms after the pen down (measured with the area at the pen down), and the first
   ink waits until the patch applied it (45 ms). xochitl refreshes the full area when it starts, when

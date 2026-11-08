@@ -65,55 +65,170 @@ fn slot(y: i32) -> Rect {
 
 // ---- BRD-6, BRD-8, MRK-1, MRK-2: the board.
 
+// The model of the micro-cell lines and of the board lines, from the values of the documents only
+// (BRD-9, BRD-11, R§4.1, R§15). The tests compare the drawn pixels with it.
+
+/// BRD-9: the matrix of the pattern. The row index is the position along the line, the column index
+/// the position across the line.
+const PATTERN: [[u32; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
+/// BRD-9: the offsets of the micro-cell lines from the cell origin, and their width.
+const MICRO_LINES: [i32; 2] = [49, 98];
+const MICRO_WIDTH: i32 = 2;
+/// R§15: the cell size and the size of the board.
+const CELL_PX: i32 = 147;
+const BOARD_PX: i32 = 9 * CELL_PX;
+const WHITE_PX: [u8; 3] = [255, 255, 255];
+
+/// R§10, R§15: the gray of a `micro_line` value (ImageMagick grayN, N percent of white, rounded), or
+/// None.
+fn line_level(g: LineGray) -> Option<u32> {
+    let n = match g {
+        LineGray::None => return None,
+        LineGray::Gray90 => 90,
+        LineGray::Gray80 => 80,
+        LineGray::Gray70 => 70,
+        LineGray::Gray60 => 60,
+        LineGray::Gray55 => 55,
+        LineGray::Gray50 => 50,
+        LineGray::Gray45 => 45,
+        LineGray::Gray40 => 40,
+    };
+    Some((n * 255 + 50) / 100)
+}
+
+/// BRD-9: true if the pattern of the gray `level` has a gray15 pixel `along` px from the first pixel of
+/// the line and `across` px from its offset pixel.
+fn dark(level: u32, along: i32, across: i32) -> bool {
+    PATTERN[along.rem_euclid(4) as usize][across.rem_euclid(4) as usize] * 16 + 8 <= 255 - level
+}
+
+/// BRD-9, BRD-10: the pixel (dx, dy) from the origin of an empty cell with no mark, no x, no "?" and no
+/// ink, without the board lines: gray15 on a pixel of the pattern of a vertical line
+/// (`M[dy mod 4][dx - o]`) or of a horizontal line (`M[dx mod 4][dy - o]`), the union at a crossing,
+/// else white.
+fn grid_pixel(g: LineGray, dx: i32, dy: i32) -> [u8; 3] {
+    let Some(level) = line_level(g) else { return WHITE_PX };
+    let vertical = MICRO_LINES.iter().any(|&o| (o..o + MICRO_WIDTH).contains(&dx) && dark(level, dy, dx - o));
+    let horizontal = MICRO_LINES.iter().any(|&o| (o..o + MICRO_WIDTH).contains(&dy) && dark(level, dx, dy - o));
+    if vertical || horizontal { gray(15) } else { WHITE_PX }
+}
+
+/// BRD-11, R§15: true if the screen pixel (x, y) is on a board line of the board with its top left at
+/// `origin`. A line is centered on the border of a cell: 13 px (the border and the box lines) or 3 px
+/// (the cell lines). The lines go over the full board, also over the border.
+fn on_board_line(origin: (i32, i32), x: i32, y: i32) -> bool {
+    let near = |p: i32| {
+        (0..=9).any(|k| {
+            let half = if k % 3 == 0 { 6 } else { 1 };
+            (p - (k * CELL_PX)).abs() <= half
+        })
+    };
+    let (dx, dy) = (x - origin.0, y - origin.1);
+    let inside = |p: i32| (-6..=BOARD_PX + 6).contains(&p);
+    inside(dx) && inside(dy) && (near(dx) || near(dy))
+}
+
+/// The cell of the board that contains the screen pixel (x, y), and the position in the cell.
+fn cell_at(origin: (i32, i32), x: i32, y: i32) -> Option<(Cell, i32, i32)> {
+    let (dx, dy) = (x - origin.0, y - origin.1);
+    ((0..BOARD_PX).contains(&dx) && (0..BOARD_PX).contains(&dy)).then(|| (((dy / CELL_PX) as u8, (dx / CELL_PX) as u8), dx % CELL_PX, dy % CELL_PX))
+}
+
+/// BRD-9, BRD-6: the micro-cell lines of an empty cell in runs of 2 x 4 px, at the positions `along`
+/// (each run from that position, 4 px along the line) of each of the four lines. Each pixel of a run is
+/// the pixel of the pattern of `g` (white with None), and a run has the quantity of gray15 pixels of the
+/// documents. The runs are away from the crossings, thus a test can select positions away from marks.
+fn assert_grid_at(pm: &Pixmap, cell: Cell, g: LineGray, starts: &[i32], what: &str) {
+    let (x, y) = layout::cell_origin(cell);
+    for &o in &MICRO_LINES {
+        for &p in starts {
+            let (mut vertical, mut horizontal) = (0, 0);
+            for along in p..p + 4 {
+                for across in 0..MICRO_WIDTH {
+                    for (dx, dy, count) in [(o + across, along, &mut vertical), (along, o + across, &mut horizontal)] {
+                        let (px, py) = (x + dx, y + dy);
+                        let got = rgb_at(pm, px, py);
+                        assert_eq!(got, grid_pixel(g, dx, dy), "BRD-9: {what}: cell {cell:?}, {g:?}, the pixel ({px}, {py})");
+                        *count += (got == gray(15)) as usize;
+                    }
+                }
+            }
+            let want = dots_per_run(g);
+            assert_eq!((vertical, horizontal), (want, want), "BRD-9: {what}: cell {cell:?}, {g:?}, the gray15 pixels of the 2x4 runs at {o}, {p}");
+        }
+    }
+}
+
+/// BRD-9: the quantity of gray15 pixels in each 2 x 4 px run of a line, with the literal values of the
+/// documents.
+fn dots_per_run(g: LineGray) -> usize {
+    match g {
+        LineGray::None => 0,
+        LineGray::Gray90 | LineGray::Gray80 => 1,
+        LineGray::Gray70 | LineGray::Gray60 | LineGray::Gray55 => 3,
+        LineGray::Gray50 => 4,
+        LineGray::Gray45 | LineGray::Gray40 => 5,
+    }
+}
+
+/// The start positions of the runs of `assert_grid_at` that are away from the marks, the x and the
+/// board lines.
+const GRID_RUNS: [i32; 6] = [8, 40, 54, 90, 104, 135];
+
 #[test]
 fn only_empty_cells_show_the_micro_cell_grid() {
-    // BRD-6: an empty cell shows the micro-cell grid (the default gray, gray90). A filled cell does not. An empty cell
-    // with the "?" does not show the grid.
+    // BRD-6, BRD-9: an empty cell shows the micro-cell grid as the pattern of the default gray (gray90).
+    // A filled cell does not. An empty cell with the "?" does not show the grid.
     let fonts = fonts();
     let mut app = reference::app(&fonts);
     app.game = reference::sample_game();
     let question = cells().filter(|&c| !app.game.is_filled(c)).nth(3).unwrap();
     app.ui.question = Some((question, 0));
     let pm = draw_app(&app, &fonts);
-    let grid = sudoku::render::line_rgb(sudoku::settings::LineGray::default()).unwrap();
+    assert_eq!(app.settings.micro_line, LineGray::Gray90, "COL-7: the default");
     for cell in cells() {
         let (x, y) = layout::cell_origin(cell);
-        // Points on the two vertical and the two horizontal micro-cell lines, away from digits and marks.
-        let points: Vec<(i32, i32)> = (1..=2)
-            .flat_map(|k| {
-                let o = layout::micro_offset(k);
-                [(x + o, y + 20), (x + o, y + 135), (x + 20, y + o), (x + 135, y + o)]
-            })
-            .collect();
         let bg = rgb_at(&pm, x + 20, y + 20);
         if !app.game.is_filled(cell) && cell != question {
-            for &(px, py) in &points {
-                assert_eq!(rgb_at(&pm, px, py), grid, "empty cell {cell:?}: no grid line at ({px}, {py})");
-            }
+            assert_grid_at(&pm, cell, LineGray::Gray90, &GRID_RUNS, "empty cell");
         } else {
-            assert_ne!(bg, grid, "cell {cell:?}");
-            for &(px, py) in &points {
-                assert_eq!(rgb_at(&pm, px, py), bg, "filled cell or \"?\" {cell:?}: a grid line at ({px}, {py})");
+            // Points on the two vertical and the two horizontal micro-cell lines, away from digits.
+            for k in 1..=2 {
+                let o = layout::micro_offset(k);
+                for p in [20, 21, 22, 23, 132, 133, 134, 135] {
+                    for (px, py) in [(x + o, y + p), (x + o + 1, y + p), (x + p, y + o), (x + p, y + o + 1)] {
+                        assert_eq!(rgb_at(&pm, px, py), bg, "BRD-6: filled cell or \"?\" {cell:?}: a grid line at ({px}, {py})");
+                    }
+                }
             }
         }
     }
 }
 
 #[test]
-fn the_micro_cell_lines_have_the_gray_of_the_setting() {
-    // BRD-6, COL-7: the lines of an empty cell have the selected gray. With None, the cell has no lines.
+fn the_micro_cell_lines_show_the_pattern_of_the_gray_of_the_setting() {
+    // BRD-6, BRD-9, BRD-10, COL-7: each pixel of an empty cell with no marks (not on a board line) is the
+    // pattern of the selected gray: gray15 or white. With None, the cell has no lines (all white).
     let fonts = fonts();
-    for g in sudoku::settings::LineGray::ALL {
+    for g in LineGray::ALL {
         let mut app = reference::app(&fonts);
         app.game = reference::sample_game();
         app.settings.micro_line = g;
         let pm = draw_app(&app, &fonts);
-        let cell = cells().find(|&c| !app.game.is_filled(c) && app.game.marks_at(c) == 0).unwrap();
-        let (x, y) = layout::cell_origin(cell);
-        let o = layout::micro_offset(1);
-        let expect = sudoku::render::line_rgb(g).unwrap_or(rgb_at(&pm, x + 8, y + 8));
-        assert_eq!(rgb_at(&pm, x + o, y + 20), expect, "{g:?}");
-        assert_eq!(rgb_at(&pm, x + 20, y + o), expect, "{g:?}");
+        let origin = board_origin(layout::Orientation::Portrait);
+        let mut seen = 0;
+        for cell in cells().filter(|&c| !app.game.is_filled(c) && app.game.marks_at(c) == 0) {
+            seen += 1;
+            let (x, y) = layout::cell_origin(cell);
+            for dy in 0..CELL_PX {
+                for dx in 0..CELL_PX {
+                    if !on_board_line(origin, x + dx, y + dy) {
+                        assert_eq!(rgb_at(&pm, x + dx, y + dy), grid_pixel(g, dx, dy), "BRD-9, BRD-10: {g:?}, cell {cell:?}, ({dx}, {dy})");
+                    }
+                }
+            }
+        }
+        assert!(seen > 0, "the fixture has an empty cell with no marks");
     }
 }
 
@@ -159,8 +274,8 @@ fn starting_digits_are_black_and_entries_are_dark_gray() {
 
 #[test]
 fn each_mark_is_at_its_keypad_position() {
-    // MRK-1: a pen tap on micro-cell d adds only mark d. The mark shows only in micro-cell d (1 at the
-    // top left, 9 at the bottom right), as the digit d.
+    // MRK-1, MRK-19: a pen tap on micro-cell d adds only mark d. The mark shows only in micro-cell d
+    // (1 at the top left, 9 at the bottom right), as the digit d with no anti-aliasing.
     const MARK_POS: [f32; 3] = [24.0, 74.0, 122.0];
     let fonts = fonts();
     let mut d = Driver::new(71);
@@ -178,7 +293,8 @@ fn each_mark_is_at_its_keypad_position() {
         let mut want = Pixmap::new(layout::screen_w(), layout::screen_h()).unwrap();
         let mut c = Canvas::new(&mut want, &fonts);
         c.clear();
-        c.text(Weight::Regular, 31.0, xf + MARK_POS[i % 3], yf + MARK_POS[i / 3] + 11.0, Anchor::Middle, &digit.to_string(), gray(15));
+        // MRK-19: the mark is a crisp drawing (no anti-aliasing).
+        c.crisp(|c| c.text(Weight::Regular, 31.0, xf + MARK_POS[i % 3], yf + MARK_POS[i / 3] + 11.0, Anchor::Middle, &digit.to_string(), gray(15)));
         // Each micro-cell without its edges (the board lines and the micro-cell lines).
         for m in 0..9 {
             let (mx, my) = (m % 3, m / 3);
@@ -464,12 +580,25 @@ fn a_right_handed_player_has_the_toolbar_at_the_left() {
             assert_eq!(d.app.ui.menu.panel(), panel);
             let (left, right) = (draw_handed(&d.app, &fonts, false), draw_handed(&d.app, &fonts, true));
             let mirror = |x0: i32, y0: i32, x1: i32, y1: i32| (y0..y1).flat_map(move |y| (x0..x1).map(move |x| (x, y)));
-            // The menu button and the close button: mirror images. The antialiasing of a curve is not
-            // exactly symmetric, thus the edge pixels can be a small amount different.
+            // The menu button and the close button: mirror images. The icons are crisp drawings
+            // (NAV-20): where the edge of a circle goes exactly through the centers of the pixels
+            // (the 4 axis points of each ring), the rasterizer fills one side and not the other,
+            // thus a few edge pixels differ. Such a pixel has a neighbor with the other value in the
+            // same picture. At most 16 pixels differ, and all other pixels are equal.
+            let mut edge_differences = 0;
             for (x, y) in mirror(0, 0, w, layout::TB_SLOT).filter(|&(x, _)| x < layout::TB_SLOT || x >= shift) {
                 let (a, b) = (rgb_at(&right, x, y)[0], rgb_at(&left, w - 1 - x, y)[0]);
-                assert!(a.abs_diff(b) <= 32, "{o:?} {panel:?}: top row at ({x}, {y}): {a} and {b}");
+                if a == b {
+                    continue;
+                }
+                let at_edge = [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| {
+                    let (nx, ny) = (x + dx, y + dy);
+                    nx >= 0 && ny >= 0 && nx < w && ny < layout::TB_SLOT && rgb_at(&right, nx, ny)[0] != a
+                });
+                assert!(at_edge, "{o:?} {panel:?}: top row at ({x}, {y}): {a} and {b}");
+                edge_differences += 1;
             }
+            assert!(edge_differences <= 16, "{o:?} {panel:?}: {edge_differences} edge pixels differ in the top row");
             // The other toolbar slots: the same icons at the other edge.
             for (x, y) in mirror(0, layout::TB_SLOT, layout::TB_SLOT, layout::screen_h() as i32) {
                 assert_eq!(rgb_at(&right, x, y), rgb_at(&left, x + shift, y), "{o:?} {panel:?}: toolbar at ({x}, {y})");
@@ -815,16 +944,18 @@ fn differences(a: &Pixmap, b: &Pixmap) -> Vec<(i32, i32)> {
     out
 }
 
-/// MRK-13, §15: `with` is the screen `before` with one x at `center` and no other change. The pixels
-/// come from the values of the documents: a full pixel of gray15 on the lines, no change away from the
-/// lines, and a value between the two at the edge. A round end covers the full pixel at the end of
-/// the line, a butt end covers only a part of it.
+/// MRK-13, MRK-19, NAV-19, §15: `with` is the screen `before` with one x at `center` and no other
+/// change. The pixels come from the values of the documents: a full pixel of gray15 on the lines, no
+/// change away from the lines. The x has no anti-aliasing, thus a pixel at the edge is gray15 or the
+/// pixel of `before`, never an intermediate gray. A round end covers the full pixel at the end of the
+/// line, a butt end covers only a part of it.
 fn assert_only_x(fonts: &Fonts, before: &Pixmap, with: &Pixmap, center: (f32, f32), what: &str) {
     let (cx, cy) = (center.0 as i32, center.1 as i32);
     let radius = X_WIDTH / 2.0;
     let changed = differences(before, with);
     assert!(!changed.is_empty(), "{what}: the x does not show");
     for &(x, y) in &changed {
+        assert_eq!(rgb_at(with, x, y), gray(15), "MRK-13, MRK-19: {what}: the pixel ({x}, {y}) changed to a value that is not gray15");
         assert!(
             to_x(x, y, center) < radius + PIXEL_HALF_DIAGONAL,
             "{what}: the pixel ({x}, {y}) changed, away from the x at ({cx}, {cy})"
@@ -837,7 +968,7 @@ fn assert_only_x(fonts: &Fonts, before: &Pixmap, with: &Pixmap, center: (f32, f3
             if d <= radius - PIXEL_HALF_DIAGONAL {
                 assert_eq!(p, gray(15), "{what}: the pixel ({x}, {y}) is on a line of the x");
             } else {
-                assert!(p[0] >= gray(15)[0] && p[0] <= b[0] && p[0] == p[1] && p[1] == p[2], "{what}: the pixel ({x}, {y}) is {p:?} at the edge of the x, on {b:?}");
+                assert!(p == gray(15) || p == b, "MRK-19: {what}: the pixel ({x}, {y}) is {p:?} at the edge of the x, on {b:?}");
             }
         }
     }
@@ -847,13 +978,15 @@ fn assert_only_x(fonts: &Fonts, before: &Pixmap, with: &Pixmap, center: (f32, f3
     let (y0, y1) = (changed.iter().map(|p| p.1).min().unwrap(), changed.iter().map(|p| p.1).max().unwrap());
     assert_eq!((x0 + x1, y0 + y1), (2 * cx, 2 * cy), "{what}: the center of the x");
     assert_eq!((x1 - x0 + 1, y1 - y0 + 1), (23, 23), "{what}: the extent of the x");
-    // The same x from the drawing of two lines with round ends.
+    // The same x from the crisp drawing of two lines with round ends.
     let mut want = before.clone();
     let mut c = Canvas::new(&mut want, fonts);
     let h = X_HALF;
     let (fx, fy) = center;
-    c.line(fx - h, fy - h, fx + h, fy + h, X_WIDTH, gray(15));
-    c.line(fx - h, fy + h, fx + h, fy - h, X_WIDTH, gray(15));
+    c.crisp(|c| {
+        c.line(fx - h, fy - h, fx + h, fy + h, X_WIDTH, gray(15));
+        c.line(fx - h, fy + h, fx + h, fy - h, X_WIDTH, gray(15));
+    });
     assert_eq!(differences(&want, with), vec![], "{what}: not two lines with round ends");
 }
 
@@ -877,19 +1010,10 @@ fn cell_with_marks(d: &mut Driver, digit: u8, hidden: bool) -> Cell {
     cell
 }
 
-/// The grid lines of a cell (BRD-6), at points away from the marks and from the x. The cell shows the
-/// color `grid`, or no line if it is None.
-fn assert_grid(pm: &Pixmap, cell: Cell, grid: Option<[u8; 3]>, what: &str) {
-    let (x, y) = layout::cell_origin(cell);
-    let bg = rgb_at(pm, x + 8, y + 8);
-    for k in 1..=2 {
-        let o = layout::micro_offset(k);
-        for p in [8, 49 - 6, 49 + 6, 98 - 6, 98 + 6, 147 - 8] {
-            for (px, py) in [(x + o, y + p), (x + p, y + o)] {
-                assert_eq!(rgb_at(pm, px, py), grid.unwrap_or(bg), "{what}: the grid at ({px}, {py})");
-            }
-        }
-    }
+/// The grid lines of a cell (BRD-6, BRD-9), in runs away from the marks and from the x: the pattern of
+/// the gray `line`, or no line if it is None.
+fn assert_grid(pm: &Pixmap, cell: Cell, line: LineGray, what: &str) {
+    assert_grid_at(pm, cell, line, &GRID_RUNS, what);
 }
 
 /// The seed of the symmetric new game of `the_x_changes_only_its_micro_cell_in_all_layouts`. Its board
@@ -912,7 +1036,7 @@ fn the_x_changes_only_its_micro_cell_in_all_layouts() {
         assert_eq!(d.app.game.symmetric, symmetric, "DIF-5");
         for line in [LineGray::default(), LineGray::None] {
             d.app.settings.micro_line = line;
-            let grid = sudoku::render::line_rgb(line);
+            let grid = line;
             for digit in 1..=9u8 {
                 let what = format!("{o:?}, right-handed {right_handed}, symmetric {symmetric}, {line:?}, digit {digit}");
                 let cell = cell_with_marks(&mut d, digit, digit % 2 == 0);
@@ -1050,9 +1174,10 @@ fn the_x_and_the_question_mark_show_in_different_cells_with_their_own_times() {
         for (px, py) in differences(&before, &only_question) {
             assert!(px >= ax && px < ax + CELL && py >= ay && py < ay + CELL, "QST-1: {what}: the \"?\" changed the pixel ({px}, {py})");
         }
-        let (gx, gy) = (ax + layout::micro_offset(1), ay + 8);
-        assert_eq!(rgb_at(&before, gx, gy), sudoku::render::line_rgb(LineGray::default()).unwrap(), "{what}: the grid before the \"?\"");
-        assert_eq!(rgb_at(&only_question, gx, gy), rgb_at(&only_question, ax + 8, ay + 8), "QST-1: {what}: the grid of the cell of the \"?\" shows");
+        // BRD-6, BRD-9: the pattern of the grid before the "?", and no grid (white) with the "?", at the
+        // ends of the lines, away from the marks and from the "?".
+        assert_grid_at(&before, a, LineGray::default(), &[8, 135], &format!("{what}: the grid before the \"?\""));
+        assert_grid_at(&only_question, a, LineGray::None, &[8, 135], &format!("QST-1: {what}: the grid of the cell of the \"?\" shows"));
 
         // The "?" goes first, at its own time. The x stays for its own time.
         assert_eq!(d.app.next_deadline(), Some(pressed + OVERLAY_MS), "MRK-14: {what}");
@@ -1733,8 +1858,10 @@ fn each_swatch_of_the_cell_colors_panel_is_at_its_hit_area() {
             let cell = grid_cell(x0, 4, i as i32);
             let drawn = layout::line_gray_cell(g);
             assert_eq!((drawn.x0, drawn.y0, drawn.x1, drawn.y1), (cell.x0, cell.y0, cell.x1, cell.y1), "NAV-17: {what}");
-            let dot = sudoku::render::line_rgb(g).unwrap_or([255, 255, 255]);
-            assert_eq!(rgb_at(&pm, cell.x0 + 56, cell.y0 + 30), dot, "COL-7: {what}: the dot");
+            // COL-13: the center of the dot is the pixel of the pattern of its gray (white for None). The
+            // test of COL-13 examines all pixels of the dot.
+            let (cx, cy) = (cell.x0 + 56, cell.y0 + 30);
+            assert_eq!(rgb_at(&pm, cx, cy), swatch_pixel(g, (cx - 19, cy - 19), cx, cy), "COL-7, COL-13: {what}: the dot");
             for (x, y) in [(cell.x0, cell.y0), (cell.x1 - 1, cell.y1 - 1)] {
                 d.app.settings = start.clone();
                 d.finger_tap(x as f32, y as f32);
@@ -2088,5 +2215,681 @@ fn the_removal_of_a_highlight_goes_in_one_redraw_with_the_result_of_the_action()
         settle(&mut d, &mut p, &mut fb);
         assert!(cell_same(&with_number, &fb, cell), "HLT-9: {what}: the number comes in a second redraw");
         assert!(cell_same(&with_number, &fb, other), "HLT-9: {what}: the highlight goes in a second redraw");
+    }
+}
+
+// ---- MRK-19, INP-25, NAV-20: the crisp drawings (no anti-aliasing) and the anti-aliasing of all
+// other drawings.
+
+/// The offset of the anchor point of a pencil mark from the cell origin on each axis, and the offset
+/// of its baseline from the anchor point (§15, MRK-1).
+const MARK_POS: [f32; 3] = [24.0, 74.0, 122.0];
+const MARK_BASELINE: f32 = 11.0;
+
+/// The quantity of pixels in the area (x1 and y1 not included) with an intermediate value: a gray
+/// that is lighter than the darkest pixel and darker than the lightest pixel of the area. A drawing
+/// with anti-aliasing has these pixels at its edges.
+fn intermediate(pm: &Pixmap, r: Rect) -> usize {
+    let px: Vec<[u8; 3]> = (r.y0..r.y1).flat_map(|y| (r.x0..r.x1).map(move |x| (x, y))).map(|(x, y)| rgb_at(pm, x, y)).collect();
+    let lo = px.iter().map(|p| p[0]).min().unwrap();
+    let hi = px.iter().map(|p| p[0]).max().unwrap();
+    px.iter().filter(|p| p[0] == p[1] && p[1] == p[2] && p[0] > lo && p[0] < hi).count()
+}
+
+/// The area of a cell without its lines (BRD-6) and without the micro-cell lines at its edges.
+fn cell_inside(cell: Cell) -> Rect {
+    let (x, y) = layout::cell_origin(cell);
+    Rect::new(x + 4, y + 4, x + CELL - 4, y + CELL - 4)
+}
+
+/// The distance from the pixel center (x, y) to a polyline. One point, or two points that are the
+/// same, is a dot.
+fn to_polyline(x: i32, y: i32, pts: &[(f32, f32)]) -> f32 {
+    let (px, py) = (x as f32, y as f32);
+    if pts.len() == 1 {
+        return (px - pts[0].0).hypot(py - pts[0].1);
+    }
+    pts.windows(2)
+        .map(|w| if w[0] == w[1] { (px - w[0].0).hypot(py - w[0].1) } else { to_segment(px, py, w[0], w[1]) })
+        .fold(f32::MAX, f32::min)
+}
+
+#[test]
+fn the_marks_and_the_x_are_crisp_in_all_layouts_and_with_each_grid() {
+    // MRK-19, MRK-13, NAV-19, MRK-1, §15: each empty cell of the board has all its free digits as
+    // marks, and one cell has an x. In the four layouts, with the micro-cell lines of the default gray,
+    // of the darkest gray (gray40) and with `micro_line = None`: each pixel of the board is gray15 or
+    // the pixel of the same board with no marks and no x. The geometry does not change: the pixels are
+    // those of the crisp digits (Regular 31 px gray15) at the anchor points of MRK-1 and of the crisp x.
+    let fonts = fonts();
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        for line in [LineGray::default(), LineGray::Gray40, LineGray::None] {
+            let what = format!("{o:?}, right-handed {right_handed}, {line:?}");
+            let mut app = reference::app(&fonts);
+            app.game = reference::sample_game();
+            app.settings.micro_line = line;
+            for c in cells() {
+                app.game.marks[c.0 as usize][c.1 as usize] = 0;
+            }
+            let plain = draw_app(&app, &fonts);
+            let all: u16 = (1..=9u8).fold(0, |m, v| m | mark_bit(v));
+            let empty: Vec<Cell> = cells().filter(|&c| !app.game.is_filled(c)).collect();
+            for &c in &empty {
+                app.game.marks[c.0 as usize][c.1 as usize] = all;
+            }
+            let (xcell, xdigit) = refused_spot(&app.game, |_, _| true);
+            app.ui.refused = Some((xcell, xdigit, 0));
+            let with = draw_app(&app, &fonts);
+
+            let changed = differences(&plain, &with);
+            assert!(changed.len() > 1000, "{what}: the marks do not show");
+            for &(x, y) in &changed {
+                assert_eq!(rgb_at(&with, x, y), gray(15), "MRK-19, NAV-19: {what}: the pixel ({x}, {y}) is not gray15");
+                assert!(empty.iter().any(|&c| { let (cx, cy) = layout::cell_origin(c); x >= cx && x < cx + CELL && y >= cy && y < cy + CELL }), "MRK-19: {what}: the pixel ({x}, {y}) is not in an empty cell");
+            }
+
+            // The same pixels from the crisp drawings at the documented positions.
+            let mut want = plain.clone();
+            let mut c = Canvas::new(&mut want, &fonts);
+            for &cell in &empty {
+                let (x, y) = layout::cell_origin(cell);
+                let visible = app.game.visible_marks(cell, app.settings.auto_hide_on);
+                for digit in (1..=9u8).filter(|&v| visible & mark_bit(v) != 0) {
+                    let i = digit as usize - 1;
+                    let (mx, my) = (x as f32 + MARK_POS[i % 3], y as f32 + MARK_POS[i / 3] + MARK_BASELINE);
+                    c.crisp(|c| c.text(Weight::Regular, 31.0, mx, my, Anchor::Middle, &digit.to_string(), gray(15)));
+                }
+            }
+            let (fx, fy) = x_center(board_origin(o), xcell, xdigit);
+            c.crisp(|c| {
+                c.line(fx - X_HALF, fy - X_HALF, fx + X_HALF, fy + X_HALF, X_WIDTH, gray(15));
+                c.line(fx - X_HALF, fy + X_HALF, fx + X_HALF, fy - X_HALF, X_WIDTH, gray(15));
+            });
+            assert_eq!(differences(&want, &with), vec![], "MRK-19: {what}: not the crisp marks and x at their positions");
+            // The x is in its micro-cell, the micro-cell lines stay.
+            assert_grid(&with, xcell, line, &what);
+        }
+    }
+}
+
+/// INP-25: `with` is `before` with only the ink of `strokes`: each changed pixel is black, it is near
+/// a stroke, and each pixel well inside a stroke is black.
+fn assert_crisp_ink(before: &Pixmap, with: &Pixmap, strokes: &[Vec<(f32, f32)>], what: &str) {
+    let changed = differences(before, with);
+    assert!(!changed.is_empty(), "{what}: the ink does not show");
+    // The radius of the ink: 2.5 px, with the extra stroke width of the drawing.
+    let radius = 2.5 + 0.125;
+    for &(x, y) in &changed {
+        assert_eq!(rgb_at(with, x, y), BLACK, "INP-25: {what}: the pixel ({x}, {y}) of the ink is not black");
+        let d = strokes.iter().map(|s| to_polyline(x, y, s)).fold(f32::MAX, f32::min);
+        assert!(d < radius + PIXEL_HALF_DIAGONAL, "INP-25: {what}: the pixel ({x}, {y}) is away from the ink");
+    }
+    for s in strokes {
+        let (x0, y0, x1, y1) = s.iter().fold((i32::MAX, i32::MAX, i32::MIN, i32::MIN), |(a, b, c, d), &(x, y)| (a.min(x as i32), b.min(y as i32), c.max(x as i32), d.max(y as i32)));
+        for y in y0 - 6..=y1 + 6 {
+            for x in x0 - 6..=x1 + 6 {
+                let p = rgb_at(with, x, y);
+                assert!(p == BLACK || p == rgb_at(before, x, y), "INP-25: {what}: the pixel ({x}, {y}) is {p:?}, not black and not the pixel under the ink");
+                if to_polyline(x, y, s) <= 2.5 - PIXEL_HALF_DIAGONAL {
+                    assert_eq!(p, BLACK, "INP-25: {what}: the pixel ({x}, {y}) is in the ink");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_ink_is_crisp_also_over_a_filled_cell_in_all_layouts() {
+    // INP-25, INP-22, §15: a stroke that starts in an empty cell and crosses a filled cell, while the
+    // pen writes and after the lift, and the dot of a tap at the press. Each pixel of the ink is black
+    // or the pixel under it, in the four layouts.
+    let fonts = fonts();
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let what = format!("{o:?}, right-handed {right_handed}");
+        let mut d = Driver::new(90);
+        let a = cells().find(|&(r, c)| c < 8 && !d.app.game.is_filled((r, c)) && d.app.game.is_filled((r, c + 1))).expect("an empty cell next to a filled cell");
+        let (ax, ay) = exact_center(Rect::new(layout::cell_origin(a).0, layout::cell_origin(a).1, layout::cell_origin(a).0 + CELL, layout::cell_origin(a).1 + CELL));
+        // From the empty cell into the filled cell at its right, down, and back: the points are not
+        // on whole pixels.
+        let mut stroke: Vec<(f32, f32)> = (0..16).map(|i| (ax + 0.3 + i as f32 * 10.0, ay + 0.6 + i as f32 * 1.7)).collect();
+        let (lx, ly) = *stroke.last().unwrap();
+        stroke.extend((1..6).map(|i| (lx - i as f32 * 7.0, ly + i as f32 * 9.0)));
+
+        d.send(Input::PenDown { x: stroke[0].0, y: stroke[0].1, tool: Tool::Pen });
+        assert_crisp_ink(&draw_app(&without_ink(&d), &fonts), &draw_app(&d.app, &fonts), &[stroke[..1].to_vec()], &format!("{what}: the dot at the press"));
+        for p in &stroke[1..] {
+            d.send(Input::PenMove { x: p.0, y: p.1 });
+        }
+        assert!(d.app.live_stroke.is_some(), "{what}: the stroke is live");
+        assert_crisp_ink(&draw_app(&without_ink(&d), &fonts), &draw_app(&d.app, &fonts), &[stroke.clone()], &format!("{what}: the live stroke"));
+        let last = *stroke.last().unwrap();
+        d.send(Input::PenUp { x: last.0, y: last.1 });
+        assert_eq!(d.app.ui.pending_ink.as_ref().map(|i| i.cell), Some(a), "INP-22: {what}: the ink waits in the cell where it starts");
+        // A dot: one point in the same cell, a second stroke of the same ink.
+        let dot = (ax - 30.4, ay - 40.7);
+        d.send(Input::PenDown { x: dot.0, y: dot.1, tool: Tool::Pen });
+        d.send(Input::PenUp { x: dot.0, y: dot.1 });
+        let strokes: Vec<Vec<(f32, f32)>> = d.app.ui.pending_ink.as_ref().unwrap().strokes.iter().map(|s| s.to_vec()).collect();
+        assert_eq!(strokes.len(), 2, "{what}: the stroke and the dot wait");
+        assert_crisp_ink(&draw_app(&without_ink(&d), &fonts), &draw_app(&d.app, &fonts), &strokes, &format!("{what}: the waiting ink"));
+    }
+}
+
+#[test]
+fn a_crisp_drawing_ends_with_the_drawing() {
+    // NAV-20, INP-25, MRK-19: on one canvas, a number after the ink, after a crisp drawing and after a
+    // crisp drawing inside a crisp drawing has its anti-aliasing. Inside the outer crisp drawing, the
+    // end of the inner one keeps the crisp mode (the previous value).
+    let fonts = fonts();
+    let mut pm = Pixmap::new(400, 200).unwrap();
+    let mut c = Canvas::new(&mut pm, &fonts);
+    c.clear();
+    let digit = |c: &mut Canvas, x: f32| c.text(Weight::Regular, 100.0, x, 150.0, Anchor::Middle, "8", BLACK);
+    let area = |x: i32| Rect::new(x - 50, 40, x + 50, 190);
+    digit(&mut c, 50.0);
+    c.ink(&[(10.0, 10.0), (390.0, 20.0)]);
+    c.ink(&[(200.0, 30.0)]);
+    digit(&mut c, 150.0);
+    c.crisp(|c| {
+        c.crisp(|c| c.line(0.0, 5.0, 400.0, 5.0, 3.0, gray(15)));
+        digit(c, 250.0);
+    });
+    digit(&mut c, 350.0);
+    drop(c);
+    assert!(intermediate(&pm, area(50)) > 20, "NAV-20: the number has no anti-aliasing");
+    assert!(intermediate(&pm, area(150)) > 20, "NAV-20: the crisp mode stays on after the ink");
+    assert_eq!(intermediate(&pm, area(250)), 0, "NAV-20: the end of the inner crisp drawing ends the outer one");
+    assert!(intermediate(&pm, area(350)) > 20, "NAV-20: the crisp mode stays on after a crisp drawing");
+    // The two smooth numbers are the same pixels.
+    for y in 40..190 {
+        for x in 0..100 {
+            assert_eq!(rgb_at(&pm, x, y), rgb_at(&pm, x + 100, y), "NAV-20: the number after the ink at ({}, {y})", x + 100);
+        }
+    }
+}
+
+#[test]
+fn numbers_question_marks_and_panels_keep_their_anti_aliasing_in_the_first_frame_and_in_a_redraw() {
+    // NAV-20, INP-25, MRK-19: the real output (`present.rs`). The first frame (a full drawing in
+    // stripes on the drawing threads) and each retained redraw after a mark, an x, ink and a "?" show
+    // the numbers, the "?" and the text of a panel with anti-aliasing. The ink that the presenter
+    // draws alone is crisp. At the end, the frame is the same as a full drawing on a new thread.
+    use sudoku::present::Presenter;
+    let fonts = fonts();
+    let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
+    let mut d = Driver::new(91);
+    let mut p = Presenter::new();
+    let mut fb = vec![0u8; w * h * 3];
+    let settle = |d: &mut Driver, p: &mut Presenter, fb: &mut Vec<u8>| {
+        for _ in 0..12 {
+            d.now += 30;
+            d.app.tick(d.now);
+            p.present(&mut d.app, &fonts, fb, d.now, |_| {});
+        }
+    };
+    let given = given_cell(&d.app.game);
+    let check_number = |p: &Presenter, what: &str| {
+        assert!(intermediate(p.frame(), cell_inside(given)) > 20, "NAV-20: {what}: the number of {given:?} has no anti-aliasing");
+    };
+    p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+    check_number(&p, "the first frame");
+
+    // A mark and an x.
+    let m = empty_cell(&d.app.game);
+    let free = (1..=9u8).find(|&v| peer_numbers(&d.app.game, m) & mark_bit(v) == 0).unwrap();
+    d.tap_micro(m, free);
+    assert_ne!(d.app.game.marks_at(m), 0);
+    let (xc, xd) = refused_spot(&d.app.game, |_, _| true);
+    d.tap_micro(xc, xd);
+    assert!(d.app.ui.refused.is_some());
+    p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+    check_number(&p, "the redraw with a mark and an x");
+    // The end of the x (MRK-14), thus only the ink changes the frame below.
+    d.wait(OVERLAY_MS);
+    assert_eq!(d.app.ui.refused, None);
+    settle(&mut d, &mut p, &mut fb);
+
+    // Ink that the presenter draws alone (crisp), then the "?" in a redraw.
+    let q = cells().find(|&c| !d.app.game.is_filled(c) && c != m && c != xc).unwrap();
+    let before = p.frame().clone();
+    let ink = scribble_ink(q);
+    for s in &ink {
+        d.send(Input::PenDown { x: s[0].0, y: s[0].1, tool: Tool::Pen });
+        p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+        for pt in &s[1..] {
+            d.send(Input::PenMove { x: pt.0, y: pt.1 });
+            p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+        }
+        let last = s[s.len() - 1];
+        d.send(Input::PenUp { x: last.0, y: last.1 });
+        p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+    }
+    let board = Rect::new(layout::cell_origin((0, 0)).0, layout::cell_origin((0, 0)).1, layout::cell_origin((8, 8)).0 + CELL, layout::cell_origin((8, 8)).1 + CELL);
+    let mut ink_pixels = 0;
+    for (x, y) in differences(&before, p.frame()) {
+        if x >= board.x0 && x < board.x1 && y >= board.y0 && y < board.y1 {
+            assert_eq!(rgb_at(p.frame(), x, y), BLACK, "INP-25: the pixel ({x}, {y}) of the ink in the frame");
+            ink_pixels += 1;
+        }
+    }
+    assert!(ink_pixels > 100, "INP-25: the ink is not in the frame");
+    check_number(&p, "after the ink");
+    d.wait(d.app.pause_ms + 50);
+    assert_eq!(d.app.ui.question.map(|q| q.0), Some(q), "QST-1: the scribble gives a \"?\"");
+    p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+    assert!(intermediate(p.frame(), cell_inside(q)) > 20, "NAV-20: the \"?\" has no anti-aliasing");
+    check_number(&p, "the redraw with the \"?\"");
+    settle(&mut d, &mut p, &mut fb);
+
+    // The Settings panel: its text.
+    d.button(Button::Menu);
+    d.button(Button::Settings);
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings));
+    settle(&mut d, &mut p, &mut fb);
+    let (x0, x1) = documented_settings_x();
+    let y0 = documented_settings_row_y(0);
+    assert!(intermediate(p.frame(), Rect::new(x0 + 4, y0 + 4, x1 - 4, y0 + 108)) > 20, "NAV-20: the text of the Settings panel has no anti-aliasing");
+    check_number(&p, "the redraw with the panel");
+
+    // The frame of the redraws is the same as a full drawing on a new thread (no tiles in its cache).
+    let frame = p.frame().clone();
+    let (game, settings, ui) = (d.app.game.clone(), d.app.settings.clone(), d.app.ui.clone());
+    let fresh = std::thread::spawn(move || {
+        let mut app = new_app(91);
+        (app.game, app.settings, app.ui) = (game, settings, ui);
+        draw_app(&app, &common::fonts())
+    })
+    .join()
+    .unwrap();
+    assert_eq!(differences(&fresh, &frame), vec![], "NAV-20: the redraws and the first frame give different pixels");
+}
+
+// ---- BRD-9, BRD-10, BRD-11, COL-13, NAV-20: the dotted micro-cell lines and the crisp board lines.
+
+/// COL-13: the pixel (x, y) of the disc of a gray swatch with the top left of the box of the disc at
+/// `origin`: the pattern of the gray (`M[dy mod 4][dx mod 4]` from the origin) on white. None: white.
+fn swatch_pixel(g: LineGray, origin: (i32, i32), x: i32, y: i32) -> [u8; 3] {
+    match line_level(g) {
+        Some(level) if dark(level, y - origin.1, x - origin.0) => gray(15),
+        _ => WHITE_PX,
+    }
+}
+
+/// An app with a board of empty cells only (no marks), in the current layout.
+fn blank_board_app(fonts: &Fonts, g: LineGray) -> App {
+    let mut app = reference::app(fonts);
+    app.game = board_with(&[]);
+    app.settings.micro_line = g;
+    app
+}
+
+/// BRD-9, BRD-10, BRD-11: each pixel of the board and of 8 px around it is the pixel of the model, with
+/// `filled(cell)` the background of a filled cell (None for an empty cell). For a filled cell, only the
+/// pixels near its border are examined (not the number). Gives the quantity of examined pixels.
+fn assert_board_model(pm: &Pixmap, origin: (i32, i32), g: LineGray, filled: impl Fn(Cell) -> Option<[u8; 3]>, what: &str) -> usize {
+    let mut n = 0;
+    for y in origin.1 - 8..origin.1 + BOARD_PX + 8 {
+        for x in origin.0 - 8..origin.0 + BOARD_PX + 8 {
+            let got = rgb_at(pm, x, y);
+            let want = if on_board_line(origin, x, y) {
+                BLACK
+            } else if let Some((cell, dx, dy)) = cell_at(origin, x, y) {
+                match filled(cell) {
+                    None => grid_pixel(g, dx, dy),
+                    Some(bg) => {
+                        let edge = dx.min(dy).min(CELL_PX - 1 - dx).min(CELL_PX - 1 - dy);
+                        if edge > 10 {
+                            continue;
+                        }
+                        bg
+                    }
+                }
+            } else {
+                WHITE_PX
+            };
+            assert_eq!(got, want, "{what}: the pixel ({x}, {y})");
+            n += 1;
+        }
+    }
+    n
+}
+
+#[test]
+fn the_pattern_has_the_documented_quantity_of_dots_for_each_gray() {
+    // BRD-9, R§4.1: the model of the documents. The two directions use the columns 0 and 1 of the
+    // matrix (0, 12, 3, 15 and 8, 4, 11, 7), thus each 2 x 4 px run has the same quantity of gray15 pixels
+    // in the two directions and from each start position: 1, 1, 3, 3, 3, 4, 5, 5 of 8 for gray90 to gray40.
+    // The app has the same matrix and gray15 dots.
+    let mut column: Vec<u32> = (0..4).flat_map(|r| [PATTERN[r][0], PATTERN[r][1]]).collect();
+    column.sort_unstable();
+    assert_eq!(column, [0, 3, 4, 7, 8, 11, 12, 15], "BRD-9: the entries of the columns 0 and 1");
+    let levels: Vec<u32> = LineGray::ALL.iter().filter_map(|&g| line_level(g)).collect();
+    assert_eq!(levels, [230, 204, 179, 153, 140, 128, 115, 102], "R§15: the grays");
+    for g in LineGray::ALL {
+        for start in 0..4 {
+            let count = |vertical: bool| {
+                (start..start + 4)
+                    .flat_map(|along| (0..2).map(move |across| (along, across)))
+                    .filter(|&(along, across)| {
+                        let (dx, dy) = if vertical { (49 + across, along) } else { (along, 49 + across) };
+                        grid_pixel(g, dx, dy) == gray(15)
+                    })
+                    .count()
+            };
+            assert_eq!((count(true), count(false)), (dots_per_run(g), dots_per_run(g)), "BRD-9: {g:?}, the run from {start}");
+        }
+        assert_eq!(sudoku::render::line_rgb(g).map(|c| c[0] as u32), line_level(g), "COL-7: the value of {g:?}");
+    }
+    assert_eq!(sudoku::render::BAYER.map(|r| r.map(u32::from)), PATTERN, "BRD-9: the matrix of the app");
+    assert_eq!(sudoku::render::LINE_DOT, gray(15), "BRD-9: the dots are gray15");
+    assert_eq!(gray(15), [0x26, 0x26, 0x26], "R§15: gray15");
+}
+
+#[test]
+fn each_pixel_of_an_empty_board_is_the_pattern_or_a_black_board_line_in_all_layouts() {
+    // BRD-9, BRD-10, BRD-11, BRD-6, COL-7, NAV-19: a board of empty cells with no marks, in the four
+    // layouts, with each of the 9 values of `micro_line`. Each pixel of the board and of 8 px around it
+    // is exactly the model: black on a board line (13 px and 3 px, centered on the cell borders, over
+    // the full board), the pattern of BRD-9 in the cells (from the first pixel of each line, the
+    // orientation of the matrix, the union at the crossings, the pixels 49-50 and 98-99), else white.
+    // Thus no pixel is gray40 or another gray, no pixel next to a line has an intermediate value, and
+    // with None each pixel of a cell is white.
+    let fonts = fonts();
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let origin = board_origin(o);
+        assert_eq!(layout::cell_origin((0, 0)), origin, "R§15: {o:?}");
+        for g in LineGray::ALL {
+            let what = format!("{o:?}, right-handed {right_handed}, {g:?}");
+            let pm = draw_app(&blank_board_app(&fonts, g), &fonts);
+            assert_board_model(&pm, origin, g, |_| None, &what);
+            // BRD-9: the density of each 2x4 run of the drawn lines, in each cell, away from the board
+            // lines and the crossings.
+            for cell in cells() {
+                assert_grid_at(&pm, cell, g, &[8, 20, 60, 61, 62, 63, 110, 135], &what);
+            }
+            // BRD-10: only white and gray15 in the cells.
+            let mut seen = std::collections::BTreeSet::new();
+            for cell in cells() {
+                let (x, y) = layout::cell_origin(cell);
+                for dy in 7..CELL_PX - 7 {
+                    for dx in 7..CELL_PX - 7 {
+                        seen.insert(rgb_at(&pm, x + dx, y + dy));
+                    }
+                }
+            }
+            let want: std::collections::BTreeSet<[u8; 3]> = if g == LineGray::None { [WHITE_PX].into() } else { [WHITE_PX, gray(15)].into() };
+            assert_eq!(seen, want, "BRD-10: {what}: the values in the cells");
+        }
+    }
+}
+
+#[test]
+fn the_crossings_of_the_micro_cell_lines_are_the_union_of_the_two_patterns() {
+    // BRD-9: the 2x2 px squares where a vertical and a horizontal line cross, in cells at the corners,
+    // at the center and at a box border, for each gray. A pixel of a crossing is gray15 exactly when the
+    // vertical line (`M[dy mod 4][dx - o]`) or the horizontal line (`M[dx mod 4][dy - o]`) has a dot there.
+    let fonts = fonts();
+    for (o, right_handed) in [LAYOUTS[0], LAYOUTS[3]] {
+        let _layout = InLayout::set(o, right_handed);
+        for g in LineGray::ALL {
+            let what = format!("{o:?}, right-handed {right_handed}, {g:?}");
+            let pm = draw_app(&blank_board_app(&fonts, g), &fonts);
+            let level = line_level(g);
+            for cell in [(0u8, 0u8), (4, 4), (8, 8), (2, 6)] {
+                let (x, y) = layout::cell_origin(cell);
+                for &ox in &MICRO_LINES {
+                    for &oy in &MICRO_LINES {
+                        for (dx, dy) in [(ox, oy), (ox + 1, oy), (ox, oy + 1), (ox + 1, oy + 1)] {
+                            let v = level.is_some_and(|l| dark(l, dy, dx - ox));
+                            let h = level.is_some_and(|l| dark(l, dx, dy - oy));
+                            let want = if v || h { gray(15) } else { WHITE_PX };
+                            assert_eq!(rgb_at(&pm, x + dx, y + dy), want, "BRD-9: {what}: cell {cell:?}, the crossing pixel ({dx}, {dy})");
+                        }
+                    }
+                }
+            }
+        }
+    }
+    // The fixture shows the union, not one of the two patterns: at the crossing of the vertical line 49
+    // and the horizontal line 98 with gray40, the pixels (49, 98) and (50, 99) are dots of the vertical
+    // line only (M[2][0] = 3, M[3][1] = 7), and (50, 98) and (49, 99) are dots of the horizontal line
+    // only (M[2][0] = 3, M[1][1] = 4 for the horizontal line).
+    let l = line_level(LineGray::Gray40).unwrap();
+    let square = [(0, 0), (1, 0), (0, 1), (1, 1)];
+    let only_v = square.iter().filter(|&&(a, b)| dark(l, 98 + b, a) && !dark(l, 49 + a, b)).count();
+    let only_h = square.iter().filter(|&&(a, b)| !dark(l, 98 + b, a) && dark(l, 49 + a, b)).count();
+    assert_eq!((only_v, only_h), (2, 2), "BRD-9: the fixture shows the union");
+}
+
+#[test]
+fn the_board_lines_are_black_with_no_intermediate_pixel_next_to_them() {
+    // BRD-11, BRD-9, BRD-7, NAV-20: the sample game with colored cells (the starting color, a
+    // highlight, a clash), no marks, in the four layouts. Each pixel of a board line is black, and the
+    // pixels next to a line (10 px on each side) are the background of a filled cell or the pattern of an
+    // empty cell: no faint edge pixel (191) and no pixel of 143 at the ends of the border. Around the
+    // board, the pixels are white.
+    let fonts = fonts();
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let origin = board_origin(o);
+        let mut app = reference::app(&fonts);
+        app.game = reference::sample_game();
+        for c in cells() {
+            app.game.marks[c.0 as usize][c.1 as usize] = 0;
+        }
+        app.settings.color_starting = Color::Gray;
+        app.settings.color_highlight = Color::Blue;
+        let (_, digit) = first_number(&app.game);
+        app.ui.highlight = Some(digit);
+        let what = format!("{o:?}, right-handed {right_handed}");
+        let pm = draw_app(&app, &fonts);
+        let filled = |c: Cell| app.game.is_filled(c).then(|| model_background(&app, c));
+        let n = assert_board_model(&pm, origin, app.settings.micro_line, filled, &what);
+        assert!(n > 500_000, "{what}: the test examines the lines");
+        // The literal positions of R§15 in portrait: the left border from x 142 to 154, the first
+        // cell line from x 294 to 296, the right border from x 1465 to 1477.
+        if o == layout::Orientation::Portrait {
+            let y = origin.1 + 4 * CELL_PX + 120;
+            let runs: Vec<i32> = (130..1490).filter(|&x| rgb_at(&pm, x, y) == BLACK).collect();
+            assert!(runs.starts_with(&(142..=154).collect::<Vec<_>>()), "BRD-11: {what}: the left border");
+            assert!(runs.ends_with(&(1465..=1477).collect::<Vec<_>>()), "BRD-11: {what}: the right border");
+            assert!((294..=296).all(|x| runs.contains(&x)) && !runs.contains(&293) && !runs.contains(&297), "BRD-11: {what}: the first cell line");
+            for x in [155, 297, 1464, 1478] {
+                assert_ne!(rgb_at(&pm, x, y), [191, 191, 191], "BRD-11: {what}: a faint edge pixel at x {x}");
+            }
+        }
+    }
+}
+
+/// COL-13, NAV-17: the pixels of the dots of the Cell colors panel, for each selection of the Micro-cell
+/// lines section. The disc of a gray item is the pattern of its gray on white (from the top left of the
+/// box of the disc, 19 px left of and above its center), each pixel gray15 or white, with no other
+/// value. The None dot is white. The selected item has its black box and its white ring, the other
+/// items a black ring. The dots of the four color sections are their colors.
+fn assert_swatches(pm: &Pixmap, x0: i32, selected: LineGray, what: &str) {
+    for (i, g) in LineGray::ALL.into_iter().enumerate() {
+        let cell = grid_cell(x0, 4, i as i32);
+        let (cx, cy) = (cell.x0 + 56, cell.y0 + 30);
+        let origin = (cx - 19, cy - 19);
+        let what = format!("{what}, the item {g:?}");
+        let mut dots = 0;
+        for y in cy - 19..=cy + 19 {
+            for x in cx - 19..=cx + 19 {
+                let r2 = (x - cx).pow(2) + (y - cy).pow(2);
+                let p = rgb_at(pm, x, y);
+                if r2 < 16 * 16 {
+                    assert_eq!(p, swatch_pixel(g, origin, x, y), "COL-13: {what}: the pixel ({x}, {y}) of the disc");
+                    dots += (p == gray(15)) as usize;
+                } else if r2 * 4 < 35 * 35 {
+                    // The edge of the disc (radius 16 to 17.5): the pattern, or the anti-aliased inner edge of
+                    // the ring (lighter than the dots).
+                    assert!(p == swatch_pixel(g, origin, x, y) || p[0] > gray(15)[0], "COL-13: {what}: the pixel ({x}, {y}) is {p:?}");
+                }
+            }
+        }
+        // The disc has the density of the pattern: the disc uses all 16 entries of the matrix (the 4
+        // columns), thus approximately the quantity of entries m with `m * 16 + 8 <= 255 - gray` per 16 px.
+        let area = std::f32::consts::PI * 16.0 * 16.0;
+        let entries = line_level(g).map_or(0, |l| PATTERN.iter().flatten().filter(|&&m| m * 16 + 8 <= 255 - l).count());
+        let want = area * entries as f32 / 16.0;
+        assert!((dots as f32 - want).abs() <= want * 0.15 + 2.0, "COL-13: {what}: {dots} dots, approximately {want}");
+        let ring = rgb_at(pm, cx + 19, cy);
+        let corner = rgb_at(pm, cell.x0 + 2, cell.y0 + 2);
+        if g == selected {
+            assert_eq!((corner, ring), (BLACK, WHITE_PX), "COL-2, COL-13: {what}: the black box and the white ring");
+        } else {
+            assert_eq!((corner, ring), (WHITE_PX, BLACK), "COL-13: {what}: no box and a black ring");
+        }
+    }
+    for (s, section) in Section::ALL.into_iter().enumerate() {
+        for (i, color) in Color::ALL.into_iter().enumerate() {
+            let cell = grid_cell(x0, s as i32, i as i32);
+            let (cx, cy) = (cell.x0 + 56, cell.y0 + 30);
+            for y in cy - 15..=cy + 15 {
+                for x in cx - 15..=cx + 15 {
+                    if (x - cx).pow(2) + (y - cy).pow(2) < 15 * 15 {
+                        assert_eq!(rgb_at(pm, x, y), palette_rgb(color), "COL-13: {what}, {section:?}, {color:?}: the dot of a color at ({x}, {y})");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_swatches_of_the_micro_cell_lines_section_show_the_pattern_of_their_gray() {
+    // COL-13, COL-7, COL-2, NAV-17, R§10: the four layouts, each of the 9 items selected in turn (with a
+    // tap). Each gray swatch shows the pattern of its gray inside the ring; None is a white dot; the
+    // selected item has the black box and the white ring; the four color sections do not change.
+    let fonts = fonts();
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let (x0, _) = colors_x_range(o, right_handed);
+        let mut d = colors_driver(132);
+        for g in LineGray::ALL {
+            let (x, y) = line_gray_point(g);
+            d.finger_tap(x, y);
+            assert_eq!(d.app.settings.micro_line, g, "COL-7");
+            let what = format!("{o:?}, right-handed {right_handed}, {g:?} selected");
+            assert_swatches(&draw_app(&d.app, &fonts), x0, g, &what);
+        }
+    }
+}
+
+#[test]
+fn the_dots_of_the_swatches_are_the_dots_of_the_design_images() {
+    // COL-13, R§17: the design images are exact. In portrait for a left-handed player, the gray15 pixels
+    // inside each disc of the Micro-cell lines section (radius 17.5 px) are the same in the app and in
+    // `images/color-menu.png`, `color-menu-lines-90.png` and `color-menu-lines-40.png`. The selection
+    // does not change the pattern, thus the test compares only the dots.
+    let fonts = fonts();
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let (x0, _) = colors_x_range(layout::Orientation::Portrait, false);
+    let mut d = colors_driver(133);
+    let pm = draw_app(&d.app, &fonts);
+    d.app.redraw = false;
+    for name in ["color-menu.png", "color-menu-lines-90.png", "color-menu-lines-40.png"] {
+        let image = sudoku::render::decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
+        for (i, g) in LineGray::ALL.into_iter().enumerate() {
+            let cell = grid_cell(x0, 4, i as i32);
+            let (cx, cy) = (cell.x0 + 56, cell.y0 + 30);
+            let mut dots = 0;
+            for y in cy - 18..=cy + 18 {
+                for x in cx - 18..=cx + 18 {
+                    if ((x - cx).pow(2) + (y - cy).pow(2)) * 4 < 35 * 35 {
+                        let (a, b) = (rgb_at(&pm, x, y) == gray(15), rgb_at(&image, x, y) == gray(15));
+                        assert_eq!(a, b, "COL-13: {name}, {g:?}: the pixel ({x}, {y})");
+                        dots += a as usize;
+                    }
+                }
+            }
+            assert_eq!(dots > 0, g != LineGray::None, "COL-13: {name}, {g:?}: the dots");
+        }
+    }
+}
+
+#[test]
+fn the_grid_is_the_same_in_the_first_frame_the_tile_cache_and_a_retained_redraw() {
+    // NAV-20, BRD-9, BRD-10, COL-7: the real output (`present.rs`) in the four layouts. The first frame
+    // (a full drawing in stripes on the drawing threads) shows the pattern of the model in each empty
+    // cell. A change of the gray in the Cell colors panel, a mark and its removal (the tiles of the
+    // cache) and the close of the panel go in retained redraws. After each step, the frame is the same as
+    // a full drawing on a new thread (no tiles in its cache), and the empty cells show the model.
+    use sudoku::present::Presenter;
+    let fonts = fonts();
+    let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let origin = board_origin(o);
+        let mut d = Driver::new(92);
+        let mut p = Presenter::new();
+        let mut fb = vec![0u8; w * h * 3];
+        let settle = |d: &mut Driver, p: &mut Presenter, fb: &mut Vec<u8>| {
+            for _ in 0..12 {
+                d.now += 30;
+                d.app.tick(d.now);
+                p.present(&mut d.app, &fonts, fb, d.now, |_| {});
+            }
+        };
+        let check = |d: &Driver, p: &Presenter, step: &str| {
+            let what = format!("{o:?}, right-handed {right_handed}, {step}");
+            let (game, settings, ui) = (d.app.game.clone(), d.app.settings.clone(), d.app.ui.clone());
+            let fresh = std::thread::spawn(move || {
+                let _layout = InLayout::set(o, right_handed);
+                let mut app = new_app(92);
+                (app.game, app.settings, app.ui) = (game, settings, ui);
+                draw_app(&app, &common::fonts())
+            })
+            .join()
+            .unwrap();
+            assert_eq!(differences(&fresh, p.frame()), vec![], "NAV-20: {what}: the frame is not the same as a full drawing");
+            if d.app.ui.menu.panel().is_none() {
+                let mut n = 0;
+                for cell in cells().filter(|&c| !d.app.game.is_filled(c) && d.app.game.marks_at(c) == 0) {
+                    let (x, y) = layout::cell_origin(cell);
+                    for dy in 0..CELL_PX {
+                        for dx in 0..CELL_PX {
+                            if !on_board_line(origin, x + dx, y + dy) {
+                                assert_eq!(rgb_at(p.frame(), x + dx, y + dy), grid_pixel(d.app.settings.micro_line, dx, dy), "BRD-9, BRD-10: {what}: cell {cell:?}, ({dx}, {dy})");
+                                n += 1;
+                            }
+                        }
+                    }
+                }
+                assert!(n > 0, "{what}: the board has empty cells");
+            }
+        };
+        p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+        check(&d, &p, "the first frame");
+
+        for g in [LineGray::Gray40, LineGray::Gray70, LineGray::None, LineGray::Gray55] {
+            d.button(Button::Menu);
+            d.button(Button::Colors);
+            let (x, y) = line_gray_point(g);
+            d.finger_tap(x, y);
+            assert_eq!(d.app.settings.micro_line, g, "COL-7");
+            settle(&mut d, &mut p, &mut fb);
+            check(&d, &p, &format!("the panel with {g:?}"));
+            d.button(Button::Colors);
+            assert_eq!(d.app.ui.menu.panel(), None);
+            d.button(Button::Menu);
+            settle(&mut d, &mut p, &mut fb);
+            check(&d, &p, &format!("the board with {g:?}"));
+        }
+
+        // A mark and its removal: the cell gets a new tile, then the tile without the mark again.
+        let m = empty_cell(&d.app.game);
+        let free = (1..=9u8).find(|&v| peer_numbers(&d.app.game, m) & mark_bit(v) == 0).unwrap();
+        d.tap_micro(m, free);
+        assert_ne!(d.app.game.marks_at(m), 0);
+        settle(&mut d, &mut p, &mut fb);
+        check(&d, &p, "a mark");
+        d.tap_micro(m, free);
+        assert_eq!(d.app.game.marks_at(m), 0);
+        settle(&mut d, &mut p, &mut fb);
+        check(&d, &p, "the removal of the mark");
     }
 }
