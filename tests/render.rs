@@ -320,7 +320,7 @@ fn the_board_is_at_its_position_in_each_orientation() {
         sudoku::layout::set_orientation(o);
         let pm = reference::render(&fonts, |a| a.game = reference::sample_game());
         let (bx, by) = (sudoku::layout::board_x(), sudoku::layout::board_y());
-        let b = sudoku::layout::BOARD_SIZE;
+        let b = sudoku::layout::board_size();
         // The four thick borders of the board.
         for (x, y) in [(bx, by + b / 2), (bx + b, by + b / 2), (bx + b / 2, by), (bx + b / 2, by + b)] {
             let p = rgb_at(&pm, x, y);
@@ -373,7 +373,7 @@ fn a_turn_from_portrait_to_landscape_shows_the_landscape_screen() {
     let mut app = reference::app(&fonts);
     app.game = reference::sample_game();
     let mut presenter = sudoku::present::Presenter::new();
-    let n = (sudoku::layout::PHYSICAL_W * sudoku::layout::PHYSICAL_H * 3) as usize;
+    let n = (sudoku::layout::physical_w() * sudoku::layout::physical_h() * 3) as usize;
     let mut fb = vec![0u8; n];
     presenter.draw_all(&app, &fonts, &mut fb);
     save_screenshot("screen-portrait.png", &screenshot(&fb));
@@ -398,7 +398,7 @@ fn a_turn_from_portrait_to_landscape_shows_the_landscape_screen() {
     assert!(shot.data() == want.data(), "the screenshot after the turn is not the landscape screen");
     // The board is at the landscape position: its four thick borders (NAV-10).
     let (bx, by) = (sudoku::layout::board_x(), sudoku::layout::board_y());
-    let b = sudoku::layout::BOARD_SIZE;
+    let b = sudoku::layout::board_size();
     for (x, y) in [(bx, by + b / 2), (bx + b, by + b / 2), (bx + b / 2, by), (bx + b / 2, by + b)] {
         let p = rgb_at(&shot, x, y);
         assert!(p[0] < 60, "no board border after the turn at ({x}, {y}): {p:?}");
@@ -720,8 +720,8 @@ fn the_x_shows_with_no_grid_when_the_micro_cell_lines_are_none() {
         app.ui.refused = Some((cell, 9, 0));
         let pm = draw_app(&fonts, &app);
         let mut x_pixels = 0;
-        for y in oy + 3..oy + sudoku::layout::CELL - 2 {
-            for x in ox + 3..ox + sudoku::layout::CELL - 2 {
+        for y in oy + 3..oy + sudoku::layout::cell_size() - 2 {
+            for x in ox + 3..ox + sudoku::layout::cell_size() - 2 {
                 if rgb_at(&pm, x, y) != [255, 255, 255] {
                     assert!((x - ox - ax).abs() <= 13 && (y - oy - ay).abs() <= 13, "{layout:?}: pixel ({x}, {y}) is not of the x");
                     x_pixels += 1;
@@ -754,7 +754,7 @@ fn the_x_and_the_question_mark_show_together_in_different_cells() {
         let both = draw_app(&fonts, &app);
         let inside = |(x, y): (i32, i32), cell| {
             let (ox, oy) = sudoku::layout::cell_origin(cell);
-            let s = sudoku::layout::CELL;
+            let s = sudoku::layout::cell_size();
             x >= ox && x < ox + s && y >= oy && y < oy + s
         };
         let to_question = changed_pixels(&both, &only_x);
@@ -804,7 +804,7 @@ fn the_framebuffer_shows_the_x_and_then_the_old_pixels() {
     // MRK-13, MRK-14: the output of the main loop (present.rs) writes the x to the framebuffer with
     // an update. After the time of the x, the framebuffer has the same pixels as before the x.
     let fonts = fonts();
-    let n = (sudoku::layout::PHYSICAL_W * sudoku::layout::PHYSICAL_H * 3) as usize;
+    let n = (sudoku::layout::physical_w() * sudoku::layout::physical_h() * 3) as usize;
     for layout in LAYOUTS {
         set_layout(layout);
         let mut app = reference::app(&fonts);
@@ -1219,7 +1219,7 @@ fn the_framebuffer_shows_the_recolor_of_a_far_group() {
     // COL-10: the output of the main loop (present.rs). The erasure of (5, 1) recolors box 0, and the
     // copy to the framebuffer must contain all these cells.
     let fonts = fonts();
-    let n = (sudoku::layout::PHYSICAL_W * sudoku::layout::PHYSICAL_H * 3) as usize;
+    let n = (sudoku::layout::physical_w() * sudoku::layout::physical_h() * 3) as usize;
     for layout in LAYOUTS {
         set_layout(layout);
         let mut app = reference::app(&fonts);
@@ -2182,8 +2182,8 @@ fn a_retained_frame_follows_each_change_of_the_symmetrical_switch() {
 fn colors_in_cell(pm: &tiny_skia::Pixmap, cell: sudoku::game::Cell) -> Vec<[u8; 3]> {
     let (ox, oy) = sudoku::layout::cell_origin(cell);
     let mut seen = std::collections::BTreeSet::new();
-    for y in oy + 8..oy + sudoku::layout::CELL - 8 {
-        for x in ox + 8..ox + sudoku::layout::CELL - 8 {
+    for y in oy + 8..oy + sudoku::layout::cell_size() - 8 {
+        for x in ox + 8..ox + sudoku::layout::cell_size() - 8 {
             seen.insert(rgb_at(pm, x, y));
         }
     }
@@ -2240,7 +2240,7 @@ fn the_marks_the_x_and_the_ink_are_crisp_in_each_layout() {
                 for &(x, y) in &changed {
                     assert_eq!(rgb_at(&ink, x, y), [0, 0, 0], "{what}: a pixel of the ink at ({x}, {y})");
                 }
-                let in_filled = |&&(x, y): &&(i32, i32)| x >= fx && x < fx + sudoku::layout::CELL && y >= fy && y < fy + sudoku::layout::CELL;
+                let in_filled = |&&(x, y): &&(i32, i32)| x >= fx && x < fx + sudoku::layout::cell_size() && y >= fy && y < fy + sudoku::layout::cell_size();
                 assert!(changed.iter().filter(in_filled).count() > 100, "{what}: the ink does not cross the filled cell");
                 assert_eq!(rgb_at(&ink, dot.0 as i32, dot.1 as i32), [0, 0, 0], "{what}: no dot");
                 // NAV-20: the numbers and the "?" are crisp: the color of the number or of the "?", and the
@@ -2344,7 +2344,7 @@ fn the_empty_cells_of_the_images_and_of_the_app_have_the_pattern_of_the_rule() {
     // in the pattern of the gray of `micro_line`, gray90 and gray40), and each pixel of an empty cell
     // with marks or an x is white or gray15. The cells under a panel and the 8 px at the border of
     // each cell (the board lines) are not examined.
-    use sudoku::layout::{cell_origin, CELL};
+    use sudoku::layout::{cell_origin, cell_size};
     reference::use_utc();
     let fonts = fonts();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -2368,7 +2368,7 @@ fn the_empty_cells_of_the_images_and_of_the_app_have_the_pattern_of_the_rule() {
         let (mut exact, mut marked) = (0, 0);
         for cell in cells() {
             let (ox, oy) = cell_origin(cell);
-            let covered = panel.is_some_and(|p| ox < p.x1 + 3 && ox + CELL > p.x0 - 3 && oy < p.y1 + 3 && oy + CELL > p.y0 - 3);
+            let covered = panel.is_some_and(|p| ox < p.x1 + 3 && ox + cell_size() > p.x0 - 3 && oy < p.y1 + 3 && oy + cell_size() > p.y0 - 3);
             if app.game.is_filled(cell) || covered {
                 continue;
             }
@@ -2377,8 +2377,8 @@ fn the_empty_cells_of_the_images_and_of_the_app_have_the_pattern_of_the_rule() {
             let plain = app.game.marks[r as usize][c as usize] == 0 && !refused;
             // The board lines (up to 7 px from the border of a cell) cover the ends of the micro-cell
             // lines; the next test examines them.
-            for dy in 8..CELL - 8 {
-                for dx in 8..CELL - 8 {
+            for dy in 8..cell_size() - 8 {
+                for dx in 8..cell_size() - 8 {
                     let (x, y) = (ox + dx, oy + dy);
                     for (what, p) in [("app", rgb_at(&pm, x, y)), ("image", rgb_at(&want, x, y))] {
                         if plain {
@@ -2403,7 +2403,7 @@ fn the_board_lines_of_the_image_and_of_the_app_are_black_and_crisp() {
     // BRD-11, BRD-10, BRD-9: screen.png shows an empty board. In the app and in the image, each pixel
     // of the board and of its border is black, white or gray15 (no faint edge of a board line, no
     // anti-aliased micro-cell line), and the two pictures are the same there.
-    use sudoku::layout::{board_x, board_y, BOARD_SIZE};
+    use sudoku::layout::{board_size, board_x, board_y};
     reference::use_utc();
     let fonts = fonts();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -2411,8 +2411,8 @@ fn the_board_lines_of_the_image_and_of_the_app_are_black_and_crisp() {
     let want = decode_png(&std::fs::read(root.join("images/screen.png")).unwrap());
     let (x0, y0) = (board_x() - 12, board_y() - 12);
     let mut black = 0;
-    for y in y0..board_y() + BOARD_SIZE + 12 {
-        for x in x0..board_x() + BOARD_SIZE + 12 {
+    for y in y0..board_y() + board_size() + 12 {
+        for x in x0..board_x() + board_size() + 12 {
             let (p, q) = (rgb_at(&pm, x, y), rgb_at(&want, x, y));
             assert!(p == [0, 0, 0] || p == WHITE || p == GRAY15, "app: ({x}, {y}) is {p:?}");
             assert_eq!(p, q, "the app and screen.png at ({x}, {y})");

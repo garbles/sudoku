@@ -94,7 +94,7 @@ pub const SECONDARY: Rgb = gray(25);
 pub enum Units {
     /// Screen pixels (the game screen and the menu).
     Screen,
-    /// The layout units of the manual and the analytics pages: `layout::PAGE_SCALE` screen pixels.
+    /// The layout units of the manual and the analytics pages: `layout::page_scale()` screen pixels.
     Page,
 }
 
@@ -103,7 +103,7 @@ impl Units {
     fn scale(self) -> f32 {
         match self {
             Units::Screen => 1.0,
-            Units::Page => PAGE_SCALE,
+            Units::Page => page_scale(),
         }
     }
 
@@ -1149,18 +1149,13 @@ fn copy_px(src: &Pixmap, sx: usize, sy: usize, w: usize, h: usize, dst: &mut Pix
 /// The anchor point of the pencil mark of a digit, in a cell with its top left at (xf, yf): the
 /// keypad position of the digit (MRK-1).
 fn mark_anchor(xf: f32, yf: f32, digit: u8) -> (f32, f32) {
-    const MARK_POS: [f32; 3] = [24.0, 74.0, 122.0];
-    let i = (digit - 1) as usize;
-    (xf + MARK_POS[i % 3], yf + MARK_POS[i / 3])
+    let (d, i) = (layout::device(), (digit - 1) as usize);
+    (xf + d.mark_pos(i % 3), yf + d.mark_pos(i / 3))
 }
 
 /// The color of the pencil marks and of the x of a refused tap (§15). They are crisp drawings
 /// (MRK-19): each pixel of them is this color.
 pub const MARK_COLOR: Rgb = gray(15);
-/// The text size of the pencil marks (px, §15).
-pub const MARK_SIZE: f32 = 31.0;
-/// The x of a refused tap (§15, MRK-13): each line goes this distance on the two axes from the center.
-const REFUSED_X_HALF: f32 = 10.0;
 /// The line width of the x of a refused tap (§15, MRK-13).
 const REFUSED_X_WIDTH: f32 = 3.0;
 
@@ -1170,7 +1165,8 @@ const REFUSED_X_WIDTH: f32 = 3.0;
 /// thread, on a stripe thread and into a tile: the pattern is a function of the position in the
 /// cell only.
 fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
-    let cs = CELL as f32;
+    let d = layout::device();
+    let cs = d.cell as f32;
     match look {
         CellLook::Value(_, bg, _) => c.rect(xf, yf, xf + cs, yf + cs, bg),
         CellLook::Question => {}
@@ -1185,8 +1181,8 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
                 let (x, y) = (xf as i32, yf as i32);
                 for k in 1..=2 {
                     let o = micro_offset(k);
-                    c.pattern(x + o, y, 2, CELL, Axis::Y, shade, |_, _| true);
-                    c.pattern(x, y + o, CELL, 2, Axis::X, shade, |_, _| true);
+                    c.pattern(x + o, y, 2, cell_size(), Axis::Y, shade, |_, _| true);
+                    c.pattern(x, y + o, cell_size(), 2, Axis::X, shade, |_, _| true);
                 }
             }
         }
@@ -1194,22 +1190,22 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
     // Numbers: starting numbers black, your numbers `ENTRY_DIGIT` (BRD-8), crisp (NAV-20).
     // Pencil marks only on empty cells (MRK-2), gray15, at their keypad positions (MRK-1).
     match look {
-        CellLook::Value(v, _, col) => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, &v.to_string(), col),
-        CellLook::Question => c.text(Weight::Regular, 104.0, xf + (CELL / 2) as f32, yf + 111.0, Anchor::Middle, "?", SECONDARY),
+        CellLook::Value(v, _, col) => c.text(Weight::Regular, d.digit_size(), xf + (d.cell / 2) as f32, yf + d.digit_baseline(), Anchor::Middle, &v.to_string(), col),
+        CellLook::Question => c.text(Weight::Regular, d.digit_size(), xf + (d.cell / 2) as f32, yf + d.digit_baseline(), Anchor::Middle, "?", SECONDARY),
         // The marks and the x are crisp drawings (MRK-19, NAV-20): each pixel is gray15 or the pixel
         // of the cell without them (white, or a gray15 dot of the grid).
         CellLook::Empty(marks, _, refused) => {
-            for d in 1..=9u8 {
-                if marks & crate::game::mark_bit(d) != 0 {
-                    let (cx, cy) = mark_anchor(xf, yf, d);
-                    c.text(Weight::Regular, MARK_SIZE, cx, cy + 11.0, Anchor::Middle, &d.to_string(), MARK_COLOR);
+            for digit in 1..=9u8 {
+                if marks & crate::game::mark_bit(digit) != 0 {
+                    let (cx, cy) = mark_anchor(xf, yf, digit);
+                    c.text(Weight::Regular, d.mark_size(), cx, cy + d.mark_baseline(), Anchor::Middle, &digit.to_string(), MARK_COLOR);
                 }
             }
             // MRK-13: only in its micro-cell. It does not touch the lines or the other marks, and a
             // peer has its digit, thus no mark shows under it (MRK-12).
-            if let Some(d) = refused {
-                let (cx, cy) = mark_anchor(xf, yf, d);
-                let h = REFUSED_X_HALF;
+            if let Some(digit) = refused {
+                let (cx, cy) = mark_anchor(xf, yf, digit);
+                let h = d.refused_x_half();
                 c.line(cx - h, cy - h, cx + h, cy + h, REFUSED_X_WIDTH, MARK_COLOR);
                 c.line(cx - h, cy + h, cx + h, cy - h, REFUSED_X_WIDTH, MARK_COLOR);
             }
@@ -1223,7 +1219,7 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
 /// full lines, because the lines are straight and the ends of the parts are out of the area. The
 /// lines are crisp drawings (BRD-11): black on full pixels, with no anti-aliasing.
 fn board_lines(c: &mut Canvas, keep: impl Fn(i32, bool) -> bool, near: Option<(i32, i32, i32, i32)>) {
-    let (x0, y0, b) = (board_x() as f32, board_y() as f32, BOARD_SIZE as f32);
+    let (x0, y0, b) = (board_x() as f32, board_y() as f32, board_size() as f32);
     // The part of a line from `a` to `a + b` near the span s0..s1 (with a margin larger than the
     // ends of the thick lines).
     let part = |a: f32, s0: i32, s1: i32| match near {
@@ -1234,7 +1230,7 @@ fn board_lines(c: &mut Canvas, keep: impl Fn(i32, bool) -> bool, near: Option<(i
     let (vy0, vy1) = part(y0, ny0, ny1);
     let (hx0, hx1) = part(x0, nx0, nx1);
     for i in (0..=9).filter(|i| i % 3 != 0) {
-        let o = (i * CELL) as f32;
+        let o = (i * cell_size()) as f32;
         if keep(i, true) {
             c.line_butt(x0 + o, vy0, x0 + o, vy1, 3.0, BLACK);
         }
@@ -1243,7 +1239,7 @@ fn board_lines(c: &mut Canvas, keep: impl Fn(i32, bool) -> bool, near: Option<(i
         }
     }
     for i in (0..=9).step_by(3) {
-        let o = (i * CELL) as f32;
+        let o = (i * cell_size()) as f32;
         if keep(i, true) {
             c.line_square(x0 + o, vy0, x0 + o, vy1, 13.0, BLACK);
         }
@@ -1311,7 +1307,7 @@ fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, overlays: BoardOver
         return;
     };
     let fonts = c.fonts as *const Fonts as usize;
-    let n = CELL as usize + 1;
+    let n = cell_size() as usize + 1;
     let looks: Vec<_> = cells().map(|cell| (cell, cell_look(g, settings, &colors, overlays, cell))).collect();
     let key = |a: &Area, look| (fonts, bx, by, a.x0, a.y0, look);
     // The slots of the board: the cells (in the order of `cells`), then the band.
@@ -1359,7 +1355,7 @@ fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, overlays: BoardOver
                 let (xi, yi) = (a.x0, a.y0);
                 put_cached(c, *k, x, y, n, n, |c| {
                     draw_cell(c, look, xi as f32, yi as f32);
-                    let near = Some((xi, yi, xi + CELL, yi + CELL));
+                    let near = Some((xi, yi, xi + cell_size(), yi + cell_size()));
                     board_lines(c, |i, vertical| if vertical { i == kc || i == kc + 1 } else { i == r || i == r + 1 }, near);
                 });
             }
@@ -1385,7 +1381,7 @@ fn draw_board_stripes(c: &mut Canvas, (ax, ay, aw, ah): (usize, usize, usize, us
     // The stripes end at the borders of cell rows: a glyph that the edge of the pixmap clips gets
     // other pixels (tiny-skia cuts its curves), and no glyph crosses these borders.
     let by = board_y() as usize;
-    let mut edges: Vec<usize> = (1..threads).map(|k| by + (9 * k / threads) * CELL as usize).collect();
+    let mut edges: Vec<usize> = (1..threads).map(|k| by + (9 * k / threads) * cell_size() as usize).collect();
     edges.insert(0, ay);
     edges.push(ay + ah);
     edges.dedup();
@@ -1419,11 +1415,11 @@ fn draw_board_stripes(c: &mut Canvas, (ax, ay, aw, ah): (usize, usize, usize, us
     }
 }
 
-/// The slots of the board: the area of each cell tile (CELL + 1 px, in the order of `cells`), then
+/// The slots of the board: the area of each cell tile (the cell + 1 px, in the order of `cells`), then
 /// the band around the cells (top, bottom, left and right). Together they are the board area.
 fn board_slots() -> impl Iterator<Item = Area> {
-    let n = CELL as usize + 1;
-    let (mu, bu) = (BOARD_MARGIN, BOARD_SIZE as usize);
+    let n = cell_size() as usize + 1;
+    let (mu, bu) = (BOARD_MARGIN, board_size() as usize);
     let (bxu, byu) = (board_x() as usize, board_y() as usize);
     let s = bxu - mu;
     let bands = [
@@ -1445,10 +1441,10 @@ fn board_slots() -> impl Iterator<Item = Area> {
 fn board_area(pm: &Pixmap) -> Option<(usize, usize, usize, usize)> {
     let (bx, by, m) = (board_x(), board_y(), BOARD_MARGIN as i32);
     let (fw, fh) = (pm.width() as i32, pm.height() as i32);
-    if bx < m || by < m || bx + BOARD_SIZE + m >= fw || by + BOARD_SIZE + m >= fh {
+    if bx < m || by < m || bx + board_size() + m >= fw || by + board_size() + m >= fh {
         return None;
     }
-    let n = (BOARD_SIZE + 1 + 2 * m) as usize;
+    let n = (board_size() + 1 + 2 * m) as usize;
     Some(((bx - m) as usize, (by - m) as usize, n, n))
 }
 
@@ -2039,7 +2035,7 @@ fn chrome(c: &mut Canvas, title: &str, page: Option<(usize, usize)>) {
     c.text(Weight::Medium, 84.0, 72.0, 170.0, Anchor::Start, title, BLACK);
     if let Some((n, total)) = page {
         let (cx, ny) = page_number_pos();
-        c.text(Weight::Regular, 28.0, cx, ny, Anchor::Middle, &format!("{n} / {total}"), gray(50));
+        c.text(Weight::Regular, 28.0, cx, ny, Anchor::Middle, &format!("{n} / {total}"), SECONDARY);
         let prev = if n == 1 { gray(80) } else { BLACK };
         let next = if n == total { gray(80) } else { BLACK };
         Icon::PagePrevious.draw(c, cx - 79.0, ny - 10.0, prev);
@@ -2202,7 +2198,7 @@ fn draw_list(c: &mut Canvas, app: &App) {
         let cy = y + (ROW / 2.0).floor();
         let (date, clock) = (format_date(r.finished_at), format_clock(r.seconds));
         // The box between the lines above and below the row (screen px): the page is white there.
-        let sc = |v: f32| v * PAGE_SCALE + 0.5;
+        let sc = |v: f32| v * page_scale() + 0.5;
         let row_box = (sc(x) as i32 - 2, sc(y + 1.7) as i32 + 2, sc(x + w) as i32 + 2, sc(y + ROW) as i32 - 1);
         put_box(c, row_box, BoxLook::ListRow(date.clone(), r.mode, clock.clone()), |c| {
             c.text(Weight::Regular, 34.0, x, cy + 12.0, Anchor::Start, &date, BLACK);

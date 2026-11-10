@@ -109,7 +109,7 @@ completed_examples() {
 # and the "< Back" button that shows the game again (top left, at the same position as on the device)
 pagenum() {
   cx=$((PW/2)); ny=$((PH-37))
-  text $cx $ny 28 gray50 middle "$1 / $2"
+  text $cx $ny 28 gray25 middle "$1 / $2"
   prev=black; next=black; [ $1 -eq 1 ] && prev=gray80; [ $1 -eq $2 ] && next=gray80
   echo "fill none stroke-width 3 stroke-linecap round stroke-linejoin round stroke $prev polyline $((cx-74)),$((ny-20)) $((cx-84)),$((ny-10)) $((cx-74)),$ny stroke $next polyline $((cx+74)),$((ny-20)) $((cx+84)),$((ny-10)) $((cx+74)),$ny" >> $M
   echo "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round polyline 48,37 38,48 48,59" >> $M

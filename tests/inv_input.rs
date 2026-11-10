@@ -323,7 +323,7 @@ fn the_eraser_and_other_input_do_not_change_marks() {
     assert_eq!(d.app.game.value_at(b), 0);
     same(&d, "eraser on an entry with hidden marks");
     // An eraser stroke across many cells.
-    let (r0, r1) = (layout::board_x() as f32 + 5.0, (layout::board_x() + layout::BOARD_SIZE) as f32 - 5.0);
+    let (r0, r1) = (layout::board_x() as f32 + 5.0, (layout::board_x() + layout::board_size()) as f32 - 5.0);
     let y = micro_center(a, 5).1;
     pen_stroke(&mut d, Tool::Eraser, (r0, y), (r1, y));
     same(&d, "eraser stroke across a row");

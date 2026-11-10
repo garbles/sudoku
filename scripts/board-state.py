@@ -169,8 +169,8 @@ for r, c in filled:
     color = "black" if GIVENS[r][c] != "." else PLAYER_DIGIT
     out.append(f"stroke none fill {color} font '{FONT}' font-size 104 text-anchor middle text {x+C//2},{y+111} '{grid[r][c]}'")
 # pencil marks: the possible digits of each cell with marks. The app draws the marks with no anti-aliasing
-# (REQUIREMENTS.md §15): each pixel is gray15 or the pixel under it. All other drawings keep their anti-aliasing,
-# thus the primitive goes back to 1 after the marks.
+# (REQUIREMENTS.md §15): each pixel is gray15 or the pixel under it. The other texts of the image keep their
+# anti-aliasing, thus the primitive goes back to 1 after the marks.
 out.append("text-antialias 0")
 for r, c in MARKED:
     assert not grid[r][c]

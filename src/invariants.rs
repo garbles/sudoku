@@ -20,7 +20,16 @@ const _: () = assert!(crate::render::SECONDARY[0] == 0x40 && crate::render::SECO
 // 5 px wide, and the dot of a tap has a radius of 2.5 px. The crisp pixels of these drawings and of
 // all other drawings (NAV-20) are pixel rules: the tests examine them.
 const _: () = assert!(crate::render::MARK_COLOR[0] == 0x26 && crate::render::MARK_COLOR[1] == 0x26 && crate::render::MARK_COLOR[2] == 0x26, "MRK-19");
-const _: () = assert!(crate::render::MARK_SIZE == 31.0, "MRK-19");
+// The contents of a cell come from the cell of the device (`layout::Device`). On the Paper Pro they are
+// the values of the rules: marks of 31 px (MRK-19), at 24, 74 and 122 px (MRK-1, MRK-13), the x from
+// -10 to +10 px (MRK-13), and the numbers of 104 px with the baseline at 111 px (the images).
+const _: () = {
+    let d = crate::layout::Device::PAPER_PRO;
+    assert!(d.mark_size() == 31.0, "MRK-19");
+    assert!(d.mark_pos(0) == 24.0 && d.mark_pos(1) == 74.0 && d.mark_pos(2) == 122.0 && d.mark_baseline() == 11.0, "MRK-13");
+    assert!(d.refused_x_half() == 10.0, "MRK-13");
+    assert!(d.digit_size() == 104.0 && d.digit_baseline() == 111.0, "BRD-8");
+};
 const _: () = assert!(crate::render::INK_WIDTH == 5.0 && crate::render::INK_DOT_RADIUS == 2.5, "INP-25");
 // BRD-9: the dots of the micro-cell lines are gray15 (not black: the mono waveform), the pattern is
 // the 4x4 Bayer matrix, and each 2x4 px run of a line has the quantity of dots of its gray (the same
@@ -317,7 +326,7 @@ fn check_card_layout() -> Result<(), String> {
     let toolbar = Rect::new(layout::tb_x(), 0, layout::tb_x() + layout::TB_SLOT, h);
     let close_x = if layout::right_handed() { w - layout::TB_SLOT } else { 0 };
     let close = Rect::new(close_x, 0, close_x + layout::TB_SLOT, layout::TB_SLOT);
-    let board = Rect::new(layout::board_x(), layout::board_y(), layout::board_x() + layout::BOARD_SIZE, layout::board_y() + layout::BOARD_SIZE);
+    let board = Rect::new(layout::board_x(), layout::board_y(), layout::board_x() + layout::board_size(), layout::board_y() + layout::board_size());
     for (name, o) in [("the toolbar", toolbar), ("the close button", close), ("the board", board)] {
         ensure!(!r.overlaps(&o), "CMP-7", "the result card {r:?} touches {name} {o:?}");
     }
@@ -426,7 +435,7 @@ pub fn check_app(app: &App) -> Result<(), String> {
     if ui.menu.panel() == Some(Panel::Checkpoints) {
         ensure!(ui.pending_ink.is_none() && app.live_stroke.is_none(), "NAV-18", "ink in the Checkpoints panel");
     } else {
-        ensure!(ui.delete_guard.is_none(), "CKP-8", "the guard after a delete with panel {:?}", ui.menu.panel());
+        ensure!(ui.delete_guard_until.is_none(), "CKP-8", "the guard after a delete with panel {:?}", ui.menu.panel());
     }
     // NAV-4: the type `Menu` keeps a panel only in `Menu::Open`.
     if app.screen != Screen::Game {

@@ -6,7 +6,8 @@ This document tells what the app does. It gives the screens, all the states, all
 results of the inputs, and the data that the app keeps.
 
 The images in [`images/`](images/) show each state exactly. The script
-[`scripts/build.sh`](scripts/build.sh) makes the images. The file
+[`scripts/build.sh`](scripts/build.sh) makes the images, but not the icon sheet `icons.png`: the
+snapshot tool makes it with the drawing code of the app. The file
 [`images/INDEX.md`](images/INDEX.md) gives a list of the images.
 
 If a behavior is not known yet, it is in [Open questions](#16-open-questions). The body of this
@@ -144,9 +145,9 @@ thus the "?" shows in A, and the x shows in B (owner decision 2026-11-04).
 These rules for the x are true at all times (they follow from the owner approval 2026-11-04):
 
 - At most one x shows.
-- An x implies all of these: the game screen shows, no panel is open, the game is not complete, its
-  cell is empty, "Hide pencil marks automatically" is on, a peer has its digit, no highlight shows
-  and no ink waits. The x is never on the same cell as a "?".
+- An x implies all of these: the game screen shows, no panel is open, the game is not complete, the
+  update dialog (§9.2) does not show, its cell is empty, "Hide pencil marks automatically" is on, a
+  peer has its digit, no highlight shows and no ink waits. The x is never on the same cell as a "?".
 - These remove the x: the end of its time, a press of the pen or of a finger (§5.1; not a touch that
   starts less than 150 ms after a pen lift, owner approval 2026-11-07), the release of a control that does an action (§9), completion, a change of screen, a new game and the update
   dialog (§9.2). The release of a control removes only the x, not a "?" in a different cell.
@@ -170,7 +171,7 @@ stateDiagram-v2
         Highlighted --> Plain: pen stroke that starts on a filled cell, at the pen lift
         Highlighted --> Plain: read of waiting ink that gives a number
         Highlighted --> Plain: new game, restart or completion
-        Highlighted --> Plain: Help, Statistics or update dialog
+        Highlighted --> Plain: Help, Statistics, Licenses or update dialog
         Highlighted --> Plain: the switch Highlight numbers goes off
         Highlighted --> Question: read of waiting ink that is not 1 to 9
         Highlighted --> Refused: refused pen tap, at the pen lift
@@ -202,7 +203,9 @@ stateDiagram-v2
 
 ### 3.3 Landscape
 
-The landscape layout has the same items, at the same sizes, as the portrait layout:
+The landscape layout has the same items as the portrait layout. The items have the same sizes,
+unless this table or the section of the item gives a different size for landscape (the result card,
+[§8.3](#83-complete); the rows of the By difficulty table, [§13.1](#131-summary)):
 
 | Item | Landscape position |
 |---|---|
@@ -421,7 +424,9 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
   2026-11-06). The acceptance factor of the recognizer stays 1.4 (owner approval 2026-11-06).
 - If the writing is **not a number from 1 to 9**, the app shows a gray **?** in the cell for
   **approximately one second**. Examples are a scribble, a letter, 0 or a number more than 9, such as
-  12. After the "?", the cell is the same as before.
+  12. While the "?" shows, the cell shows no pencil marks and no micro-cell grid
+  ([`screen-unrecognized.png`](images/screen-unrecognized.png)). After the "?", the cell is the same
+  as before.
 - Each press of the pen or of a finger removes the "?" immediately. Thus a new number in that cell
   never shows under the "?" (owner decision 2026-10-25). The same press also removes the x, before
   the app does the action of that press. A second finger also removes them (owner approval
@@ -490,7 +495,8 @@ flowchart TD
     J -- no --> L[Show ? for approximately one second, then show the cell as before]
 ```
 
-The highlight does not change at the pen press. Its removal or move goes to the screen in one redraw
+The highlight does not change at the pen press, unless that press reads waiting ink
+([§6.2](#62-highlights)). Its removal or move goes to the screen in one redraw
 with the result of the action: a tap at the pen lift, and writing when the app reads the ink. Two updates
 remain in these known cases, which the owner accepts: a pen press on a control while ink waits (the
 number at the press, the action at the release), and a press on a control that removes an x or a "?"
@@ -567,7 +573,7 @@ complete group that has that digit shows the highlight color, not the completed 
   ([§14.4](#144-launcher)).
 - A read of waiting ink, by any cause, in the same redraw as the number or the "?".
 - A new game, a restart of the app (the app does not save the highlight, approved prototype 2026-11-07) and a completed puzzle. A completed puzzle does not show highlights.
-- Leaving the board for Help or Statistics. The highlight does not come back on return.
+- Leaving the board for Help, Statistics or the Licenses list ([§9.4](#94-third-party-licenses)). The highlight does not come back on return.
 - The update dialog ([§9.2](#92-updates)). The highlight does not come back after **Later**.
 - Turning off the switch "Highlight numbers" ([§9.1](#91-settings-panel)). The highlight goes in that
   redraw. While the switch is off, a tap on a number does not make a highlight.
@@ -575,7 +581,9 @@ complete group that has that digit shows the highlight color, not the completed 
 **These do not remove a highlight** (owner approval 2026-11-07):
 
 - A finger or a hand on the board or anywhere else, and a second finger.
-- The menu, the panels and their options. A highlight can show while the menu or a panel is open.
+- The menu, the panels and their options. The exceptions are the options in the list above: Start new
+  game, Help, Statistics, Third-party licenses and turning off "Highlight numbers". A highlight can show
+  while the menu or a panel is open.
 - Undo, Redo and Restore. If they remove the last number with that digit, the highlight stays, and it
   shows again when that digit comes back. A tap on that digit then removes the highlight.
 - The eraser.
@@ -619,7 +627,7 @@ numbers and your numbers.
   and not in the clash color, and a group with an incorrect number can have the completed color
   (owner approval 2026-11-04 and 2026-11-05).
 
-Images: [`screen-in-progress.png`](images/screen-in-progress.png) (two 9s in column 2),
+Images: [`screen-in-progress.png`](images/screen-in-progress.png) (two 9s in column 1, from 0),
 [`manual-mistakes.png`](images/manual-mistakes.png).
 
 ```mermaid
@@ -848,6 +856,9 @@ x0 + 28.
   the save. It does not wait for the next input. Easier and Harder use the same next seed with their
   own mode and the same symmetry, and the app makes their puzzle at the tap. The puzzle is the same as a puzzle that the app
   makes at the time of need ([§14.5](#145-puzzle-generation); review finding 2026-11-07).
+  Exception (owner decision 2026-11-10): while the New game panel is open, the background puzzle has the
+  key of the panel ([§11](#11-new-game-panel-and-difficulty)), also on a complete game. After the panel
+  closes, the key is the key of Same again.
 
 **Panels, the menu and the layouts.**
 
@@ -905,12 +916,12 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
 | bottom 0 | New game | + | Opens the New game panel ([§11](#11-new-game-panel-and-difficulty)). |
 
 - The menu is **open by default**. When the game screen shows, the menu is open and no panel is
-  open: when the app opens (a new game or a saved game), after **< Back** from the manual or from
-  the statistics, and after **Start new game**. The app does not keep the menu state ([§14.3](#143-game-in-progress-kept-when-the-app-closes)).
+  open: when the app opens (a new game or a saved game), after **< Back** from the manual, from
+  the statistics or from the Licenses list, and after **Start new game**. The app does not keep the menu state ([§14.3](#143-game-in-progress-kept-when-the-app-closes)).
   Exception: after a level button of the result card (**Easier**, **Same**, **Harder**), the new game
   shows with the menu closed and no panel open ([§8.3](#83-complete); owner approval 2026-11-07).
-  On the other screens (manual, statistics, completed games list), the menu is closed.
-- After **< Back** from the manual or from the statistics shows the game screen, the app ignores a
+  On the other screens (manual, statistics, completed games list, Licenses list and license text), the menu is closed.
+- After **< Back** from the manual, from the statistics or from the Licenses list shows the game screen, the app ignores a
   press on the toolbar (all toolbar buttons, also the menu button) and on the close button for
   **0.5 s**. A press on the board operates as usual. This is true for the left-handed and the
   right-handed layout. Reason: the e-paper screen is slow, and **< Back** is at the same position as
@@ -995,6 +1006,9 @@ stateDiagram-v2
     state "Statistics" as Statistics
     Manual --> Open: < Back
     Statistics --> Open: < Back
+    Open --> Licenses: Settings panel, Third-party licenses
+    state "Licenses list" as Licenses
+    Licenses --> Open: < Back
 ```
 
 Images: [`screen-toolbar.png`](images/screen-toolbar.png) (menu open, new game, undo and redo gray),
@@ -1047,7 +1061,7 @@ Image: [`settings-menu.png`](images/settings-menu.png).
 
 A stable build (version `v<major>.<minor>.<patch>`) looks for a newer stable release on GitHub and
 installs it when the user taps a button (owner decision 2026-10-27). A preview build (`pre-` and 7 to
-40 hexadecimal digits) also looks for updates and has the update row. Only a `dev` or `dev/<name>` build (and each
+40 lowercase hexadecimal digits; owner decision 2026-11-10) also looks for updates and has the update row. Only a `dev` or `dev/<name>` build (and each
 other version name) does not look for updates and does not have the update row (owner decision
 2026-11-01).
 
@@ -1234,7 +1248,7 @@ Each checkpoint row has these items:
 | Small board | Origin (926, y0+14). Cells of 17 px: 153 px, 155 px with the outer lines. | The board of the checkpoint (below). |
 | Text | x 1098, Regular 25 px, `gray25`. Baselines y0+81 and y0+115. | "\<clock\> played" (the format of [§8.3](#83-complete), the clock at the save) and "\<n\> of 81 cells" (n counts all filled cells, also the starting numbers). |
 | Button | x 1289–1429, y y0+55 to y0+125 (these pixels are included). Text center x 1359, baseline y0+99, Medium 25 px. | **Restore**: white, 2 px black border, black text. **Current**: black, white text, when the numbers and all marks of the board are the same as the checkpoint. |
-| Bin | The icon of the games list, center (1468, y0+90). Tap area x 1441–1507, the full row height. | Deletes the checkpoint. The 12 px between the button and this area operate nothing. |
+| Bin | The icon of the games list, center (1468, y0+90). Tap area x 1441–1507, the full row height. | Deletes the checkpoint. The 11 px between the button and this area operate nothing. |
 
 The small board:
 
@@ -1388,9 +1402,8 @@ The positions, the sizes, the sections and the colors of this section have the o
   Each cell has a color dot of 38 px and the name below the dot. The pen-color menu of the device has
   the same design.
 - A tap on the empty space or on a title changes nothing, and the panel stays open.
-- The panel does not cover a toolbar button, the close button or the meter in any of the four
-  layouts. On a complete puzzle, it can cover a part of the result card (owner decision 2026-11-07,
-  [§8.3](#83-complete)). The panel covers approximately 27 cells of the board in portrait and 24 in
+- The panel does not cover a toolbar button, the close button, the meter or the result card
+  ([§8.3](#83-complete)) in any of the four layouts. The panel covers approximately 27 cells of the board in portrait and 24 in
   landscape. The owner accepted this size.
 - A solid black box with white text shows the selected color.
 - The available colors are Gray, White, Yellow, Blue, Red, Green, Cyan, Magenta and Orange.
@@ -1505,7 +1518,8 @@ Images: [`images/new-game-menu.png`](images/new-game-menu.png),
   has no switch and shows no symmetry information (owner approval 2026-11-07).
 - While the New game panel is open, the app makes the puzzle of the next game in the background, with
   the selected mode and the selected symmetry. A change of the slider or of the switch starts the
-  background puzzle again for the new selection (owner approval 2026-11-07 for the symmetry).
+  background puzzle again for the new selection when no pen and no finger is down, thus at the lift if
+  the slider moved (owner approval 2026-11-07 for the symmetry; owner decision 2026-11-10).
   While the result card shows, it makes the puzzle of **Same** in the background from the completion,
   with the symmetry of the completed game ([§8.3](#83-complete)). The puzzle is the same as a puzzle
   that the app makes at the time of need.
@@ -1536,7 +1550,8 @@ stateDiagram-v2
 
 - Each page has **< Back** at the top left. It shows the game again, with the menu open and no
   panel open. For 0.5 s, the app ignores a press on the toolbar and on the close button ([§9](#9-the-menu)).
-- Each page has ‹ › arrows next to the page number at the bottom. The arrow at the first page and the
+- Each page has ‹ › arrows next to the page number at the bottom. The page number is `gray25`
+  (§15, owner decision 2026-11-10). The arrow at the first page and the
   arrow at the last page are gray.
 - A **finger swipe** to the left or to the right turns the page. reMarkable notebooks operate in the
   same way.
@@ -1827,7 +1842,8 @@ rectangle puts the area on a different cell, and the ink gets the UI waveform (o
   It stops when the app has read the last ink and the pen has written nothing on the board for
   **1 s** after the last stroke (one timer for all cells: each new stroke starts it again). This
   time is equal to the recognition pause (§5.1; owner approval 2026-11-07). A pen press that does not write (a tap, the
-  eraser, a button) stops the writing immediately. A finger press does not stop it. A control that a
+  eraser, a button) stops the writing timer immediately; a redraw still waits until the pen lifts,
+  because a pen touch on the board keeps the redraw until its lift ([§5.2](#52-input-decisions)). A finger press does not stop it. A control that a
   finger operates stops it at its release, on the control (owner approval 2026-11-07). The app
   reads each number after the recognition pause (§5.1), but the typed numbers show only when the
   writing stops. Thus the player can write in many cells, one after the other, also with a slow
@@ -1856,7 +1872,7 @@ anti-aliasing (owner approval on the tablet, build `dev/no-antialias`): the numb
 menu, the panels, the dialogs, the texts, the result card and the small boards of the Checkpoints
 panel with their mark dots. Their colors and grays do not change: no gray becomes a pattern. The
 manual pages are prepared images: the app copies their pixels, and they keep the anti-aliasing of
-the images. The micro-cell lines and the swatches of
+the images. Exception (owner decision 2026-11-10): the pale screen behind the delete dialogs and the restart dialog (a white blend, alpha 0.6, `Canvas::veil`) is the only drawing that blends: a black pixel becomes gray 153. It is not a pattern, and the dialog on it is a crisp drawing. The micro-cell lines and the swatches of
 the Micro-cell lines section ([§10](#10-cell-colors-panel)) are the only drawings that show a gray
 as a pattern. The dots of the pattern are `gray15`, not black: the display code of xochitl gives a
 rectangle that was pure black and white a mono waveform, and a color that then appears in it is
@@ -1869,7 +1885,8 @@ frame, in a redraw, in the snapshot tool, in the bench and in the videos.
 `/home/root/xovi/exthome/qt-resource-rebuilder/sudoku-penregion.json` gives the version that
 installed the patch and the SHA-256 checksum of the patch:
 `{"version": "v<version>", "sha256": "<checksum>"}`. The installer (§14.6) and the update of the app
-(§9.2) write it each time that they install the patch. The update compares the checksum of the new
+(§9.2) write it each time that they install the patch. The installer of a preview version writes
+`pre-<sha>` as the version. The update compares the checksum of the new
 patch only with the checksum in this file. For the update, a missing stamp file means that the patch
 must be replaced.
 
@@ -2031,19 +2048,19 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Ink of the pen (§5.1) | Black line of 5 px with round ends and joins; the ink of a tap is a dot with a radius of 2.5 px. No anti-aliasing: each pixel is black or the pixel under it, also over a filled cell (§14.4; owner approval 2026-11-07) |
 | "?" | reMarkable Sans Regular 104 px, `gray25` (owner request 2026-11-07) |
 | x of a refused tap (§6.1) | Two straight lines with round ends, line width 3 px, `gray15` (the same as the pencil marks). Each line goes from -10 px to +10 px on the two axes around the center: 20×20 px between the line centers, visible extent of approximately 23×23 px. The center is the anchor point of the pencil mark of that digit: 24, 74 or 122 px from the cell origin on each axis, at the keypad position of the digit (1 at the top left, 9 at the bottom right). The x stays in its micro-cell and does not touch the cell lines. Time: the same value as the "?" (1000 ms) (owner approval 2026-11-04). No anti-aliasing: each changed pixel is `gray15` (owner approval 2026-11-07). |
-| Anti-aliasing | No drawing of the app has anti-aliasing (owner approval 2026-11-08): the ink of the pen, the pencil marks, the x, the board lines, the micro-cell lines, the icons (also on the icon sheet `icons.png`), the numbers, the "?", the menu frame, the panels, the dialogs, the texts, the result card and the small boards of the Checkpoints panel with their mark dots. Each pixel of a drawing is fully the color of the drawing, or the pixel that was under it. Only the manual pages have anti-aliasing: they are prepared images, and the app copies their pixels. The design images in `images/` keep the anti-aliasing of ImageMagick for all items except the ink, the pencil marks, the x, the board lines and the micro-cell lines: they give the positions and the shapes, and the comparison accepts the edge pixels (§17). The micro-cell lines and the swatches of the Micro-cell lines section are the only drawings that show a gray as a pattern; no other gray becomes a black and white pattern (§14.4; owner approval 2026-11-07 and 2026-11-08) |
+| Anti-aliasing | No drawing of the app has anti-aliasing (owner approval 2026-11-08): the ink of the pen, the pencil marks, the x, the board lines, the micro-cell lines, the icons (also on the icon sheet `icons.png`), the numbers, the "?", the menu frame, the panels, the dialogs, the texts, the result card and the small boards of the Checkpoints panel with their mark dots. Each pixel of a drawing is fully the color of the drawing, or the pixel that was under it. Only the manual pages have anti-aliasing: they are prepared images, and the app copies their pixels. Exception (owner decision 2026-11-10): the pale screen is the only drawing that blends. It is a white blend (alpha 0.6, `Canvas::veil`) over the full screen, drawn before the delete dialogs and the restart dialog: a black pixel becomes gray 153. It is not a pattern. The dialog on it is a crisp drawing. The design images in `images/` keep the anti-aliasing of ImageMagick for all items except the ink, the pencil marks, the x, the board lines and the micro-cell lines: they give the positions and the shapes, and the comparison accepts the edge pixels (§17). The micro-cell lines and the swatches of the Micro-cell lines section are the only drawings that show a gray as a pattern; no other gray becomes a black and white pattern (§14.4; owner approval 2026-11-07 and 2026-11-08) |
 | Highlight | The same color rules as before (§4.2). It can also show while the menu or a panel is open, on the part of the board that the panel does not cover (§6.2; owner approval 2026-11-07) |
 | Times of writing | Recognition pause 1000 ms from the pen lift. Redraw wait 1000 ms after the last stroke. A touch that starts less than 150 ms after a pen lift has no effect (§5.1, §14.4; owner approval 2026-11-07) |
 | Palette | Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue `#408CFF`, Red `#FF8E8E`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0`, Orange `#FF9A1F` (owner approval 2026-11-04 and 2026-11-05). The board, the panel dots, the manual and the images all use this palette. |
 | Default colors | Starting Gray `#AEAEAE`, clash Red `#FF8E8E`, highlight Cyan `#6FCFE6`, completed groups Green `#48D630` |
 | Background of a filled cell | First rule that applies: clash, highlight, completed, starting number, white (§4.2) |
 | UI text | reMarkable Sans Medium 25 px (menus, meter labels). The version value and the text of an update state are reMarkable Sans Regular 25 px (§9.1, §9.2). |
-| Secondary text | `gray25` (`#404040`) for all secondary text and marks: the result card text, the "?", the box labels and the column headings of Statistics and of the completed games list, the help line of the Checkpoints panel and the mark dots of the small boards, the Licenses screens (intro text, versions, the version and license line), the text rows of the update states, the pages of the manual and the labels of the icon sheet `images/icons.png`. No text uses `gray40` (`#666666`): it was hard to read on the tablet (owner request 2026-11-07). The micro-cell line setting 40 of the Cell colors panel stays (§10), and the other grays do not change. Since 2026-11-08 no pixel of the app is `gray40`: the micro-cell lines show the selected gray as a pattern of `gray15` and white (§4.1). |
+| Secondary text | `gray25` (`#404040`) for all secondary text and marks: the result card text, the "?", the box labels and the column headings of Statistics and of the completed games list, the help line and the row text of the Checkpoints panel and the mark dots of the small boards, the Licenses screens (intro text, versions, the version and license line), the page number "n / total" (Regular 28) of the completed games list, the Licenses screens and the manual pages (owner decision 2026-11-10), the text rows of the update states, the two text lines of each dialog, the pages of the manual and the labels of the icon sheet `images/icons.png`. No text uses `gray40` (`#666666`): it was hard to read on the tablet (owner request 2026-11-07). The micro-cell line setting 40 of the Cell colors panel stays (§10), and the other grays do not change. Since 2026-11-08 no pixel of the app is `gray40`: the micro-cell lines show the selected gray as a pattern of `gray15` and white (§4.1). The only exception is the anti-aliasing of the manual pages: an edge of a darker text or line there can have single pixels of this value. |
 | Result card | 2 px black frame, white. Portrait: x 148–1471, y 1790–2110. Landscape: a column of 322 px, y 148–1471, x 48–370 (left-handed) or x 1790–2112 (right-handed). "Completed in" Regular 30 `gray25`; time Medium 96 (portrait) or Medium 72 (landscape), black; comparison Regular 25 `gray25`; divider 2 px `gray70`; "New game" Medium 28; level buttons with a 2 px black frame (not available: `gray80` frame, `gray70` label, no meter). §8.3 gives all positions (owner approval 2026-11-07). |
 | Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |
 | Bookmark icon | Closed line of 3 px through (-12,-18), (12,-18), (12,18), (0,8), (-12,18) from the center of top slot 5 (y 560–671). Black; white on black while its panel is open; `gray70` on a complete puzzle (owner approval 2026-11-06) |
 | Panels | 2 px black border, rows of 112 px, 2 px dividers, inner margin of 33 px |
-| Settings panel | 400 px wide (x 1108–1507 for a left-handed player in portrait). Three switch rows, the version row and, in a stable or preview build, the update row (§9.1, §9.2) |
+| Settings panel | 400 px wide (x 1108–1507 for a left-handed player in portrait). Three switch rows, the version row, the Third-party licenses row and, in a stable or preview build, the update row (§9.1, §9.2, §9.4) |
 | Cell colors panel | 800 px wide (two columns of 400 px), three rows of 360 px, y 112–1192. x 708–1507 (left-handed, portrait), x 1248–2047 (left-handed, landscape), x 112–911 (right-handed). Vertical line of 2 px at 400 px from the left of the panel. Section title 33 px, grid 32 px from the left of the column; grid cells 112×90 px (owner approval 2026-11-04 and 2026-11-05). Swatches of the Micro-cell lines section: a 19 px circle with a 2 px ring; the gray items show their pattern (§4.1) on a white disc with a radius of 17.5 px inside the ring, the pattern `matrix[dy mod 4][dx mod 4]` from the pixel (cx − 19, cy − 19); None is a white dot (§10; owner approval 2026-11-08) |
 | Checkpoints panel | 600 px wide, top at y 560. x 908–1507 (left-handed, portrait), x 1448–2047 (left-handed, landscape), x 112–711 (right-handed). White, 2 px black border. Save row of 112 px; no checkpoint: the panel ends at y 864; else rows of 180 px, the panel ends at y 672 + 180 n, at most y 1572 (§9.3; owner approval 2026-11-06) |
 | Checkpoint row | Small board of 155 px with cells of 17 px, digits Regular 14, mark dots of 2×2 px `gray25`; text Regular 25 `gray25`; button 141×71 px, text Medium 25; bin icon of the games list (§9.3; owner approval 2026-11-06) |
@@ -2126,6 +2143,7 @@ micro-cell lines.
 | [`color-menu.png`](images/color-menu.png) | [§10](#10-cell-colors-panel) |
 | [`color-menu-landscape.png`](images/color-menu-landscape.png) | [§10](#10-cell-colors-panel) |
 | [`color-menu-right-handed.png`](images/color-menu-right-handed.png) | [§3.1](#31-layout), [§10](#10-cell-colors-panel) |
+| [`color-menu-lines-90.png`](images/color-menu-lines-90.png), [`color-menu-lines-40.png`](images/color-menu-lines-40.png) | [§10](#10-cell-colors-panel) |
 | [`new-game-menu.png`](images/new-game-menu.png) (the three-row panel: slider, Symmetrical, Start new game) | [§11](#11-new-game-panel-and-difficulty) |
 | [`analytics.png`](images/analytics.png) | [§13.1](#131-summary) |
 | [`analytics-games.png`](images/analytics-games.png) | [§13.2](#132-completed-games-list) |
@@ -2156,3 +2174,4 @@ micro-cell lines.
 | [`analytics-delete-all.png`](images/analytics-delete-all.png) | [§13.1](#131-summary) |
 | `analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png` | [§3.3](#33-landscape), [§13](#13-statistics) |
 | `install-*.png` (6 images) | [§14.6](#146-installer) |
+| [`icons.png`](images/icons.png) (the icon sheet) | [§15](#15-visual-specification) |

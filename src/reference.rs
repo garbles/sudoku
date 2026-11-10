@@ -7,7 +7,6 @@ use tiny_skia::{Color as SkColor, Pixmap};
 use crate::app::{App, Menu, Panel, PendingInk, Screen};
 use crate::font::{Anchor, Fonts, Weight};
 use crate::game::{peers, Checkpoint, Game};
-use crate::layout::PAGE_SCALE;
 use crate::render::{self, decode_png, gray, Canvas, Icon, Units, BLACK};
 use crate::script::FixedEnv;
 use crate::store::{NewResult, ResultsDb};
@@ -436,7 +435,7 @@ pub fn icon_sheet(fonts: &Fonts) -> Pixmap {
         };
         if icon.on_page() {
             c.set_units(Units::Page);
-            icon.draw(&mut c, cx / PAGE_SCALE, cy / PAGE_SCALE, col);
+            icon.draw(&mut c, cx / crate::layout::page_scale(), cy / crate::layout::page_scale(), col);
             c.set_units(Units::Screen);
         } else {
             icon.draw(&mut c, cx, cy, col);

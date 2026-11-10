@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::font::{Anchor, Weight};
-use crate::layout::{close_cx, CELL, CLOSE_CY};
+use crate::layout::{close_cx, Device, CLOSE_CY};
 use crate::render::{Canvas, Icon, Rgb};
 use crate::settings::{Color, BLACK, ENTRY_DIGIT};
 
@@ -25,6 +25,11 @@ pub fn save_path() -> PathBuf {
     let home = std::env::var_os("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("/home/root"));
     home.join(".local/share/rm-sudoku-colors/colors.json")
 }
+
+/// The color picker is a tool for the Paper Pro only: its positions are fixed pixels of that screen.
+const DEVICE: Device = Device::PAPER_PRO;
+/// The side of a preview cell: the cell of the board.
+const CELL: i32 = DEVICE.cell;
 
 const WHITE: Rgb = [255, 255, 255];
 const TRACK: Rgb = [153, 153, 153];
@@ -50,7 +55,7 @@ const CLOSE_SLOT: f32 = 112.0;
 
 /// A rectangle of the screen: x, y, width, height.
 pub type Area = (i32, i32, i32, i32);
-const SCREEN_W: i32 = crate::layout::PHYSICAL_W as i32;
+const SCREEN_W: i32 = DEVICE.physical_w as i32;
 /// The row of the color buttons.
 pub const BUTTONS_AREA: Area = (0, BUTTON_Y as i32 - 2, SCREEN_W, BUTTON_H as i32 + 2);
 /// The button "Your number", the title and the sliders.

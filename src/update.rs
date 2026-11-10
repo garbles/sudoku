@@ -56,8 +56,8 @@ fn is_lower_hex(s: &str) -> bool {
     s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
-/// True for the name of a preview build: `pre-` and the first 7 to 40 hexadecimal digits of the commit
-/// (release.yml).
+/// True for the name of a preview build: `pre-` and the first 7 to 40 lowercase hexadecimal digits of the
+/// commit (release.yml; owner decision 2026-11-10).
 fn is_preview(s: &str) -> bool {
     s.strip_prefix("pre-").is_some_and(|h| (7..=40).contains(&h.len()) && is_lower_hex(h))
 }
@@ -488,6 +488,15 @@ impl Update {
             }
         }
         false
+    }
+
+    /// The time (ms) at which "Update failed" goes away (UPD-6), if it shows. The main loop wakes at
+    /// this time, thus the text shows for 3 seconds.
+    pub fn deadline(&self) -> Option<u64> {
+        match &self.state {
+            UpdateState::Failed(_, at) => Some(at + FAILED_MS),
+            _ => None,
+        }
     }
 
     /// The Settings panel closed: the row shows the button "Check for updates" again (UPD-9).

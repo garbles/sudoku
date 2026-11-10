@@ -61,8 +61,9 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
   mono waveform for the areas that were black and white before an update. The colors were washed out,
   and a ghost stayed over the colored cells after the menu closed (owner test 2026-11-07). Thus no
   gray becomes a black and white pattern. Since 2026-11-08 all drawings are crisp (no anti-aliasing),
-  but their grays and colors stay flat (REQUIREMENTS.md §14.4, §15). The micro-cell lines are the one
-  drawing that shows a gray as a pattern, and the dots of the pattern are gray15, not black. With
+  but their grays and colors stay flat (REQUIREMENTS.md §14.4, §15). The micro-cell lines and the
+  swatches of the Micro-cell lines section are the only drawings that show a gray as a pattern, and
+  the dots of the pattern are gray15, not black. With
   black dots an empty cell was a pure black and white area, and xochitl selected the mono waveform
   when a color appeared in it (a clash): the clash color was washed out (owner test 2026-11-08).
   Rule: a drawing must keep at least some gray pixels where a color can appear later.

@@ -4,7 +4,7 @@
 use crate::app::{new_game, App, Env, Input, Menu, Tool};
 use crate::font::Fonts;
 use crate::game::{mark_bit, Cell, Marks};
-use crate::layout::{self, CELL};
+use crate::layout;
 use crate::render;
 use crate::settings::{Color, Section};
 use crate::store::ResultsDb;
@@ -254,7 +254,7 @@ pub fn parse(text: &str, pause_ms: u64) -> Result<Script, String> {
                     _ => return Err(err(format!("unknown line {line:?}"))),
                 };
                 let (x, y) = layout::cell_origin(cell);
-                let off = (CELL as f32 - INK_BOX) / 2.0;
+                let off = (layout::cell_size() as f32 - INK_BOX) / 2.0;
                 let ink = crate::recognizer::example_ink(d, writer, x as f32 + off, y as f32 + off, INK_BOX)
                     .ok_or_else(|| err(format!("no handwriting example of {d} by writer {writer}")))?;
                 for (i, s) in ink.iter().enumerate() {
@@ -278,7 +278,7 @@ pub fn parse(text: &str, pause_ms: u64) -> Result<Script, String> {
                 need_puzzle()?;
                 let cell = parse_cell(cell).map_err(err)?;
                 let (x, y) = layout::cell_origin(cell);
-                let (cx, cy) = (x as f32 + CELL as f32 / 2.0, y as f32 + CELL as f32 / 2.0);
+                let (cx, cy) = (x as f32 + layout::cell_size() as f32 / 2.0, y as f32 + layout::cell_size() as f32 / 2.0);
                 let rub: Vec<(f32, f32)> =
                     (0..7).map(|i| (cx + if i % 2 == 0 { -40.0 } else { 40.0 }, cy - 30.0 + i as f32 * 10.0)).collect();
                 tl.approach(rub[0].0, rub[0].1, Tool::Eraser);

@@ -132,9 +132,9 @@ pub struct GameUi {
     /// The selection of the Symmetrical switch in the New game panel (DIF-8). When the panel is not
     /// open, it is `settings.last_symmetric`.
     pub symmetric_sel: bool,
-    /// The time of the last delete of a checkpoint, during the guard after it (CKP-8). The app does
+    /// The time when the guard after a delete of a checkpoint ends (CKP-8). The app does
     /// not save it. It is None when the Checkpoints panel is not open.
-    pub delete_guard: Option<u64>,
+    pub delete_guard_until: Option<u64>,
 }
 
 impl GameUi {
@@ -156,7 +156,7 @@ impl GameUi {
             pending_ink: None,
             slider: settings.last_mode,
             symmetric_sel: settings.last_symmetric,
-            delete_guard: None,
+            delete_guard_until: None,
         }
     }
 }
@@ -482,8 +482,8 @@ impl App {
         if self.toolbar_ignored_until.is_some_and(|t| now >= t) {
             self.toolbar_ignored_until = None;
         }
-        if self.ui.delete_guard.is_some_and(|t| now.saturating_sub(t) >= DELETE_GUARD_MS) {
-            self.ui.delete_guard = None;
+        if self.ui.delete_guard_until.is_some_and(|t| now >= t) {
+            self.ui.delete_guard_until = None;
         }
     }
 
@@ -574,7 +574,8 @@ impl App {
         // MRK-14: the main loop wakes at the end of the time of the x.
         let x = self.ui.refused.map(|(_, _, t)| t + OVERLAY_MS);
         let ink = self.ui.pending_ink.as_ref().and_then(|i| i.last_lift_at).map(|t| t + self.pause_ms);
-        [q, x, ink, self.writing_until].into_iter().flatten().min()
+        // UPD-6: the main loop wakes at the end of the 3 seconds of "Update failed".
+        [q, x, ink, self.writing_until, self.update.deadline()].into_iter().flatten().min()
     }
 
     // ---- Input
@@ -688,7 +689,7 @@ impl App {
         // CKP-8: shortly after a delete, a press in the area of the Checkpoints panel at its maximum
         // size changes nothing. It is often the second tap of a fast double tap on a bin, and a
         // different row is at that position now. The dialog "Restart the interface?" covers the panel.
-        let guarded = self.ui.delete_guard.is_some_and(|t| now.saturating_sub(t) < DELETE_GUARD_MS);
+        let guarded = self.ui.delete_guard_until.is_some_and(|t| now < t);
         if guarded && !self.update.dialog_shown() && layout::ckp_guard_area().contains(x, y) {
             return Gesture::Ignored;
         }
@@ -1380,7 +1381,7 @@ impl App {
             }
             CheckpointControl::Delete(i) => {
                 if self.game.delete_checkpoint(i) {
-                    self.ui.delete_guard = Some(now);
+                    self.ui.delete_guard_until = Some(now + DELETE_GUARD_MS);
                     self.checkpoints_changed();
                 }
             }
@@ -1412,7 +1413,7 @@ impl App {
         // DIF-4: the selections are not kept.
         self.ui.slider = self.settings.last_mode;
         self.ui.symmetric_sel = self.settings.last_symmetric;
-        self.ui.delete_guard = None;
+        self.ui.delete_guard_until = None;
         self.cancel_gestures();
     }
 

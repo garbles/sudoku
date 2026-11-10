@@ -10,9 +10,109 @@
 //! portrait, across the full width; the manual has its own landscape images (REQUIREMENTS.md §3.3).
 
 use std::cell::Cell as StdCell;
+use std::sync::OnceLock;
 
 use crate::game::Cell;
 use crate::settings::{Color, LineGray, Section, Switch};
+
+/// The values that are specific to one tablet model. All other sizes come from these values or are
+/// the same on each model (the toolbar slots, the icons and the panel widths).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Device {
+    pub name: &'static str,
+    /// The physical framebuffer, always portrait.
+    pub physical_w: u32,
+    pub physical_h: u32,
+    /// The side of a board cell (px).
+    pub cell: i32,
+    /// The qtfb framebuffer type that the app asks for: RGB888, 3 bytes for each pixel and
+    /// `3 * physical_w` bytes for each line. AppLoad makes the buffer from this type, not from the
+    /// tablet (1 is FBFMT_RMPP_RGB888, 1620 x 2160).
+    pub fb_type: u8,
+    /// The screen pixels of one layout unit of the manual and the analytics pages (`page_scale`):
+    /// about `physical_w / 1404`. The images of the Paper Pro use the rounded value 1.153846.
+    pub page_scale: f32,
+}
+
+/// The cell of the reference design (the images of REQUIREMENTS.md, the Paper Pro). The contents of
+/// a cell are given in pixels of this cell, and `Device::scale` changes them to the cell of a device.
+const REF_CELL: i32 = 147;
+
+impl Device {
+    /// The reMarkable Paper Pro: 1620 x 2160 at 229 DPI.
+    pub const PAPER_PRO: Device = Device { name: "reMarkable Paper Pro", physical_w: 1620, physical_h: 2160, cell: REF_CELL, fb_type: 1, page_scale: 1.153846 };
+
+    /// A length `v` of the reference cell, in pixels of the cell of this device (rounded to full
+    /// pixels, thus the contents of a cell stay crisp). On the Paper Pro, it is `v`.
+    pub const fn scale(&self, v: i32) -> i32 {
+        (2 * v * self.cell + REF_CELL) / (2 * REF_CELL)
+    }
+
+    /// The text size of the numbers and of the "?" (px).
+    pub const fn digit_size(&self) -> f32 {
+        self.scale(104) as f32
+    }
+
+    /// The baseline of the numbers and of the "?", from the top of the cell.
+    pub const fn digit_baseline(&self) -> f32 {
+        self.scale(111) as f32
+    }
+
+    /// The text size of the pencil marks (px, §15).
+    pub const fn mark_size(&self) -> f32 {
+        self.scale(31) as f32
+    }
+
+    /// The center of the micro-cell of a pencil mark, on each axis from the top left of the cell, for
+    /// the column (or the row) 0, 1 and 2 of the keypad (MRK-1).
+    pub const fn mark_pos(&self, i: usize) -> f32 {
+        self.scale([24, 74, 122][i]) as f32
+    }
+
+    /// The baseline of a pencil mark below the center of its micro-cell.
+    pub const fn mark_baseline(&self) -> f32 {
+        self.scale(11) as f32
+    }
+
+    /// The x of a refused tap (MRK-13): each line goes this distance on the two axes from the center.
+    pub const fn refused_x_half(&self) -> f32 {
+        self.scale(10) as f32
+    }
+}
+
+static DEVICE: OnceLock<Device> = OnceLock::new();
+
+/// The tablet that the app runs on. Until the platform sets it (the tests, the tools), it is the
+/// Paper Pro.
+pub fn device() -> &'static Device {
+    DEVICE.get_or_init(|| Device::PAPER_PRO)
+}
+
+/// Sets the tablet one time, before the first drawing. It is a value of the process, not of a
+/// thread: a thread that draws gets the same device. Returns false if the device was already set to
+/// a different value.
+pub fn set_device(d: Device) -> bool {
+    *DEVICE.get_or_init(|| d) == d
+}
+
+/// The side of a board cell (px).
+pub fn cell_size() -> i32 {
+    device().cell
+}
+
+/// The side of the board (px).
+pub fn board_size() -> i32 {
+    9 * cell_size()
+}
+
+/// The physical framebuffer (portrait).
+pub fn physical_w() -> u32 {
+    device().physical_w
+}
+
+pub fn physical_h() -> u32 {
+    device().physical_h
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Orientation {
@@ -71,10 +171,10 @@ pub fn set_orientation(o: Orientation) {
     set_rotation(if o == Orientation::Landscape { ROTATION_TOP_RIGHT } else { 0 });
 }
 
-/// The pixel index in the physical framebuffer (1620 x 2160, portrait) of the screen point (x, y):
+/// The pixel index in the physical framebuffer (portrait) of the screen point (x, y):
 /// `base + x * sx + y * sy`.
 pub fn physical_steps() -> (i64, i64, i64) {
-    let (w, h) = (PHYSICAL_W as i64, PHYSICAL_H as i64);
+    let (w, h) = (physical_w() as i64, physical_h() as i64);
     match rotation() {
         3 => ((h - 1) * w + (w - 1), -1, -w),
         r if r == ROTATION_TOP_RIGHT => ((h - 1) * w, -w, 1),
@@ -87,12 +187,12 @@ pub fn physical_steps() -> (i64, i64, i64) {
 fn to_physical(x: i32, y: i32) -> (i32, i32) {
     let (base, sx, sy) = physical_steps();
     let i = base + x as i64 * sx + y as i64 * sy;
-    ((i % PHYSICAL_W as i64) as i32, (i / PHYSICAL_W as i64) as i32)
+    ((i % physical_w() as i64) as i32, (i / physical_w() as i64) as i32)
 }
 
 /// The screen point of a physical point (the input of qtfb is in physical pixels).
 pub fn to_screen(px: f32, py: f32) -> (f32, f32) {
-    let (w, h) = (PHYSICAL_W as f32, PHYSICAL_H as f32);
+    let (w, h) = (physical_w() as f32, physical_h() as f32);
     match rotation() {
         3 => (w - 1.0 - px, h - 1.0 - py),
         r if r == ROTATION_TOP_RIGHT => (h - 1.0 - py, px),
@@ -123,56 +223,49 @@ fn landscape() -> bool {
     orientation() == Orientation::Landscape
 }
 
-/// The physical framebuffer is always portrait.
-pub const PHYSICAL_W: u32 = 1620;
-pub const PHYSICAL_H: u32 = 2160;
-
 /// The width and the height of the screen as the player sees it.
 pub fn screen_w() -> u32 {
-    if landscape() { PHYSICAL_H } else { PHYSICAL_W }
+    if landscape() { physical_h() } else { physical_w() }
 }
 
 pub fn screen_h() -> u32 {
-    if landscape() { PHYSICAL_W } else { PHYSICAL_H }
+    if landscape() { physical_w() } else { physical_h() }
 }
 
-/// Board: 9x9 cells of 147 px. Micro-cells of 49 px.
-pub const CELL: i32 = 147;
-pub const BOARD_SIZE: i32 = 9 * CELL;
-
-/// The top left of the board: (148, 418) in portrait, (418, 148) in landscape.
+/// The top left of the board (at the center of the screen): (148, 418) in portrait on the Paper Pro,
+/// (418, 148) in landscape.
 pub fn board_x() -> i32 {
-    (screen_w() as i32 - BOARD_SIZE) / 2
+    (screen_w() as i32 - board_size()) / 2
 }
 
 pub fn board_y() -> i32 {
-    (screen_h() as i32 - BOARD_SIZE) / 2
+    (screen_h() as i32 - board_size()) / 2
 }
 
 /// The offset of micro-cell line k (0..=3) in a cell: round(k * 147 / 3).
 pub fn micro_offset(k: i32) -> i32 {
-    (k * CELL + 1) / 3
+    (k * cell_size() + 1) / 3
 }
 
 /// The board cell at a screen point, if the point is on the board.
 pub fn board_cell(x: f32, y: f32) -> Option<Cell> {
     let (bx, by) = (x - board_x() as f32, y - board_y() as f32);
-    if bx < 0.0 || by < 0.0 || bx >= BOARD_SIZE as f32 || by >= BOARD_SIZE as f32 {
+    if bx < 0.0 || by < 0.0 || bx >= board_size() as f32 || by >= board_size() as f32 {
         return None;
     }
-    Some(((by as i32 / CELL) as u8, (bx as i32 / CELL) as u8))
+    Some(((by as i32 / cell_size()) as u8, (bx as i32 / cell_size()) as u8))
 }
 
 /// The cell and the micro-cell digit (1..=9, keypad positions) at a screen point.
 pub fn board_micro(x: f32, y: f32) -> Option<(Cell, u8)> {
     let cell = board_cell(x, y)?;
-    let ix = (x as i32 - board_x() - cell.1 as i32 * CELL) * 3 / CELL;
-    let iy = (y as i32 - board_y() - cell.0 as i32 * CELL) * 3 / CELL;
+    let ix = (x as i32 - board_x() - cell.1 as i32 * cell_size()) * 3 / cell_size();
+    let iy = (y as i32 - board_y() - cell.0 as i32 * cell_size()) * 3 / cell_size();
     Some((cell, (iy.clamp(0, 2) * 3 + ix.clamp(0, 2) + 1) as u8))
 }
 
 pub fn cell_origin((r, c): Cell) -> (i32, i32) {
-    (board_x() + c as i32 * CELL, board_y() + r as i32 * CELL)
+    (board_x() + c as i32 * cell_size(), board_y() + r as i32 * cell_size())
 }
 
 /// The difficulty meter below the board (render.sh): "Easy" at `meter_xl`, "Hard" ends at `meter_xr`.
@@ -182,11 +275,11 @@ pub const DIFF_W: i32 = 440;
 pub const STOPS: i32 = crate::generator::MODES as i32;
 
 pub fn meter_y() -> i32 {
-    board_y() + BOARD_SIZE + 50 // 1791 in portrait
+    board_y() + board_size() + 50 // 1791 in portrait
 }
 
 pub fn meter_xl() -> i32 {
-    board_x() + BOARD_SIZE / 2 - DIFF_W / 2 // 589 in portrait
+    board_x() + board_size() / 2 - DIFF_W / 2 // 589 in portrait
 }
 
 pub fn meter_xr() -> i32 {
@@ -208,10 +301,10 @@ const CARD_DIVIDER_DY: i32 = 560;
 pub fn result_card() -> Rect {
     if landscape() {
         let x0 = if right_handed() { screen_w() as i32 - CARD_COLUMN_EDGE - CARD_COLUMN_W } else { CARD_COLUMN_EDGE };
-        Rect::new(x0, board_y(), x0 + CARD_COLUMN_W, board_y() + BOARD_SIZE)
+        Rect::new(x0, board_y(), x0 + CARD_COLUMN_W, board_y() + board_size())
     } else {
-        let y0 = board_y() + BOARD_SIZE + CARD_GAP;
-        Rect::new(board_x(), y0, board_x() + BOARD_SIZE, y0 + CARD_H)
+        let y0 = board_y() + board_size() + CARD_GAP;
+        Rect::new(board_x(), y0, board_x() + board_size(), y0 + CARD_H)
     }
 }
 
@@ -325,6 +418,34 @@ pub enum Button {
     Close,
 }
 
+impl Button {
+    /// The buttons of the top group of the toolbar, in the order of their slots.
+    pub const TOP: [Button; 6] = [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints];
+
+    /// The slot of a button of the top group, from the top (0 is the menu button). None for the
+    /// buttons of the bottom group and for the close button.
+    pub const fn top_slot(self) -> Option<i32> {
+        match self {
+            Button::Menu => Some(0),
+            Button::Colors => Some(1),
+            Button::Settings => Some(2),
+            Button::Undo => Some(3),
+            Button::Redo => Some(4),
+            Button::Checkpoints => Some(5),
+            _ => None,
+        }
+    }
+}
+
+/// The slot of a button of the top group. A panel starts at the top of the slot of the button that
+/// opens it.
+const fn slot_of(b: Button) -> i32 {
+    match b.top_slot() {
+        Some(k) => k,
+        None => panic!("the button is not in the top group of the toolbar"),
+    }
+}
+
 /// The game-screen button at a point. Only the menu button and the close button show when the menu
 /// is closed. The close button shows only when the menu is open.
 pub fn game_button(x: f32, y: f32, menu_open: bool) -> Option<Button> {
@@ -342,13 +463,8 @@ pub fn game_button(x: f32, y: f32, menu_open: bool) -> Option<Button> {
     if !menu_open {
         return None;
     }
-    match top {
-        1 => return Some(Button::Colors),
-        2 => return Some(Button::Settings),
-        3 => return Some(Button::Undo),
-        4 => return Some(Button::Redo),
-        CKP_SLOT => return Some(Button::Checkpoints),
-        _ => {}
+    if let Some(b) = Button::TOP.into_iter().find(|b| b.top_slot() == Some(top)) {
+        return Some(b);
     }
     if y >= tb_bottom_y() {
         Some(Button::NewGame)
@@ -390,7 +506,7 @@ impl Rect {
 /// the top of the right column: the four color sections (`Section`), then the Micro-cell lines
 /// section (`LineGray`). The space below that section is empty. The panel ends at y 1192, thus it
 /// also fits in landscape (1620 px).
-pub const COLORS_TOP: i32 = 112;
+pub const COLORS_TOP: i32 = slot_of(Button::Colors) * TB_SLOT;
 pub const COLOR_SECTION_H: i32 = 360;
 pub const COLOR_COLUMN_W: i32 = 400;
 /// The quantity of section rows in each column.
@@ -462,7 +578,7 @@ pub fn line_gray_at(x: f32, y: f32) -> Option<LineGray> {
 /// The Settings panel (REQUIREMENTS.md §9.1): one row of 112 px for each switch (`Switch::row`), one row with the
 /// version and, in a stable or a preview build, one row for updates (§9.2), from the top of the gear (y 224). It has
 /// its own width: the width of the Cell colors panel does not apply to it (NAV-14).
-const SETTINGS_TOP: i32 = 2 * TB_SLOT;
+const SETTINGS_TOP: i32 = slot_of(Button::Settings) * TB_SLOT;
 const SETTINGS_W: i32 = 400;
 /// The row of the version, below the switches.
 pub const VERSION_ROW: usize = Switch::ALL.len();
@@ -520,7 +636,7 @@ pub fn color_at(x: f32, y: f32) -> Option<(Section, Color)> {
 /// The Checkpoints panel (§9.3, NAV-18). It touches the toolbar and starts at the top of the slot of
 /// the bookmark. Each x offset below is from the left edge of the panel: the contents move with the
 /// panel in the other layouts.
-pub const CKP_SLOT: i32 = 5;
+pub const CKP_SLOT: i32 = slot_of(Button::Checkpoints);
 const CKP_W: i32 = 600;
 const CKP_TOP: i32 = CKP_SLOT * TB_SLOT;
 /// The top of the first checkpoint row, below the row "Save checkpoint".
@@ -697,17 +813,20 @@ pub fn nearest_stop(stops: &[f32; STOPS as usize], x: f32) -> u8 {
 
 // ---- Manual and analytics: layout units of 1404x1872, with a scale to the screen (manual-lib.sh).
 
-/// The scale of the layout units of the manual and the analytics pages (manual-lib.sh). The pages are
-/// 1404 x 1872 units in portrait and 1872 x 1404 units in landscape.
-pub const PAGE_SCALE: f32 = 1.153846;
+/// The scale of the layout units of the manual and the analytics pages (manual-lib.sh,
+/// `Device::page_scale`). On the Paper Pro, the pages are 1404 x 1872 units in portrait and
+/// 1872 x 1404 units in landscape.
+pub fn page_scale() -> f32 {
+    device().page_scale
+}
 
 /// The width and the height of a page, in layout units.
 fn page_w() -> f32 {
-    screen_w() as f32 / PAGE_SCALE
+    screen_w() as f32 / page_scale()
 }
 
 fn page_h() -> f32 {
-    screen_h() as f32 / PAGE_SCALE
+    screen_h() as f32 / page_scale()
 }
 
 /// The right edge of the content of a page (1332 in portrait).
@@ -718,10 +837,10 @@ pub fn page_right() -> f32 {
 /// Converts a rectangle in the layout units of the manual to screen pixels.
 pub fn page_rect(x0: f32, y0: f32, x1: f32, y1: f32) -> Rect {
     Rect::new(
-        (x0 * PAGE_SCALE) as i32,
-        (y0 * PAGE_SCALE) as i32,
-        (x1 * PAGE_SCALE).ceil() as i32,
-        (y1 * PAGE_SCALE).ceil() as i32,
+        (x0 * page_scale()) as i32,
+        (y0 * page_scale()) as i32,
+        (x1 * page_scale()).ceil() as i32,
+        (y1 * page_scale()).ceil() as i32,
     )
 }
 
@@ -915,13 +1034,13 @@ mod tests {
     #[test]
     fn board_geometry_agrees_with_requirements() {
         assert_eq!((board_x(), board_y()), (148, 418));
-        assert_eq!(board_x() + BOARD_SIZE, 1471);
-        assert_eq!(board_y() + BOARD_SIZE, 1741);
+        assert_eq!(board_x() + board_size(), 1471);
+        assert_eq!(board_y() + board_size(), 1741);
         assert_eq!([micro_offset(1), micro_offset(2), micro_offset(3)], [49, 98, 147]);
         // NAV-10: the open toolbar does not cover the board.
         for o in [Orientation::Portrait, Orientation::Landscape] {
             set_orientation(o);
-            assert!(tb_x() > board_x() + BOARD_SIZE, "{o:?}");
+            assert!(tb_x() > board_x() + board_size(), "{o:?}");
         }
         set_orientation(Orientation::Portrait);
     }
@@ -934,7 +1053,7 @@ mod tests {
             let mut seen = std::collections::HashSet::new();
             for (x, y) in [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1), (w / 3, h / 5)] {
                 let (px, py) = to_physical(x, y);
-                assert!((0..PHYSICAL_W as i32).contains(&px) && (0..PHYSICAL_H as i32).contains(&py), "r {r}");
+                assert!((0..physical_w() as i32).contains(&px) && (0..physical_h() as i32).contains(&py), "r {r}");
                 assert!(seen.insert((px, py)));
                 // The input of qtfb comes back to the same screen point.
                 assert_eq!(to_screen(px as f32, py as f32), (x as f32, y as f32), "r {r}");
@@ -1057,7 +1176,7 @@ mod tests {
             assert_eq!(game_button(tb_cx(), 671.0, true), Some(Button::Checkpoints));
             let (row, button) = (ckp_row_top(1), ckp_button(1));
             assert_eq!((button.x0 - x0, button.x1 - 1 - x0, button.y0 - row, button.y1 - 1 - row), (381, 521, 55, 125));
-            // CKP-7: the 12 px between the button and the bin operate nothing. x 908 + 533 = 1441.
+            // CKP-7: the 11 px between the button and the bin operate nothing. x 908 + 533 = 1441.
             let on = |x: i32, y: i32| checkpoint_control_at(x as f32, y as f32, 5);
             assert_eq!(on(x0 + 521, row + 90), Some(CheckpointControl::Restore(1)));
             assert_eq!(on(x0 + 522, row + 90), None);

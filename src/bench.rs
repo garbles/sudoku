@@ -8,7 +8,6 @@ use std::time::{Duration, Instant};
 
 use crate::app::{App, Input, RECOGNITION_PAUSE_MS};
 use crate::font::Fonts;
-use crate::layout::{PHYSICAL_H, PHYSICAL_W};
 use crate::present::{Presenter, Update};
 use crate::render::{self, Canvas};
 use crate::script::{self, Ev};
@@ -139,7 +138,7 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
     phases.add("startup.app", t.elapsed());
     let t = Instant::now();
     let mut presenter = Presenter::new();
-    let mut fb = vec![0u8; (PHYSICAL_W * PHYSICAL_H * 3) as usize];
+    let mut fb = vec![0u8; (crate::layout::physical_w() * crate::layout::physical_h() * 3) as usize];
     presenter.draw_all(&app, &fonts, &mut fb);
     phases.add("startup.first_frame", t.elapsed());
     // As platform::run: the recognizer prepares its examples after the first frame.

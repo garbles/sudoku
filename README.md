@@ -18,7 +18,7 @@ paper, and it does the work that paper cannot do.
 **Helpers**
 
 - **Hide impossible pencil marks**: Pencil marks that are no longer possible are hidden.
-- **Clashes**: See mistakes immediately.
+- **Clashes**: See a repeated digit in a row, column or box immediately.
 - **Highlight on tap**: Tap a number to highlight them all.
 - **See completed groups**: Highlight your progress in each row, column and box.
 - **Checkpoints**: Use the Nishio strategy without having to manually undo your failed attempt.
@@ -62,22 +62,12 @@ If you would rather install this application manually:
    [Releases](https://github.com/garbles/sudoku/releases) page. Extract the archive to `dist/`
    (`mkdir -p dist && tar -xzf sudoku-<version>.tar.gz -C dist`). Alternatively, you can [build it yourself](#build).
 
-3. Copy the `dist/sudoku` folder to the tablet and make the program executable:
-
-   ```bash
-     scp -r dist/sudoku root@10.11.99.1:/home/root/xovi/exthome/appload/
-     ssh root@10.11.99.1 "chmod 755 /home/root/xovi/exthome/appload/sudoku/sudoku"
-   ```
-
-   `10.11.99.1` is the address of the tablet on a USB connection. On Wi-Fi, use the IP address of
-   the tablet.
-
-4. Copy the ink patch, write its stamp file (the version and the SHA-256 checksum of the patch),
+3. Copy the ink patch, write its stamp file (the version and the SHA-256 checksum of the patch),
    start xovi and install the power-button starter. The user interface of the tablet starts again:
 
    ```bash
      scp sudoku-penregion.qmd root@10.11.99.1:/home/root/xovi/exthome/qt-resource-rebuilder/
-     ssh root@10.11.99.1 'cd /home/root/xovi/exthome/qt-resource-rebuilder && printf "{\"version\": \"%s\", \"sha256\": \"%s\"}\n" v<version> "$(sha256sum sudoku-penregion.qmd | cut -d " " -f 1)" > sudoku-penregion.json'
+     ssh root@10.11.99.1 'cd /home/root/xovi/exthome/qt-resource-rebuilder && printf "{\"version\": \"%s\", \"sha256\": \"%s\"}\n" <version> "$(sha256sum sudoku-penregion.qmd | cut -d " " -f 1)" > sudoku-penregion.json'
      ssh root@10.11.99.1 /home/root/xovi/start
      ssh root@10.11.99.1 '/home/root/.vellum/bin/vellum update && /home/root/.vellum/bin/vellum add tripletap'
    ```
@@ -91,6 +81,16 @@ If you would rather install this application manually:
    After an update of the tablet software, run `/home/root/.vellum/bin/vellum upgrade`,
    `/home/root/.vellum/bin/vellum reenable`, `/home/root/xovi/rebuild_hashtable` and
    `/home/root/xovi/start`.
+
+4. Copy the `dist/sudoku` folder to the tablet and make the program executable:
+
+   ```bash
+     scp -r dist/sudoku root@10.11.99.1:/home/root/xovi/exthome/appload/
+     ssh root@10.11.99.1 "chmod 755 /home/root/xovi/exthome/appload/sudoku/sudoku"
+   ```
+
+   `10.11.99.1` is the address of the tablet on a USB connection. On Wi-Fi, use the IP address of
+   the tablet.
 
 5. Open AppLoad on the tablet and tap **Sudoku**.
 
@@ -115,7 +115,7 @@ The Docker build makes the folder `dist/sudoku/`. It contains the program `sudok
 manifest `external.manifest.json`, the launcher icon `icon.png` and the ink patch
 `sudoku-penregion.qmd`.
 
-You can push development builds over SSH after running `rm-ssh-over-wlan-on` on the tablet. Store the address at `REMARKABLE_HOST` in `.env`
+You can push development builds over SSH after running `rm-ssh-over-wlan on` on the tablet. Store the address at `REMARKABLE_HOST` in `.env`
 and `make install-dev` will use it to push over wifi. To keep the address of your tablet, copy `.env.sample` to `.env` and set `REMARKABLE_HOST` (git ignores `.env`).
 
 [`AGENTS.md`](AGENTS.md) gives the other tools (reference images, demo video, performance bench,

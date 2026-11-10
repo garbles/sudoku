@@ -48,7 +48,7 @@ fn assert_has(out: &str, text: &str) {
     assert!(out.contains(text), "the output does not contain {text:?}:\n{out}");
 }
 
-/// All 11 steps show "(done already)" and none does an action.
+/// The installation steps (4 to 11) show "(done already)" and none does an action.
 fn assert_all_done(out: &str) {
     for n in 2..=STEPS {
         let s = step(out, n);

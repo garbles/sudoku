@@ -224,7 +224,14 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   and commit the file: `tests/licenses.rs` runs `--check` (thus `Dockerfile.test` has `python3`).
 - `invariants.rs`: checks of the rules in INVARIANTS.md. Debug builds check them after each input.
 - `layout.rs`, `render.rs`, `font.rs`: positions, drawing (tiny-skia) and the font of the tablet.
-  `layout.rs` gives the result card of a completed game (`result_card`, `level_button`) in place of
+  `layout::Device` holds the values of one tablet model: the physical screen, the cell size, the
+  qtfb framebuffer type and the page scale. `Device::PAPER_PRO` is the only model now. The contents
+  of a cell (the number size and baseline, the pencil-mark size and positions, the x of a refused
+  tap) come from the cell size (`Device::scale`, from the reference cell of 147 px), thus do not
+  add fixed cell pixels in `render.rs`. The toolbar slots, the icons and the panel widths are the
+  same on each model, and each panel starts at the slot of its button (`Button::top_slot`). The
+  device is a value of the process (`layout::device()`, set one time by `platform::run`), not of a
+  thread. `layout.rs` gives the result card of a completed game (`result_card`, `level_button`) in place of
   the meter. `render.rs` draws it (`draw_result_card`, `OverlayLook::Card`). `render::SECONDARY`
   (gray25) is the color of all secondary text and marks; do not use gray40 for text.
   `render.rs` keeps the pixels of each board cell in a cache (tiles at their true position). Each

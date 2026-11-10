@@ -4083,7 +4083,7 @@ fn the_panel_has_the_documented_position_in_the_four_layouts() {
 #[test]
 fn each_control_of_the_panel_is_at_its_documented_place() {
     // NAV-18, R§9.3: the same distance from the left edge of the panel in the four layouts, with the two
-    // ends of each area. The 12 px between the button and the bin operate nothing.
+    // ends of each area. The 11 px between the button and the bin operate nothing.
     use layout::{checkpoint_control_at as control, CheckpointControl as C};
     for_each_layout(|case| {
         let (x0, x1) = documented_checkpoints_x();
@@ -4113,7 +4113,7 @@ fn each_control_of_the_panel_is_at_its_documented_place() {
 
 #[test]
 fn a_tap_in_the_panel_on_no_control_has_no_effect() {
-    // NAV-18, R§9.3: the small board, the text, the gap of 12 px and the place below the button. The panel
+    // NAV-18, R§9.3: the small board, the text, the gap of 11 px and the place below the button. The panel
     // covers cells of the board, but the board does not get the tap (NAV-11).
     for_each_layout(|case| {
         let (x0, _) = documented_checkpoints_x();
@@ -4851,7 +4851,7 @@ struct Shown {
 
 impl Shown {
     fn new(seed: u64) -> Shown {
-        let size = layout::PHYSICAL_W as usize * layout::PHYSICAL_H as usize * 3;
+        let size = layout::physical_w() as usize * layout::physical_h() as usize * 3;
         let mut p = sudoku::present::Presenter::new();
         p.use_pen_region = true;
         let mut s = Shown { d: Driver::new(seed), p, fonts: fonts(), fb: vec![0; size], last: vec![0; size], changes: 0 };
@@ -4891,7 +4891,7 @@ impl Shown {
     fn background(&self, cell: Cell) -> [u8; 3] {
         let (x, y) = layout::cell_origin(cell);
         let (px, py, _, _) = layout::physical_rect((x + 10, y + 135, x + 10, y + 135));
-        let i = (py as usize * layout::PHYSICAL_W as usize + px as usize) * 3;
+        let i = (py as usize * layout::physical_w() as usize + px as usize) * 3;
         [self.fb[i], self.fb[i + 1], self.fb[i + 2]]
     }
 
@@ -5479,8 +5479,8 @@ fn the_pause_has_one_source_and_the_manifest_does_not_set_it() {
 fn changed_in_cell(a: &tiny_skia::Pixmap, b: &tiny_skia::Pixmap, cell: Cell) -> usize {
     let (x0, y0) = layout::cell_origin(cell);
     let mut n = 0;
-    for y in y0 + 4..y0 + layout::CELL - 4 {
-        for x in x0 + 4..x0 + layout::CELL - 4 {
+    for y in y0 + 4..y0 + layout::cell_size() - 4 {
+        for x in x0 + 4..x0 + layout::cell_size() - 4 {
             n += usize::from(rgb_at(a, x, y) != rgb_at(b, x, y));
         }
     }

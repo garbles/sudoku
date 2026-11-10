@@ -25,9 +25,6 @@ pub enum Event {
     Rotation(i32),
 }
 
-/// RGB888, 1620x2160, 3 bytes for each pixel, 3 * 1620 bytes for each line.
-pub const FBFMT_RMPP_RGB888: u8 = 1;
-
 const UPDATE_ALL: i32 = 0;
 const UPDATE_PARTIAL: i32 = 1;
 
@@ -179,7 +176,7 @@ impl Connection {
             let mut conn = Connection { fd, shm: std::ptr::null_mut(), shm_size: 0 };
             conn.send(&ClientMessage {
                 kind: MESSAGE_INITIALIZE,
-                contents: ClientContents { init: InitContents { key, fb_type: FBFMT_RMPP_RGB888 } },
+                contents: ClientContents { init: InitContents { key, fb_type: crate::layout::device().fb_type } },
             })?;
             let mut msg: ServerMessage = std::mem::zeroed();
             let n = libc::recv(fd, &mut msg as *mut _ as *mut libc::c_void, std::mem::size_of::<ServerMessage>(), 0);
@@ -188,7 +185,8 @@ impl Connection {
                 return Err(io::Error::other(format!("qtfb: wrong answer to the init message (type {}, {n} bytes)", msg.kind)));
             }
             let init = msg.contents.init;
-            if init.shm_size < 1620 * 2160 * 3 {
+            let d = crate::layout::device();
+            if init.shm_size < d.physical_w as usize * d.physical_h as usize * 3 {
                 libc::close(fd);
                 return Err(io::Error::other(format!("qtfb: the framebuffer is too small ({} bytes)", init.shm_size)));
             }

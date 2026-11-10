@@ -187,12 +187,14 @@ impl ResultsDb {
     /// (for example a database from a different schema). The row stays in the file.
     pub fn all(&self) -> rusqlite::Result<Vec<ResultRow>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, finished_at, mode, givens, seconds, seed, symmetric FROM results ORDER BY finished_at DESC, id DESC",
+            "SELECT id, finished_at, mode, givens, seconds, seed, symmetric, generator FROM results ORDER BY finished_at DESC, id DESC",
         )?;
         let rows = stmt.query_map([], |row| {
             let (mode, givens, seconds, symmetric): (i64, i64, i64, i64) = (row.get(2)?, row.get(3)?, row.get(4)?, row.get(6)?);
+            // The app does not show the generator version, but a row with no version breaks ANA-1.
+            let generator: i64 = row.get(7)?;
             let valid = (0..crate::generator::MODES as i64).contains(&mode) && (0..=81).contains(&givens) && seconds >= 0;
-            if !(valid && (0..=1).contains(&symmetric)) {
+            if !(valid && (0..=1).contains(&symmetric) && generator >= 1) {
                 return Ok(None);
             }
             Ok(Some(ResultRow {
@@ -406,6 +408,34 @@ mod tests {
         assert_eq!(all[1].seed, u64::MAX);
         db.delete(b.id).unwrap();
         assert_eq!(db.all().unwrap(), vec![a]);
+    }
+
+    #[test]
+    fn rows_with_no_generator_version_are_not_used() {
+        // ANA-1: each result has a generator version. A results file of the current version with no
+        // constraints (a changed file) can have rows that break this. The app does not use them, and
+        // they stay in the file.
+        let (dir, path) = temp_db("no-generator");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(&format!(
+                "CREATE TABLE results (id INTEGER PRIMARY KEY, finished_at, mode, givens, seconds, seed, generator, symmetric);
+                 INSERT INTO results VALUES
+                     (1, 100, 1, 40, 300, 11, 2, 0),
+                     (2, 101, 1, 40, 300, 12, NULL, 0),
+                     (3, 102, 1, 40, 300, 13, 'x', 0),
+                     (4, 103, 1, 40, 300, 14, 0, 0),
+                     (5, 104, 1, 40, 300, 15, 1, 0);
+                 PRAGMA user_version = {SCHEMA_VERSION};"
+            ))
+            .unwrap();
+        }
+        let db = ResultsDb::open(&path).unwrap();
+        let seeds: Vec<u64> = db.all().unwrap().iter().map(|r| r.seed).collect();
+        assert_eq!(seeds, vec![15, 11], "ANA-1: only the rows with a generator version");
+        let rows: i64 = db.conn.query_row("SELECT count(*) FROM results", [], |r| r.get(0)).unwrap();
+        assert_eq!(rows, 5, "ANA-1: the rows stay in the file");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

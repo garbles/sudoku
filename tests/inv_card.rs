@@ -65,7 +65,7 @@ fn board_area(o: Orientation) -> Rect {
         Orientation::Portrait => (148, 418),
         Orientation::Landscape => (418, 148),
     };
-    Rect::new(x - 4, y - 4, x + layout::BOARD_SIZE + 4, y + layout::BOARD_SIZE + 4)
+    Rect::new(x - 4, y - 4, x + layout::board_size() + 4, y + layout::board_size() + 4)
 }
 
 fn inside(r: Rect, (x, y): (i32, i32)) -> bool {
@@ -884,7 +884,7 @@ fn the_question_mark_is_regular_104_in_gray25() {
         let pm = draw_app(&app, &fonts);
         let (x, y) = layout::cell_origin(cell);
         // Inside the lines of the board (the outer lines are 7 px wide).
-        let r = Rect::new(x + 12, y + 12, x + layout::CELL - 12, y + layout::CELL - 12);
+        let r = Rect::new(x + 12, y + 12, x + layout::cell_size() - 12, y + layout::cell_size() - 12);
         assert_eq!(darkest(&pm, r), GRAY25[0], "QST-5: {o:?}, right-handed {rh}");
         let full = (r.y0..r.y1).flat_map(|y| (r.x0..r.x1).map(move |x| (x, y))).filter(|&(x, y)| rgb_at(&pm, x, y) == GRAY25).count();
         assert!(full > 100, "QST-5: {o:?}: the \"?\" is not gray25 ({full} pixels)");
@@ -936,6 +936,31 @@ fn the_card_shows_no_symmetry_information() {
             flat.ui.menu = menu;
             flat.game.symmetric = false;
             assert_eq!(differences(&draw_app(&sym, &fonts), &draw_app(&flat, &fonts)), vec![], "CMP-9: {o:?}, right-handed {rh}, {menu:?}");
+        }
+    }
+}
+
+#[test]
+fn the_page_number_is_gray25() {
+    // NAV-19, R§15 (owner decision 2026-11-10): the page number "n / total" of the Licenses screens is
+    // Regular 28 in gray25. Its area has the pixels of the text and white only (NAV-20), and the
+    // darkest pixel is gray25, not gray50 (#808080).
+    let fonts = fonts();
+    let mut d = Driver::new(31);
+    d.button(Button::Menu);
+    d.button(Button::Settings);
+    let (x, y) = pixel_center(layout::settings_row(layout::LICENSES_ROW));
+    d.finger_tap(x, y);
+    assert_eq!(d.app.screen, Screen::Licenses);
+    let pm = draw_app(&d.app, &fonts);
+    let (cx, ny) = layout::page_number_pos();
+    let s = layout::page_scale();
+    let area = Rect::new(((cx - 50.0) * s) as i32, ((ny - 28.0) * s) as i32, ((cx + 50.0) * s) as i32, ((ny + 6.0) * s) as i32);
+    assert_eq!(darkest(&pm, area), GRAY25[0], "NAV-19: the page number is not gray25");
+    for y in area.y0..area.y1 {
+        for x in area.x0..area.x1 {
+            let p = rgb_at(&pm, x, y);
+            assert!(p == WHITE || p == GRAY25, "NAV-19, NAV-20: the pixel ({x}, {y}) of the page number is {p:?}");
         }
     }
 }

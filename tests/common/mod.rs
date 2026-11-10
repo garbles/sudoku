@@ -4,7 +4,7 @@
 use sudoku::app::{App, Env, Input, Menu, Panel, Tool, HAND_TOUCH_MS};
 use sudoku::font::Fonts;
 use sudoku::game::{cells, Cell, Game};
-use sudoku::layout::{self, cell_origin, Rect, CELL};
+use sudoku::layout::{self, cell_origin, cell_size, Rect};
 use sudoku::settings::{Color, Section, Switch};
 use sudoku::store::{NewResult, ResultsDb};
 
@@ -257,7 +257,7 @@ pub fn digit_ink(cell: Cell, d: u8) -> Vec<Vec<(f32, f32)>> {
 
 pub fn digit_ink_by(cell: Cell, d: u8, writer: u8) -> Vec<Vec<(f32, f32)>> {
     let (x, y) = cell_origin(cell);
-    let (ox, oy) = (x as f32 + (CELL as f32 - 98.0) / 2.0, y as f32 + (CELL as f32 - 98.0) / 2.0);
+    let (ox, oy) = (x as f32 + (cell_size() as f32 - 98.0) / 2.0, y as f32 + (cell_size() as f32 - 98.0) / 2.0);
     sudoku::recognizer::example_ink(d, writer, ox, oy, 98.0).expect("example")
 }
 

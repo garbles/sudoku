@@ -140,7 +140,7 @@ impl PanelCells {
     /// The physical rectangle to send for the cells: its update touches these cells and no other
     /// cells. The last pixel column and row of the cells come from the extra pixel of AppLoad.
     fn rect(self) -> PhysicalRect {
-        let (w, h) = (crate::layout::PHYSICAL_W as i32, crate::layout::PHYSICAL_H as i32);
+        let (w, h) = (crate::layout::physical_w() as i32, crate::layout::physical_h() as i32);
         PhysicalRect::new(self.x0 * 4, self.y0 * 4, (self.x1 * 4 + 2).min(w - 1), (self.y1 * 4 + 2).min(h - 1))
     }
 
@@ -447,7 +447,7 @@ impl Presenter {
 /// thus the region must not touch the cells around it (R§14.4).
 fn cell_region(cell: Cell) -> PhysicalRect {
     let (x, y) = crate::layout::cell_origin(cell);
-    let c = crate::layout::CELL;
+    let c = crate::layout::cell_size();
     ScreenRect::new(x, y, x + c - 1, y + c - 1).physical().inner_cells()
 }
 
@@ -478,8 +478,8 @@ struct Scheduler {
 
 impl Scheduler {
     fn new(wave_ms: u64) -> Scheduler {
-        let w = (crate::layout::PHYSICAL_W as i32 + 3) / 4;
-        let h = (crate::layout::PHYSICAL_H as i32 + 3) / 4;
+        let w = (crate::layout::physical_w() as i32 + 3) / 4;
+        let h = (crate::layout::physical_h() as i32 + 3) / 4;
         let n = (w * h) as usize;
         Scheduler { wave_ms, w, h, busy: vec![0; n], dirty: vec![false; n], dirty_box: None, fast: None }
     }
@@ -898,7 +898,7 @@ mod tests {
             for (k, p) in frame.data_mut().chunks_exact_mut(4).enumerate() {
                 p.copy_from_slice(&[(k * 7) as u8, (k / 3) as u8, (k % 251) as u8, 255]);
             }
-            let n = (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize;
+            let n = (crate::layout::physical_w() * crate::layout::physical_h() * 3) as usize;
             let (mut fb, mut want) = (vec![0u8; n], vec![0u8; n]);
             for change in 0..3 {
                 if change > 0 {
@@ -937,7 +937,7 @@ mod tests {
             crate::layout::set_rotation(rotation);
             let mut p = Presenter::new();
             p.frame.fill(tiny_skia::Color::WHITE);
-            let n = (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize;
+            let n = (crate::layout::physical_w() * crate::layout::physical_h() * 3) as usize;
             let (mut fb, mut want) = (vec![0u8; n], vec![0u8; n]);
             p.blit(&mut fb, &mut Vec::new());
             want.copy_from_slice(&fb);
@@ -1030,7 +1030,7 @@ mod tests {
         fn new(use_pen_region: bool) -> Rig {
             let mut p = Presenter::new();
             p.use_pen_region = use_pen_region;
-            let fb = vec![0u8; (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize];
+            let fb = vec![0u8; (crate::layout::physical_w() * crate::layout::physical_h() * 3) as usize];
             let mut r = Rig { fonts: Fonts::repo().unwrap(), app: game_app(), p, fb, now: 1000, regions: Vec::new() };
             r.step(None);
             r.wait(600);
@@ -1148,8 +1148,8 @@ mod tests {
             let (ox, oy) = crate::layout::cell_origin(cell);
             let (base, sx, sy) = crate::layout::physical_steps();
             let mut out = Vec::new();
-            for y in oy..oy + crate::layout::CELL {
-                for x in ox..ox + crate::layout::CELL {
+            for y in oy..oy + crate::layout::cell_size() {
+                for x in ox..ox + crate::layout::cell_size() {
                     let i = (base + x as i64 * sx + y as i64 * sy) as usize * 3;
                     out.extend_from_slice(&fb[i..i + 3]);
                 }
@@ -1167,8 +1167,8 @@ mod tests {
             let (ox, oy) = crate::layout::cell_origin(cell);
             let w = self.p.frame.width() as usize;
             let mut out = Vec::new();
-            for y in oy as usize..(oy + crate::layout::CELL) as usize {
-                for x in ox as usize..(ox + crate::layout::CELL) as usize {
+            for y in oy as usize..(oy + crate::layout::cell_size()) as usize {
+                for x in ox as usize..(ox + crate::layout::cell_size()) as usize {
                     out.extend_from_slice(&self.p.frame.data()[(y * w + x) * 4..][..3]);
                 }
             }
@@ -1184,14 +1184,14 @@ mod tests {
     /// The middle of a cell: the middle micro-cell.
     fn middle(cell: crate::game::Cell) -> (f32, f32) {
         let (x, y) = crate::layout::cell_origin(cell);
-        let c = crate::layout::CELL as f32;
+        let c = crate::layout::cell_size() as f32;
         (x as f32 + c / 2.0, y as f32 + c / 2.0)
     }
 
     /// The points of a vertical stroke in a cell, from the top micro-cell to the bottom micro-cell.
     fn stroke_in(cell: crate::game::Cell) -> Vec<(f32, f32)> {
         let (x, y) = crate::layout::cell_origin(cell);
-        let c = crate::layout::CELL as f32;
+        let c = crate::layout::cell_size() as f32;
         (0..=20).map(|k| (x as f32 + c / 2.0, y as f32 + c * (0.2 + 0.6 * k as f32 / 20.0))).collect()
     }
 
@@ -1199,14 +1199,14 @@ mod tests {
     /// 4 px grid of the panel, in the coordinates of the window of AppLoad (R§14.4).
     fn region_of(cell: crate::game::Cell) -> Update {
         let (x, y) = crate::layout::cell_origin(cell);
-        let c = crate::layout::CELL;
+        let c = crate::layout::cell_size();
         ScreenRect::new(x, y, x + c - 1, y + c - 1).physical().inner_cells().to_window()
     }
 
     /// True if the update contains the area of the cell that its background color fills.
     fn covers(u: Update, cell: crate::game::Cell) -> bool {
         let (x, y) = crate::layout::cell_origin(cell);
-        let c = crate::layout::CELL;
+        let c = crate::layout::cell_size();
         let r = ScreenRect::new(x + 8, y + 8, x + c - 9, y + c - 9).physical();
         let u = PhysicalRect::from_update(u);
         u.x0 <= r.x0 && u.y0 <= r.y0 && u.x1 >= r.x1 && u.y1 >= r.y1
@@ -1227,7 +1227,7 @@ mod tests {
 
     #[test]
     fn the_rectangle_of_cells_touches_these_cells_only() {
-        let (w, h) = (crate::layout::PHYSICAL_W as i32, crate::layout::PHYSICAL_H as i32);
+        let (w, h) = (crate::layout::physical_w() as i32, crate::layout::physical_h() as i32);
         let mut rng = Rng(7);
         for _ in 0..1000 {
             let (x0, y0) = (rng.next(w / 4), rng.next(h / 4));
@@ -1316,7 +1316,7 @@ mod tests {
         let mut app = game_app();
         let mut p = Presenter::new();
         p.use_pen_region = true;
-        let mut fb = vec![0u8; (crate::layout::PHYSICAL_W * crate::layout::PHYSICAL_H * 3) as usize];
+        let mut fb = vec![0u8; (crate::layout::physical_w() * crate::layout::physical_h() * 3) as usize];
         let empty: Vec<_> = (0..9u8).flat_map(|r| (0..9u8).map(move |c| (r, c))).filter(|&c| !app.game.is_filled(c)).take(2).collect();
         let (a, b) = (empty[0], empty[1]);
         let mut now = 1000;
@@ -1343,7 +1343,7 @@ mod tests {
         // A vertical stroke in a cell, one point each 10 ms.
         let stroke = |cell: crate::game::Cell| {
             let (x, y) = crate::layout::cell_origin(cell);
-            let c = crate::layout::CELL as f32;
+            let c = crate::layout::cell_size() as f32;
             (0..=20).map(move |k| (x as f32 + c / 2.0, y as f32 + c * (0.2 + 0.6 * k as f32 / 20.0)))
         };
         let mut log: Vec<(u64, Update)> = Vec::new();
@@ -1368,7 +1368,7 @@ mod tests {
         // All the updates up to now are ink, inside one of the two cells.
         let inside_cell = |u: Update, cell| {
             let (x, y) = crate::layout::cell_origin(cell);
-            let c = crate::layout::CELL;
+            let c = crate::layout::cell_size();
             let r = ScreenRect::new(x, y, x + c - 1, y + c - 1).physical();
             let u = PhysicalRect::from_update(u);
             u.x0 >= r.x0 - 4 && u.y0 >= r.y0 - 4 && u.x1 <= r.x1 + 4 && u.y1 <= r.y1 + 4
@@ -1454,7 +1454,7 @@ mod tests {
     /// The point of the pen for a tap on the micro-cell of `digit` in `cell`: its center.
     fn micro_point(cell: crate::game::Cell, digit: u8) -> (f32, f32) {
         let (x, y) = crate::layout::cell_origin(cell);
-        let m = crate::layout::CELL as f32 / 3.0;
+        let m = crate::layout::cell_size() as f32 / 3.0;
         (x as f32 + m * (((digit - 1) % 3) as f32 + 0.5), y as f32 + m * (((digit - 1) / 3) as f32 + 0.5))
     }
 
@@ -1462,7 +1462,7 @@ mod tests {
     /// of the panel).
     fn inside_micro(u: Update, cell: crate::game::Cell, digit: u8) -> bool {
         let (x, y) = crate::layout::cell_origin(cell);
-        let m = crate::layout::CELL / 3;
+        let m = crate::layout::cell_size() / 3;
         let (mx, my) = (x + m * ((digit - 1) % 3) as i32, y + m * ((digit - 1) / 3) as i32);
         let micro = ScreenRect::new(mx, my, mx + m, my + m).physical().expand(4);
         let u = PhysicalRect::from_update(u);
@@ -1816,7 +1816,7 @@ mod tests {
             let g = &r.app.game;
             let (cell, d) = r.empty_cells().into_iter().find_map(|c| (1..=9u8).find(|&d| g.peer_digits(c) & crate::game::mark_bit(d) == 0).map(|d| (c, d))).unwrap();
             let (ox, oy) = crate::layout::cell_origin(cell);
-            let m = crate::layout::CELL as f32 / 3.0;
+            let m = crate::layout::cell_size() as f32 / 3.0;
             let q = (ox as f32 + m * (((d - 1) % 3) as f32 + 0.5), oy as f32 + m * (((d - 1) / 3) as f32 + 0.5));
             r.down(q);
             r.to((q.0 + 1.0, q.1));
@@ -1844,7 +1844,7 @@ mod tests {
             r.make_highlight(v);
             let a = r.empty_cells()[0];
             let (ox, oy) = crate::layout::cell_origin(a);
-            let c = crate::layout::CELL;
+            let c = crate::layout::cell_size();
             let ink_cell = ScreenRect::new(ox, oy, ox + c - 1, oy + c - 1).physical().expand(4);
             let ink = r.write(a);
             let lift = r.now;
@@ -1941,7 +1941,7 @@ mod tests {
                 panic!("rotation {rotation}: no pen region at the pen down: {:?}", r.regions);
             };
             let (cx, cy) = crate::layout::cell_origin(cell);
-            let c = crate::layout::CELL;
+            let c = crate::layout::cell_size();
             // The inside of the cell on the screen: at most 3 px from each edge of the cell.
             assert!(
                 (cx..cx + 4).contains(&x) && (cy..cy + 4).contains(&y) && (c - 7..=c).contains(&w) && (c - 7..=c).contains(&h),
@@ -2068,7 +2068,7 @@ mod tests {
         in_each_layout(|layout| {
             let mut r = Rig::new(true);
             let empty = r.empty_cells();
-            let m = crate::layout::CELL as f32 / 3.0;
+            let m = crate::layout::cell_size() as f32 / 3.0;
             for cell in [empty[0], empty[1]] {
                 r.regions.clear();
                 let (x, y) = middle(cell);
@@ -2285,7 +2285,7 @@ mod tests {
             assert_eq!(r.regions, vec![(r.now, None)], "{layout}: the region at the press on a filled cell");
             assert_ne!(r.app.game.value_at(a), 0, "{layout}: the press does not read the ink");
             assert_eq!(r.app.live_stroke, None, "{layout}");
-            r.to((x, y + crate::layout::CELL as f32 / 3.0));
+            r.to((x, y + crate::layout::cell_size() as f32 / 3.0));
             assert_eq!(r.regions, vec![(r.now - 10, None)], "{layout}: a stroke from a filled cell starts the region");
         });
     }
@@ -2306,7 +2306,7 @@ mod tests {
                     .unwrap();
                 let (start, end) = (middle(e), middle(f));
                 // The pen moves along the top of the digit in the filled cell.
-                let c = crate::layout::CELL as f32;
+                let c = crate::layout::cell_size() as f32;
                 let y = start.1 - 0.4 * c;
                 let before = r.frame_cell(f);
                 r.down((start.0, y));
@@ -2361,7 +2361,7 @@ mod tests {
             assert_eq!(r.p.pen_region(), None, "{layout}: the region stays on a filled cell");
             assert_eq!(r.app.writing_stroke(), None, "{layout}");
             // The pen moves on: the region does not start again.
-            r.to((x, y + crate::layout::CELL as f32 / 3.0));
+            r.to((x, y + crate::layout::cell_size() as f32 / 3.0));
             assert_eq!(r.p.pen_region(), None, "{layout}: the region starts on a filled cell");
         });
     }

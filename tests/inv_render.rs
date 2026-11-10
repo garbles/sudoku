@@ -11,7 +11,7 @@ use sudoku::app::{new_game, App, Input, Menu, Panel, Screen, Tool, OVERLAY_MS, R
 use sudoku::font::{Anchor, Fonts, Weight};
 use sudoku::game::{cells, mark_bit, Cell, Game};
 use sudoku::generator::MODES;
-use sudoku::layout::{self, Button, Rect, CELL};
+use sudoku::layout::{self, cell_size, Button, Rect};
 use sudoku::reference;
 use sudoku::render::{gray, rgb_at, Canvas, Units, BLACK};
 use sudoku::settings::{Color, LineGray, Section, Settings, Switch};
@@ -245,7 +245,7 @@ fn starting_digits_are_black_and_entries_are_dark_gray() {
         let pm = draw_app(&app, &fonts);
         for cell in cells().filter(|&c| app.game.is_filled(c)) {
             let (x, y) = layout::cell_origin(cell);
-            let d = darkest(&pm, Rect::new(x + 20, y + 20, x + CELL - 20, y + CELL - 20));
+            let d = darkest(&pm, Rect::new(x + 20, y + 20, x + cell_size() - 20, y + cell_size() - 20));
             let want = if app.game.is_given(cell) { 0 } else { ENTRY_DIGIT };
             assert_eq!(d, want, "cell {cell:?}, given {}", app.game.is_given(cell));
         }
@@ -257,7 +257,7 @@ fn starting_digits_are_black_and_entries_are_dark_gray() {
     assert!(d.app.game.is_entry(cell));
     let pm = draw_app(&d.app, &fonts);
     let (x, y) = layout::cell_origin(cell);
-    assert_eq!(darkest(&pm, Rect::new(x + 20, y + 20, x + CELL - 20, y + CELL - 20)), ENTRY_DIGIT);
+    assert_eq!(darkest(&pm, Rect::new(x + 20, y + 20, x + cell_size() - 20, y + cell_size() - 20)), ENTRY_DIGIT);
 
     // The completed color does not change the digit color (BRD-7, BRD-8): the row has the two kinds.
     let (game, row) = game_with_full_row(71, 2);
@@ -268,7 +268,7 @@ fn starting_digits_are_black_and_entries_are_dark_gray() {
         let (x, y) = layout::cell_origin(cell);
         assert_eq!(rgb_at(&pm, x + 8, y + 8), palette_rgb(Color::Green), "BRD-7: {cell:?}");
         let want = if app.game.is_given(cell) { 0 } else { ENTRY_DIGIT };
-        assert_eq!(darkest(&pm, Rect::new(x + 20, y + 20, x + CELL - 20, y + CELL - 20)), want, "BRD-8: {cell:?}");
+        assert_eq!(darkest(&pm, Rect::new(x + 20, y + 20, x + cell_size() - 20, y + cell_size() - 20)), want, "BRD-8: {cell:?}");
     }
 }
 
@@ -357,7 +357,7 @@ fn the_marks_of_a_filled_cell_are_hidden() {
     d.erase(cell);
     assert_eq!(d.app.game.value_at(cell), 0);
     let erased = draw_app(&d.app, &fonts);
-    assert_eq!(first_difference(&erased, &with_marks, Rect::new(x, y, x + CELL, y + CELL)), None);
+    assert_eq!(first_difference(&erased, &with_marks, Rect::new(x, y, x + cell_size(), y + cell_size())), None);
 }
 
 // ---- UND-7, UND-8: undo and redo buttons.
@@ -431,10 +431,10 @@ fn the_result_card_replaces_the_meter() {
     // in m:ss" is not at the position of the meter. A game that is not complete shows the meter and
     // no card. The player cannot change the meter. tests/inv_card.rs examines the contents of the card.
     let fonts = fonts();
-    let area = Rect::new(layout::board_x(), layout::meter_y() - 30, layout::board_x() + layout::BOARD_SIZE, layout::meter_y() + 30);
+    let area = Rect::new(layout::board_x(), layout::meter_y() - 30, layout::board_x() + layout::board_size(), layout::meter_y() + 30);
     // Below the outer line of the board and above the frame of the card.
-    let above_card = Rect::new(layout::board_x(), layout::board_y() + layout::BOARD_SIZE + 12, layout::board_x() + layout::BOARD_SIZE, 1789);
-    let (cx, ty) = ((layout::board_x() + layout::BOARD_SIZE / 2) as f32, (layout::meter_y() + 9) as f32);
+    let above_card = Rect::new(layout::board_x(), layout::board_y() + layout::board_size() + 12, layout::board_x() + layout::board_size(), 1789);
+    let (cx, ty) = ((layout::board_x() + layout::board_size() / 2) as f32, (layout::meter_y() + 9) as f32);
     for (seconds, text) in [(7, "0:07"), (23 * 60 + 41, "23:41"), (3600, "1:00:00")] {
         let mut app = reference::app(&fonts);
         app.game = reference::completed_game();
@@ -908,7 +908,7 @@ fn refused_spot(g: &Game, filter: impl Fn(Cell, u8) -> bool) -> (Cell, u8) {
 /// at the bottom right) from the origin of the cell (column on x, row on y).
 fn x_center(origin: (i32, i32), (r, c): Cell, digit: u8) -> (f32, f32) {
     let i = digit as usize - 1;
-    let (cell_x, cell_y) = (origin.0 + c as i32 * CELL, origin.1 + r as i32 * CELL);
+    let (cell_x, cell_y) = (origin.0 + c as i32 * cell_size(), origin.1 + r as i32 * cell_size());
     ((cell_x + X_ANCHOR[i % 3]) as f32, (cell_y + X_ANCHOR[i / 3]) as f32)
 }
 
@@ -1038,7 +1038,7 @@ fn the_x_changes_only_its_micro_cell_in_all_layouts() {
             for digit in 1..=9u8 {
                 let what = format!("{o:?}, right-handed {right_handed}, symmetric {symmetric}, {line:?}, digit {digit}");
                 let cell = cell_with_marks(&mut d, digit, digit % 2 == 0);
-                assert_eq!(layout::cell_origin(cell), (board_origin(o).0 + cell.1 as i32 * CELL, board_origin(o).1 + cell.0 as i32 * CELL), "{what}");
+                assert_eq!(layout::cell_origin(cell), (board_origin(o).0 + cell.1 as i32 * cell_size(), board_origin(o).1 + cell.0 as i32 * cell_size()), "{what}");
                 let center = x_center(board_origin(o), cell, digit);
                 let before = draw_app(&d.app, &fonts);
                 assert_grid(&before, cell, grid, &what);
@@ -1170,7 +1170,7 @@ fn the_x_and_the_question_mark_show_in_different_cells_with_their_own_times() {
         assert_only_x(&fonts, &only_question, &with, x_center(board_origin(o), b, digit), &what);
         let (ax, ay) = layout::cell_origin(a);
         for (px, py) in differences(&before, &only_question) {
-            assert!(px >= ax && px < ax + CELL && py >= ay && py < ay + CELL, "QST-1: {what}: the \"?\" changed the pixel ({px}, {py})");
+            assert!(px >= ax && px < ax + cell_size() && py >= ay && py < ay + cell_size(), "QST-1: {what}: the \"?\" changed the pixel ({px}, {py})");
         }
         // BRD-6, BRD-9: the pattern of the grid before the "?", and no grid (white) with the "?", at the
         // ends of the lines, away from the marks and from the "?".
@@ -1247,7 +1247,7 @@ fn the_framebuffer_shows_the_x_and_then_the_old_pixels() {
     // (the ink patch is not active), thus the redraw does not wait for it.
     use sudoku::present::{Presenter, Update};
     let fonts = fonts();
-    let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
+    let (w, h) = (layout::physical_w() as usize, layout::physical_h() as usize);
     for (o, right_handed) in LAYOUTS {
         let _layout = InLayout::set(o, right_handed);
         let mut d = Driver::new(304);
@@ -1452,7 +1452,7 @@ fn the_framebuffer_follows_a_far_group() {
     // pixel changes.
     use sudoku::present::{Presenter, Update};
     let fonts = fonts();
-    let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
+    let (w, h) = (layout::physical_w() as usize, layout::physical_h() as usize);
     for (o, right_handed) in LAYOUTS {
         let _layout = InLayout::set(o, right_handed);
         let what = format!("{o:?}, right-handed {right_handed}");
@@ -1770,7 +1770,7 @@ fn the_cell_colors_panel_covers_no_button_and_not_the_meter_or_the_result_card()
                 assert!(inside(panel) || inside(bucket), "NAV-17: {what}: the pixel ({x}, {y}) is outside the panel");
             }
             // The meter is below the board. All of it is below the panel.
-            let below = board_origin(o).1 + layout::BOARD_SIZE + 1;
+            let below = board_origin(o).1 + layout::board_size() + 1;
             let (w, h) = (layout::screen_w() as i32, layout::screen_h() as i32);
             let ink = (below..h).flat_map(|y| (layout::TB_SLOT..w - layout::TB_SLOT).map(move |x| (x, y))).filter(|&(x, y)| rgb_at(&without, x, y) != [255, 255, 255]).count();
             assert!(below > 1192, "NAV-17: {what}: the board ends at {below}");
@@ -2047,7 +2047,7 @@ fn a_highlight_shows_with_the_menu_and_each_panel() {
             let mut shown = 0;
             for cell in cells().filter(|&c| d.app.game.value_at(c) == v) {
                 let (cx, cy) = layout::cell_origin(cell);
-                let covered = panel.is_some_and(|p| p.x0 < cx + CELL && cx < p.x1 && p.y0 < cy + CELL && cy < p.y1);
+                let covered = panel.is_some_and(|p| p.x0 < cx + cell_size() && cx < p.x1 && p.y0 < cy + cell_size() && cy < p.y1);
                 if !covered {
                     assert_eq!(rgb_at(&pm, cx + 8, cy + 8), palette_rgb(Color::Orange), "HLT-4, BRD-7: {what}: the cell {cell:?}");
                     shown += 1;
@@ -2068,7 +2068,7 @@ fn a_touch_from_a_filled_cell_changes_no_pixel() {
     // occurs before the lift. A press on an empty cell shows ink.
     use sudoku::present::{Presenter, Update};
     let fonts = fonts();
-    let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
+    let (w, h) = (layout::physical_w() as usize, layout::physical_h() as usize);
     for (o, right_handed) in LAYOUTS {
         let _layout = InLayout::set(o, right_handed);
         let what = format!("{o:?}, right-handed {right_handed}");
@@ -2117,9 +2117,9 @@ fn a_touch_from_a_filled_cell_changes_no_pixel() {
 
 /// True if each pixel of the cell in `fb` has the same value as in `want`.
 fn cell_same(fb: &[u8], want: &[u8], cell: Cell) -> bool {
-    let w = layout::PHYSICAL_W as usize;
+    let w = layout::physical_w() as usize;
     let (cx, cy) = layout::cell_origin(cell);
-    let (x0, y0, pw, ph) = layout::physical_rect((cx, cy, cx + CELL - 1, cy + CELL - 1));
+    let (x0, y0, pw, ph) = layout::physical_rect((cx, cy, cx + cell_size() - 1, cy + cell_size() - 1));
     let (x0, y0, pw, ph) = (x0 as usize, y0 as usize, pw as usize, ph as usize);
     (y0..y0 + ph).all(|y| fb[(y * w + x0) * 3..(y * w + x0 + pw) * 3] == want[(y * w + x0) * 3..(y * w + x0 + pw) * 3])
 }
@@ -2131,7 +2131,7 @@ fn the_removal_of_a_highlight_goes_in_one_redraw_with_the_result_of_the_action()
     // has the result: a tap on a different number, a mark, and a number that the app reads.
     use sudoku::present::Presenter;
     let fonts = fonts();
-    let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
+    let (w, h) = (layout::physical_w() as usize, layout::physical_h() as usize);
     for (o, right_handed) in LAYOUTS {
         let _layout = InLayout::set(o, right_handed);
         let what = format!("{o:?}, right-handed {right_handed}");
@@ -2236,7 +2236,7 @@ fn intermediate(pm: &Pixmap, r: Rect) -> usize {
 /// The area of a cell without its lines (BRD-6) and without the micro-cell lines at its edges.
 fn cell_inside(cell: Cell) -> Rect {
     let (x, y) = layout::cell_origin(cell);
-    Rect::new(x + 4, y + 4, x + CELL - 4, y + CELL - 4)
+    Rect::new(x + 4, y + 4, x + cell_size() - 4, y + cell_size() - 4)
 }
 
 /// The distance from the pixel center (x, y) to a polyline. One point, or two points that are the
@@ -2283,7 +2283,7 @@ fn the_marks_and_the_x_are_crisp_in_all_layouts_and_with_each_grid() {
             assert!(changed.len() > 1000, "{what}: the marks do not show");
             for &(x, y) in &changed {
                 assert_eq!(rgb_at(&with, x, y), gray(15), "MRK-19, NAV-19: {what}: the pixel ({x}, {y}) is not gray15");
-                assert!(empty.iter().any(|&c| { let (cx, cy) = layout::cell_origin(c); x >= cx && x < cx + CELL && y >= cy && y < cy + CELL }), "MRK-19: {what}: the pixel ({x}, {y}) is not in an empty cell");
+                assert!(empty.iter().any(|&c| { let (cx, cy) = layout::cell_origin(c); x >= cx && x < cx + cell_size() && y >= cy && y < cy + cell_size() }), "MRK-19: {what}: the pixel ({x}, {y}) is not in an empty cell");
             }
 
             // The same pixels from the crisp drawings at the documented positions.
@@ -2345,7 +2345,7 @@ fn the_ink_is_crisp_also_over_a_filled_cell_in_all_layouts() {
         let what = format!("{o:?}, right-handed {right_handed}");
         let mut d = Driver::new(90);
         let a = cells().find(|&(r, c)| c < 8 && !d.app.game.is_filled((r, c)) && d.app.game.is_filled((r, c + 1))).expect("an empty cell next to a filled cell");
-        let (ax, ay) = exact_center(Rect::new(layout::cell_origin(a).0, layout::cell_origin(a).1, layout::cell_origin(a).0 + CELL, layout::cell_origin(a).1 + CELL));
+        let (ax, ay) = exact_center(Rect::new(layout::cell_origin(a).0, layout::cell_origin(a).1, layout::cell_origin(a).0 + cell_size(), layout::cell_origin(a).1 + cell_size()));
         // From the empty cell into the filled cell at its right, down, and back: the points are not
         // on whole pixels.
         let mut stroke: Vec<(f32, f32)> = (0..16).map(|i| (ax + 0.3 + i as f32 * 10.0, ay + 0.6 + i as f32 * 1.7)).collect();
@@ -2408,7 +2408,7 @@ fn numbers_question_marks_and_panels_are_crisp_in_the_first_frame_and_in_a_redra
     // the numbers, the "?", the ink and the text of a panel with no anti-aliasing. At the end, the frame is the same as a full drawing on a new thread.
     use sudoku::present::Presenter;
     let fonts = fonts();
-    let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
+    let (w, h) = (layout::physical_w() as usize, layout::physical_h() as usize);
     let mut d = Driver::new(91);
     let mut p = Presenter::new();
     let mut fb = vec![0u8; w * h * 3];
@@ -2456,7 +2456,7 @@ fn numbers_question_marks_and_panels_are_crisp_in_the_first_frame_and_in_a_redra
         d.send(Input::PenUp { x: last.0, y: last.1 });
         p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
     }
-    let board = Rect::new(layout::cell_origin((0, 0)).0, layout::cell_origin((0, 0)).1, layout::cell_origin((8, 8)).0 + CELL, layout::cell_origin((8, 8)).1 + CELL);
+    let board = Rect::new(layout::cell_origin((0, 0)).0, layout::cell_origin((0, 0)).1, layout::cell_origin((8, 8)).0 + cell_size(), layout::cell_origin((8, 8)).1 + cell_size());
     let mut ink_pixels = 0;
     for (x, y) in differences(&before, p.frame()) {
         if x >= board.x0 && x < board.x1 && y >= board.y0 && y < board.y1 {
@@ -2817,7 +2817,7 @@ fn the_grid_is_the_same_in_the_first_frame_the_tile_cache_and_a_retained_redraw(
     // a full drawing on a new thread (no tiles in its cache), and the empty cells show the model.
     use sudoku::present::Presenter;
     let fonts = fonts();
-    let (w, h) = (layout::PHYSICAL_W as usize, layout::PHYSICAL_H as usize);
+    let (w, h) = (layout::physical_w() as usize, layout::physical_h() as usize);
     for (o, right_handed) in LAYOUTS {
         let _layout = InLayout::set(o, right_handed);
         let origin = board_origin(o);

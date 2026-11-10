@@ -9,7 +9,7 @@ use tiny_skia::Pixmap;
 use super::{on_signal, qtfb, STOP};
 use crate::colors::{self, Area, Change, Colors, Picker};
 use crate::font::Fonts;
-use crate::layout::{PHYSICAL_H, PHYSICAL_W};
+use crate::layout::Device;
 use crate::render::Canvas;
 use crate::store;
 
@@ -22,6 +22,10 @@ const UPDATE_SPACING: Duration = Duration::from_millis(40);
 /// The time of the black step and of the white step of a refresh of the preview cells. It is longer
 /// than the time of the UI waveform, thus a step does not stop the step before it.
 const FLASH_STEP: Duration = Duration::from_millis(500);
+
+/// The color picker runs only on the Paper Pro (refer to `colors.rs`).
+const PHYSICAL_W: u32 = Device::PAPER_PRO.physical_w;
+const PHYSICAL_H: u32 = Device::PAPER_PRO.physical_h;
 
 const FULL_SCREEN: Area = (0, 0, PHYSICAL_W as i32, PHYSICAL_H as i32);
 

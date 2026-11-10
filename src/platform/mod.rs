@@ -271,6 +271,8 @@ pub fn run() -> Result<(), String> {
             libc::signal(sig, on_signal as *const () as libc::sighandler_t);
         }
     }
+    // The tablet, before the first layout value. The app is made for the Paper Pro (REQUIREMENTS.md §1).
+    crate::layout::set_device(crate::layout::Device::PAPER_PRO);
     let fonts = Fonts::load()?;
     // The toolbar is at the side of the hand that does not write (REQUIREMENTS.md §3.1).
     // SUDOKU_XOCHITL_CONF replaces the path of the file (for the tests).

@@ -83,7 +83,7 @@ def chrome(out, P, title, page=None):
     if page:
         k, total = page
         cx, ny = n(P.w / 2), n(P.h - 37)
-        text(out, cx, ny, 28, "gray50", "middle", f"{k} / {total}")
+        text(out, cx, ny, 28, "gray25", "middle", f"{k} / {total}")
         prev = "gray80" if k == 1 else "black"; nxt = "gray80" if k == total else "black"
         out.append(f"fill none stroke-width 3 stroke-linecap round stroke-linejoin round stroke {prev} polyline {n(cx-74)},{n(ny-20)} {n(cx-84)},{n(ny-10)} {n(cx-74)},{ny} "
                    f"stroke {nxt} polyline {n(cx+74)},{n(ny-20)} {n(cx+84)},{n(ny-10)} {n(cx+74)},{ny}")

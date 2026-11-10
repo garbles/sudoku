@@ -719,7 +719,7 @@ fn panels_never_cover_the_toolbar_and_the_toolbar_never_covers_the_board() {
         assert!(layout::ng_panel().x1 <= layout::tb_x(), "{o:?}");
         assert_eq!(layout::ckp_panel(5).x1, layout::tb_x(), "NAV-18: {o:?}");
         assert!(layout::ckp_panel(5).y1 <= layout::screen_h() as i32, "NAV-18: {o:?}");
-        assert!(layout::board_x() + layout::BOARD_SIZE < layout::tb_x(), "{o:?}");
+        assert!(layout::board_x() + layout::board_size() < layout::tb_x(), "{o:?}");
         assert!(layout::colors_panel().y1 <= layout::screen_h() as i32, "{o:?}");
         assert!(layout::meter_y() + 20 < layout::screen_h() as i32, "{o:?}");
     }

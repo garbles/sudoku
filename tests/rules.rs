@@ -1097,8 +1097,10 @@ fn the_update_button_starts_only_the_installation() {
     let now = d.now;
     d.app.update_installed(Err("no network".into()), now);
     assert!(matches!(d.app.update.state, UpdateState::Failed(..)));
+    assert_eq!(d.app.next_deadline(), Some(now + 3000), "UPD-6: the main loop wakes at the end of the 3 seconds");
     d.wait(3000);
     assert!(matches!(d.app.update.state, UpdateState::Available(_)), "UPD-6: the button shows again");
+    assert_eq!(d.app.next_deadline(), None, "UPD-6: no timer after the text");
 }
 
 #[test]

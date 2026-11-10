@@ -128,7 +128,7 @@ pub fn finish_early() {
 }
 
 /// The puzzle of `(seed, mode, symmetric)` with a version of the generator. Version 1 has only the
-/// modes 0..5 and has no symmetry (PUZ-8): a symmetric puzzle of version 1 is a bug of the caller.
+/// modes 0..4 and has no symmetry (PUZ-8): a symmetric puzzle of version 1 is a bug of the caller.
 pub fn generate_version(version: u8, seed: u64, mode: u8, symmetric: bool) -> Puzzle {
     match version {
         1 => {
