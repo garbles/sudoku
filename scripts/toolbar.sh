@@ -12,7 +12,7 @@
 #   checkpoints-menu-current.png  the maximum of five rows: the first row is "Current", and a save is not available
 #   checkpoints-menu-right-handed.png, checkpoints-menu-landscape.png  checkpoints-menu.png in these layouts
 #   color-menu-right-handed.png  color-menu.png for a right-handed player (toolbar on the left)
-#   color-menu-landscape.png  color-menu.png in landscape (2160x1620)
+#   color-menu-landscape.png  color-menu.png in landscape (2160x1620 on the Paper Pro)
 #   screen-completed-landscape.png, screen-completed-landscape-right-handed.png  the complete puzzle in landscape,
 #                             menu closed: the result card is a column at the side opposite the toolbar
 #   settings-menu.png         the Settings panel of a development build
@@ -30,8 +30,8 @@ COLORS="Gray:$COLOR_GRAY White:white Yellow:$COLOR_YELLOW Blue:$COLOR_BLUE Red:$
 
 # active_slot K : a black square behind toolbar slot K (top slots; "bottom" for the + slot)
 active_slot() {
-  if [ "$1" = bottom ]; then y=$TB_BOTTOM_Y; else y=$((112*$1)); fi
-  echo "stroke none fill black rectangle $TB_X,$y 1620,$((y+111))" >> $M
+  if [ "$1" = bottom ]; then y=$TB_BOTTOM_Y; else y=$((TB_W*$1)); fi
+  echo "stroke none fill black rectangle $TB_X,$y $PHYS_W,$((y+TB_W-1))" >> $M
 }
 
 # colors_icon ACTIVE : cell colors (slot 1). A paint bucket: a tilted bucket with a handle and a drop.
@@ -70,15 +70,17 @@ bookmark_icon() {
 # plus_icon ACTIVE : + (new game) in the bottom toolbar slot. Analytics and Help are above it.
 plus_icon() {
   cy=$((TB_BOTTOM_Y+56)); fg=black
+  # x positions from the center of the slot (TB_CX): xc(DX) is TB_CX + DX
+  xc() { awk -v c=$TB_CX -v d=$1 'BEGIN{ printf "%.1f", c + d }'; }
   [ -n "$1" ] && { active_slot bottom; fg=white; }
-  echo "fill none stroke $fg stroke-width 3 stroke-linecap round line 1545.5,$cy 1581.5,$cy line $TB_CX,$((cy-18)) $TB_CX,$((cy+18))" >> $M
+  echo "fill none stroke $fg stroke-width 3 stroke-linecap round line $(xc -18),$cy $(xc 18),$cy line $TB_CX,$((cy-18)) $TB_CX,$((cy+18))" >> $M
   # Analytics: a line graph on two axes
   ay=$((TB_BOTTOM_Y-56))
-  echo "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round polyline 1545.5,$((ay-18)) 1545.5,$((ay+18)) 1581.5,$((ay+18))" >> $M
-  echo "polyline 1551.5,$((ay+8)) 1559.5,$((ay-2)) 1566.5,$((ay+4)) 1578.5,$((ay-12))" >> $M
+  echo "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round polyline $(xc -18),$((ay-18)) $(xc -18),$((ay+18)) $(xc 18),$((ay+18))" >> $M
+  echo "polyline $(xc -12),$((ay+8)) $(xc -4),$((ay-2)) $(xc 3),$((ay+4)) $(xc 15),$((ay-12))" >> $M
   # Help: ? in a circle
   hy=$((TB_BOTTOM_Y-168))
-  echo "fill none stroke black stroke-width 3 circle $TB_CX,$hy $((1563+19)).5,$hy" >> $M
+  echo "fill none stroke black stroke-width 3 circle $TB_CX,$hy $(xc 19),$hy" >> $M
   echo "stroke none fill black font '$UI_FONT' font-size 26 text-anchor middle text $TB_CX,$((hy+9)) '?'" >> $M
 }
 
@@ -106,10 +108,10 @@ switch() {
 # panel TOP : an empty pop-up frame from TOP to BOTTOM (default: the screen edge). It touches the toolbar.
 PL=$SET_PL; PR=$SET_PR; TX=$((PL+33)); TR=$((PR-32))
 panel() {
-  top=$1; bot=${2:-2160}
+  top=$1; bot=${2:-$PHYS_H}
   echo "stroke none fill white rectangle $PL,$top $PR,$bot" >> $M
   echo "fill black rectangle $PL,$top $PR,$((top+1)) rectangle $PL,$top $((PL+1)),$bot rectangle $((PR-1)),$top $PR,$bot" >> $M
-  [ $bot -lt 2160 ] && echo "rectangle $PL,$((bot-1)) $PR,$bot" >> $M
+  [ $bot -lt $PHYS_H ] && echo "rectangle $PL,$((bot-1)) $PR,$bot" >> $M
   return 0
 }
 divider() { echo "stroke none fill black rectangle $PL,$1 $PR,$(($1+1))" >> $M; }
@@ -157,7 +159,7 @@ color_section() {
 # The menu button shows its open icon. BASE shows the closed icon: a white square removes it first.
 # The close button shows at the top left (circle of 38 px, stroke of 3 px, measured on the device).
 CLOSE="fill none stroke black stroke-width 3 circle 55.5,55.5 73,55.5 stroke-linecap round line 50,50 61,61 line 61,50 50,61"
-compose() { magick "$OUT/$1" -draw "stroke none fill white rectangle $TB_X,0 1619,111" -draw "$(menu_icon open)" -draw "$CLOSE" -draw @$M -units PixelsPerInch -density 229 "$OUT/$2"; : > $M; }
+compose() { magick "$OUT/$1" -draw "stroke none fill white rectangle $TB_X,0 $((PHYS_W-1)),$((TB_W-1))" -draw "$(menu_icon open)" -draw "$CLOSE" -draw @$M -units PixelsPerInch -density $DPI "$OUT/$2"; : > $M; }
 
 # --- menu open on a new game
 toolbar gray70 ""
@@ -199,7 +201,7 @@ for g in 90 40; do
   T=$(mktemp -d)
   FAINT=gray$g sh "$(dirname "$0")/render.sh" "$T"
   python3 -I "$(dirname "$0")/board-state.py" progress > "$T/state.mvg"
-  magick "$T/screen.png" -draw @"$T/state.mvg" -units PixelsPerInch -density 229 "$OUT/.lines-$g.png"; rm -rf "$T"
+  magick "$T/screen.png" -draw @"$T/state.mvg" -units PixelsPerInch -density $DPI "$OUT/.lines-$g.png"; rm -rf "$T"
   color_menu .lines-$g.png color-menu-lines-$g.png gray$g; rm -f "$OUT/.lines-$g.png"
 done
 
@@ -208,10 +210,11 @@ done
 # then "Third-party licenses" with a › 45 px from the right edge (REQUIREMENTS.md §9.4).
 # A stable build has a sixth row for updates (BOTTOM SET_BOTTOM_STABLE, REQUIREMENTS.md §9.2).
 settings_panel() {
-  panel $SET_TOP $2; divider 338; divider 452; divider 566
-  label $TX $((226+65)) start black "Highlight numbers"; switch $((PR-33)) $((226+56)) on
-  label $TX $((340+49)) start black "Hide pencil marks"; label $TX $((340+81)) start black "automatically"; switch $((PR-33)) $((340+56)) on
-  label $TX $((454+49)) start black "Color completed"; label $TX $((454+81)) start black "groups"; switch $((PR-33)) $((454+56)) on
+  r0=$SET_ROW0; r1=$((SET_ROW0+SET_STEP)); r2=$((SET_ROW0+2*SET_STEP))   # the tops of the switch rows (y 226, 340, 454)
+  panel $SET_TOP $2; divider $((r1-2)); divider $((r2-2)); divider $((r2+SET_STEP-2))
+  label $TX $((r0+65)) start black "Highlight numbers"; switch $((PR-33)) $((r0+56)) on
+  label $TX $((r1+49)) start black "Hide pencil marks"; label $TX $((r1+81)) start black "automatically"; switch $((PR-33)) $((r1+56)) on
+  label $TX $((r2+49)) start black "Color completed"; label $TX $((r2+81)) start black "groups"; switch $((PR-33)) $((r2+56)) on
   label $TX $((SET_VERSION_Y+65)) start black "Version"
   regular_text end $((PR-33)) $((SET_VERSION_Y+65)) "$1"
   divider $((SET_LICENSES_Y-2))
@@ -309,8 +312,8 @@ ckp_frame() {
   echo "fill none stroke $1 stroke-width 3 stroke-linecap round line $((CKP_SAVE_ICON_X-18)),$CKP_SAVE_ICON_Y $((CKP_SAVE_ICON_X+18)),$CKP_SAVE_ICON_Y line $CKP_SAVE_ICON_X,$((CKP_SAVE_ICON_Y-18)) $CKP_SAVE_ICON_X,$((CKP_SAVE_ICON_Y+18))" >> $M
   ckp_text "$UI_FONT" 28 "$1" start $CKP_SAVE_TEXT_X $CKP_SAVE_BASE "Save checkpoint"
   if [ "$2" -eq 0 ]; then
-    ckp_text "$DIGIT_FONT" 28 gray25 middle $CKP_CX 760 "No checkpoints"
-    ckp_text "$DIGIT_FONT" $UI_SIZE $TEXT_GRAY middle $CKP_CX 800 "Save the board before a difficult guess."
+    ckp_text "$DIGIT_FONT" 28 gray25 middle $CKP_CX $CKP_EMPTY_BASE1 "No checkpoints"
+    ckp_text "$DIGIT_FONT" $UI_SIZE $TEXT_GRAY middle $CKP_CX $CKP_EMPTY_BASE2 "Save the board before a difficult guess."
   fi
 }
 # ckp_row I STATE CLOCK BUTTON : row I with the small board of STATE (board-state.py), the clock at the save and the
@@ -353,25 +356,29 @@ PL=$SET_PL
 # right_handed SOURCE OUTFILE CROP X Y : the crop of the panel of SOURCE goes to X,Y.
 right_handed() {
   magick "$OUT/screen-in-progress.png" \
-    \( "$OUT/$1" -crop 112x2160+$TB_X+0 +repage \) -geometry +0+0 -composite \
-    \( "$OUT/$1" -crop 112x112+$TB_X+0 +repage -flop \) -geometry +0+0 -composite \
-    \( "$OUT/$1" -crop 112x112+0+0 +repage \) -geometry +$TB_X+0 -composite \
+    \( "$OUT/$1" -crop ${TB_W}x$PHYS_H+$TB_X+0 +repage \) -geometry +0+0 -composite \
+    \( "$OUT/$1" -crop ${TB_W}x$TB_W+$TB_X+0 +repage -flop \) -geometry +0+0 -composite \
+    \( "$OUT/$1" -crop ${TB_W}x$TB_W+0+0 +repage \) -geometry +$TB_X+0 -composite \
     \( "$OUT/$1" -crop $3 +repage \) -geometry +$4+$5 -composite \
-    -units PixelsPerInch -density 229 "$OUT/$2"
+    -units PixelsPerInch -density $DPI "$OUT/$2"
 }
 # --- A panel image in landscape (REQUIREMENTS.md §3.3). The items do not change. They move by full pixels: the
-# board and the meter to the center of the 2160x1620 screen, the toolbar to the right edge with its bottom slots
+# board and the meter to the center of the landscape screen, the toolbar to the right edge with its bottom slots
 # at the bottom edge, and the panel to its position, where it covers the right part of the board.
-TB_TOP_H=$((6*112)); TB_LOW_Y=$((TB_BOTTOM_Y-224))
+TB_TOP_H=$((6*TB_W)); TB_LOW_Y=$((TB_BOTTOM_Y-2*TB_W))
+# The board area of the portrait image that moves (x 130-1489): 18 px around the board, and in screen-in-progress.png
+# also the meter below the board (to y 1839). The other pixels of the landscape image are white.
+BOARD_CROP_X=$((X0-18)); BOARD_CROP_Y=$((Y0-18)); BOARD_CROP_W=$((9*C+37))
+BOARD_CROP_H_METER=$((9*C+117)); BOARD_CROP_H=$((9*C+37))
 # landscape SOURCE OUTFILE CROP X Y : the crop of the panel of SOURCE goes to X,Y.
 landscape() {
   magick -size ${LS_W}x${LS_H} xc:white \
-    \( "$OUT/screen-in-progress.png" -crop 1360x1440+130+400 +repage \) -geometry +$((130+LS_DX))+$((400+LS_DY)) -composite \
-    \( "$OUT/$1" -crop 112x112+0+0 +repage \) -geometry +0+0 -composite \
-    \( "$OUT/$1" -crop 112x$TB_TOP_H+$TB_X+0 +repage \) -geometry +$LS_TB_X+0 -composite \
-    \( "$OUT/$1" -crop 112x$((2160-TB_LOW_Y))+$TB_X+$TB_LOW_Y +repage \) -geometry +$LS_TB_X+$((TB_LOW_Y+LS_BOTTOM_DY)) -composite \
+    \( "$OUT/screen-in-progress.png" -crop ${BOARD_CROP_W}x$BOARD_CROP_H_METER+$BOARD_CROP_X+$BOARD_CROP_Y +repage \) -geometry +$((BOARD_CROP_X+LS_DX))+$((BOARD_CROP_Y+LS_DY)) -composite \
+    \( "$OUT/$1" -crop ${TB_W}x$TB_W+0+0 +repage \) -geometry +0+0 -composite \
+    \( "$OUT/$1" -crop ${TB_W}x$TB_TOP_H+$TB_X+0 +repage \) -geometry +$LS_TB_X+0 -composite \
+    \( "$OUT/$1" -crop ${TB_W}x$((PHYS_H-TB_LOW_Y))+$TB_X+$TB_LOW_Y +repage \) -geometry +$LS_TB_X+$((TB_LOW_Y+LS_BOTTOM_DY)) -composite \
     \( "$OUT/$1" -crop $3 +repage \) -geometry +$4+$5 -composite \
-    -units PixelsPerInch -density 229 "$OUT/$2"
+    -units PixelsPerInch -density $DPI "$OUT/$2"
 }
 CM_CROP=${CM_W}x$((CM_BOTTOM-CM_TOP+1))+$CM_PL+$CM_TOP   # the full panel, with its bottom line
 right_handed color-menu.png color-menu-right-handed.png $CM_CROP $CM_PL_RIGHT $CM_TOP
@@ -389,9 +396,9 @@ completed_landscape() {
   result_card $1 $LEVEL > $M
   if [ $1 = right ]; then mb="-flop"; mx=0; else mb=""; mx=$LS_TB_X; fi
   magick -size ${LS_W}x${LS_H} xc:white \
-    \( "$OUT/screen-completed.png" -crop 1360x1360+130+400 +repage \) -geometry +$((130+LS_DX))+$((400+LS_DY)) -composite \
-    \( "$OUT/screen-completed.png" -crop 112x112+$TB_X+0 +repage $mb \) -geometry +$mx+0 -composite \
-    -draw @$M -units PixelsPerInch -density 229 "$OUT/$2"
+    \( "$OUT/screen-completed.png" -crop ${BOARD_CROP_W}x$BOARD_CROP_H+$BOARD_CROP_X+$BOARD_CROP_Y +repage \) -geometry +$((BOARD_CROP_X+LS_DX))+$((BOARD_CROP_Y+LS_DY)) -composite \
+    \( "$OUT/screen-completed.png" -crop ${TB_W}x$TB_W+$TB_X+0 +repage $mb \) -geometry +$mx+0 -composite \
+    -draw @$M -units PixelsPerInch -density $DPI "$OUT/$2"
 }
 completed_landscape left screen-completed-landscape.png
 completed_landscape right screen-completed-landscape-right-handed.png

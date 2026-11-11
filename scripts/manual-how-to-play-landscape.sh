@@ -17,7 +17,7 @@ minib 783 450 "$hl" "$dg"
 hl=""; dg=""; i=0; for d in $ROW; do r=$((3+i/3)); c=$((6+i%3)); hl="$hl $r,$c,$UNIT_BG"; dg="$dg $r,$c,$d,black"; i=$((i+1)); done
 minib 1179 450 "$hl" "$dg"
 text 540 805 34 gray25 middle "Each row"
-text 936 805 34 gray25 middle "Each column"
+text $((PW/2)) 805 34 gray25 middle "Each column"
 text 1332 805 34 gray25 middle "Each box"
 
 text 72 910 50 black start "Starting numbers"

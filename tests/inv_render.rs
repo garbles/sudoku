@@ -2780,7 +2780,7 @@ fn the_swatches_of_the_micro_cell_lines_section_show_the_pattern_of_their_gray()
 fn the_dots_of_the_swatches_are_the_dots_of_the_design_images() {
     // COL-13, R§17: the design images are exact. In portrait for a left-handed player, the gray15 pixels
     // inside each disc of the Micro-cell lines section (radius 17.5 px) are the same in the app and in
-    // `images/color-menu.png`, `color-menu-lines-90.png` and `color-menu-lines-40.png`. The selection
+    // `images/pro/color-menu.png`, `color-menu-lines-90.png` and `color-menu-lines-40.png`. The selection
     // does not change the pattern, thus the test compares only the dots.
     let fonts = fonts();
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -2789,7 +2789,7 @@ fn the_dots_of_the_swatches_are_the_dots_of_the_design_images() {
     let pm = draw_app(&d.app, &fonts);
     d.app.redraw = false;
     for name in ["color-menu.png", "color-menu-lines-90.png", "color-menu-lines-40.png"] {
-        let image = sudoku::render::decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
+        let image = sudoku::render::decode_png(&std::fs::read(sudoku::reference::image_path(&root, name)).unwrap());
         for (i, g) in LineGray::ALL.into_iter().enumerate() {
             let cell = grid_cell(x0, 4, i as i32);
             let (cx, cy) = (cell.x0 + 56, cell.y0 + 30);

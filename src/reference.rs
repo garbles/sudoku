@@ -1,4 +1,4 @@
-//! The states of the reference images in `images/` (the same data as the scripts in `scripts/`). The
+//! The states of the reference images in `images/pro/` (`layout::Device::images`) (the same data as the scripts in `scripts/`). The
 //! snapshot tool and the rendering tests use them to compare the app with the images. The snapshot
 //! tool also writes the sheet of all icons (`icon_sheet`).
 
@@ -98,6 +98,11 @@ fn add_marks_of(g: &mut Game, marked: &[(u8, u8)]) {
             }
         }
     }
+}
+
+/// The path of the design image `name` of the device (`layout::Device::images`).
+pub fn image_path(root: impl AsRef<std::path::Path>, name: &str) -> std::path::PathBuf {
+    root.as_ref().join(crate::layout::device().images).join(name)
 }
 
 /// The game of screen-completed-group.png (`board-state.py completed-group`): no clash, and box 0,

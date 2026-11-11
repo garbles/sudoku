@@ -1,5 +1,5 @@
 //! Draws the screens (REQUIREMENTS.md §3, §9 to §13 and §15). The drawing commands are the same as in
-//! the scripts that make the images in `images/`.
+//! the scripts that make the images in `images/pro/`.
 //!
 //! Coordinates are in ImageMagick units: a pixel center is at an integer coordinate. tiny-skia puts a
 //! pixel center at +0.5. Thus each drawing gets a translation of 0.5 px.
@@ -673,28 +673,28 @@ impl<'a> Canvas<'a> {
 
 /// The manual pages (REQUIREMENTS.md §12), in order.
 static MANUAL: [&[u8]; MANUAL_PAGES as usize] = [
-    include_bytes!("../images/manual-how-to-play.png"),
-    include_bytes!("../images/manual-candidates.png"),
-    include_bytes!("../images/manual-pen.png"),
-    include_bytes!("../images/manual-pen-rules.png"),
-    include_bytes!("../images/manual-helpers.png"),
-    include_bytes!("../images/manual-mistakes.png"),
-    include_bytes!("../images/manual-menu.png"),
-    include_bytes!("../images/manual-new-game.png"),
-    include_bytes!("../images/manual-finished.png"),
+    include_bytes!("../images/pro/manual-how-to-play.png"),
+    include_bytes!("../images/pro/manual-candidates.png"),
+    include_bytes!("../images/pro/manual-pen.png"),
+    include_bytes!("../images/pro/manual-pen-rules.png"),
+    include_bytes!("../images/pro/manual-helpers.png"),
+    include_bytes!("../images/pro/manual-mistakes.png"),
+    include_bytes!("../images/pro/manual-menu.png"),
+    include_bytes!("../images/pro/manual-new-game.png"),
+    include_bytes!("../images/pro/manual-finished.png"),
 ];
 
 /// The same pages for the landscape orientation (scripts/manual-*-landscape.sh).
 static MANUAL_LANDSCAPE: [&[u8]; MANUAL_PAGES as usize] = [
-    include_bytes!("../images/manual-how-to-play-landscape.png"),
-    include_bytes!("../images/manual-candidates-landscape.png"),
-    include_bytes!("../images/manual-pen-landscape.png"),
-    include_bytes!("../images/manual-pen-rules-landscape.png"),
-    include_bytes!("../images/manual-helpers-landscape.png"),
-    include_bytes!("../images/manual-mistakes-landscape.png"),
-    include_bytes!("../images/manual-menu-landscape.png"),
-    include_bytes!("../images/manual-new-game-landscape.png"),
-    include_bytes!("../images/manual-finished-landscape.png"),
+    include_bytes!("../images/pro/manual-how-to-play-landscape.png"),
+    include_bytes!("../images/pro/manual-candidates-landscape.png"),
+    include_bytes!("../images/pro/manual-pen-landscape.png"),
+    include_bytes!("../images/pro/manual-pen-rules-landscape.png"),
+    include_bytes!("../images/pro/manual-helpers-landscape.png"),
+    include_bytes!("../images/pro/manual-mistakes-landscape.png"),
+    include_bytes!("../images/pro/manual-menu-landscape.png"),
+    include_bytes!("../images/pro/manual-new-game-landscape.png"),
+    include_bytes!("../images/pro/manual-finished-landscape.png"),
 ];
 
 /// Decodes a PNG (gray, gray with alpha, RGB or RGBA; 8 or 16 bits) into a pixmap.

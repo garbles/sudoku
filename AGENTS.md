@@ -8,7 +8,7 @@ To build standalone executables on this machine, you must use the Linux @Dockerf
 
 These documents tell how the app must operate:
 
-- @REQUIREMENTS.md: all screens, states, inputs and saved values. It refers to the design images in `images/`. The images are exact. `scripts/build.sh` makes them, and `images/INDEX.md` gives a list of them.
+- @REQUIREMENTS.md: all screens, states, inputs and saved values. It refers to the design images of the Paper Pro in `images/pro/`. The images are exact. `scripts/build.sh` makes them, and `images/INDEX.md` gives a list of them.
 - @INVARIANTS.md: the rules that must be true in all states that the app can get to. Use them as assertions and tests.
 
 If the two documents do not agree, REQUIREMENTS.md is correct. When the behavior changes, update the two documents.
@@ -25,13 +25,13 @@ All tests run on the computer. `Dockerfile.test` runs them again on aarch64 Linu
 | `Dockerfile.corpus`    | The fast corpus build of `dist/sudoku-corpus/`. No tests. Not for release |
 | `Dockerfile.colors`    | The fast build of the color picker `dist/sudoku-colors/`. No tests. Not for release |
 | `Dockerfile.test`      | All tests on aarch64 Linux: the stages `release` and `debug` (parallel) |
-| `Dockerfile.images`    | The design images `images/*.png` (not `install-*.png`), the icon and the icon sheet `images/icons.png` |
+| `Dockerfile.images`    | The design images of the Paper Pro `images/pro/*.png`, the icon and the icon sheet `images/pro/icons.png` |
 | `Dockerfile.installer` | The installer images `images/install-*.png`                             |
 | `Dockerfile.video`     | The demo videos in `video/`                                             |
 
 ```bash
 cargo test                                   # all tests on the computer (macOS or Linux)
-cargo run --release --bin snapshot -- DIR    # draw the reference states and the icon sheet, and compare them with images/
+cargo run --release --bin snapshot -- DIR    # draw the reference states and the icon sheet, and compare them with images/pro/
 python3 scripts/invariants.py --open        # the visualizer of INVARIANTS.md (make invariants BASE=<ref>)
 cargo run --release --bin video -- video/demo.txt video/demo.mp4   # demo video from an event script (ffmpeg)
 cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4   # extended demo video for the website
@@ -41,7 +41,7 @@ docker build --platform linux/arm64 --output type=local,dest=dist .   # static a
 docker build --platform linux/arm64 -f Dockerfile.dev --build-arg SUDOKU_VERSION=dev/update-icons --output type=local,dest=dist .   # fast development build (no tests)
 docker build --platform linux/arm64 -f Dockerfile.corpus --output type=local,dest=dist .   # corpus build (no tests)
 docker build --platform linux/arm64 -f Dockerfile.colors --output type=local,dest=dist .   # color picker build (no tests)
-docker build --platform linux/arm64 -f Dockerfile.images --output type=local,dest=. .      # images/ and the icon (commit these)
+docker build --platform linux/arm64 -f Dockerfile.images --output type=local,dest=. .      # images/pro/ and the icon (commit these)
 docker build --platform linux/arm64 -f Dockerfile.installer --output type=local,dest=. .   # images/install-*.png (commit these)
 docker build --platform linux/arm64 -f Dockerfile.video --output type=local,dest=. .       # video/ (commit these)
 ```
@@ -89,7 +89,7 @@ builds in parallel).
 - Rules for an optimization: change one thing at a time. Keep a change only if the time decreases by
   more than the noise (approximately 3%). The output hashes must not change: a change of a hash is a
   change of the pixels, the puzzles (PUZ-5) or the recognizer. `cargo test` must pass, and the
-  snapshot tool must agree with `images/`. Then save the new baseline.
+  snapshot tool must agree with `images/pro/`. Then save the new baseline.
 - A change of `video/demo-full.txt`, of the reference states or of the screens changes the hashes.
   Then save the baselines again (`--save`) in the same change.
 - On macOS, `sample PID SECONDS` shows where the time goes. Build the bench with symbols:
@@ -107,7 +107,16 @@ builds in parallel).
   also.
 - `Dockerfile.images`, `Dockerfile.installer` and `Dockerfile.video` use fixed versions of
   ImageMagick and ffmpeg (Alpine 3.22), so each computer makes the same files. `scripts/build.sh`
-  takes the parts `screens`, `installer` and `icon` (with no argument: all parts). The **Release**
+  takes the parts `screens`, `installer` and `icon` (with no argument: all parts).
+- Design images for each tablet model: `DEVICE=pro sh scripts/build.sh screens` (the default) writes
+  `images/pro/`. `scripts/devices/pro.conf` gives the values of the model (the screen, the DPI, the
+  cell, the page scale; the same values as `layout::Device::PAPER_PRO`), and `scripts/device-lib.sh`
+  loads it. The shell scripts calculate all screen positions from these values and from the toolbar
+  slot (`ui-lib.sh`), and the Python scripts read the same file. The contents of a cell use the scale
+  of `layout::Device::scale` (`board-state.py` `cs`). Do not add a fixed screen position to a
+  script. The installer images (`images/install-*.png`) are the same for all models and stay in
+  `images/`. Only the Paper Pro has images now. `layout::Device::images` gives the folder of a model
+  to the snapshot tool and the tests (`reference::image_path`). The **Release**
   workflow (`release.yml`, job `media`, one job for each Dockerfile) makes `images/` and `video/`
   again in each run, and it fails when they are not the same as the files in git. When you change
   them, run `make media` and commit the result.
@@ -254,8 +263,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `update.rs`: the update state, the signed `version.json` and the installation of a release
   archive. No network: `platform/` downloads the files on a background thread (ureq, rustls).
 - `platform/`: Linux only. The qtfb client, the eraser state (evdev) and the main loop.
-- `reference.rs`: the states of the images in `images/`, for the snapshot tool and `tests/render.rs`,
-  and the icon sheet `images/icons.png`. The sheet draws each `render::Icon` with the same code as
+- `reference.rs`: the states of the images in `images/pro/`, for the snapshot tool and `tests/render.rs`,
+  and the icon sheet `images/pro/icons.png`. The sheet draws each `render::Icon` with the same code as
   the app. When you add an icon, add it to `Icon` and to `Icon::ALL`. When you change an icon, run
   `make media-images` and commit the result.
 - `appload/sudoku/sudoku-penregion.qmd` (not in `src/`): the ink patch, a QML patch of AppLoad that

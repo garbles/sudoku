@@ -45,7 +45,7 @@ Decide which side is correct before you edit. Use these rules in this order:
   remote command, also change the fake ssh in `tests/install/fake/`.
 - When the behavior changes, update REQUIREMENTS.md and INVARIANTS.md.
 - When a change makes README.md incorrect, update README.md.
-- Do not edit generated files: `appload/sudoku/icon.png`, `images/*.png`, `video/*`. If the fix
+- Do not edit generated files: `appload/sudoku/icon.png`, `images/pro/*.png`, `video/*`. If the fix
   needs new images, videos or bench baselines (a change of pixels, reference states, puzzles or
   `video/demo-full.txt`), do not make them. Report the command that the user must run (refer to
   the Makefile and AGENTS.md).

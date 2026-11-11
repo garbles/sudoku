@@ -1,7 +1,7 @@
 # Examine the portrait and the landscape screens
 
 The tablet is not necessary for a problem of the layout: the app draws the same pixels on the
-computer. The design images in `images/` are the reference for the portrait screens. The landscape
+computer. The design images in `images/pro/` are the reference for the portrait screens. The landscape
 screens have only images for the manual and the statistics pages. Thus examine the landscape game
 screen on the computer with the snapshot tool.
 
@@ -9,7 +9,7 @@ screen on the computer with the snapshot tool.
 
 1. Run `cargo run --release --bin snapshot -- target/snapshots`. The tool makes the reference states
    in portrait, and the same states in landscape with the prefix `landscape-` (they are not
-   compared with `images/`).
+   compared with `images/pro/`).
 2. Look at `target/snapshots/landscape-screen-in-progress.png` and the other landscape images. Check
    the board, the toolbar, the meter and the panels.
 3. To make a screen that the snapshot tool does not make, use `reference::render` in a test: set the

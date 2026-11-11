@@ -78,7 +78,7 @@ A refactor must not change these. They are the contract of the app:
 - **Behavior.** REQUIREMENTS.md and INVARIANTS.md do not change. A refactor that needs a change of
   a requirement is not a refactor: make a bead with the label `human` and do not do it.
 - **Pixels, puzzles and the recognizer.** The output hashes of the bench (`scripts/bench.sh`) do
-  not change, and the snapshot tool agrees with `images/`. A seed gives the same puzzle (PUZ-5).
+  not change, and the snapshot tool agrees with `images/pro/`. A seed gives the same puzzle (PUZ-5).
 - **Saved data.** The format of `game.json`, `settings.json`, `results.sqlite`, the stamp file and
   `version.json` does not change, and the app reads the files of earlier versions (generator
   version 1, `auto_remove_on`, a settings file with no `color_completed`: PER-8). Look at the

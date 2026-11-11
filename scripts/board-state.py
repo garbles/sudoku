@@ -8,8 +8,28 @@
 #   board-state.py mini STATE X Y CELL  the small board of a checkpoint (MINI_STATES) with its first cell at X,Y
 #   board-state.py mini-count STATE     the quantity of filled cells of that checkpoint
 import os, subprocess, sys
-C = 147; X0, Y0 = (1620 - 9*C)//2, (2160 - 9*C)//2   # must agree with ui-lib.sh
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+def device_values():
+    """The values of the tablet model DEVICE (default: pro) from devices/DEVICE.conf (refer to device-lib.sh)."""
+    values = {}
+    with open(os.path.join(HERE, "devices", os.environ.get("DEVICE", "pro") + ".conf")) as f:
+        for line in f:
+            line = line.split("#")[0].strip()
+            if line:
+                key, value = line.split("=")
+                values[key] = value
+    return values
+
+DEVICE = device_values()
+C = int(DEVICE["C"])
+X0, Y0 = (int(DEVICE["PHYS_W"]) - 9*C)//2, (int(DEVICE["PHYS_H"]) - 9*C)//2   # must agree with ui-lib.sh
+REF_CELL = 147   # the cell of the reference design (the Paper Pro), the same as layout::REF_CELL
+
+def cs(v):
+    """A length v of the reference cell in pixels of the cell C, rounded (the same as layout::Device::scale)."""
+    return (2*v*C + REF_CELL) // (2*REF_CELL)
+
 FONT = os.path.join(HERE, "fonts", "rmsans-400.ttf")     # reMarkable Sans Regular
 UI_FONT = os.path.join(HERE, "fonts", "rmsans-500.ttf")  # reMarkable Sans Medium (UI text)
 MODE = sys.argv[1] if len(sys.argv) > 1 else "progress"
@@ -31,7 +51,7 @@ PLAYER_DIGIT = "#1E1E1E"
 HIGHLIGHT = 5             # the digit that the player taps in "highlight"
 UNRECOGNIZED = (4,1)      # the cell with the scribble in "unrecognized"
 INVALID_MARK = (1,6,6)    # the row, the column and the digit of the tap in "invalid-mark". (1,0) and (2,7) have a 6.
-X_HALF = 10               # each line of the x goes from -10 px to +10 px on the two axes around the center
+X_HALF = cs(10)           # each line of the x goes from -10 px to +10 px on the two axes around the center
 X_WIDTH = 3               # the line width of the x
 # The small boards of the Checkpoints panel: the player numbers, the mistakes and the cells with pencil marks.
 MINI_STATES = {
@@ -85,9 +105,10 @@ def candidates(r, c):
     used |= {grid[i][j] for i in range(br, br+3) for j in range(bc, bc+3)}
     return [d for d in range(1, 10) if d not in used]
 
-# the anchor point of the pencil mark of digit d in the cell at x,y: 24, 74 or 122 px on each axis
+# the anchor point of the pencil mark of digit d in the cell at x,y: 24, 74 or 122 px on each axis (Paper Pro)
+MARK_POS = [cs(24), cs(74), cs(122)]
 def mark_anchor(x, y, d):
-    return x + round(((d-1)%3 + 0.5)*C/3), y + round(((d-1)//3 + 0.5)*C/3)
+    return x + MARK_POS[(d-1) % 3], y + MARK_POS[(d-1)//3]
 
 # The small board of a checkpoint. Cell (r, c) has its top left pixel at (X + c*CELL, Y + r*CELL). Each line of 1 px
 # is on the first pixel of the cell after it. Each line of 2 px is on the last pixel of the cell before it and the
@@ -167,7 +188,7 @@ out.append(f"stroke-width 12 stroke-linecap square {thick} stroke-antialias 1")
 for r, c in filled:
     x, y = X0+c*C, Y0+r*C
     color = "black" if GIVENS[r][c] != "." else PLAYER_DIGIT
-    out.append(f"stroke none fill {color} font '{FONT}' font-size 104 text-anchor middle text {x+C//2},{y+111} '{grid[r][c]}'")
+    out.append(f"stroke none fill {color} font '{FONT}' font-size {cs(104)} text-anchor middle text {x+C//2},{y+cs(111)} '{grid[r][c]}'")
 # pencil marks: the possible digits of each cell with marks. The app draws the marks with no anti-aliasing
 # (REQUIREMENTS.md §15): each pixel is gray15 or the pixel under it. The other texts of the image keep their
 # anti-aliasing, thus the primitive goes back to 1 after the marks.
@@ -177,12 +198,12 @@ for r, c in MARKED:
     x, y = X0+c*C, Y0+r*C
     for d in candidates(r, c):
         cx, cy = mark_anchor(x, y, d)
-        out.append(f"stroke none fill gray15 font '{FONT}' font-size 31 text-anchor middle text {cx},{cy+11} '{d}'")
+        out.append(f"stroke none fill gray15 font '{FONT}' font-size {cs(31)} text-anchor middle text {cx},{cy+cs(11)} '{d}'")
 out.append("text-antialias 1")
 
 if MODE == "unrecognized":
     r, c = UNRECOGNIZED; x, y = X0+c*C, Y0+r*C
-    out.append(f"stroke none fill gray25 font '{FONT}' font-size 104 text-anchor middle text {x+C//2},{y+111} '?'")
+    out.append(f"stroke none fill gray25 font '{FONT}' font-size {cs(104)} text-anchor middle text {x+C//2},{y+cs(111)} '?'")
 if MODE == "invalid-mark":
     # only the micro-cell changes: the other marks and the micro-cell lines of the cell stay
     r, c, d = INVALID_MARK

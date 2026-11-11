@@ -130,7 +130,7 @@ revert", do step 9 of the full track (revert), close the issue with a reason, an
    behavior or the pixels changed. Write each test from REQUIREMENTS.md and INVARIANTS.md, not
    from the code, so that the test can fail. Each test gives the rule IDs that it examines.
 5. Run `cargo build --release --bins` with no warnings, `cargo test`, and `make snapshot`. The
-   snapshot tool must agree with `images/`.
+   snapshot tool must agree with `images/pro/`.
 6. If the pixels, the reference states, the puzzles, the recognizer or `video/demo-full.txt`
    change, run `scripts/bench.sh` and compare with the baseline. Each changed hash must have a
    cause in the change. Then save the bench baselines again (refer to "Performance" in AGENTS.md).
@@ -165,7 +165,7 @@ step 8.
    each file that you change or add from now on.
 
 3. **Read the related part of REQUIREMENTS.md and the images.** Find the section, the images in
-   `images/` (`images/INDEX.md`) and the invariants that the change touches. Do not change them.
+   `images/pro/` (`images/INDEX.md`) and the invariants that the change touches. Do not change them.
    Write their IDs in the notes of the issue.
 
 4. **Change the code.** Change only what the request needs (for example `layout.rs`, `render.rs`
@@ -309,7 +309,7 @@ step 8.
       (`include_bytes!` in `src/render.rs`), thus the image build must be done before wave 2.
 
    The agents of wave 1 change only the scripts. They do not run the image build: two builds at
-   the same time write the same files in `images/`. When the script agents are done, run
+   the same time write the same files in `images/pro/`. When the script agents are done, run
    `make media-images` one time, and send the paths of the changed images to the script agents
    (SendMessage). They read crops of the images and tell you if they show the approved result. If not, they
    change their scripts, and you run the build again.
@@ -335,7 +335,7 @@ step 8.
      rule IDs that it examines.
    - **Snapshots** (`dev-test-writer`). It owns `src/reference.rs` and `tests/render.rs`. Add or change a reference
      state if the current states do not show the change. `make snapshot` must agree with the new
-     `images/` of wave 1. If the app does not agree with an image, send the difference to the
+     `images/pro/` of wave 1. If the app does not agree with an image, send the difference to the
      implementation agent. Do not change the images or their scripts.
    - **Videos** (`dev-media`), only if the demo shows the change. It owns `video/`. Change `video/demo.txt` if
      its events do not show the change correctly now (for example a button moved), and change

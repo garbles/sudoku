@@ -1,7 +1,6 @@
 #!/bin/sh
 # Makes manual-new-game-landscape.png in $1: page 8 of the manual in landscape (the text of manual-new-game.sh).
 set -e
-. "$(dirname "$0")/ui-lib.sh"
 LANDSCAPE=1; . "$(dirname "$0")/manual-lib.sh"
 M=$(mktemp)
 UI=$1
@@ -10,13 +9,13 @@ text 72 170 84 black start "New game"
 
 step() { text 72 $1 50 black start "$2.  $3"; text 72 $(($1+60)) 38 gray25 start "$4"; }
 step 290 1 "Open the menu" "Tap the menu button in the top right."
-picture 1100 240 "$(shot "$UI/screen.png" 112x112+1508+0)"
+picture 1100 240 "$(shot "$UI/screen.png" $(slot_crop 0))"
 step 430 2 "Tap +" "The + is at the bottom of the menu."
-picture 1100 380 "$(shot "$UI/screen-toolbar.png" 112x112+1508+2048)"
+picture 1100 380 "$(shot "$UI/screen-toolbar.png" $(slot_crop new))"
 step 570 3 "Select a difficulty" "Move the slider. Easy needs only simple logic."
 text 72 680 38 gray25 start "Hard needs advanced logic. The slider starts at your last choice."
-NGW=$((1620-NG_PL)); NGY=$((NG_TOP-4))   # the three-row panel (refer to manual-new-game.sh)
-picture 160 715 "$(shot "$UI/new-game-menu.png" ${NGW}x$((2160-NGY))+$NG_PL+$NGY)"
+NGW=$((PHYS_W-NG_PL)); NGY=$((NG_TOP-4))   # the three-row panel (refer to manual-new-game.sh)
+picture 160 715 "$(shot "$UI/new-game-menu.png" ${NGW}x$((PHYS_H-NGY))+$NG_PL+$NGY)"
 text 72 1070 38 gray25 start "If Symmetrical is on, the starting numbers are the same after a"
 text 72 1120 38 gray25 start "half turn of the board."
 step 1210 4 "Tap Start new game" "The app shows a new puzzle at the difficulty that you selected."

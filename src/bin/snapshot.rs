@@ -1,10 +1,10 @@
-//! Renders the states of the reference images in `images/` into a folder, and compares them with the
+//! Renders the states of the reference images in `images/pro/` into a folder, and compares them with the
 //! reference images. Use it on a computer:
 //!
 //!     cargo run --release --bin snapshot -- OUT_DIR
 //!
 //! It also writes `icons.png` (all icons of the app in one image) and compares it with
-//! `images/icons.png`. To write only the sheet to a file (Dockerfile.images makes `images/icons.png`
+//! `images/pro/icons.png`. To write only the sheet to a file (Dockerfile.images makes `images/pro/icons.png`
 //! with this command):
 //!
 //!     cargo run --release --bin snapshot -- --icons FILE
@@ -46,7 +46,7 @@ fn main() {
     for (name, setup) in reference::states() {
         let pm = reference::render(&fonts, setup);
         save(&pm, &out.join(name));
-        let reference = decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
+        let reference = decode_png(&std::fs::read(reference::image_path(&root, name)).unwrap());
         let (mad, big) = reference::compare(&pm, &reference);
         worst = worst.max(big);
         let off = reference::differences_off_edges(&pm, &reference, 1);
@@ -55,7 +55,7 @@ fn main() {
     save(&reference::render(&fonts, reference::ink_state), &out.join("ink.png"));
     let sheet = reference::icon_sheet(&fonts);
     save(&sheet, &out.join("icons.png"));
-    let (mad, big) = reference::compare(&sheet, &decode_png(&std::fs::read(root.join("images/icons.png")).unwrap()));
+    let (mad, big) = reference::compare(&sheet, &decode_png(&std::fs::read(reference::image_path(&root, "icons.png")).unwrap()));
     worst = worst.max(big);
     println!("{:28} mean diff {mad:5.2}  pixels > 64: {:.3}%", "icons.png", big * 100.0);
     // The same states in landscape (no reference images).

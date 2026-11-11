@@ -14,17 +14,17 @@ row() {
   text 200 $(($1+42)) 40 black start "$3"
   text 200 $(($1+88)) 34 gray25 start "$4"
 }
-slot() { shot "$UI/screen-toolbar.png" 112x112+1508+$1; }
-slot_on() { shot "$UI/color-menu.png" 112x112+1508+$1; }
+slot() { shot "$UI/screen-toolbar.png" $(slot_crop $1); }
+slot_on() { shot "$UI/color-menu.png" $(slot_crop $1); }
 row 300 "$(slot 0)" "Menu" "Opens and closes the menu."
-row 410 "$(slot 112)" "Cell colors" "Sets the colors of numbers and completed groups."
-row 520 "$(slot 224)" "Settings" "Turns the helpers on or off. Shows the"
-row 664 "$(slot_on 336)" "Undo" "Cancels your last change to the board."
-row 774 "$(slot_on 448)" "Redo" "Makes the last canceled change again."
-row 884 "$(slot 560)" "Checkpoints" "Saves the board. Restore shows it again."
-row 994 "$(slot 1824)" "Help" "Opens this manual."
-row 1104 "$(slot 1936)" "Statistics" "Shows your completed puzzles and their times."
-row 1214 "$(slot 2048)" "New game" "Starts a new puzzle. Refer to page 8."
+row 410 "$(slot 1)" "Cell colors" "Sets the colors of numbers and completed groups."
+row 520 "$(slot 2)" "Settings" "Turns the helpers on or off. Shows the"
+row 664 "$(slot_on 3)" "Undo" "Cancels your last change to the board."
+row 774 "$(slot_on 4)" "Redo" "Makes the last canceled change again."
+row 884 "$(slot 5)" "Checkpoints" "Saves the board. Restore shows it again."
+row 994 "$(slot help)" "Help" "Opens this manual."
+row 1104 "$(slot statistics)" "Statistics" "Shows your completed puzzles and their times."
+row 1214 "$(slot new)" "New game" "Starts a new puzzle. Refer to page 8."
 text 200 $((520+128)) 34 gray25 start "version and the licenses."
 
 text 1010 330 50 black start "Select colors"

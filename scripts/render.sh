@@ -1,5 +1,5 @@
 #!/bin/sh
-# Makes screen.png, box.png and cell.png in $1. All use the same 1620x2160 coordinates (reMarkable Paper Pro).
+# Makes screen.png, box.png and cell.png in $1. All use the same screen coordinates (the device of ui-lib.sh).
 # The board dimensions come from ui-lib.sh. Each cell has a 3x3 grid of micro-cells (one position for each pencil mark):
 # two vertical and two horizontal lines of 2 px, as a pattern of gray15 and white pixels (REQUIREMENTS.md §4.1,
 # ui-lib.sh bayer_points). FAINT is the gray of the micro-cell lines (the setting of REQUIREMENTS.md §10; default
@@ -35,12 +35,12 @@ render() { # out c0 c1 r0 r1 thinkind extra_args... ; crop given via CROP env
   out=$1; c0=$2; c1=$3; r0=$4; r1=$5; tk=$6; shift 6
   thick=$( [ "$tk" = allthin ] && echo "" || grid $c0 $c1 $r0 $r1 thick )
   # the micro-cell lines of the cells [c0,c1) x [r0,r1): the cell tile, repeated, then the board lines on top
-  set -- -size 1620x2160 xc:white \
+  set -- -size ${PHYS_W}x${PHYS_H} xc:white \
     \( -size $(((c1-c0)*C))x$(((r1-r0)*C)) tile:"$TILE/cell.png" \) -geometry +$((X0+c0*C))+$((Y0+r0*C)) -composite -fill none \
     -stroke black -strokewidth 3 -draw "stroke-antialias 0 $(grid $c0 $c1 $r0 $r1 $tk)" "$@"
   [ -n "$thick" ] && set -- "$@" -strokewidth 12 -draw "stroke-antialias 0 stroke-linecap square $thick"
   [ -n "$CROP" ] && set -- "$@" -crop $CROP +repage
-  magick "$@" -units PixelsPerInch -density 229 "$OUT/$out"
+  magick "$@" -units PixelsPerInch -density $DPI "$OUT/$out"
 }
 
 # screen (menu closed): the board, the menu button at the top right (closed icon) and the
@@ -48,7 +48,7 @@ render() { # out c0 c1 r0 r1 thinkind extra_args... ; crop given via CROP env
 B=$((C*9)); DY=$((Y0+B+50)); DXL=$((X0+B/2-DIFF_W/2)); DXR=$((DXL+DIFF_W))   # the player cannot change it: it shows the difficulty of the current puzzle
 CROP= render screen.png 0 9 0 9 thin
 magick "$OUT/screen.png" -draw "$(labeled_slider $DXL $DXR $DY $LEVEL)" -draw "$(menu_icon closed)" \
-  -units PixelsPerInch -density 229 "$OUT/screen.png"
+  -units PixelsPerInch -density $DPI "$OUT/screen.png"
 # box: the top-left 3x3 box, with 20 px of space around it
 CROP=$((3*C+40))x$((3*C+40))+$((X0-20))+$((Y0-20)) render box.png 0 3 0 3 thin
 # cell: the center cell of the top-left box, with thin lines on all sides and 20 px of space around it

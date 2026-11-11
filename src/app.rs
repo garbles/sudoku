@@ -385,6 +385,12 @@ impl App {
     /// the tablet, or `App::placeholder_ng_stops` when there is no font.
     pub fn new(saved: Option<Game>, settings: Option<Settings>, db: ResultsDb, mut env: Box<dyn Env>, ng_stops: [f32; layout::STOPS as usize]) -> App {
         let settings = settings.filter(Settings::is_valid).unwrap_or_default();
+        // A game file of an earlier version can have more checkpoints than the maximum: keep the
+        // newest (the list is newest first).
+        let saved = saved.map(|mut g| {
+            g.checkpoints.truncate(crate::game::MAX_CHECKPOINTS);
+            g
+        });
         let game = match saved.filter(|g| crate::invariants::check_game(g).is_ok() && is_generated(g)) {
             Some(g) => g,
             None => new_game_with_symmetry(env.new_seed(), settings.last_mode, settings.last_symmetric),

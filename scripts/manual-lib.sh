@@ -1,6 +1,10 @@
 # MVG functions for the manual pages. The caller sets M (the MVG file). Cells use units of 140 px, with the scale K.
-# LANDSCAPE=1 makes a landscape page: layout units of 1872x1404 (the screen is 2160x1620), with the same scale.
-if [ "${LANDSCAPE:-0}" = 1 ]; then PW=1872; PH=1404; SW=2160; SH=1620; else PW=1404; PH=1872; SW=1620; SH=2160; fi
+# The page uses layout units (PAGE_W x PAGE_H, 1404x1872 on the Paper Pro) with the scale PAGE_SCALE to the screen of
+# the device (device-lib.sh). The page contents have positions from the top left of the page. The crops of the UI
+# images use the positions of ui-lib.sh.
+# LANDSCAPE=1 makes a landscape page: the page and the screen turn (1872x1404 units on 2160x1620), with the same scale.
+. "$(cd "$(dirname "$0")" && pwd)/ui-lib.sh"
+if [ "${LANDSCAPE:-0}" = 1 ]; then PW=$PAGE_H; PH=$PAGE_W; SW=$PHYS_H; SH=$PHYS_W; else PW=$PAGE_W; PH=$PAGE_H; SW=$PHYS_W; SH=$PHYS_H; fi
 FONT="$(cd "$(dirname "$0")" && pwd)/fonts/rmsans-400.ttf"        # reMarkable Sans Regular, the UI font of the tablet
 HEAD_FONT="$(cd "$(dirname "$0")" && pwd)/fonts/rmsans-500.ttf"   # Medium, for titles and headings
 K=1.75; CW=245   # scale, and the cell width after the scale
@@ -51,11 +55,13 @@ GIVEN_BG='#AEAEAE'; ENTRY_FG='#1E1E1E'; CLASH_BG='#FF8E8E'; COMPLETED_BG='#48D63
 UNIT_BG='#DCE9F7'   # only for the rules on page 1. It is not a color of the board.
 
 # The top of the Cell colors panel in color-menu.png with the toolbar: the Starting numbers and Completed groups
-# sections (the panel is at x 708-1507, y 112-1192).
-COLOR_PANEL_CROP=912x362+708+111
+# sections (the panel is at x 708-1507, y 112-1192). The crop is 912x362+708+111 on the Paper Pro.
+COLOR_PANEL_CROP=$((CM_W+TB_W))x$((CM_ROW+2))+$CM_PL+$((CM_TOP-1))
 
-# The last row of the board and the result card (x 148-1471, y 1790-2110) in screen-completed.png, for page 9.
-FINISHED_CROP=1336x532+142+1588
+# The last row of the board and the result card (x 148-1471, y 1790-2110) in screen-completed.png, for page 9: 6 px
+# around the board row at the left and the right, from 6 px above the last row to 10 px below the card
+# (1336x532+142+1588 on the Paper Pro).
+FINISHED_CROP=$((9*C+13))x$((CARD_Y1+10-(Y0+8*C-6)))+$((X0-6))+$((Y0+8*C-6))
 
 # minib X Y "r,c,bg ..." "r,c,digit,color ..." : a small 9x9 board (cells of 34 px) with colored cells and digits
 MC=34
@@ -145,7 +151,7 @@ varrow() {
 }
 
 # render OUTFILE
-# The layout uses units of 1404x1872. The scale changes it to the 1620x2160 screen of the Paper Pro.
-SCALE=1.153846
+# The scale changes the layout units to the screen of the device (PAGE_SCALE).
+SCALE=$PAGE_SCALE
 wrap() { { printf "push graphic-context\nscale $SCALE,$SCALE\n"; cat $M; printf "pop graphic-context\n"; } > $M.s; mv $M.s $M; }
-render() { wrap; magick -size ${SW}x${SH} xc:white -draw @$M -units PixelsPerInch -density 229 "$1"; rm -f $M; }
+render() { wrap; magick -size ${SW}x${SH} xc:white -draw @$M -units PixelsPerInch -density $DPI "$1"; rm -f $M; }

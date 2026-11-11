@@ -1,11 +1,22 @@
-# UI dimensions of the reMarkable Paper Pro, measured on screenshots of the device (1620x2160).
+# UI dimensions, measured on screenshots of the reMarkable Paper Pro (1620x2160). All screen positions come from the
+# values of the device (device-lib.sh, devices/$DEVICE.conf) and from the toolbar slot. The numbers in the comments are
+# the values on the Paper Pro.
 UI_DIR="$(cd "$(dirname "$0")" && pwd)"
+. "$UI_DIR/device-lib.sh"
 UI_FONT="$UI_DIR/fonts/rmsans-500.ttf"     # reMarkable Sans Medium, the UI font of the system
 DIGIT_FONT="$UI_DIR/fonts/rmsans-400.ttf"  # reMarkable Sans Regular, for the board numbers
 UI_SIZE=25                                 # size of the menu text
-TB_X=1508; TB_W=112; TB_CX=1563.5          # the toolbar column on the right; one item each 112 px
-tb_cy() { echo "$1" | awk '{ printf "%.1f", 55.5 + $1*112 }'; }   # the y center of toolbar slot k (from the top)
-TB_BOTTOM_Y=2048                           # the top of the bottom toolbar slot
+TB_W=112; TB_X=$((PHYS_W-TB_W))           # the toolbar column on the right (x 1508); one item each 112 px
+TB_CX=$(awk -v x=$TB_X 'BEGIN{ printf "%.1f", x + 55.5 }')         # the x center of the toolbar slots (1563.5)
+tb_cy() { echo "$1" | awk -v w=$TB_W '{ printf "%.1f", 55.5 + $1*w }'; }   # the y center of toolbar slot k (from the top)
+TB_BOTTOM_Y=$((PHYS_H-TB_W))               # the top of the bottom toolbar slot (y 2048)
+# slot_y K : the top of toolbar slot K: 0-5 from the top (menu, cell colors, settings, undo, redo, checkpoints), or
+# help, statistics and new (the bottom group: the + is in the bottom slot).
+slot_y() {
+  case $1 in help) echo $((TB_BOTTOM_Y-2*TB_W)) ;; statistics) echo $((TB_BOTTOM_Y-TB_W)) ;; new) echo $TB_BOTTOM_Y ;; *) echo $(($1*TB_W)) ;; esac
+}
+# slot_crop K : the ImageMagick crop of toolbar slot K (refer to slot_y)
+slot_crop() { echo "${TB_W}x$TB_W+$TB_X+$(slot_y $1)"; }
 # menu_icon open|closed : the MVG of the icon of the menu button (top toolbar slot), as render.rs `menu_icon`.
 # A ring (radius 18 px, line of 3 px) and a dot (radius 4.5 px), 5.5 px to the left of the center and 5.5 px
 # above it (open) or below it (closed).
@@ -15,9 +26,9 @@ menu_icon() {
     "stroke none fill black circle -5.5,$dy -1,$dy pop graphic-context"
 }
 
-# Board: 9x9 cells of 147 px (micro-cells of 49 px), at the center of the screen. With this size, the open menu
+# Board: 9x9 cells of C px (147 px, micro-cells of 49 px), at the center of the screen. On the Paper Pro, the open menu
 # (x>=1508) does not cover the board (gap of 37 px).
-C=147; X0=$(((1620-9*C)/2)); Y0=$(((2160-9*C)/2))
+X0=$(((PHYS_W-9*C)/2)); Y0=$(((PHYS_H-9*C)/2))
 
 # The micro-cell lines of an empty cell (REQUIREMENTS.md §4.1): two vertical and two horizontal lines of 2 px, on the
 # pixels MICRO_OFF1, MICRO_OFF1+1, MICRO_OFF2 and MICRO_OFF2+1 from the cell origin, over the full cell. Each pixel of a
@@ -28,7 +39,7 @@ C=147; X0=$(((1620-9*C)/2)); Y0=$(((2160-9*C)/2))
 # (ox, oy) uses BAYER[(y-oy) mod 4][x-ox], a horizontal line uses BAYER[(x-ox) mod 4][y-oy]. The other pixels do not
 # change. The swatches of the Micro-cell lines section of the Cell colors panel show the same pattern in a disc, in the
 # plain orientation BAYER[(y-oy) mod 4][(x-ox) mod 4] from the top left of the box of the disc (toolbar.sh).
-MICRO_OFF1=49; MICRO_OFF2=98
+MICRO_OFF1=$(((C+1)/3)); MICRO_OFF2=$(((2*C+1)/3))   # round(k * C / 3), as layout::micro_offset (49 and 98)
 BAYER="0 8 2 10 12 4 14 6 3 11 1 9 15 7 13 5"
 LINE_DOT=gray15
 # gray_level grayNN : the level (0-255) of the gray, as the value of the setting (gray90 = 230, gray40 = 102)
@@ -57,7 +68,7 @@ LEVEL=2
 # Difficulty meter: "Easy" to "Hard" is DIFF_W px wide. It is the same in the New game panel and below the board.
 # Thus the New game panel is wider than 400 px (the width of the device menus).
 DIFF_W=440
-NG_PL=$((1507-DIFF_W-65))   # the left edge of the New game panel (inner margins of 33 px and 32 px)
+NG_PL=$((TB_X-1-DIFF_W-65))   # the left edge of the New game panel (inner margins of 33 px and 32 px; x 1002)
 # The New game panel has three rows of 112 px, with a black line of 2 px between them: the slider, "Symmetrical" with a
 # switch, and "Start new game" next to the +. Its top is 226 px above the bottom toolbar slot (y 1822).
 NG_TOP=$((TB_BOTTOM_Y-226)); NG_SLIDER_Y=$((NG_TOP+56)); NG_SYM_DIVIDER=$((TB_BOTTOM_Y-114)); NG_SYM_Y=$((TB_BOTTOM_Y-56))
@@ -69,38 +80,41 @@ COLOR_CYAN='#6FCFE6'; COLOR_MAGENTA='#E650E0'; COLOR_ORANGE='#FF9A1F'
 # The default colors of the four color sections.
 STARTING_BG=$COLOR_GRAY; CLASH_BG=$COLOR_RED; HIGHLIGHT_BG=$COLOR_CYAN; COMPLETED_BG=$COLOR_GREEN
 
-# The Settings panel: 400 px wide (x 1108-1507). The rows start at y 226, one each 114 px (112 px and a line of
+# The Settings panel: 400 px wide (x 1108-1507), from the top of the slot of the gear (slot 2). The rows start at y 226, one each 114 px (112 px and a line of
 # 2 px): the three switches, the version, "Third-party licenses", and the update row of a stable build.
-SET_PL=1108; SET_PR=1507; SET_TOP=224; SET_ROW0=226; SET_STEP=114
+SET_W=400; SET_PL=$((TB_X-SET_W)); SET_PR=$((TB_X-1)); SET_TOP=$((2*TB_W)); SET_ROW0=$((SET_TOP+2)); SET_STEP=$((TB_W+2))
 SET_VERSION_Y=$((SET_ROW0+3*SET_STEP)); SET_LICENSES_Y=$((SET_ROW0+4*SET_STEP)); SET_UPDATE_Y=$((SET_ROW0+5*SET_STEP))
 SET_BOTTOM_DEV=$((SET_UPDATE_Y-1)); SET_BOTTOM_STABLE=$((SET_UPDATE_Y+SET_STEP-1))   # y 795 and 909
 
+# Landscape (2160x1620). The items have the same size as in portrait. Each position is a full-pixel move of the
+# portrait position: the board and the meter move by (LS_DX, LS_DY) (270, -270), the toolbar to LS_TB_X (2048), and
+# the bottom toolbar slots also by LS_BOTTOM_DY (-540).
+LS_W=$PHYS_H; LS_H=$PHYS_W
+LS_DX=$(((LS_W-9*C)/2-X0)); LS_DY=$(((LS_H-9*C)/2-Y0)); LS_TB_X=$((LS_W-TB_W)); LS_BOTTOM_DY=$((LS_H-PHYS_H))
+
 # The Cell colors panel: two columns of 400 px and three rows of 360 px (y 112 to 1192). It touches the toolbar.
 # Left column, from the top: starting, clashing, highlighted. Right column: completed, micro-cell lines, empty space.
-CM_COL=400; CM_W=$((2*CM_COL)); CM_ROW=360; CM_TOP=112; CM_BOTTOM=$((CM_TOP+3*CM_ROW))
+CM_COL=400; CM_W=$((2*CM_COL)); CM_ROW=360; CM_TOP=$TB_W; CM_BOTTOM=$((CM_TOP+3*CM_ROW))   # from slot 1
 CM_PL=$((TB_X-CM_W))         # 708: left-handed in portrait (x 708-1507)
-CM_PL_LANDSCAPE=1248         # left-handed in landscape (x 1248-2047)
+CM_PL_LANDSCAPE=$((LS_TB_X-CM_W))   # 1248: left-handed in landscape (x 1248-2047)
 CM_PL_RIGHT=$TB_W            # right-handed in the two orientations (x 112-911)
 
 # The Checkpoints panel: 600 px wide, at y 560 in all layouts. It touches the toolbar. It has the row "Save checkpoint"
 # (y 560-671), then rows of 180 px, the newest first. The last y of the panel is CKP_EMPTY_BOTTOM with no checkpoint,
 # else CKP_ROW0 + 180 n (the bottom line is y-1 and y, as in the other panels).
-CKP_W=600; CKP_TOP=560; CKP_ROW0=672; CKP_STEP=180; CKP_EMPTY_BOTTOM=864
+CKP_W=600; CKP_TOP=$((5*TB_W)); CKP_ROW0=$((CKP_TOP+TB_W)); CKP_STEP=180; CKP_EMPTY_BOTTOM=$((CKP_TOP+304))   # from slot 5
 CKP_PL=$((TB_X-CKP_W))       # 908: left-handed in portrait (x 908-1507)
-CKP_PL_LANDSCAPE=1448        # left-handed in landscape (x 1448-2047)
+CKP_PL_LANDSCAPE=$((LS_TB_X-CKP_W))   # 1448: left-handed in landscape (x 1448-2047)
 CKP_PL_RIGHT=$TB_W           # right-handed in the two orientations (x 112-711)
-CKP_CX=1207                  # the center of the text of the panel with no checkpoint
-CKP_SAVE_ICON_X=966; CKP_SAVE_ICON_Y=616; CKP_SAVE_TEXT_X=1008; CKP_SAVE_BASE=625
+# The positions in the panel are from its left edge (CKP_PL) and its top (CKP_TOP), as in src/layout.rs.
+CKP_CX=$((CKP_PL+299))       # 1207: the center of the text of the panel with no checkpoint
+CKP_EMPTY_BASE1=$((CKP_TOP+200)); CKP_EMPTY_BASE2=$((CKP_TOP+240))   # y 760 and 800: the two lines of that text
+CKP_SAVE_ICON_X=$((CKP_PL+58)); CKP_SAVE_ICON_Y=$((CKP_TOP+56)); CKP_SAVE_TEXT_X=$((CKP_PL+100)); CKP_SAVE_BASE=$((CKP_TOP+65))
 # In a row with its top at y0: the small board at (CKP_BOARD_X, y0+CKP_BOARD_DY), the text, the button and the bin.
-CKP_BOARD_X=926; CKP_BOARD_DY=14; CKP_CELL=17
-CKP_TEXT_X=1098; CKP_CLOCK_DY=81; CKP_CELLS_DY=115
-CKP_BTN_X0=1289; CKP_BTN_X1=1429; CKP_BTN_CX=1359; CKP_BTN_Y0=55; CKP_BTN_Y1=125; CKP_BTN_BASE=99
-CKP_BIN_X=1468; CKP_BIN_DY=90
-
-# Landscape (2160x1620). The items have the same size as in portrait. Each position is a full-pixel move of the
-# portrait position: the board and the meter move by (LS_DX, LS_DY), the toolbar to LS_TB_X, and the bottom toolbar
-# slots also by LS_BOTTOM_DY.
-LS_W=2160; LS_H=1620; LS_DX=270; LS_DY=-270; LS_TB_X=2048; LS_BOTTOM_DY=-540
+CKP_BOARD_X=$((CKP_PL+18)); CKP_BOARD_DY=14; CKP_CELL=17
+CKP_TEXT_X=$((CKP_PL+190)); CKP_CLOCK_DY=81; CKP_CELLS_DY=115
+CKP_BTN_X0=$((CKP_PL+381)); CKP_BTN_X1=$((CKP_PL+521)); CKP_BTN_CX=$((CKP_PL+451)); CKP_BTN_Y0=55; CKP_BTN_Y1=125; CKP_BTN_BASE=99
+CKP_BIN_X=$((CKP_PL+560)); CKP_BIN_DY=90
 
 # the text width of a UI label, in px
 tw() { magick -font "$UI_FONT" -pointsize $UI_SIZE label:"$1" -format %w info:; }

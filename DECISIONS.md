@@ -37,7 +37,7 @@ of the other characters rejected.
 
 | Item | Result |
 |---|---|
-| Font `/usr/share/remarkable/webui/reMarkableSans.woff2` | Loads in 19 ms. The screen drawn with it agrees with `images/screen-in-progress.png` (0.135 % of pixels differ, all at edges). |
+| Font `/usr/share/remarkable/webui/reMarkableSans.woff2` | Loads in 19 ms. The screen drawn with it agrees with `images/pro/screen-in-progress.png` (0.135 % of pixels differ, all at edges). |
 | Drawing one screen | 65 ms |
 | Recognizer | Ready in 1.7 s (in a thread when the app starts). One reading: 14 ms. |
 | Eraser | The digitizer is `/dev/input/event2` ("Elan marker input"). The app reads `BTN_TOOL_PEN` and `BTN_TOOL_RUBBER` while xochitl operates. |
@@ -274,7 +274,7 @@ the device (Paper Pro, dev build) and selected "Correct". It is now in REQUIREME
 
 - No new positions, sizes, colors, fonts or text. The open menu is the same as in
   `screen-toolbar.png` (REQUIREMENTS.md §3.1, §9).
-- `images/screen.png` stays as the image of the closed menu. It is not the start state now.
+- `images/pro/screen.png` stays as the image of the closed menu. It is not the start state now.
   `reference::app` closes the menu, and each reference state that shows the open menu opens it.
   Thus the images do not change.
 - The event scripts of the demo videos (`video/demo.txt`, `video/demo-full.txt`) start with the menu
@@ -460,7 +460,7 @@ The owner asked: "whenever some attempts to make an invalid pencil mark (a peer 
 number, it should flash an `x` icon, similar to have unrecognized writing shows a `?` for a moment
 before it disappears". Beads issue: remarkable-sudoku-5db. The change is now in REQUIREMENTS.md
 (§3.2, §3.3, §4.1, §5.1, §5.2, §6.1, §7, §9, §9.1, §9.2, §12, §14.3, §14.4, §15, §17). The new image
-is `images/screen-invalid-mark.png`.
+is `images/pro/screen-invalid-mark.png`.
 
 Examination on the tablet, 2026-11-04:
 
@@ -531,7 +531,7 @@ trial: "can you make the colors less opaque so that they are easier to see on th
 them"; "make the your numbers also a touch darker still"; "There should be an option to turn it off."
 Beads issue: remarkable-sudoku-vms. The change is now in REQUIREMENTS.md (§2, §3.1, §3.3, §4.1, §4.2,
 §5.2, §6.2, §6.3, §6.4, §7, §8.3, §9.1, §9.2, §10, §12, §14.2, §14.3, §15, §16, §17). The new images
-are `images/color-menu-landscape.png` and `images/screen-completed-group.png`.
+are `images/pro/color-menu-landscape.png` and `images/pro/screen-completed-group.png`.
 
 Examination on the tablet, 2026-11-04 and 2026-11-05 (the prototype). The owner approved these items:
 

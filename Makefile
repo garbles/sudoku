@@ -79,7 +79,7 @@ test: ## Run all tests on the computer
 build: ## Build the release executables for the computer
 	cargo build --release
 
-snapshot: ## Draw the reference states and the icon sheet and compare them with images/ (SNAPSHOT_DIR=...)
+snapshot: ## Draw the reference states and the icon sheet and compare them with images/pro/ (SNAPSHOT_DIR=...)
 	cargo run --release --bin snapshot -- $(SNAPSHOT_DIR)
 
 check: test snapshot ## The checks before a change: tests and snapshots
@@ -104,7 +104,7 @@ video-full: ## Make video/demo-full.mp4 for the website (needs ffmpeg)
 # The media targets make the files with fixed tool versions (Docker). Commit the result.
 media: media-images media-installer media-video ## Make images/, the icon and video/ (Docker; make -j3 media for parallel builds)
 
-media-images: fonts-check ## Make the design images, the icon and the icon sheet (Dockerfile.images)
+media-images: fonts-check ## Make the design images images/pro/, the icon and the icon sheet (Dockerfile.images)
 	$(DOCKER) build --platform linux/arm64 -f Dockerfile.images --output type=local,dest=. .
 
 media-installer: ## Make the installer images images/install-*.png (Dockerfile.installer)

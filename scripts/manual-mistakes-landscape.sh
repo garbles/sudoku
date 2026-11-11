@@ -16,7 +16,7 @@ minib 783 450 "1,4,$CLASH_BG 7,4,$CLASH_BG 0,8,$GIVEN_BG 4,1,$GIVEN_BG 6,6,$GIVE
 minib 1179 450 "3,6,$CLASH_BG 5,8,$CLASH_BG 1,1,$GIVEN_BG 4,3,$GIVEN_BG 8,0,$GIVEN_BG" \
   "3,6,8,black 5,8,8,$ENTRY_FG 1,1,7,black 4,3,1,black 8,0,3,black"
 text 540 805 34 gray25 middle "Same row"
-text 936 805 34 gray25 middle "Same column"
+text $((PW/2)) 805 34 gray25 middle "Same column"
 text 1332 805 34 gray25 middle "Same box"
 
 text 72 910 50 black start "Correct a mistake"

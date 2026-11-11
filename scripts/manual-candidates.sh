@@ -39,7 +39,7 @@ CY=$((Y+CW+60))
 text $((X1+CW/2)) $CY 34 gray25 middle "Tap the 5"
 text $((X2+CW/2)) $CY 34 gray25 middle "No 5"
 
-text 702 1790 32 gray25 middle "You can add pencil marks only to cells that do not have a number."
+text $((PW/2)) 1790 32 gray25 middle "You can add pencil marks only to cells that do not have a number."
 
 pagenum 2 9
 render "$1/manual-candidates.png"

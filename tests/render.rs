@@ -1,4 +1,4 @@
-//! The app draws the same positions and shapes as the reference images in `images/` (REQUIREMENTS.md
+//! The app draws the same positions and shapes as the reference images in `images/pro/` (REQUIREMENTS.md
 //! §15). The app draws all items crisp (no anti-aliasing, NAV-20), and ImageMagick (FreeType) draws
 //! the images with anti-aliasing. Thus a difference is permitted only on the pixels at the edge of a
 //! line or a glyph (within 1 px; 2 px for a maximum of two pixels). There is one exception: ImageMagick
@@ -51,7 +51,7 @@ fn screens_agree_with_the_reference_images() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     for (name, setup) in reference::states() {
         let pm = reference::render(&fonts, setup);
-        let want = decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
+        let want = decode_png(&std::fs::read(sudoku::reference::image_path(&root, name)).unwrap());
         let (mean, big) = reference::compare(&pm, &want);
         let (max_mean, max_big) = limits(name);
         assert!(mean < max_mean && big < max_big, "{name}: mean difference {mean:.2}, {:.3}% of pixels differ", big * 100.0);
@@ -148,12 +148,12 @@ fn the_icon_sheet_shows_each_icon() {
     let sheet = reference::icon_sheet(&fonts);
     let tiles = reference::icon_tiles().len() as u32 + 1;
     assert_eq!(sheet.width(), reference::ICON_COLUMNS * reference::ICON_TILE_W);
-    // images/icons.png is the current sheet (make media-images makes it again).
+    // images/pro/icons.png is the current sheet (make media-images makes it again).
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let want = decode_png(&std::fs::read(root.join("images/icons.png")).unwrap());
-    assert_eq!((want.width(), want.height()), (sheet.width(), sheet.height()), "images/icons.png: size");
+    let want = decode_png(&std::fs::read(reference::image_path(&root, "icons.png")).unwrap());
+    assert_eq!((want.width(), want.height()), (sheet.width(), sheet.height()), "images/pro/icons.png: size");
     let (mean, big) = reference::compare(&sheet, &want);
-    assert!(mean < 0.1 && big < 0.0005, "images/icons.png: mean difference {mean:.3}, {:.3}% of pixels differ", big * 100.0);
+    assert!(mean < 0.1 && big < 0.0005, "images/pro/icons.png: mean difference {mean:.3}, {:.3}% of pixels differ", big * 100.0);
     for i in 0..tiles {
         let cx = (i % reference::ICON_COLUMNS * reference::ICON_TILE_W + reference::ICON_TILE_W / 2) as i32;
         let cy = (i / reference::ICON_COLUMNS * reference::ICON_TILE_H + reference::ICON_CENTER_Y) as i32;
@@ -243,7 +243,7 @@ fn landscape_manual_pages_are_the_landscape_images() {
         app.manual_page = i as u8 + 1;
         let mut pm = tiny_skia::Pixmap::new(2160, 1620).unwrap();
         sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &app);
-        let want = decode_png(&std::fs::read(root.join(format!("images/manual-{name}-landscape.png"))).unwrap());
+        let want = decode_png(&std::fs::read(reference::image_path(&root, &format!("manual-{name}-landscape.png"))).unwrap());
         assert_eq!(reference::compare(&pm, &want).1, 0.0, "page {}", i + 1);
     }
     sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
@@ -260,7 +260,7 @@ fn landscape_analytics_agrees_with_the_reference_images() {
     for (name, setup) in reference::states().into_iter().filter(|(n, _)| n.starts_with("analytics") || n.starts_with("licenses")) {
         let pm = reference::render(&fonts, setup);
         let file = name.replace(".png", "-landscape.png");
-        let want = decode_png(&std::fs::read(root.join("images").join(&file)).unwrap());
+        let want = decode_png(&std::fs::read(sudoku::reference::image_path(&root, &file)).unwrap());
         let (mean, big) = reference::compare(&pm, &want);
         let (max_mean, max_big) = limits(&file);
         assert!(mean < max_mean && big < max_big, "{file}: mean difference {mean:.2}, {:.3}% of pixels differ", big * 100.0);
@@ -283,7 +283,7 @@ fn landscape_color_menu_agrees_with_the_reference_image() {
     let setup = reference::states().into_iter().find(|s| s.0 == "color-menu.png").expect("reference state").1;
     let pm = reference::render(&fonts, setup);
     sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
-    let want = decode_png(&std::fs::read(root.join("images/color-menu-landscape.png")).unwrap());
+    let want = decode_png(&std::fs::read(reference::image_path(&root, "color-menu-landscape.png")).unwrap());
     // compare() stops at the end of the shorter picture: the two sizes must be the same.
     assert_eq!((want.width(), want.height()), (2160, 1620), "the size of the image");
     assert_eq!((pm.width(), pm.height()), (2160, 1620), "the size of the app");
@@ -623,7 +623,7 @@ fn the_x_of_the_app_is_at_the_position_of_the_x_in_the_image() {
     reference::use_utc();
     let fonts = fonts();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let image = |name: &str| decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
+    let image = |name: &str| decode_png(&std::fs::read(sudoku::reference::image_path(&root, name)).unwrap());
     let (image_x, image_no_x) = (image("screen-invalid-mark.png"), image("screen-in-progress.png"));
     let setup = reference::states().into_iter().find(|s| s.0 == "screen-invalid-mark.png").expect("reference state").1;
     let app_x = reference::render(&fonts, setup);
@@ -841,7 +841,7 @@ fn the_framebuffer_shows_the_x_and_then_the_old_pixels() {
 #[test]
 fn portrait_manual_pages_are_the_portrait_images() {
     // §12, §15: the snapshot tool compares only the first and the last page. This test compares all
-    // pages, also page 5, which tells about the x (images/manual-helpers.png).
+    // pages, also page 5, which tells about the x (images/pro/manual-helpers.png).
     let fonts = fonts();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let names = ["how-to-play", "candidates", "pen", "pen-rules", "helpers", "mistakes", "menu", "new-game", "finished"];
@@ -850,7 +850,7 @@ fn portrait_manual_pages_are_the_portrait_images() {
         app.screen = sudoku::app::Screen::Manual;
         app.manual_page = i as u8 + 1;
         let pm = draw_app(&fonts, &app);
-        let want = decode_png(&std::fs::read(root.join(format!("images/manual-{name}.png"))).unwrap());
+        let want = decode_png(&std::fs::read(reference::image_path(&root, &format!("manual-{name}.png"))).unwrap());
         assert_eq!(reference::compare(&pm, &want).1, 0.0, "page {}", i + 1);
     }
 }
@@ -903,7 +903,7 @@ fn the_completed_group_image_shows_the_colors_of_each_cell() {
     let fonts = fonts();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let pm = reference::render(&fonts, reference_setup("screen-completed-group.png"));
-    let image = decode_png(&std::fs::read(root.join("images/screen-completed-group.png")).unwrap());
+    let image = decode_png(&std::fs::read(reference::image_path(&root, "screen-completed-group.png")).unwrap());
     let g = reference::completed_group_game();
     assert!(!g.completed);
     assert!(cells().all(|c| !g.is_clashing(c)), "the state has no clash");
@@ -966,7 +966,7 @@ fn a_full_box_with_a_clash_outside_the_box_has_no_completed_color() {
     // erasure of (5, 1) removes the clash, and box 0, far from the erased cell, gets the color.
     let fonts = fonts();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let image = decode_png(&std::fs::read(root.join("images/screen-in-progress.png")).unwrap());
+    let image = decode_png(&std::fs::read(reference::image_path(&root, "screen-in-progress.png")).unwrap());
     let sample = reference::sample_game();
     let the_box = || (0..3u8).flat_map(|r| (0..3u8).map(move |c| (r, c)));
     assert!(the_box().all(|c| sample.is_filled(c)), "box 0 is full");
@@ -1042,7 +1042,7 @@ fn the_highlight_is_on_top_of_the_completed_color() {
 
 #[test]
 fn a_highlight_shows_with_the_menu_and_with_each_panel() {
-    // HLT-4, HLT-7: a highlight can show while the menu or a panel is open. No image in images/ shows
+    // HLT-4, HLT-7: a highlight can show while the menu or a panel is open. No image in images/pro/ shows
     // this state. In each layout and with each panel, the cells outside the panel have the highlight
     // color, the other cells do not have it, and the panel does not change. A retained frame gives the
     // same pixels as a full drawing, when the highlight comes and when it goes.
@@ -1140,7 +1140,7 @@ fn a_completed_game_shows_no_completed_color() {
     // screen-completed.png. A saved completed game has the same state.
     let fonts = fonts();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
-    let image = decode_png(&std::fs::read(root.join("images/screen-completed.png")).unwrap());
+    let image = decode_png(&std::fs::read(reference::image_path(&root, "screen-completed.png")).unwrap());
     let g = reference::completed_game();
     assert!(g.completed);
     let want = |cell| if g.is_given(cell) { Color::Gray.rgb() } else { Color::White.rgb() };
@@ -1387,7 +1387,7 @@ fn landscape_checkpoints_menu_agrees_with_the_reference_image() {
     sudoku::layout::set_orientation(sudoku::layout::Orientation::Landscape);
     let pm = reference::render(&fonts, reference_setup("checkpoints-menu.png"));
     sudoku::layout::set_orientation(sudoku::layout::Orientation::Portrait);
-    let want = decode_png(&std::fs::read(root.join("images/checkpoints-menu-landscape.png")).unwrap());
+    let want = decode_png(&std::fs::read(reference::image_path(&root, "checkpoints-menu-landscape.png")).unwrap());
     assert_eq!((want.width(), want.height()), (2160, 1620), "the size of the image");
     assert_eq!((pm.width(), pm.height()), (2160, 1620), "the size of the app");
     let (mean, big) = reference::compare(&pm, &want);
@@ -1420,7 +1420,7 @@ fn the_lines_of_the_checkpoints_panel_are_at_the_exact_pixels_of_each_image() {
         sudoku::layout::set_orientation(orientation);
         let pm = reference::render(&fonts, reference_setup(state));
         sudoku::layout::set_orientation(Portrait);
-        let want = decode_png(&std::fs::read(root.join("images").join(file)).unwrap());
+        let want = decode_png(&std::fs::read(sudoku::reference::image_path(&root, file)).unwrap());
         let bottom = ckp_bottom(n);
         let mut black = vec![
             (pl, 616),
@@ -1828,7 +1828,7 @@ fn the_bookmark_has_the_color_of_the_state_of_the_game() {
 #[test]
 fn the_icon_sheet_has_the_three_looks_of_the_bookmark() {
     // CKP-9, NAV-8: the sheet has the bookmark in black, in white on black and in gray 70. This test
-    // does not use images/icons.png.
+    // does not use images/pro/icons.png.
     use reference::IconLook;
     use sudoku::render::{gray, Icon};
     let fonts = fonts();
@@ -2017,7 +2017,7 @@ fn the_frame_of_the_result_card_is_at_the_exact_pixels_of_each_image() {
         set_layout((orientation, right_handed));
         let card = sudoku::layout::result_card();
         set_layout((Portrait, false));
-        let want = decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
+        let want = decode_png(&std::fs::read(sudoku::reference::image_path(&root, name)).unwrap());
         assert_eq!((pm.width(), pm.height()), (want.width(), want.height()), "{name}: the size");
         // A row 10 px below the top frame (above the divider of portrait and above the text), and a
         // column 10 px right of the left frame (left of the text and of the buttons).
@@ -2071,8 +2071,8 @@ fn the_new_game_image_shows_the_symmetrical_switch_on() {
     let (on, off) = ([[0; 3], [0; 3], [255; 3]], [[0; 3], [255; 3], [255; 3]]);
     let pm = draw_app(&fonts, &app);
     assert_eq!(look(&pm), on, "the switch of the reference state is not on");
-    let want = decode_png(&std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("images/new-game-menu.png")).unwrap());
-    assert_eq!(look(&want), on, "the switch of images/new-game-menu.png is not on");
+    let want = decode_png(&std::fs::read(reference::image_path(env!("CARGO_MANIFEST_DIR"), "new-game-menu.png")).unwrap());
+    assert_eq!(look(&want), on, "the switch of images/pro/new-game-menu.png is not on");
     app.ui.symmetric_sel = false;
     assert_eq!(look(&draw_app(&fonts, &app)), off, "the switch does not show off when the selection is off");
 }
@@ -2359,7 +2359,7 @@ fn the_empty_cells_of_the_images_and_of_the_app_have_the_pattern_of_the_rule() {
     for name in names {
         let setup = reference_setup(name);
         let pm = reference::render(&fonts, setup);
-        let want = decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
+        let want = decode_png(&std::fs::read(sudoku::reference::image_path(&root, name)).unwrap());
         let mut app = reference::app(&fonts);
         setup(&mut app);
         reset_layout();
@@ -2408,7 +2408,7 @@ fn the_board_lines_of_the_image_and_of_the_app_are_black_and_crisp() {
     let fonts = fonts();
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let pm = reference::render(&fonts, reference_setup("screen.png"));
-    let want = decode_png(&std::fs::read(root.join("images/screen.png")).unwrap());
+    let want = decode_png(&std::fs::read(reference::image_path(&root, "screen.png")).unwrap());
     let (x0, y0) = (board_x() - 12, board_y() - 12);
     let mut black = 0;
     for y in y0..board_y() + board_size() + 12 {
@@ -2438,7 +2438,7 @@ fn the_swatches_of_the_micro_cell_lines_have_the_pattern_of_their_gray() {
     for name in names {
         let setup = reference_setup(name);
         let pm = reference::render(&fonts, setup);
-        let want = decode_png(&std::fs::read(root.join("images").join(name)).unwrap());
+        let want = decode_png(&std::fs::read(sudoku::reference::image_path(&root, name)).unwrap());
         let mut app = reference::app(&fonts);
         setup(&mut app);
         for g in LineGray::ALL {

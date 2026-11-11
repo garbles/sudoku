@@ -5,7 +5,7 @@ This document is written in ASD-STE100 Simplified Technical English (STE).
 This document tells what the app does. It gives the screens, all the states, all the inputs and the
 results of the inputs, and the data that the app keeps.
 
-The images in [`images/`](images/) show each state exactly. The script
+The images in [`images/pro/`](images/pro/) show each state exactly on the Paper Pro. The script
 [`scripts/build.sh`](scripts/build.sh) makes the images, but not the icon sheet `icons.png`: the
 snapshot tool makes it with the drawing code of the app. The file
 [`images/INDEX.md`](images/INDEX.md) gives a list of the images.
@@ -42,7 +42,7 @@ document does not include unknown behavior.
 - Build the executables in the Linux Dockerfile of the project. Refer to `AGENTS.md`.
 - The app operates in portrait and in landscape (2160×1620). When the tablet turns, AppLoad tells the
   app the rotation, and the app shows its landscape layout. Refer to [§3.3](#33-landscape).
-- [`images/template.png`](images/template.png) is the blank 1620×2160 frame for all screens.
+- [`images/pro/template.png`](images/pro/template.png) is the blank 1620×2160 frame for all screens.
 - The display can show color. All states must be clear if the e-ink display dithers the colors.
 - The UI font is **reMarkable Sans**, the font of the device. The app loads the font from the tablet
   when the app starts (`/usr/share/remarkable/webui/reMarkableSans.woff2`). The app does not include a
@@ -79,16 +79,16 @@ stateDiagram-v2
 
 | Screen | Images |
 |---|---|
-| Game | [`screen.png`](images/screen.png), [`screen-in-progress.png`](images/screen-in-progress.png), [`screen-completed-group.png`](images/screen-completed-group.png), [`screen-completed.png`](images/screen-completed.png) and the menu images in §9 |
-| Manual | [`manual-how-to-play.png`](images/manual-how-to-play.png) to [`manual-finished.png`](images/manual-finished.png) (§12) |
-| Statistics summary | [`analytics.png`](images/analytics.png), [`analytics-delete-all.png`](images/analytics-delete-all.png) |
-| Completed games list | [`analytics-games.png`](images/analytics-games.png), [`analytics-delete.png`](images/analytics-delete.png) |
-| Licenses list, License text | [`licenses.png`](images/licenses.png), [`licenses-text.png`](images/licenses-text.png) (§9.4) |
+| Game | [`screen.png`](images/pro/screen.png), [`screen-in-progress.png`](images/pro/screen-in-progress.png), [`screen-completed-group.png`](images/pro/screen-completed-group.png), [`screen-completed.png`](images/pro/screen-completed.png) and the menu images in §9 |
+| Manual | [`manual-how-to-play.png`](images/pro/manual-how-to-play.png) to [`manual-finished.png`](images/pro/manual-finished.png) (§12) |
+| Statistics summary | [`analytics.png`](images/pro/analytics.png), [`analytics-delete-all.png`](images/pro/analytics-delete-all.png) |
+| Completed games list | [`analytics-games.png`](images/pro/analytics-games.png), [`analytics-delete.png`](images/pro/analytics-delete.png) |
+| Licenses list, License text | [`licenses.png`](images/pro/licenses.png), [`licenses-text.png`](images/pro/licenses-text.png) (§9.4) |
 
 ## 3. The game screen
 
-Image: [`images/screen.png`](images/screen.png) (empty board, menu closed). The app opens with the menu
-open ([§9](#9-the-menu)): refer to [`screen-toolbar.png`](images/screen-toolbar.png).
+Image: [`images/pro/screen.png`](images/pro/screen.png) (empty board, menu closed). The app opens with the menu
+open ([§9](#9-the-menu)): refer to [`screen-toolbar.png`](images/pro/screen-toolbar.png).
 
 ### 3.1 Layout
 
@@ -117,10 +117,10 @@ The positions above are for a **left-handed** player. The app reads the handedne
 
 The board, the meter, the result card, the manual and the statistics do not change.
 
-Image: [`images/color-menu-right-handed.png`](images/color-menu-right-handed.png) (the Cell colors
+Image: [`images/pro/color-menu-right-handed.png`](images/pro/color-menu-right-handed.png) (the Cell colors
 panel of `color-menu.png` for a right-handed player).
 
-[`images/box.png`](images/box.png) shows one 3×3 box. [`images/cell.png`](images/cell.png) shows one
+[`images/pro/box.png`](images/pro/box.png) shows one 3×3 box. [`images/pro/cell.png`](images/pro/cell.png) shows one
 cell with its micro-cells. Both images use the scale of the board and have 20 px of space around them.
 
 ### 3.2 Game screen states
@@ -196,10 +196,10 @@ stateDiagram-v2
 
 | Overlay | Image |
 |---|---|
-| No overlay | [`screen-in-progress.png`](images/screen-in-progress.png) |
-| Number highlighted | [`screen-highlight.png`](images/screen-highlight.png) |
-| "?" shown | [`screen-unrecognized.png`](images/screen-unrecognized.png) |
-| x shown | [`screen-invalid-mark.png`](images/screen-invalid-mark.png) |
+| No overlay | [`screen-in-progress.png`](images/pro/screen-in-progress.png) |
+| Number highlighted | [`screen-highlight.png`](images/pro/screen-highlight.png) |
+| "?" shown | [`screen-unrecognized.png`](images/pro/screen-unrecognized.png) |
+| x shown | [`screen-invalid-mark.png`](images/pro/screen-invalid-mark.png) |
 
 ### 3.3 Landscape
 
@@ -425,7 +425,7 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
 - If the writing is **not a number from 1 to 9**, the app shows a gray **?** in the cell for
   **approximately one second**. Examples are a scribble, a letter, 0 or a number more than 9, such as
   12. While the "?" shows, the cell shows no pencil marks and no micro-cell grid
-  ([`screen-unrecognized.png`](images/screen-unrecognized.png)). After the "?", the cell is the same
+  ([`screen-unrecognized.png`](images/pro/screen-unrecognized.png)). After the "?", the cell is the same
   as before.
 - Each press of the pen or of a finger removes the "?" immediately. Thus a new number in that cell
   never shows under the "?" (owner decision 2026-10-25). The same press also removes the x, before
@@ -456,10 +456,10 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
 - Pen input on the board of a completed puzzle has no effect
   ([§8](#8-puzzle-states-and-the-clock)).
 
-Images: [`manual-candidates.png`](images/manual-candidates.png),
-[`manual-pen.png`](images/manual-pen.png), [`manual-pen-rules.png`](images/manual-pen-rules.png),
-[`screen-unrecognized.png`](images/screen-unrecognized.png),
-[`screen-invalid-mark.png`](images/screen-invalid-mark.png).
+Images: [`manual-candidates.png`](images/pro/manual-candidates.png),
+[`manual-pen.png`](images/pro/manual-pen.png), [`manual-pen-rules.png`](images/pro/manual-pen-rules.png),
+[`screen-unrecognized.png`](images/pro/screen-unrecognized.png),
+[`screen-invalid-mark.png`](images/pro/screen-invalid-mark.png).
 
 ### 5.2 Input decisions
 
@@ -516,7 +516,7 @@ before the app does the action of that press, with the exceptions in [§5.1](#51
 A pencil mark does not show while a cell in the same row, column or 3×3 box has the same digit as a
 number (a starting number or your number). The app does not remove the mark: it keeps it. When the
 number goes (the eraser, undo, redo or a Restore, [§9.3](#93-checkpoints-panel)), the mark shows again (owner decision 2026-10-31). Image:
-[`manual-helpers.png`](images/manual-helpers.png) (top).
+[`manual-helpers.png`](images/pro/manual-helpers.png) (top).
 
 - A number does not change the pencil marks of other cells. It only hides them. Thus, the change of a
   number in the undo history has no pencil marks.
@@ -535,7 +535,7 @@ number goes (the eraser, undo, redo or a Restore, [§9.3](#93-checkpoints-panel)
 
 **The x of a refused tap** (owner approval 2026-11-04, on the tablet). This is true in all layouts:
 portrait, landscape, left-handed and right-handed. Image:
-[`screen-invalid-mark.png`](images/screen-invalid-mark.png).
+[`screen-invalid-mark.png`](images/pro/screen-invalid-mark.png).
 
 - **When it shows.** The x shows at the pen lift of a refused tap on an empty cell. A tap on a hidden
   mark that exists is also a refused tap: the cell has the mark d, a peer has the number d and the
@@ -610,8 +610,8 @@ A stroke on a filled cell removes the highlight in the state, but its pixels can
 that number in this time makes a highlight. The player can see this as a failed removal. The owner did not
 ask for a change (review of the change, 2026-11-07).
 
-Images: [`screen-highlight.png`](images/screen-highlight.png),
-[`manual-helpers.png`](images/manual-helpers.png) (bottom).
+Images: [`screen-highlight.png`](images/pro/screen-highlight.png),
+[`manual-helpers.png`](images/pro/manual-helpers.png) (bottom).
 
 ### 6.3 Clashes
 
@@ -627,8 +627,8 @@ numbers and your numbers.
   and not in the clash color, and a group with an incorrect number can have the completed color
   (owner approval 2026-11-04 and 2026-11-05).
 
-Images: [`screen-in-progress.png`](images/screen-in-progress.png) (two 9s in column 1, from 0),
-[`manual-mistakes.png`](images/manual-mistakes.png).
+Images: [`screen-in-progress.png`](images/pro/screen-in-progress.png) (two 9s in column 1, from 0),
+[`manual-mistakes.png`](images/pro/manual-mistakes.png).
 
 ```mermaid
 stateDiagram-v2
@@ -646,7 +646,7 @@ stateDiagram-v2
 ### 6.4 Completed groups
 
 This section has the owner approval 2026-11-04 and 2026-11-05, on the tablet. Image:
-[`screen-completed-group.png`](images/screen-completed-group.png).
+[`screen-completed-group.png`](images/pro/screen-completed-group.png).
 
 A **group** is a row, a column or a 3×3 box. A group is **complete** when all nine cells have a number
 and none of its cells clashes. All nine cells of a complete group get the **completed color** (default:
@@ -758,8 +758,8 @@ stateDiagram-v2
 
 ### 8.2 In progress
 
-Images: [`screen.png`](images/screen.png) (a new puzzle, shown empty to show the layout),
-[`screen-in-progress.png`](images/screen-in-progress.png).
+Images: [`screen.png`](images/pro/screen.png) (a new puzzle, shown empty to show the layout),
+[`screen-in-progress.png`](images/pro/screen-in-progress.png).
 
 ### 8.3 Complete
 
@@ -779,11 +779,11 @@ A puzzle is **complete** when all cells have a number and there is no clash. The
   panel cannot be open. The checkpoints stay in the saved game until a new game
   ([§9.3](#93-checkpoints-panel); owner decision 2026-11-06).
 
-Images: [`screen-completed.png`](images/screen-completed.png),
-[`screen-completed-menu.png`](images/screen-completed-menu.png),
-[`screen-completed-landscape.png`](images/screen-completed-landscape.png) (left-handed),
-[`screen-completed-landscape-right-handed.png`](images/screen-completed-landscape-right-handed.png),
-[`manual-finished.png`](images/manual-finished.png).
+Images: [`screen-completed.png`](images/pro/screen-completed.png),
+[`screen-completed-menu.png`](images/pro/screen-completed-menu.png),
+[`screen-completed-landscape.png`](images/pro/screen-completed-landscape.png) (left-handed),
+[`screen-completed-landscape-right-handed.png`](images/pro/screen-completed-landscape-right-handed.png),
+[`manual-finished.png`](images/pro/manual-finished.png).
 
 #### The result card
 
@@ -1011,9 +1011,9 @@ stateDiagram-v2
     Licenses --> Open: < Back
 ```
 
-Images: [`screen-toolbar.png`](images/screen-toolbar.png) (menu open, new game, undo and redo gray),
-[`screen-completed-menu.png`](images/screen-completed-menu.png) (menu open, complete puzzle, undo,
-redo and the bookmark gray), [`manual-menu.png`](images/manual-menu.png).
+Images: [`screen-toolbar.png`](images/pro/screen-toolbar.png) (menu open, new game, undo and redo gray),
+[`screen-completed-menu.png`](images/pro/screen-completed-menu.png) (menu open, complete puzzle, undo,
+redo and the bookmark gray), [`manual-menu.png`](images/pro/manual-menu.png).
 
 ### 9.1 Settings panel
 
@@ -1055,7 +1055,7 @@ A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a sixth row
   switch changes only which marks show ([§6.1](#61-automatic-pencil-mark-hiding)). It does not change the marks.
 - The Highlighted numbers color stays available in the Cell colors panel when highlights are off.
 
-Image: [`settings-menu.png`](images/settings-menu.png).
+Image: [`settings-menu.png`](images/pro/settings-menu.png).
 
 ### 9.2 Updates
 
@@ -1095,7 +1095,7 @@ release is an update, also a stable release that is older than the preview (owne
 (`#D62D20`) circle with a radius of 10 px and a white border of 3 px, with a white "!" in it. The
 center of the circle is 16 px to the right of and 16 px above the center of the gear. The icon
 stays until the app closes (also while the update installs and after it is installed). Image:
-[`screen-toolbar-update.png`](images/screen-toolbar-update.png).
+[`screen-toolbar-update.png`](images/pro/screen-toolbar-update.png).
 
 **Update row.** The sixth row of the Settings panel has the same height, lines and border as the
 other rows. It shows one of these:
@@ -1119,18 +1119,18 @@ other rows. It shows one of these:
   round strokes, approximately 28 px), with its center 40 px from the left edge of the button. The
   text (reMarkable Sans Medium, 25 px, black) starts 72 px from the left edge of the button.
   - **Update to v\<version\>** has an update icon: a down arrow into a tray. Image:
-    [`settings-update.png`](images/settings-update.png).
+    [`settings-update.png`](images/pro/settings-update.png).
   - **Check for updates** has a circular arrow: an arc with a radius of 12 px, clockwise from the
     upper right (330 degrees, where 0 degrees is the right) through the bottom and the left to the
     top, with the gap at the upper right. A straight line continues the arc to the tip of an arrow
     head, 5 px to the right of the top. The head points to the right: two 7 px strokes, 45 degrees to
     each side of the line back from its tip. Image:
-    [`settings-check-updates.png`](images/settings-check-updates.png).
+    [`settings-check-updates.png`](images/pro/settings-check-updates.png).
 - A tap on **Update to v\<version\>** starts the installation. A tap on **Check for updates** starts
   one attempt, and the row shows "Looking for updates..." until the attempt is complete. If the
   attempt finds no update, the row shows "Sudoku is up to date" until the Settings panel closes
   (owner decision 2026-10-31). When the panel opens again, the row shows **Check for updates**.
-  Image: [`settings-up-to-date.png`](images/settings-up-to-date.png). A tap on
+  Image: [`settings-up-to-date.png`](images/pro/settings-up-to-date.png). A tap on
   the row in a different state, or next to the button, has no effect. The panel stays open, and the
   game does not change.
 - A later successful attempt changes the row only from "Looking for updates...", **Check for
@@ -1142,7 +1142,7 @@ other rows. It shows one of these:
 - **Restart interface** has the same design as the other two buttons. Its icon is a power symbol:
   an arc with a radius of 12 px, with a gap at the top (from 300 degrees clockwise to 240 degrees),
   and a line from 15 px to 3 px above the center. Image:
-  [`settings-restart.png`](images/settings-restart.png). xochitl reads the ink patch only when it
+  [`settings-restart.png`](images/pro/settings-restart.png). xochitl reads the ink patch only when it
   starts, thus the reMarkable interface must start again (`/home/root/xovi/start`). A restart of
   the tablet is not sufficient, because it stops xovi ([§14.6](#146-installer)). A tap on the
   button does the same as **Restart** in the restart dialog (below), with no dialog.
@@ -1166,8 +1166,8 @@ design and position as the delete dialogs of the statistics ([§13](#13-statisti
   user opens it again from AppLoad. If the app cannot start the script, the dialog closes, and the
   row shows the button **Restart interface**.
 
-Images: [`update-restart.png`](images/update-restart.png) (the dialog),
-[`settings-restart.png`](images/settings-restart.png) (the button after **Later**).
+Images: [`update-restart.png`](images/pro/update-restart.png) (the dialog),
+[`settings-restart.png`](images/pro/settings-restart.png) (the button after **Later**).
 
 **Installation.** The app runs as root. Thus it installs only an archive and an ink patch that agree
 with the signed `version.json`:
@@ -1200,12 +1200,12 @@ step 6 fails, the row also shows "Update failed", and a new tap installs the rel
 A **checkpoint** is a copy of all numbers, all pencil marks and the clock of the game at one time. The
 player can save the board, continue, and later put the board back as one new action. The owner approved
 this section on the tablet (prototype, 2026-11-06), with the exception of the items that give a
-different source. Images: [`checkpoints-menu.png`](images/checkpoints-menu.png) (rows),
-[`checkpoints-menu-empty.png`](images/checkpoints-menu-empty.png) (no checkpoint),
-[`checkpoints-menu-current.png`](images/checkpoints-menu-current.png) (a row with "Current"),
-[`checkpoints-menu-landscape.png`](images/checkpoints-menu-landscape.png),
-[`checkpoints-menu-right-handed.png`](images/checkpoints-menu-right-handed.png),
-[`screen-completed-menu.png`](images/screen-completed-menu.png) (the gray bookmark).
+different source. Images: [`checkpoints-menu.png`](images/pro/checkpoints-menu.png) (rows),
+[`checkpoints-menu-empty.png`](images/pro/checkpoints-menu-empty.png) (no checkpoint),
+[`checkpoints-menu-current.png`](images/pro/checkpoints-menu-current.png) (a row with "Current"),
+[`checkpoints-menu-landscape.png`](images/pro/checkpoints-menu-landscape.png),
+[`checkpoints-menu-right-handed.png`](images/pro/checkpoints-menu-right-handed.png),
+[`screen-completed-menu.png`](images/pro/screen-completed-menu.png) (the gray bookmark).
 
 **The button.** The bookmark is in top slot 5 (y 560–671), below redo. It goes on the icon sheet.
 [§15](#15-visual-specification) gives its shape.
@@ -1237,8 +1237,9 @@ same order and move with the panel.
 - **No checkpoint.** The panel ends at y 864. Two lines of text have their center at x 1207: "No
   checkpoints" (Regular 28 px, `gray25`, baseline y 760) and "Save the board before a difficult guess."
   (Regular 25 px, `gray25`, baseline y 800; owner request 2026-11-07).
-- **Checkpoint rows.** The newest is first. There are at most 5 rows, and each row is 180 px high. Row i
-  has its top at y0 = 672 + 180 i. The panel ends at y 672 + 180 n (y 1572 with 5 rows). Each row below
+- **Checkpoint rows.** The newest is first. There are at most 4 rows (owner decision 2026-11-10: on all
+  tablets, so that the panel also fits on a smaller screen), and each row is 180 px high. Row i
+  has its top at y0 = 672 + 180 i. The panel ends at y 672 + 180 n (y 1392 with 4 rows). Each row below
   the first has a line of 2 px at y0-2 to y0-1. A row has no title and no name.
 
 Each checkpoint row has these items:
@@ -1273,7 +1274,7 @@ The small board:
 - A release of a control in this panel reads waiting ink with the same rules as the other controls.
 
 **Save.** A save is available when all of these are true: the game is in progress, there are fewer than
-5 checkpoints, and no checkpoint has the same numbers and marks as the board. A save keeps the numbers,
+4 checkpoints, and no checkpoint has the same numbers and marks as the board. A save keeps the numbers,
 the marks and the clock as the newest checkpoint. It does not change the board, the undo and redo history
 or the clock. The app saves the game file.
 
@@ -1291,19 +1292,21 @@ visible change (review finding 2026-11-06).
 undo and redo history and the clock do not change. The app saves the game file.
 
 **Guard after a delete** (owner decision 2026-11-06). For 0.5 s after a delete, with this panel open, a
-press in the area of the panel at its maximum size changes nothing (portrait: x 908–1507, y 560–1572; in
+press in the area of the panel at its maximum size changes nothing (portrait: x 908–1507, y 560–1392; in
 the other layouts, the x range of the table above and the same y range). Thus the second tap of a fast
 double tap does not delete the row that moved up, and it does not close the panel. A press out of that
 area and on the toolbar operates as usual.
 
 **The list.**
 
-- The list has 0 to 5 checkpoints, all with different boards, the newest first. The clock of each
+- The list has 0 to 4 checkpoints, all with different boards, the newest first. The clock of each
   checkpoint is at most the clock of the next newer checkpoint and at most the clock of the game (review
   finding 2026-11-06).
 - A new game removes all checkpoints. The checkpoints stay when the app closes and opens, in the saved
   game ([§14.3](#143-game-in-progress-kept-when-the-app-closes)). A game that an earlier version saved has
-  no checkpoints.
+  no checkpoints. An earlier version allowed 5 checkpoints: when the app opens a saved game with more
+  than 4 checkpoints, it keeps the 4 newest and removes the others before it examines the game. The
+  game stays, and the other saved values do not change (owner decision 2026-11-10).
 - Each change of the list causes a redraw, also a save and a delete in one wake (review finding
   2026-11-06).
 - Each change of the list stops the other pen or finger gesture. Thus a release never operates a different
@@ -1362,15 +1365,15 @@ request 2026-11-07).
 - A turn of the tablet keeps the first entry (list) or the first line (text) of the page on the new
   page. The app does not keep the state of these screens: after a close, it starts on the game.
 
-Images: [`licenses.png`](images/licenses.png) (the first page of the list) and
-[`licenses-text.png`](images/licenses-text.png) (the first page of the UJI Pen Characters text), and
+Images: [`licenses.png`](images/pro/licenses.png) (the first page of the list) and
+[`licenses-text.png`](images/pro/licenses-text.png) (the first page of the UJI Pen Characters text), and
 their landscape versions.
 
 ## 10. Cell colors panel
 
-Images: [`images/color-menu.png`](images/color-menu.png),
-[`images/color-menu-landscape.png`](images/color-menu-landscape.png),
-[`images/color-menu-right-handed.png`](images/color-menu-right-handed.png).
+Images: [`images/pro/color-menu.png`](images/pro/color-menu.png),
+[`images/pro/color-menu-landscape.png`](images/pro/color-menu-landscape.png),
+[`images/pro/color-menu-right-handed.png`](images/pro/color-menu-right-handed.png).
 
 The positions, the sizes, the sections and the colors of this section have the owner approval 2026-11-04 and 2026-11-05, on the tablet.
 
@@ -1434,8 +1437,8 @@ The positions, the sizes, the sections and the colors of this section have the o
   colors) do not change (owner approval 2026-11-08). The default is **90**.
   All items are always available. A tap selects the gray immediately, and the board shows the new
   lines immediately. The app keeps the selection when you close the app. Images:
-  [`color-menu-lines-90.png`](images/color-menu-lines-90.png) and
-  [`color-menu-lines-40.png`](images/color-menu-lines-40.png).
+  [`color-menu-lines-90.png`](images/pro/color-menu-lines-90.png) and
+  [`color-menu-lines-40.png`](images/pro/color-menu-lines-40.png).
 
 ```mermaid
 stateDiagram-v2
@@ -1461,8 +1464,8 @@ stateDiagram-v2
 
 ## 11. New game panel and difficulty
 
-Images: [`images/new-game-menu.png`](images/new-game-menu.png),
-[`manual-new-game.png`](images/manual-new-game.png).
+Images: [`images/pro/new-game-menu.png`](images/pro/new-game-menu.png),
+[`manual-new-game.png`](images/pro/manual-new-game.png).
 
 - The panel opens next to the + button (bottom slot). The + button becomes white on black.
 - The panel is 506 px wide. This is wider than the menus of the device, so that the slider is easy to
@@ -1559,15 +1562,15 @@ stateDiagram-v2
 
 | Page | Image | Content |
 |---|---|---|
-| 1 | [`manual-how-to-play.png`](images/manual-how-to-play.png) | The rules (rows, columns, boxes), starting numbers and your numbers, the close and menu buttons, the note that only the pen closes the game, how to turn the pages. |
-| 2 | [`manual-candidates.png`](images/manual-candidates.png) | Micro-cells and pencil marks: how to add and remove them. |
-| 3 | [`manual-pen.png`](images/manual-pen.png) | How to write and erase a number. |
-| 4 | [`manual-pen-rules.png`](images/manual-pen-rules.png) | Taps, finger touches, one number for each cell, writing with no effect, the "?". |
-| 5 | [`manual-helpers.png`](images/manual-helpers.png) | Automatic pencil mark hiding, highlights and completed groups. A full group with no clash gets the completed color. The color is not a check against the solution. A clash with a cell outside the group stops the color (owner approval 2026-11-04 and 2026-11-05). You can turn each helper off in the Settings panel. One sentence, in portrait and in landscape, tells about the x of a refused tap ([§6.1](#61-automatic-pencil-mark-hiding); owner decision 2026-11-04). The text is exactly: "If you tap the micro-cell of a hidden digit, the tap has no effect and a small x shows there for a moment." |
-| 6 | [`manual-mistakes.png`](images/manual-mistakes.png) | Clashes and how to correct them. |
-| 7 | [`manual-menu.png`](images/manual-menu.png) | All the menu buttons, how to select colors, and the Settings panel: the helpers, the version and the third-party licenses ([§9.4](#94-third-party-licenses)). |
-| 8 | [`manual-new-game.png`](images/manual-new-game.png) | How to start a new game, and the meter of the current difficulty. One short sentence, in portrait and in landscape, tells about the Symmetrical switch, for example: "Symmetrical makes a puzzle whose starting numbers are the same after a half turn of the board." If the page shows the New game panel, the picture shows the panel with three rows (owner decision 2026-11-07). |
-| 9 | [`manual-finished.png`](images/manual-finished.png) | Completion, the lock, the clock and the saved results. A completed game shows no completed color. The crop of the board shows the result card. The text tells that the level buttons of the card (Easier, Same, Harder) start a new game; it does not tell "To start a new game, tap + in the menu" (review finding 2026-11-07). |
+| 1 | [`manual-how-to-play.png`](images/pro/manual-how-to-play.png) | The rules (rows, columns, boxes), starting numbers and your numbers, the close and menu buttons, the note that only the pen closes the game, how to turn the pages. |
+| 2 | [`manual-candidates.png`](images/pro/manual-candidates.png) | Micro-cells and pencil marks: how to add and remove them. |
+| 3 | [`manual-pen.png`](images/pro/manual-pen.png) | How to write and erase a number. |
+| 4 | [`manual-pen-rules.png`](images/pro/manual-pen-rules.png) | Taps, finger touches, one number for each cell, writing with no effect, the "?". |
+| 5 | [`manual-helpers.png`](images/pro/manual-helpers.png) | Automatic pencil mark hiding, highlights and completed groups. A full group with no clash gets the completed color. The color is not a check against the solution. A clash with a cell outside the group stops the color (owner approval 2026-11-04 and 2026-11-05). You can turn each helper off in the Settings panel. One sentence, in portrait and in landscape, tells about the x of a refused tap ([§6.1](#61-automatic-pencil-mark-hiding); owner decision 2026-11-04). The text is exactly: "If you tap the micro-cell of a hidden digit, the tap has no effect and a small x shows there for a moment." |
+| 6 | [`manual-mistakes.png`](images/pro/manual-mistakes.png) | Clashes and how to correct them. |
+| 7 | [`manual-menu.png`](images/pro/manual-menu.png) | All the menu buttons, how to select colors, and the Settings panel: the helpers, the version and the third-party licenses ([§9.4](#94-third-party-licenses)). |
+| 8 | [`manual-new-game.png`](images/pro/manual-new-game.png) | How to start a new game, and the meter of the current difficulty. One short sentence, in portrait and in landscape, tells about the Symmetrical switch, for example: "Symmetrical makes a puzzle whose starting numbers are the same after a half turn of the board." If the page shows the New game panel, the picture shows the panel with three rows (owner decision 2026-11-07). |
+| 9 | [`manual-finished.png`](images/pro/manual-finished.png) | Completion, the lock, the clock and the saved results. A completed game shows no completed color. The crop of the board shows the result card. The text tells that the level buttons of the card (Easier, Same, Harder) start a new game; it does not tell "To start a new game, tap + in the menu" (review finding 2026-11-07). |
 
 ```mermaid
 stateDiagram-v2
@@ -1598,7 +1601,7 @@ stateDiagram-v2
 
 ### 13.1 Summary
 
-Image: [`images/analytics.png`](images/analytics.png).
+Image: [`images/pro/analytics.png`](images/pro/analytics.png).
 
 - **< Back** shows the game again, with the menu open and no panel open. For 0.5 s, the app ignores a
   press on the toolbar and on the close button ([§9](#9-the-menu)).
@@ -1620,13 +1623,13 @@ Image: [`images/analytics.png`](images/analytics.png).
   - **Cancel** and **Delete**. Delete is black.
 - **Delete** removes all results from the database and closes the dialog. The summary then shows 0 and
   "–". **Cancel** closes the dialog and makes no change. While the dialog shows, the summary accepts no
-  other input. Image: [`analytics-delete-all.png`](images/analytics-delete-all.png).
+  other input. Image: [`analytics-delete-all.png`](images/pro/analytics-delete-all.png).
 - If there are no results, "Delete all games" is gray and has no effect.
 - If there are no results, the two boxes show 0 and "–", and all rows show 0 and "–".
 
 ### 13.2 Completed games list
 
-Image: [`images/analytics-games.png`](images/analytics-games.png).
+Image: [`images/pro/analytics-games.png`](images/pro/analytics-games.png).
 
 - **< Back** shows the summary again.
 - The **filter** row has **All** and one segment for each mode. Each mode segment shows its meter. The
@@ -1644,7 +1647,7 @@ Image: [`images/analytics-games.png`](images/analytics-games.png).
   - **Cancel** and **Delete**. Delete is black.
 - **Delete** removes the result from the database. The list and the summary then show the change.
   **Cancel** closes the dialog and makes no change. Image:
-  [`analytics-delete.png`](images/analytics-delete.png).
+  [`analytics-delete.png`](images/pro/analytics-delete.png).
 - If you delete the last game on a page, the list shows the page before it. The page number does not
   go below 1.
 - If no results agree with the filter, or if there are no results, the list shows no rows.
@@ -2048,21 +2051,21 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Ink of the pen (§5.1) | Black line of 5 px with round ends and joins; the ink of a tap is a dot with a radius of 2.5 px. No anti-aliasing: each pixel is black or the pixel under it, also over a filled cell (§14.4; owner approval 2026-11-07) |
 | "?" | reMarkable Sans Regular 104 px, `gray25` (owner request 2026-11-07) |
 | x of a refused tap (§6.1) | Two straight lines with round ends, line width 3 px, `gray15` (the same as the pencil marks). Each line goes from -10 px to +10 px on the two axes around the center: 20×20 px between the line centers, visible extent of approximately 23×23 px. The center is the anchor point of the pencil mark of that digit: 24, 74 or 122 px from the cell origin on each axis, at the keypad position of the digit (1 at the top left, 9 at the bottom right). The x stays in its micro-cell and does not touch the cell lines. Time: the same value as the "?" (1000 ms) (owner approval 2026-11-04). No anti-aliasing: each changed pixel is `gray15` (owner approval 2026-11-07). |
-| Anti-aliasing | No drawing of the app has anti-aliasing (owner approval 2026-11-08): the ink of the pen, the pencil marks, the x, the board lines, the micro-cell lines, the icons (also on the icon sheet `icons.png`), the numbers, the "?", the menu frame, the panels, the dialogs, the texts, the result card and the small boards of the Checkpoints panel with their mark dots. Each pixel of a drawing is fully the color of the drawing, or the pixel that was under it. Only the manual pages have anti-aliasing: they are prepared images, and the app copies their pixels. Exception (owner decision 2026-11-10): the pale screen is the only drawing that blends. It is a white blend (alpha 0.6, `Canvas::veil`) over the full screen, drawn before the delete dialogs and the restart dialog: a black pixel becomes gray 153. It is not a pattern. The dialog on it is a crisp drawing. The design images in `images/` keep the anti-aliasing of ImageMagick for all items except the ink, the pencil marks, the x, the board lines and the micro-cell lines: they give the positions and the shapes, and the comparison accepts the edge pixels (§17). The micro-cell lines and the swatches of the Micro-cell lines section are the only drawings that show a gray as a pattern; no other gray becomes a black and white pattern (§14.4; owner approval 2026-11-07 and 2026-11-08) |
+| Anti-aliasing | No drawing of the app has anti-aliasing (owner approval 2026-11-08): the ink of the pen, the pencil marks, the x, the board lines, the micro-cell lines, the icons (also on the icon sheet `icons.png`), the numbers, the "?", the menu frame, the panels, the dialogs, the texts, the result card and the small boards of the Checkpoints panel with their mark dots. Each pixel of a drawing is fully the color of the drawing, or the pixel that was under it. Only the manual pages have anti-aliasing: they are prepared images, and the app copies their pixels. Exception (owner decision 2026-11-10): the pale screen is the only drawing that blends. It is a white blend (alpha 0.6, `Canvas::veil`) over the full screen, drawn before the delete dialogs and the restart dialog: a black pixel becomes gray 153. It is not a pattern. The dialog on it is a crisp drawing. The design images in `images/pro/` keep the anti-aliasing of ImageMagick for all items except the ink, the pencil marks, the x, the board lines and the micro-cell lines: they give the positions and the shapes, and the comparison accepts the edge pixels (§17). The micro-cell lines and the swatches of the Micro-cell lines section are the only drawings that show a gray as a pattern; no other gray becomes a black and white pattern (§14.4; owner approval 2026-11-07 and 2026-11-08) |
 | Highlight | The same color rules as before (§4.2). It can also show while the menu or a panel is open, on the part of the board that the panel does not cover (§6.2; owner approval 2026-11-07) |
 | Times of writing | Recognition pause 1000 ms from the pen lift. Redraw wait 1000 ms after the last stroke. A touch that starts less than 150 ms after a pen lift has no effect (§5.1, §14.4; owner approval 2026-11-07) |
 | Palette | Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue `#408CFF`, Red `#FF8E8E`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0`, Orange `#FF9A1F` (owner approval 2026-11-04 and 2026-11-05). The board, the panel dots, the manual and the images all use this palette. |
 | Default colors | Starting Gray `#AEAEAE`, clash Red `#FF8E8E`, highlight Cyan `#6FCFE6`, completed groups Green `#48D630` |
 | Background of a filled cell | First rule that applies: clash, highlight, completed, starting number, white (§4.2) |
 | UI text | reMarkable Sans Medium 25 px (menus, meter labels). The version value and the text of an update state are reMarkable Sans Regular 25 px (§9.1, §9.2). |
-| Secondary text | `gray25` (`#404040`) for all secondary text and marks: the result card text, the "?", the box labels and the column headings of Statistics and of the completed games list, the help line and the row text of the Checkpoints panel and the mark dots of the small boards, the Licenses screens (intro text, versions, the version and license line), the page number "n / total" (Regular 28) of the completed games list, the Licenses screens and the manual pages (owner decision 2026-11-10), the text rows of the update states, the two text lines of each dialog, the pages of the manual and the labels of the icon sheet `images/icons.png`. No text uses `gray40` (`#666666`): it was hard to read on the tablet (owner request 2026-11-07). The micro-cell line setting 40 of the Cell colors panel stays (§10), and the other grays do not change. Since 2026-11-08 no pixel of the app is `gray40`: the micro-cell lines show the selected gray as a pattern of `gray15` and white (§4.1). The only exception is the anti-aliasing of the manual pages: an edge of a darker text or line there can have single pixels of this value. |
+| Secondary text | `gray25` (`#404040`) for all secondary text and marks: the result card text, the "?", the box labels and the column headings of Statistics and of the completed games list, the help line and the row text of the Checkpoints panel and the mark dots of the small boards, the Licenses screens (intro text, versions, the version and license line), the page number "n / total" (Regular 28) of the completed games list, the Licenses screens and the manual pages (owner decision 2026-11-10), the text rows of the update states, the two text lines of each dialog, the pages of the manual and the labels of the icon sheet `images/pro/icons.png`. No text uses `gray40` (`#666666`): it was hard to read on the tablet (owner request 2026-11-07). The micro-cell line setting 40 of the Cell colors panel stays (§10), and the other grays do not change. Since 2026-11-08 no pixel of the app is `gray40`: the micro-cell lines show the selected gray as a pattern of `gray15` and white (§4.1). The only exception is the anti-aliasing of the manual pages: an edge of a darker text or line there can have single pixels of this value. |
 | Result card | 2 px black frame, white. Portrait: x 148–1471, y 1790–2110. Landscape: a column of 322 px, y 148–1471, x 48–370 (left-handed) or x 1790–2112 (right-handed). "Completed in" Regular 30 `gray25`; time Medium 96 (portrait) or Medium 72 (landscape), black; comparison Regular 25 `gray25`; divider 2 px `gray70`; "New game" Medium 28; level buttons with a 2 px black frame (not available: `gray80` frame, `gray70` label, no meter). §8.3 gives all positions (owner approval 2026-11-07). |
 | Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |
 | Bookmark icon | Closed line of 3 px through (-12,-18), (12,-18), (12,18), (0,8), (-12,18) from the center of top slot 5 (y 560–671). Black; white on black while its panel is open; `gray70` on a complete puzzle (owner approval 2026-11-06) |
 | Panels | 2 px black border, rows of 112 px, 2 px dividers, inner margin of 33 px |
 | Settings panel | 400 px wide (x 1108–1507 for a left-handed player in portrait). Three switch rows, the version row, the Third-party licenses row and, in a stable or preview build, the update row (§9.1, §9.2, §9.4) |
 | Cell colors panel | 800 px wide (two columns of 400 px), three rows of 360 px, y 112–1192. x 708–1507 (left-handed, portrait), x 1248–2047 (left-handed, landscape), x 112–911 (right-handed). Vertical line of 2 px at 400 px from the left of the panel. Section title 33 px, grid 32 px from the left of the column; grid cells 112×90 px (owner approval 2026-11-04 and 2026-11-05). Swatches of the Micro-cell lines section: a 19 px circle with a 2 px ring; the gray items show their pattern (§4.1) on a white disc with a radius of 17.5 px inside the ring, the pattern `matrix[dy mod 4][dx mod 4]` from the pixel (cx − 19, cy − 19); None is a white dot (§10; owner approval 2026-11-08) |
-| Checkpoints panel | 600 px wide, top at y 560. x 908–1507 (left-handed, portrait), x 1448–2047 (left-handed, landscape), x 112–711 (right-handed). White, 2 px black border. Save row of 112 px; no checkpoint: the panel ends at y 864; else rows of 180 px, the panel ends at y 672 + 180 n, at most y 1572 (§9.3; owner approval 2026-11-06) |
+| Checkpoints panel | 600 px wide, top at y 560. x 908–1507 (left-handed, portrait), x 1448–2047 (left-handed, landscape), x 112–711 (right-handed). White, 2 px black border. Save row of 112 px; no checkpoint: the panel ends at y 864; else rows of 180 px, the panel ends at y 672 + 180 n, at most y 1392 (§9.3; owner approval 2026-11-06) |
 | Checkpoint row | Small board of 155 px with cells of 17 px, digits Regular 14, mark dots of 2×2 px `gray25`; text Regular 25 `gray25`; button 141×71 px, text Medium 25; bin icon of the games list (§9.3; owner approval 2026-11-06) |
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
 | Difficulty meter | "Easy" to "Hard" across 440 px; 7 stops; the current stop is a knob with a radius of 13 px |
@@ -2106,7 +2109,7 @@ These items are closed:
 
 ## 17. Image reference
 
-This table gives all the images in [`images/`](images/) and the sections that tell about them. The
+This table gives all the images in [`images/pro/`](images/pro/) and the sections that tell about them. The
 images that show pencil marks or an x on the board (for example `screen-in-progress.png` and
 `screen-invalid-mark.png`) show them with no anti-aliasing, as the app draws them
 ([§15](#15-visual-specification); owner decision 2026-11-07). The app draws all items with no
@@ -2127,51 +2130,51 @@ micro-cell lines.
 
 | Image | Section |
 |---|---|
-| [`template.png`](images/template.png) | [§1](#1-device-and-display) |
-| [`screen.png`](images/screen.png) | [§3](#3-the-game-screen) |
-| [`box.png`](images/box.png) | [§3.1](#31-layout) |
-| [`cell.png`](images/cell.png) | [§3.1](#31-layout) |
-| [`screen-in-progress.png`](images/screen-in-progress.png) | [§3.2](#32-game-screen-states), [§6](#6-helpers-pencil-mark-hiding-highlights-clashes-completed-groups) |
-| [`screen-highlight.png`](images/screen-highlight.png) | [§6.2](#62-highlights) |
-| [`screen-unrecognized.png`](images/screen-unrecognized.png) | [§5](#5-pen-and-touch-input) |
-| [`screen-invalid-mark.png`](images/screen-invalid-mark.png) | [§3.2](#32-game-screen-states), [§5](#5-pen-and-touch-input), [§6.1](#61-automatic-pencil-mark-hiding) |
-| [`screen-completed-group.png`](images/screen-completed-group.png) | [§2](#2-screens), [§6.4](#64-completed-groups) |
-| [`screen-completed.png`](images/screen-completed.png) | [§8.3](#83-complete) |
-| [`screen-completed-menu.png`](images/screen-completed-menu.png) | [§8.3](#83-complete), [§9](#9-the-menu), [§9.3](#93-checkpoints-panel) |
-| [`screen-completed-landscape.png`](images/screen-completed-landscape.png) (left-handed), [`screen-completed-landscape-right-handed.png`](images/screen-completed-landscape-right-handed.png) | [§3.3](#33-landscape), [§8.3](#83-complete) |
-| [`screen-toolbar.png`](images/screen-toolbar.png) | [§9](#9-the-menu) |
-| [`color-menu.png`](images/color-menu.png) | [§10](#10-cell-colors-panel) |
-| [`color-menu-landscape.png`](images/color-menu-landscape.png) | [§10](#10-cell-colors-panel) |
-| [`color-menu-right-handed.png`](images/color-menu-right-handed.png) | [§3.1](#31-layout), [§10](#10-cell-colors-panel) |
-| [`color-menu-lines-90.png`](images/color-menu-lines-90.png), [`color-menu-lines-40.png`](images/color-menu-lines-40.png) | [§10](#10-cell-colors-panel) |
-| [`new-game-menu.png`](images/new-game-menu.png) (the three-row panel: slider, Symmetrical, Start new game) | [§11](#11-new-game-panel-and-difficulty) |
-| [`analytics.png`](images/analytics.png) | [§13.1](#131-summary) |
-| [`analytics-games.png`](images/analytics-games.png) | [§13.2](#132-completed-games-list) |
-| [`analytics-delete.png`](images/analytics-delete.png) | [§13.2](#132-completed-games-list) |
-| [`licenses.png`](images/licenses.png), [`licenses-text.png`](images/licenses-text.png) (and `-landscape`) | [§9.4](#94-third-party-licenses) |
-| [`manual-how-to-play.png`](images/manual-how-to-play.png) | [§12](#12-manual-help) |
-| [`manual-candidates.png`](images/manual-candidates.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
-| [`manual-pen.png`](images/manual-pen.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
-| [`manual-pen-rules.png`](images/manual-pen-rules.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
-| [`manual-helpers.png`](images/manual-helpers.png) | [§6](#6-helpers-pencil-mark-hiding-highlights-clashes-completed-groups), [§12](#12-manual-help) |
-| [`manual-mistakes.png`](images/manual-mistakes.png) | [§6.3](#63-clashes), [§12](#12-manual-help) |
-| [`manual-menu.png`](images/manual-menu.png) | [§9](#9-the-menu), [§12](#12-manual-help) |
-| [`manual-new-game.png`](images/manual-new-game.png) | [§11](#11-new-game-panel-and-difficulty), [§12](#12-manual-help) |
-| [`manual-finished.png`](images/manual-finished.png) | [§8.3](#83-complete), [§12](#12-manual-help) |
+| [`template.png`](images/pro/template.png) | [§1](#1-device-and-display) |
+| [`screen.png`](images/pro/screen.png) | [§3](#3-the-game-screen) |
+| [`box.png`](images/pro/box.png) | [§3.1](#31-layout) |
+| [`cell.png`](images/pro/cell.png) | [§3.1](#31-layout) |
+| [`screen-in-progress.png`](images/pro/screen-in-progress.png) | [§3.2](#32-game-screen-states), [§6](#6-helpers-pencil-mark-hiding-highlights-clashes-completed-groups) |
+| [`screen-highlight.png`](images/pro/screen-highlight.png) | [§6.2](#62-highlights) |
+| [`screen-unrecognized.png`](images/pro/screen-unrecognized.png) | [§5](#5-pen-and-touch-input) |
+| [`screen-invalid-mark.png`](images/pro/screen-invalid-mark.png) | [§3.2](#32-game-screen-states), [§5](#5-pen-and-touch-input), [§6.1](#61-automatic-pencil-mark-hiding) |
+| [`screen-completed-group.png`](images/pro/screen-completed-group.png) | [§2](#2-screens), [§6.4](#64-completed-groups) |
+| [`screen-completed.png`](images/pro/screen-completed.png) | [§8.3](#83-complete) |
+| [`screen-completed-menu.png`](images/pro/screen-completed-menu.png) | [§8.3](#83-complete), [§9](#9-the-menu), [§9.3](#93-checkpoints-panel) |
+| [`screen-completed-landscape.png`](images/pro/screen-completed-landscape.png) (left-handed), [`screen-completed-landscape-right-handed.png`](images/pro/screen-completed-landscape-right-handed.png) | [§3.3](#33-landscape), [§8.3](#83-complete) |
+| [`screen-toolbar.png`](images/pro/screen-toolbar.png) | [§9](#9-the-menu) |
+| [`color-menu.png`](images/pro/color-menu.png) | [§10](#10-cell-colors-panel) |
+| [`color-menu-landscape.png`](images/pro/color-menu-landscape.png) | [§10](#10-cell-colors-panel) |
+| [`color-menu-right-handed.png`](images/pro/color-menu-right-handed.png) | [§3.1](#31-layout), [§10](#10-cell-colors-panel) |
+| [`color-menu-lines-90.png`](images/pro/color-menu-lines-90.png), [`color-menu-lines-40.png`](images/pro/color-menu-lines-40.png) | [§10](#10-cell-colors-panel) |
+| [`new-game-menu.png`](images/pro/new-game-menu.png) (the three-row panel: slider, Symmetrical, Start new game) | [§11](#11-new-game-panel-and-difficulty) |
+| [`analytics.png`](images/pro/analytics.png) | [§13.1](#131-summary) |
+| [`analytics-games.png`](images/pro/analytics-games.png) | [§13.2](#132-completed-games-list) |
+| [`analytics-delete.png`](images/pro/analytics-delete.png) | [§13.2](#132-completed-games-list) |
+| [`licenses.png`](images/pro/licenses.png), [`licenses-text.png`](images/pro/licenses-text.png) (and `-landscape`) | [§9.4](#94-third-party-licenses) |
+| [`manual-how-to-play.png`](images/pro/manual-how-to-play.png) | [§12](#12-manual-help) |
+| [`manual-candidates.png`](images/pro/manual-candidates.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
+| [`manual-pen.png`](images/pro/manual-pen.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
+| [`manual-pen-rules.png`](images/pro/manual-pen-rules.png) | [§5](#5-pen-and-touch-input), [§12](#12-manual-help) |
+| [`manual-helpers.png`](images/pro/manual-helpers.png) | [§6](#6-helpers-pencil-mark-hiding-highlights-clashes-completed-groups), [§12](#12-manual-help) |
+| [`manual-mistakes.png`](images/pro/manual-mistakes.png) | [§6.3](#63-clashes), [§12](#12-manual-help) |
+| [`manual-menu.png`](images/pro/manual-menu.png) | [§9](#9-the-menu), [§12](#12-manual-help) |
+| [`manual-new-game.png`](images/pro/manual-new-game.png) | [§11](#11-new-game-panel-and-difficulty), [§12](#12-manual-help) |
+| [`manual-finished.png`](images/pro/manual-finished.png) | [§8.3](#83-complete), [§12](#12-manual-help) |
 | `manual-*-landscape.png` (9 images) | [§3.3](#33-landscape), [§12](#12-manual-help) |
-| [`settings-menu.png`](images/settings-menu.png) | [§9.1](#91-settings-panel) |
-| [`checkpoints-menu.png`](images/checkpoints-menu.png) | [§9.3](#93-checkpoints-panel) |
-| [`checkpoints-menu-empty.png`](images/checkpoints-menu-empty.png) | [§9.3](#93-checkpoints-panel) |
-| [`checkpoints-menu-current.png`](images/checkpoints-menu-current.png) | [§9.3](#93-checkpoints-panel) |
-| [`checkpoints-menu-landscape.png`](images/checkpoints-menu-landscape.png) | [§3.3](#33-landscape), [§9.3](#93-checkpoints-panel) |
-| [`checkpoints-menu-right-handed.png`](images/checkpoints-menu-right-handed.png) | [§3.1](#31-layout), [§9.3](#93-checkpoints-panel) |
-| [`settings-update.png`](images/settings-update.png) | [§9.2](#92-updates) |
-| [`settings-up-to-date.png`](images/settings-up-to-date.png) | [§9.2](#92-updates) |
-| [`settings-check-updates.png`](images/settings-check-updates.png) | [§9.2](#92-updates) |
-| [`settings-restart.png`](images/settings-restart.png) | [§9.2](#92-updates) |
-| [`update-restart.png`](images/update-restart.png) | [§9.2](#92-updates) |
-| [`screen-toolbar-update.png`](images/screen-toolbar-update.png) | [§9.2](#92-updates) |
-| [`analytics-delete-all.png`](images/analytics-delete-all.png) | [§13.1](#131-summary) |
+| [`settings-menu.png`](images/pro/settings-menu.png) | [§9.1](#91-settings-panel) |
+| [`checkpoints-menu.png`](images/pro/checkpoints-menu.png) | [§9.3](#93-checkpoints-panel) |
+| [`checkpoints-menu-empty.png`](images/pro/checkpoints-menu-empty.png) | [§9.3](#93-checkpoints-panel) |
+| [`checkpoints-menu-current.png`](images/pro/checkpoints-menu-current.png) | [§9.3](#93-checkpoints-panel) |
+| [`checkpoints-menu-landscape.png`](images/pro/checkpoints-menu-landscape.png) | [§3.3](#33-landscape), [§9.3](#93-checkpoints-panel) |
+| [`checkpoints-menu-right-handed.png`](images/pro/checkpoints-menu-right-handed.png) | [§3.1](#31-layout), [§9.3](#93-checkpoints-panel) |
+| [`settings-update.png`](images/pro/settings-update.png) | [§9.2](#92-updates) |
+| [`settings-up-to-date.png`](images/pro/settings-up-to-date.png) | [§9.2](#92-updates) |
+| [`settings-check-updates.png`](images/pro/settings-check-updates.png) | [§9.2](#92-updates) |
+| [`settings-restart.png`](images/pro/settings-restart.png) | [§9.2](#92-updates) |
+| [`update-restart.png`](images/pro/update-restart.png) | [§9.2](#92-updates) |
+| [`screen-toolbar-update.png`](images/pro/screen-toolbar-update.png) | [§9.2](#92-updates) |
+| [`analytics-delete-all.png`](images/pro/analytics-delete-all.png) | [§13.1](#131-summary) |
 | `analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png` | [§3.3](#33-landscape), [§13](#13-statistics) |
 | `install-*.png` (6 images) | [§14.6](#146-installer) |
-| [`icons.png`](images/icons.png) (the icon sheet) | [§15](#15-visual-specification) |
+| [`icons.png`](images/pro/icons.png) (the icon sheet) | [§15](#15-visual-specification) |

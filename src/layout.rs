@@ -32,6 +32,9 @@ pub struct Device {
     /// The screen pixels of one layout unit of the manual and the analytics pages (`page_scale`):
     /// about `physical_w / 1404`. The images of the Paper Pro use the rounded value 1.153846.
     pub page_scale: f32,
+    /// The folder of the design images of this model, from the root of the repository
+    /// (`scripts/build.sh` with `DEVICE`, refer to `images/INDEX.md`).
+    pub images: &'static str,
 }
 
 /// The cell of the reference design (the images of REQUIREMENTS.md, the Paper Pro). The contents of
@@ -40,7 +43,7 @@ const REF_CELL: i32 = 147;
 
 impl Device {
     /// The reMarkable Paper Pro: 1620 x 2160 at 229 DPI.
-    pub const PAPER_PRO: Device = Device { name: "reMarkable Paper Pro", physical_w: 1620, physical_h: 2160, cell: REF_CELL, fb_type: 1, page_scale: 1.153846 };
+    pub const PAPER_PRO: Device = Device { name: "reMarkable Paper Pro", physical_w: 1620, physical_h: 2160, cell: REF_CELL, fb_type: 1, page_scale: 1.153846, images: "images/pro" };
 
     /// A length `v` of the reference cell, in pixels of the cell of this device (rounded to full
     /// pixels, thus the contents of a cell stay crisp). On the Paper Pro, it is `v`.

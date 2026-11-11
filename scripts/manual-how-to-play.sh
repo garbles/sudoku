@@ -17,7 +17,7 @@ minib 549 480 "$hl" "$dg"
 hl=""; dg=""; i=0; for d in $ROW; do r=$((3+i/3)); c=$((6+i%3)); hl="$hl $r,$c,$UNIT_BG"; dg="$dg $r,$c,$d,black"; i=$((i+1)); done
 minib 945 480 "$hl" "$dg"
 text 306 840 34 gray25 middle "Each row"
-text 702 840 34 gray25 middle "Each column"
+text $((PW/2)) 840 34 gray25 middle "Each column"
 text 1098 840 34 gray25 middle "Each box"
 
 text 72 960 50 black start "Starting numbers"
@@ -36,6 +36,6 @@ text 180 1634 34 gray25 start "Only the pen closes the game. Thus your hand cann
 echo "fill none stroke black stroke-width 5 circle 112,1698 140,1698 fill black stroke none circle 103,1707 109,1707" >> $M
 text 180 1712 38 gray25 start "Open the menu (top right). Page 7 tells about the menu."
 
-text 702 1785 30 gray25 middle "To turn the page, swipe left or right with your finger, or tap an arrow."
+text $((PW/2)) 1785 30 gray25 middle "To turn the page, swipe left or right with your finger, or tap an arrow."
 pagenum 1 9
 render "$1/manual-how-to-play.png"

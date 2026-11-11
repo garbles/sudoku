@@ -8,17 +8,34 @@
 #   update-restart.png   settings-restart.png (toolbar.sh) with the dialog "Restart the interface?" of
 #                        an update that replaced the ink patch (REQUIREMENTS.md §9.2)
 # and the same four screens for landscape (analytics-landscape.png, analytics-games-landscape.png,
-# analytics-delete-landscape.png, analytics-delete-all-landscape.png): 1872x1404 units with the same scale, on 2160x1620. The positions
-# are the same as in src/layout.rs.
+# analytics-delete-landscape.png, analytics-delete-all-landscape.png): the page turns (1872x1404 units on the Paper
+# Pro), with the same scale. The positions are the same as in src/layout.rs.
 # All screens use one list of sample games (the same data as the SQLite results table). Thus the
-# summary and the table agree. The layout uses the 1404x1872 units of the manual, with a scale to 1620x2160.
+# summary and the table agree. The layout uses the units of the manual (1404x1872 on the Paper Pro), with the scale
+# PAGE_SCALE of the device (devices/DEVICE.conf, refer to device-lib.sh) to the screen.
 import datetime, json, os, random, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = sys.argv[1]
 FONT = os.path.join(HERE, "fonts", "rmsans-400.ttf")
 HEAD = os.path.join(HERE, "fonts", "rmsans-500.ttf")
-SCALE = 1.153846
+
+def device_values():
+    """The values of the tablet model DEVICE (default: pro) from devices/DEVICE.conf (refer to device-lib.sh)."""
+    values = {}
+    with open(os.path.join(HERE, "devices", os.environ.get("DEVICE", "pro") + ".conf")) as f:
+        for line in f:
+            line = line.split("#")[0].strip()
+            if line:
+                key, value = line.split("=")
+                values[key] = value
+    return values
+
+DEVICE = device_values()
+PHYS_W, PHYS_H, DPI = int(DEVICE["PHYS_W"]), int(DEVICE["PHYS_H"]), DEVICE["DPI"]
+SCALE = float(DEVICE["PAGE_SCALE"])
+# The page in layout units (portrait): the screen over the scale, rounded (the same as device-lib.sh).
+PAGE_W, PAGE_H = int(PHYS_W / SCALE + 0.5), int(PHYS_H / SCALE + 0.5)
 STOPS = 7
 TEXT_GRAY = "gray25"   # the secondary text (ui-lib.sh TEXT_GRAY, #404040)
 
@@ -53,12 +70,12 @@ def meter(out, xa, y, level, step=34, on="black", off="gray60", hollow="white"):
         out.append(f"fill {on if i < level else hollow} stroke {on} stroke-width 2.5 circle {x},{y} {x+5},{y}")
     out.append(f"fill {on} stroke {hollow} stroke-width 2.5 circle {xk},{y} {xk+11},{y}")
 
-# The page geometry (src/layout.rs): portrait 1404x1872 units, landscape 1872x1404 units.
+# The page geometry (src/layout.rs): on the Paper Pro, portrait 1404x1872 units, landscape 1872x1404 units.
 class Page:
     def __init__(self, landscape):
         self.landscape = landscape
-        self.w, self.h = (1872, 1404) if landscape else (1404, 1872)
-        self.size = "2160x1620" if landscape else "1620x2160"
+        self.w, self.h = (PAGE_H, PAGE_W) if landscape else (PAGE_W, PAGE_H)
+        self.size = f"{PHYS_H}x{PHYS_W}" if landscape else f"{PHYS_W}x{PHYS_H}"
         self.right = self.w - 72                      # 1332 in portrait
         self.box_w = (self.w - 172) / 2               # 616 in portrait
         self.count_x = self.right - 432               # 900 in portrait
@@ -88,7 +105,7 @@ def chrome(out, P, title, page=None):
         out.append(f"fill none stroke-width 3 stroke-linecap round stroke-linejoin round stroke {prev} polyline {n(cx-74)},{n(ny-20)} {n(cx-84)},{n(ny-10)} {n(cx-74)},{ny} "
                    f"stroke {nxt} polyline {n(cx+74)},{n(ny-20)} {n(cx+84)},{n(ny-10)} {n(cx+74)},{ny}")
 
-def hline(out, y, x0=72, x1=1332, w=1.7):
+def hline(out, y, x0, x1, w=1.7):
     out.append(f"stroke none fill black rectangle {n(x0)},{n(y)} {n(x1)},{n(y+w)}")
 
 def render(out, P, name, base=None):
@@ -98,7 +115,7 @@ def render(out, P, name, base=None):
         f.write(f"push graphic-context\nscale {SCALE},{SCALE}\n" + "\n".join(out) + "\npop graphic-context\n")
     start = [os.path.join(OUT, base)] if base else ["-size", P.size, "xc:white"]
     subprocess.run(["magick", *start, "-draw", f"@{mvg}",
-                    "-units", "PixelsPerInch", "-density", "229", os.path.join(OUT, P.suffix(name))], check=True)
+                    "-units", "PixelsPerInch", "-density", DPI, os.path.join(OUT, P.suffix(name))], check=True)
     os.remove(mvg)
 
 ROW = 97  # 112 device px, the height of a list row on the device

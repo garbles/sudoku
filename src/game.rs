@@ -87,7 +87,7 @@ pub struct BoardSets {
 pub type Values = [[u8; 9]; 9];
 
 /// The maximum quantity of checkpoints of a game (§9.3, CKP-4).
-pub const MAX_CHECKPOINTS: usize = 5;
+pub const MAX_CHECKPOINTS: usize = 4;
 
 /// True if the cell is filled and a peer has the same number (§6.3).
 fn clashes(value: &Values, cell: Cell) -> bool {

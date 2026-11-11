@@ -2,18 +2,23 @@
 
 This document is written in ASD-STE100 Simplified Technical English (STE).
 
-These images are the design reference for the sudoku app on the reMarkable Paper Pro. Each image is
-1620×2160 (the portrait screen of the Paper Pro, 229 DPI), if the table does not give a different
-size. The images are exact. The app must show the same pixels.
+These images are the design reference for the sudoku app on the reMarkable Paper Pro. The design
+images of each tablet model are in a folder of that model: `pro/` for the Paper Pro (the only model
+now). The installer images (`install-*.png`, refer to the last table) are the same for all models
+and stay in this folder. Each image of `pro/` is 1620×2160 (the portrait screen of the Paper Pro,
+229 DPI), if the table does not give a different size. The images are exact. The app must show the
+same pixels.
 
 Scripts make all of the images, but not `icons.png`. Do not edit the images. To change an image,
 change the scripts and run:
 
 ```sh
-sh scripts/build.sh
+sh scripts/build.sh                     # DEVICE=pro (the default) writes pro/
 ```
 
-The file `scripts/ui-lib.sh` has the layout values (board position, toolbar slots, fonts). The
+The file `scripts/devices/pro.conf` gives the values of the Paper Pro (the screen, the DPI, the
+cell size and the page scale). The file `scripts/ui-lib.sh` calculates the layout values from them
+(board position, toolbar slots, panels) and has the fonts. The
 dimensions of the toolbar, the panels and the fonts come from screenshots of a real Paper Pro
 (`scripts/rmpp-screenshot.sh`).
 

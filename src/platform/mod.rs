@@ -230,7 +230,7 @@ fn to_input(m: &qtfb::UserInput, eraser: &evdev::Eraser) -> Option<Input> {
 }
 
 /// `sudoku --self-test OUT.png [SECONDS]`: examines the device without qtfb. It loads the font of the
-/// device, draws the state of images/screen-in-progress.png into OUT.png, reads one example of
+/// device, draws the state of images/pro/screen-in-progress.png into OUT.png, reads one example of
 /// handwriting, and watches the pen tools for SECONDS (default 0).
 pub fn self_test(out: &str, seconds: u64) -> Result<(), String> {
     let t = Instant::now();

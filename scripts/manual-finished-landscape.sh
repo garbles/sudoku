@@ -34,7 +34,7 @@ text 972 1085 38 gray25 start "completed puzzle. Analytics in the menu"
 text 972 1135 38 gray25 start "shows your totals, average times and a list"
 text 972 1185 38 gray25 start "of all games. To delete a game, tap its bin."
 text 972 1235 38 gray25 start "The app asks you to confirm."
-picture 1690 900 "$(shot "$UI/screen-toolbar.png" 112x112+1508+1936)"
+picture 1690 900 "$(shot "$UI/screen-toolbar.png" $(slot_crop statistics))"
 
 pagenum 9 9
 render "$1/manual-finished-landscape.png"

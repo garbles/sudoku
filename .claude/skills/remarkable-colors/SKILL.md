@@ -103,7 +103,7 @@ Record in `DECISIONS.md`: the old and the new values, that the owner selected th
 make -j3 media
 ```
 
-Read a crop of `images/screen-completed-group.png` and of `images/color-menu.png`
+Read a crop of `images/pro/screen-completed-group.png` and of `images/pro/color-menu.png`
 (`magick IMAGE -crop WxH+X+Y +repage SCRATCH/crop.png`). They must show the new colors. The app
 contains the manual pages (`include_bytes!`), thus the binary changes after this step.
 
@@ -116,7 +116,7 @@ make snapshot
 scripts/bench.sh --note "Colors from Sudoku (colors)"
 ```
 
-The build must have no warnings, the tests must pass, and the snapshot must agree with `images/`.
+The build must have no warnings, the tests must pass, and the snapshot must agree with `images/pro/`.
 The bench hashes of the pixels change because of this change. No hash of the puzzles or of the
 recognizer may change. Then save the baselines, as AGENTS.md "Performance" tells, for the computer
 and for the Linux container (`scripts/bench.sh --save`, `make bench-linux-save`).

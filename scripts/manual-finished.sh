@@ -28,7 +28,7 @@ text 72 1605 38 gray25 start "The app saves the difficulty and time of each comp
 text 72 1655 38 gray25 start "Analytics in the menu shows your totals, average times"
 text 72 1705 38 gray25 start "and a list of all games. To delete a game, tap its bin."
 text 72 1755 38 gray25 start "The app asks you to confirm."
-picture 1235 1480 "$(shot "$UI/screen-toolbar.png" 112x112+1508+1936)"
+picture 1235 1480 "$(shot "$UI/screen-toolbar.png" $(slot_crop statistics))"
 
 pagenum 9 9
 render "$1/manual-finished.png"

@@ -33,7 +33,7 @@ files that you own. The agent that starts you gives you one group, for example:
    the limits, the other orientations, the right-handed layout, the completed game.
 3. **Snapshots:** add or change a reference state in `src/reference.rs` if the current states do
    not show the change. `cargo run --release --bin snapshot -- DIR` (with a `DIR` that is not
-   `images/`) must agree with `images/`. Do not change `images/` or the image scripts.
+   `images/`) must agree with `images/pro/`. Do not change `images/` or the image scripts.
 4. **Installer:** the fake `ssh` finds each remote command from its first word (`: name;`). Change
    it for each new or changed remote command. `tests/install/run.sh SCENARIO` must pass for all
    scenarios.
