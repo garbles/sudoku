@@ -140,8 +140,9 @@ fn the_executable_operates_through_qtfb() {
     server.accept();
     assert!(server.wait_update(), "first frame");
 
-    // The board: the thick line at x 148 is black, a cell center is white or gray.
-    assert_eq!(server.pixel(148, 1000), [0, 0, 0]);
+    // The board: its left border line is black, the screen at the left of the board is white.
+    let (bx, by) = (sudoku::layout::board_x() as usize, sudoku::layout::board_y() as usize);
+    assert_eq!(server.pixel(bx, by + 600), [0, 0, 0]);
     assert_eq!(server.pixel(5, 1000), [255, 255, 255]);
     // PER-2: the app opens with the menu open, thus the close button shows.
     assert_ne!(server.pixel(38, 55), [255, 255, 255], "the close button shows at the start");
