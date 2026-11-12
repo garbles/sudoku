@@ -755,6 +755,8 @@ tablet_info() {
       ;;
     *Chiappa*)
       ok "Tablet: reMarkable Paper Pro Move, software ${os:-unknown}."
+      warn "Sudoku has not been tested on a real Paper Pro Move. If you find a problem,"
+      warn "please tell the developer: $REPO/issues"
       ;;
     "")
       warn "Tablet: unknown model, software ${os:-unknown}. The installer continues."

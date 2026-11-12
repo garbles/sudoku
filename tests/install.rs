@@ -412,6 +412,7 @@ fn the_paper_pro_move_needs_no_confirmation() {
     let (out, code) = run("move");
     assert_eq!(code, 0, "{out}");
     assert_has(&out, "Tablet: reMarkable Paper Pro Move");
+    assert_has(&out, "Sudoku has not been tested on a real Paper Pro Move.");
     assert!(!out.contains("This tablet is not"), "{out}");
 }
 
