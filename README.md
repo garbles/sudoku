@@ -1,4 +1,4 @@
-# Sudoku for reMarkable Paper Pro
+# Sudoku for reMarkable Paper Pro and Paper Pro Move
 
 A Sudoku game for the color e-ink display. It is the best way to play Sudoku: it feels like pen and
 paper, and it does the work that paper cannot do.
@@ -38,7 +38,7 @@ paper, and it does the work that paper cannot do.
 
 ## Installation
 
-You need a computer with macOS or Linux and reMarkable Paper Pro in [developer mode](https://support.remarkable.com/s/article/Developer-mode).
+You need a computer with macOS or Linux and a reMarkable Paper Pro or Paper Pro Move in [developer mode](https://support.remarkable.com/s/article/Developer-mode).
 Run [the step-by-step installer](https://github.com/garbles/sudoku/blob/main/install.sh) in your terminal:
 
 ```bash

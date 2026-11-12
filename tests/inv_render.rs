@@ -60,7 +60,7 @@ fn board(g: &Game) -> Game {
 
 /// The area of the toolbar slot with its top at y.
 fn slot(y: i32) -> Rect {
-    Rect::new(layout::tb_x(), y, layout::screen_w() as i32, y + layout::TB_SLOT)
+    Rect::new(layout::tb_x(), y, layout::screen_w() as i32, y + layout::tb_slot())
 }
 
 // ---- BRD-6, BRD-8, MRK-1, MRK-2: the board.
@@ -74,9 +74,32 @@ const PATTERN: [[u32; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [1
 /// BRD-9: the offsets of the micro-cell lines from the cell origin, and their width.
 const MICRO_LINES: [i32; 2] = [49, 98];
 const MICRO_WIDTH: i32 = 2;
-/// R§15: the cell size and the size of the board.
+/// R§15: the cell size, the widths of the board lines and the size of the board. Each line has its own
+/// pixels between the cells: the border and the box lines are 7 px, the cell lines 3 px (BRD-11).
 const CELL_PX: i32 = 147;
-const BOARD_PX: i32 = 9 * CELL_PX;
+const BOX_LINE_PX: i32 = 7;
+const CELL_LINE_PX: i32 = 3;
+const BOARD_PX: i32 = 9 * CELL_PX + 4 * BOX_LINE_PX + 6 * CELL_LINE_PX;
+
+/// The width of board line k (0..=9) of the model.
+fn model_line_w(k: i32) -> i32 {
+    if k % 3 == 0 { BOX_LINE_PX } else { CELL_LINE_PX }
+}
+
+/// The first pixel of board line k (0..=9) from the top left of the board, in the model.
+fn model_line_off(k: i32) -> i32 {
+    k * CELL_PX + (0..k).map(model_line_w).sum::<i32>()
+}
+
+/// The first pixel of the cells of column (or row) i, in the model.
+fn model_cell_off(i: i32) -> i32 {
+    model_line_off(i) + model_line_w(i)
+}
+
+/// The top left of a cell of the board with its top left at `origin`, in the model.
+fn model_cell_origin(origin: (i32, i32), (r, c): Cell) -> (i32, i32) {
+    (origin.0 + model_cell_off(c as i32), origin.1 + model_cell_off(r as i32))
+}
 const WHITE_PX: [u8; 3] = [255, 255, 255];
 
 /// R§10, R§15: the gray of a `micro_line` value (ImageMagick grayN, N percent of white, rounded), or
@@ -114,24 +137,20 @@ fn grid_pixel(g: LineGray, dx: i32, dy: i32) -> [u8; 3] {
 }
 
 /// BRD-11, R§15: true if the screen pixel (x, y) is on a board line of the board with its top left at
-/// `origin`. A line is centered on the border of a cell: 13 px (the border and the box lines) or 3 px
-/// (the cell lines). The lines go over the full board, also over the border.
+/// `origin`. Each line has its own pixels between the cells, over the full board.
 fn on_board_line(origin: (i32, i32), x: i32, y: i32) -> bool {
-    let near = |p: i32| {
-        (0..=9).any(|k| {
-            let half = if k % 3 == 0 { 6 } else { 1 };
-            (p - (k * CELL_PX)).abs() <= half
-        })
-    };
+    let on = |p: i32| (0..=9).any(|k| (model_line_off(k)..model_line_off(k) + model_line_w(k)).contains(&p));
     let (dx, dy) = (x - origin.0, y - origin.1);
-    let inside = |p: i32| (-6..=BOARD_PX + 6).contains(&p);
-    inside(dx) && inside(dy) && (near(dx) || near(dy))
+    let inside = |p: i32| (0..BOARD_PX).contains(&p);
+    inside(dx) && inside(dy) && (on(dx) || on(dy))
 }
 
 /// The cell of the board that contains the screen pixel (x, y), and the position in the cell.
 fn cell_at(origin: (i32, i32), x: i32, y: i32) -> Option<(Cell, i32, i32)> {
+    let index = |p: i32| (0..9).find(|&i| (model_cell_off(i)..model_cell_off(i) + CELL_PX).contains(&p));
     let (dx, dy) = (x - origin.0, y - origin.1);
-    ((0..BOARD_PX).contains(&dx) && (0..BOARD_PX).contains(&dy)).then(|| (((dy / CELL_PX) as u8, (dx / CELL_PX) as u8), dx % CELL_PX, dy % CELL_PX))
+    let (c, r) = (index(dx)?, index(dy)?);
+    Some(((r as u8, c as u8), dx - model_cell_off(c), dy - model_cell_off(r)))
 }
 
 /// BRD-9, BRD-6: the micro-cell lines of an empty cell in runs of 2 x 4 px, at the positions `along`
@@ -374,7 +393,7 @@ fn undo_and_redo_are_black_only_when_they_operate() {
         let pm = draw_app(&d.app, &fonts);
         for (k, on) in [(3, undo), (4, redo)] {
             let want = if on { 0 } else { gray(70)[0] };
-            assert_eq!(darkest(&pm, slot(k * layout::TB_SLOT)), want, "button {k}, undo {undo}, redo {redo}");
+            assert_eq!(darkest(&pm, slot(k * layout::tb_slot())), want, "button {k}, undo {undo}, redo {redo}");
         }
         for (b, on) in [(Button::Undo, undo), (Button::Redo, redo)] {
             if !on {
@@ -414,7 +433,7 @@ fn undo_and_redo_are_gray_on_a_complete_game() {
     assert!(d.app.ui.menu.is_open());
     let pm = draw_app(&d.app, &fonts);
     for k in [3, 4] {
-        assert_eq!(darkest(&pm, slot(k * layout::TB_SLOT)), gray(70)[0], "button {k} is not gray");
+        assert_eq!(darkest(&pm, slot(k * layout::tb_slot())), gray(70)[0], "button {k} is not gray");
     }
     let g = d.app.game.clone();
     d.button(Button::Undo);
@@ -443,7 +462,7 @@ fn the_result_card_replaces_the_meter() {
         let old = text_only(&fonts, Units::Screen, Weight::Medium, 25.0, cx, ty, Anchor::Middle, &format!("Completed in {text}"));
         assert!(first_difference(&pm, &old, area).is_some(), "CMP-4: {seconds} s: the old text \"Completed in {text}\" shows");
         assert_eq!(darkest(&pm, above_card), 255, "CMP-4: {seconds} s: the meter shows on a complete game");
-        assert_eq!(rgb_at(&pm, 148, 1950), [0, 0, 0], "CMP-4, CMP-7: {seconds} s: no result card");
+        assert_eq!(rgb_at(&pm, 125, 1950), [0, 0, 0], "CMP-4, CMP-7: {seconds} s: no result card");
     }
 
     // Not complete: the meter shows, and no card.
@@ -514,13 +533,13 @@ fn only_the_button_of_the_open_panel_is_white_on_black() {
     // NAV-8: the button of the open panel is white on black. The other buttons are black on white.
     let fonts = fonts();
     let slots = [
-        (Some(Panel::Colors), layout::TB_SLOT),
-        (Some(Panel::Settings), 2 * layout::TB_SLOT),
-        (None, 3 * layout::TB_SLOT),
-        (None, 4 * layout::TB_SLOT),
-        (Some(Panel::Checkpoints), 5 * layout::TB_SLOT),
-        (None, layout::tb_bottom_y() - 2 * layout::TB_SLOT),
-        (None, layout::tb_bottom_y() - layout::TB_SLOT),
+        (Some(Panel::Colors), layout::tb_slot()),
+        (Some(Panel::Settings), 2 * layout::tb_slot()),
+        (None, 3 * layout::tb_slot()),
+        (None, 4 * layout::tb_slot()),
+        (Some(Panel::Checkpoints), 5 * layout::tb_slot()),
+        (None, layout::tb_bottom_y() - 2 * layout::tb_slot()),
+        (None, layout::tb_bottom_y() - layout::tb_slot()),
         (Some(Panel::NewGame), layout::tb_bottom_y()),
     ];
     let mut d = Driver::new(77);
@@ -572,7 +591,7 @@ fn a_right_handed_player_has_the_toolbar_at_the_left() {
     for o in [layout::Orientation::Portrait, layout::Orientation::Landscape] {
         layout::set_orientation(o);
         let w = layout::screen_w() as i32;
-        let shift = w - layout::TB_SLOT;
+        let shift = w - layout::tb_slot();
         for (button, panel) in [(Some(Button::Menu), None), (Some(Button::Colors), Some(Panel::Colors)), (Some(Button::Settings), Some(Panel::Settings)), (Some(Button::Checkpoints), Some(Panel::Checkpoints)), (Some(Button::NewGame), Some(Panel::NewGame))] {
             if let Some(b) = button {
                 d.button(b);
@@ -586,21 +605,21 @@ fn a_right_handed_player_has_the_toolbar_at_the_left() {
             // thus a few edge pixels differ. Such a pixel has a neighbor with the other value in the
             // same picture. At most 16 pixels differ, and all other pixels are equal.
             let mut edge_differences = 0;
-            for (x, y) in mirror(0, 0, w, layout::TB_SLOT).filter(|&(x, _)| x < layout::TB_SLOT || x >= shift) {
+            for (x, y) in mirror(0, 0, w, layout::tb_slot()).filter(|&(x, _)| x < layout::tb_slot() || x >= shift) {
                 let (a, b) = (rgb_at(&right, x, y)[0], rgb_at(&left, w - 1 - x, y)[0]);
                 if a == b {
                     continue;
                 }
                 let at_edge = [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| {
                     let (nx, ny) = (x + dx, y + dy);
-                    nx >= 0 && ny >= 0 && nx < w && ny < layout::TB_SLOT && rgb_at(&right, nx, ny)[0] != a
+                    nx >= 0 && ny >= 0 && nx < w && ny < layout::tb_slot() && rgb_at(&right, nx, ny)[0] != a
                 });
                 assert!(at_edge, "{o:?} {panel:?}: top row at ({x}, {y}): {a} and {b}");
                 edge_differences += 1;
             }
             assert!(edge_differences <= 16, "{o:?} {panel:?}: {edge_differences} edge pixels differ in the top row");
             // The other toolbar slots: the same icons at the other edge.
-            for (x, y) in mirror(0, layout::TB_SLOT, layout::TB_SLOT, layout::screen_h() as i32) {
+            for (x, y) in mirror(0, layout::tb_slot(), layout::tb_slot(), layout::screen_h() as i32) {
                 assert_eq!(rgb_at(&right, x, y), rgb_at(&left, x + shift, y), "{o:?} {panel:?}: toolbar at ({x}, {y})");
             }
             // The panel touches the toolbar and has the same contents.
@@ -616,8 +635,8 @@ fn a_right_handed_player_has_the_toolbar_at_the_left() {
                 // The text of the Checkpoints panel starts at a different x: the rounding of the glyph
                 // positions (f32) can change the edge pixels of a glyph by a small amount. NAV-18.
                 let limit = if panel == Some(Panel::Checkpoints) { 8 } else { 0 };
-                for (x, y) in mirror(layout::TB_SLOT, p.y0, layout::TB_SLOT + pw, p.y1.min(layout::screen_h() as i32)) {
-                    let (a, b) = (rgb_at(&right, x, y), rgb_at(&left, x - layout::TB_SLOT + p.x0, y));
+                for (x, y) in mirror(layout::tb_slot(), p.y0, layout::tb_slot() + pw, p.y1.min(layout::screen_h() as i32)) {
+                    let (a, b) = (rgb_at(&right, x, y), rgb_at(&left, x - layout::tb_slot() + p.x0, y));
                     let close = a.iter().zip(b.iter()).all(|(p, q)| p.abs_diff(*q) <= limit);
                     assert!(close, "{o:?} {panel:?}: panel at ({x}, {y}): {a:?} and {b:?}");
                 }
@@ -698,7 +717,7 @@ fn check_summary(fonts: &Fonts, pm: &Pixmap, total: &str, average: &str, modes: 
         assert_eq!(first_difference(pm, &want, area), None, "the box at {x0} does not show only \"{value}\"");
     }
     let (count_x, right) = (layout::summary_count_x(), layout::page_right());
-    let mut y = layout::SUMMARY_TABLE_Y;
+    let mut y = layout::device().summary.table.top;
     for (mode, (count, avg)) in modes.iter().enumerate() {
         let row = layout::summary_row();
         let base = y + (row / 2.0).floor() + 12.0;
@@ -829,9 +848,9 @@ fn the_first_frame_shows_the_open_toolbar_and_the_close_button() {
         let (first, without_menu) = (draw_handed(&app, &fonts, right_handed), draw_handed(&closed, &fonts, right_handed));
         layout::set_right_handed(right_handed);
         // The center of the close button is the crossing of the two lines of the X.
-        let (cx, cy) = (layout::close_cx() as i32, layout::CLOSE_CY as i32);
+        let (cx, cy) = (layout::close_cx() as i32, layout::close_cy() as i32);
         // The gear (top slot 2) is a toolbar button that shows only in the open menu.
-        let gear = Rect::new(layout::tb_x(), 2 * layout::TB_SLOT, layout::tb_x() + layout::TB_SLOT, 3 * layout::TB_SLOT);
+        let gear = Rect::new(layout::tb_x(), 2 * layout::tb_slot(), layout::tb_x() + layout::tb_slot(), 3 * layout::tb_slot());
         layout::set_right_handed(false);
         assert!(rgb_at(&first, cx, cy)[0] < 100, "NAV-6: the close button is not drawn (right-handed: {right_handed})");
         assert_eq!(rgb_at(&without_menu, cx, cy), [255, 255, 255], "NAV-6: the close button shows with the menu closed (right-handed: {right_handed})");
@@ -880,8 +899,8 @@ impl Drop for InLayout {
 /// The top left of the board in a layout (§15): the hand of the player does not move the board.
 fn board_origin(o: layout::Orientation) -> (i32, i32) {
     match o {
-        layout::Orientation::Portrait => (148, 418),
-        layout::Orientation::Landscape => (418, 148),
+        layout::Orientation::Portrait => (125, 395),
+        layout::Orientation::Landscape => (395, 125),
     }
 }
 
@@ -908,7 +927,7 @@ fn refused_spot(g: &Game, filter: impl Fn(Cell, u8) -> bool) -> (Cell, u8) {
 /// at the bottom right) from the origin of the cell (column on x, row on y).
 fn x_center(origin: (i32, i32), (r, c): Cell, digit: u8) -> (f32, f32) {
     let i = digit as usize - 1;
-    let (cell_x, cell_y) = (origin.0 + c as i32 * cell_size(), origin.1 + r as i32 * cell_size());
+    let (cell_x, cell_y) = model_cell_origin(origin, (r, c));
     ((cell_x + X_ANCHOR[i % 3]) as f32, (cell_y + X_ANCHOR[i / 3]) as f32)
 }
 
@@ -1038,7 +1057,7 @@ fn the_x_changes_only_its_micro_cell_in_all_layouts() {
             for digit in 1..=9u8 {
                 let what = format!("{o:?}, right-handed {right_handed}, symmetric {symmetric}, {line:?}, digit {digit}");
                 let cell = cell_with_marks(&mut d, digit, digit % 2 == 0);
-                assert_eq!(layout::cell_origin(cell), (board_origin(o).0 + cell.1 as i32 * cell_size(), board_origin(o).1 + cell.0 as i32 * cell_size()), "{what}");
+                assert_eq!(layout::cell_origin(cell), model_cell_origin(board_origin(o), cell), "{what}");
                 let center = x_center(board_origin(o), cell, digit);
                 let before = draw_app(&d.app, &fonts);
                 assert_grid(&before, cell, grid, &what);
@@ -1093,7 +1112,8 @@ fn the_x_is_at_the_keypad_position_of_its_digit() {
         let (bx, by) = board_origin(o);
         for (digit, &(ox, oy)) in (1..=9u8).zip(&OFFSETS) {
             app.ui.refused = Some(((r, c), digit, 0));
-            let want = ((bx + c as i32 * 147 + ox) as f32, (by + r as i32 * 147 + oy) as f32);
+            let (cx, cy) = model_cell_origin((bx, by), (r, c));
+            let want = ((cx + ox) as f32, (cy + oy) as f32);
             assert_only_x(&fonts, &plain, &draw_app(&app, &fonts), want, &format!("{o:?}, right-handed {right_handed}, cell ({r}, {c}), digit {digit}"));
         }
     }
@@ -1738,7 +1758,7 @@ fn the_cell_colors_panel_has_its_position_and_its_lines_in_all_layouts() {
         }
         for (index, title) in TITLES.iter().enumerate() {
             let (left, top) = section_origin(x0, index as i32);
-            let want = text_only(&fonts, Units::Screen, Weight::Medium, 25.0, (left + 33) as f32, (top + layout::COLOR_TITLE_Y) as f32, Anchor::Start, title);
+            let want = text_only(&fonts, Units::Screen, Weight::Medium, 25.0, (left + 33) as f32, (top + layout::device().colors_panel.title_baseline) as f32, Anchor::Start, title);
             let area = Rect::new(left + 4, top + 4, left + 398, top + 62);
             assert_eq!(first_difference(&pm, &want, area), None, "NAV-17: {what}: the title {title}");
             assert!(darkest(&pm, area) < 100, "NAV-17: {what}: no title {title}");
@@ -1756,7 +1776,7 @@ fn the_cell_colors_panel_covers_no_button_and_not_the_meter_or_the_result_card()
         let _layout = InLayout::set(o, right_handed);
         let (x0, x1) = colors_x_range(o, right_handed);
         let panel = Rect::new(x0, 112, x1 + 1, 1193);
-        let bucket = Rect::new(layout::tb_x(), layout::TB_SLOT, layout::tb_x() + layout::TB_SLOT, 2 * layout::TB_SLOT);
+        let bucket = Rect::new(layout::tb_x(), layout::tb_slot(), layout::tb_x() + layout::tb_slot(), 2 * layout::tb_slot());
         for completed in [false, true] {
             let what = format!("{o:?}, right-handed {right_handed}, completed {completed}");
             let mut app = reference::app(&fonts);
@@ -1772,14 +1792,14 @@ fn the_cell_colors_panel_covers_no_button_and_not_the_meter_or_the_result_card()
             // The meter is below the board. All of it is below the panel.
             let below = board_origin(o).1 + layout::board_size() + 1;
             let (w, h) = (layout::screen_w() as i32, layout::screen_h() as i32);
-            let ink = (below..h).flat_map(|y| (layout::TB_SLOT..w - layout::TB_SLOT).map(move |x| (x, y))).filter(|&(x, y)| rgb_at(&without, x, y) != [255, 255, 255]).count();
+            let ink = (below..h).flat_map(|y| (layout::tb_slot()..w - layout::tb_slot()).map(move |x| (x, y))).filter(|&(x, y)| rgb_at(&without, x, y) != [255, 255, 255]).count();
             assert!(below > 1192, "NAV-17: {what}: the board ends at {below}");
             if completed {
                 // CMP-7: the frame of the result card (x0 − 1 to x1 + 1) is outside the panel.
                 let (cx0, cy0, cx1, cy1) = match (o, right_handed) {
-                    (layout::Orientation::Portrait, _) => (148, 1790, 1471, 2110),
-                    (layout::Orientation::Landscape, false) => (48, 148, 370, 1471),
-                    (layout::Orientation::Landscape, true) => (1790, 148, 2112, 1471),
+                    (layout::Orientation::Portrait, _) => (125, 1813, 1494, 2133),
+                    (layout::Orientation::Landscape, false) => (48, 125, 370, 1494),
+                    (layout::Orientation::Landscape, true) => (1790, 125, 2112, 1494),
                 };
                 let apart = cx1 + 1 < x0 || cx0 - 1 > x1 || cy1 + 1 < 112 || cy0 - 1 > 1192;
                 assert!(apart, "NAV-17, CMP-7: {what}: the panel covers the result card");
@@ -2000,7 +2020,7 @@ fn a_switch_that_is_off_has_the_same_pixels_for_the_two_hands() {
         let (left, right) = (draw_handed(&d.app, &fonts, false), draw_handed(&d.app, &fonts, true));
         let different: Vec<(i32, i32)> = (p.y0..p.y1)
             .flat_map(|y| (0..p.x1 - p.x0).map(move |x| (x, y)))
-            .filter(|&(x, y)| rgb_at(&right, layout::TB_SLOT + x, y) != rgb_at(&left, p.x0 + x, y))
+            .filter(|&(x, y)| rgb_at(&right, layout::tb_slot() + x, y) != rgb_at(&left, p.x0 + x, y))
             .collect();
         layout::set_orientation(layout::Orientation::Portrait);
         assert_eq!(different, vec![], "NAV-15: {o:?}: the pixels (from the left of the panel) that are different");
@@ -2597,7 +2617,7 @@ fn each_pixel_of_an_empty_board_is_the_pattern_or_a_black_board_line_in_all_layo
     for (o, right_handed) in LAYOUTS {
         let _layout = InLayout::set(o, right_handed);
         let origin = board_origin(o);
-        assert_eq!(layout::cell_origin((0, 0)), origin, "R§15: {o:?}");
+        assert_eq!(layout::cell_origin((0, 0)), (origin.0 + BOX_LINE_PX, origin.1 + BOX_LINE_PX), "R§15: {o:?}");
         for g in LineGray::ALL {
             let what = format!("{o:?}, right-handed {right_handed}, {g:?}");
             let pm = draw_app(&blank_board_app(&fonts, g), &fonts);
@@ -2686,15 +2706,15 @@ fn the_board_lines_are_black_with_no_intermediate_pixel_next_to_them() {
         let filled = |c: Cell| app.game.is_filled(c).then(|| model_background(&app, c));
         let n = assert_board_model(&pm, origin, app.settings.micro_line, filled, &what);
         assert!(n > 500_000, "{what}: the test examines the lines");
-        // The literal positions of R§15 in portrait: the left border from x 142 to 154, the first
-        // cell line from x 294 to 296, the right border from x 1465 to 1477.
+        // The literal positions of R§15 in portrait: the left border from x 125 to 131, the first
+        // cell line from x 279 to 281, the right border from x 1487 to 1493.
         if o == layout::Orientation::Portrait {
-            let y = origin.1 + 4 * CELL_PX + 120;
-            let runs: Vec<i32> = (130..1490).filter(|&x| rgb_at(&pm, x, y) == BLACK).collect();
-            assert!(runs.starts_with(&(142..=154).collect::<Vec<_>>()), "BRD-11: {what}: the left border");
-            assert!(runs.ends_with(&(1465..=1477).collect::<Vec<_>>()), "BRD-11: {what}: the right border");
-            assert!((294..=296).all(|x| runs.contains(&x)) && !runs.contains(&293) && !runs.contains(&297), "BRD-11: {what}: the first cell line");
-            for x in [155, 297, 1464, 1478] {
+            let y = origin.1 + model_cell_off(4) + 120;
+            let runs: Vec<i32> = (110..1510).filter(|&x| rgb_at(&pm, x, y) == BLACK).collect();
+            assert!(runs.starts_with(&(125..=131).collect::<Vec<_>>()), "BRD-11: {what}: the left border");
+            assert!(runs.ends_with(&(1487..=1493).collect::<Vec<_>>()), "BRD-11: {what}: the right border");
+            assert!((279..=281).all(|x| runs.contains(&x)) && !runs.contains(&278) && !runs.contains(&282), "BRD-11: {what}: the first cell line");
+            for x in [124, 132, 278, 282, 1486, 1494] {
                 assert_ne!(rgb_at(&pm, x, y), [191, 191, 191], "BRD-11: {what}: a faint edge pixel at x {x}");
             }
         }

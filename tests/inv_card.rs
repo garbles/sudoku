@@ -47,9 +47,9 @@ impl Drop for InLayout {
 /// The frame of the card from CMP-7 and R§8.3 (x0, y0, x1, y1, as in the documents).
 fn documented_card(o: Orientation, right_handed: bool) -> (i32, i32, i32, i32) {
     match (o, right_handed) {
-        (Orientation::Portrait, _) => (148, 1790, 1471, 2110),
-        (Orientation::Landscape, false) => (48, 148, 370, 1471),
-        (Orientation::Landscape, true) => (1790, 148, 2112, 1471),
+        (Orientation::Portrait, _) => (125, 1813, 1494, 2133),
+        (Orientation::Landscape, false) => (48, 125, 370, 1494),
+        (Orientation::Landscape, true) => (1790, 125, 2112, 1494),
     }
 }
 
@@ -62,8 +62,8 @@ fn card_pixels(o: Orientation, right_handed: bool) -> Rect {
 /// The board with its outer lines (§15: the board does not move with the hand).
 fn board_area(o: Orientation) -> Rect {
     let (x, y) = match o {
-        Orientation::Portrait => (148, 418),
-        Orientation::Landscape => (418, 148),
+        Orientation::Portrait => (125, 395),
+        Orientation::Landscape => (395, 125),
     };
     Rect::new(x - 4, y - 4, x + layout::board_size() + 4, y + layout::board_size() + 4)
 }
@@ -272,9 +272,9 @@ fn the_card_touches_no_button_and_not_the_board() {
         let what = format!("{o:?}, right-handed {rh}");
         let card = card_pixels(o, rh);
         let (w, h) = (layout::screen_w() as i32, layout::screen_h() as i32);
-        let toolbar = if rh { Rect::new(0, 0, layout::TB_SLOT, h) } else { Rect::new(w - layout::TB_SLOT, 0, w, h) };
-        let menu_button = Rect::new(toolbar.x0, 0, toolbar.x1, layout::TB_SLOT);
-        let close = if rh { Rect::new(w - layout::TB_SLOT, 0, w, layout::TB_SLOT) } else { Rect::new(0, 0, layout::TB_SLOT, layout::TB_SLOT) };
+        let toolbar = if rh { Rect::new(0, 0, layout::tb_slot(), h) } else { Rect::new(w - layout::tb_slot(), 0, w, h) };
+        let menu_button = Rect::new(toolbar.x0, 0, toolbar.x1, layout::tb_slot());
+        let close = if rh { Rect::new(w - layout::tb_slot(), 0, w, layout::tb_slot()) } else { Rect::new(0, 0, layout::tb_slot(), layout::tb_slot()) };
         for (name, r) in [("toolbar", toolbar), ("menu button", menu_button), ("close button", close), ("board", board_area(o))] {
             assert!(apart(card, r), "CMP-7: {what}: the card touches the {name}");
         }
@@ -319,8 +319,8 @@ fn the_card_changes_only_its_own_pixels_and_replaces_the_meter() {
                 after.ui.menu = menu;
                 let (pb, pa) = (draw_app(&before, &fonts), draw_app(&after, &fonts));
                 let (w, h) = (layout::screen_w() as i32, layout::screen_h() as i32);
-                let toolbar = if rh { Rect::new(0, 0, layout::TB_SLOT, h) } else { Rect::new(w - layout::TB_SLOT, 0, w, h) };
-                let close = if rh { Rect::new(w - layout::TB_SLOT, 0, w, layout::TB_SLOT) } else { Rect::new(0, 0, layout::TB_SLOT, layout::TB_SLOT) };
+                let toolbar = if rh { Rect::new(0, 0, layout::tb_slot(), h) } else { Rect::new(w - layout::tb_slot(), 0, w, h) };
+                let close = if rh { Rect::new(w - layout::tb_slot(), 0, w, layout::tb_slot()) } else { Rect::new(0, 0, layout::tb_slot(), layout::tb_slot()) };
                 let meter = Rect::new(layout::meter_xl() - 10, layout::meter_y() - 25, layout::meter_xr() + 10, layout::meter_y() + 25);
                 let card = card_pixels(o, rh);
                 for p in differences(&pb, &pa) {
@@ -402,7 +402,7 @@ fn the_card_shows_completed_in_and_the_time() {
             let pm = draw_app(&card_app(game, vec![]), &fonts);
             let time = clock(seconds);
             let (label_y, time_y, size, label_area, time_area) = if o == Orientation::Portrait {
-                (y0 + 66, y0 + 180, 96.0, Rect::new(x0 + 4, y0 + 4, 780, y0 + 95), Rect::new(x0 + 4, y0 + 95, 780, y0 + 205))
+                (y0 + 66, y0 + 180, 96.0, Rect::new(x0 + 4, y0 + 4, layout::card_divider() - 4, y0 + 95), Rect::new(x0 + 4, y0 + 95, layout::card_divider() - 4, y0 + 205))
             } else {
                 (y0 + 70, y0 + 185, 72.0, Rect::new(x0 + 4, y0 + 4, x1 - 4, y0 + 95), Rect::new(x0 + 4, y0 + 95, x1 - 3, y0 + 215))
             };
@@ -430,7 +430,7 @@ fn the_card_shows_completed_in_and_the_time() {
 #[test]
 fn the_card_shows_the_meter_of_the_mode() {
     // CMP-4, R§8.3: the card shows the meter of `game.mode`. In portrait it is the same drawing as the
-    // meter below the board, from x 188 to 628 with its center line at y 2022. In landscape it is a
+    // meter below the board, from x 165 to 605 with its center line at y 2045. In landscape it is a
     // meter with no labels, stop step 40 px, centered in the column at y0 + 255. The player cannot
     // change it.
     let fonts = fonts();
@@ -440,15 +440,15 @@ fn the_card_shows_the_meter_of_the_mode() {
         let app = card_app(g.clone(), vec![]).clone_for_test(&g, missing);
         let pm = draw_app(&app, &fonts);
         let meter = Rect::new(layout::meter_xl() - 10, layout::meter_y() - 20, layout::meter_xr() + 10, layout::meter_y() + 20);
-        let (dx, dy) = (188 - layout::meter_xl(), 2022 - layout::meter_y());
+        let (dx, dy) = (165 - layout::meter_xl(), 2045 - layout::meter_y());
         assert_eq!(shifted_difference(&playing, meter, &pm, dx, dy), None, "CMP-4: mode {mode}: the meter of the card is not the meter of the board");
         // Taps on the meter of the card do not change the game.
         let mut d = Driver::from(app);
         let before = d.app.game.clone();
-        let stops = layout::slider_stops(188, 628, meter_label(&fonts, "Easy"), meter_label(&fonts, "Hard"));
+        let stops = layout::slider_stops(165, 605, meter_label(&fonts, "Easy"), meter_label(&fonts, "Hard"));
         for &x in &stops {
-            d.finger_tap(x, 2022.0);
-            d.pen_tap(x, 2022.0);
+            d.finger_tap(x, 2045.0);
+            d.pen_tap(x, 2045.0);
         }
         assert_eq!(d.app.game, before, "CMP-4: mode {mode}: a tap changed the meter of the card");
         for rh in [false, true] {
@@ -491,7 +491,7 @@ fn the_comparison_uses_only_the_earlier_results_at_the_mode() {
 
 #[test]
 fn the_card_shows_the_comparison_text() {
-    // CMP-8, NAV-19, R§8.3, R§15: portrait, one line (Regular 25, gray25) at x 188, baseline 2083;
+    // CMP-8, NAV-19, R§8.3, R§15: portrait, one line (Regular 25, gray25) at x 165, baseline 2106;
     // landscape, the labels (Regular 25, gray25) at y0 + 370 and y0 + 480 and the values (Medium 40,
     // black) at y0 + 418 and y0 + 528. The values follow `results`: after a delete, the new values.
     let fonts = fonts();
@@ -512,7 +512,7 @@ fn the_card_shows_the_comparison_text() {
                     Some(a) => format!("Average {a}  ·  Previous best {best}"),
                     None => "First game at this level".to_string(),
                 };
-                (texts_only(&fonts, &[(Weight::Regular, 25.0, 188.0, 2083.0, Anchor::Start, &line, GRAY25)]), Rect::new(x0 + 4, 2050, 780, y0 + 316))
+                (texts_only(&fonts, &[(Weight::Regular, 25.0, (x0 + 40) as f32, (y0 + 293) as f32, Anchor::Start, &line, GRAY25)]), Rect::new(x0 + 4, y0 + 260, layout::card_divider() - 4, y0 + 316))
             } else {
                 let tx = (x0 + 28) as f32;
                 let y = y0 as f32;
@@ -550,7 +550,7 @@ fn the_comparison_follows_a_delete_in_statistics() {
 
 #[test]
 fn the_level_buttons_have_the_documented_rectangles() {
-    // CMP-9, R§8.3: portrait x 820–1439, y 1865–1935, 1945–2015, 2025–2095 for the two hands;
+    // CMP-9, R§8.3: portrait x 797–1462, y 1888–1958, 1968–2038, 2048–2118 for the two hands;
     // landscape x0 + 20 to x1 − 20, 120 px high, pitch 140 px, the first 90 px below the divider at
     // y1 − 560.
     for (o, rh) in LAYOUTS {
@@ -560,7 +560,7 @@ fn the_level_buttons_have_the_documented_rectangles() {
             let r = layout::level_button(b);
             let i = i as i32;
             let want = if o == Orientation::Portrait {
-                (820, 1865 + 80 * i, 1439, 1935 + 80 * i)
+                (797, 1888 + 80 * i, 1462, 1958 + 80 * i)
             } else {
                 (x0 + 20, y1 - 560 + 90 + 140 * i, x1 - 20, y1 - 560 + 210 + 140 * i)
             };
@@ -568,7 +568,7 @@ fn the_level_buttons_have_the_documented_rectangles() {
             let (cx, cy) = level_center(b);
             assert_eq!(layout::level_button_at(cx, cy), Some(b), "CMP-9");
         }
-        assert_eq!(layout::card_divider(), if o == Orientation::Portrait { 788 } else { 911 }, "R§8.3: the divider");
+        assert_eq!(layout::card_divider(), if o == Orientation::Portrait { 765 } else { 934 }, "R§8.3: the divider");
     }
 }
 

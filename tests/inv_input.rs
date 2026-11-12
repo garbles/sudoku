@@ -10,7 +10,7 @@ mod common;
 use common::*;
 use sudoku::app::{new_game, App, Input, Menu, Panel, Screen, Tool, HAND_TOUCH_MS, MAX_CLOCK_GAP_MS, OVERLAY_MS, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
 use sudoku::game::{cells, mark_bit, Cell, Change, Game, Marks};
-use sudoku::layout::{self, Button, SWIPE_MIN};
+use sudoku::layout::{self, Button};
 use sudoku::reference;
 use sudoku::settings::{Color, Section, Switch};
 
@@ -459,9 +459,10 @@ fn finger_dxdy(d: &mut Driver, dx: f32, dy: f32) {
 fn swipe_limits(d: &mut Driver, page: fn(&App) -> usize) {
     let p = page(&d.app);
     assert!(p >= 2, "the test needs a page before and a page after");
+    let swipe_min = layout::device().page.swipe;
     for (dx, dy, why) in [
-        (SWIPE_MIN - 1.0, 0.0, "dx 119"),
-        (-(SWIPE_MIN - 1.0), 0.0, "dx -119"),
+        (swipe_min - 1.0, 0.0, "dx 119"),
+        (-(swipe_min - 1.0), 0.0, "dx -119"),
         (150.0, 150.0, "|dx| = |dy|"),
         (-150.0, -150.0, "|dx| = |dy|, up"),
         (-150.0, 150.0, "|dx| = |dy|, down"),
@@ -471,13 +472,13 @@ fn swipe_limits(d: &mut Driver, page: fn(&App) -> usize) {
         finger_dxdy(d, dx, dy);
         assert_eq!(page(&d.app), p, "INP-14: {why} is not a swipe");
     }
-    finger_dxdy(d, -SWIPE_MIN, 0.0);
+    finger_dxdy(d, -swipe_min, 0.0);
     assert_eq!(page(&d.app), p + 1, "INP-14: dx -120 is a swipe to the next page");
-    finger_dxdy(d, SWIPE_MIN, 0.0);
+    finger_dxdy(d, swipe_min, 0.0);
     assert_eq!(page(&d.app), p, "INP-14: dx 120 is a swipe to the page before");
-    finger_dxdy(d, -SWIPE_MIN, SWIPE_MIN - 1.0);
+    finger_dxdy(d, -swipe_min, swipe_min - 1.0);
     assert_eq!(page(&d.app), p + 1, "INP-14: more horizontal than vertical");
-    finger_dxdy(d, SWIPE_MIN, -(SWIPE_MIN - 1.0));
+    finger_dxdy(d, swipe_min, -(swipe_min - 1.0));
     assert_eq!(page(&d.app), p);
     // The pen does not swipe.
     pen_stroke(d, Tool::Pen, (800.0, 1000.0), (500.0, 1000.0));

@@ -1262,3 +1262,59 @@ what it's supposed to do". The owner also saw the cell of a new mark refresh whe
 writes in a different cell: the area moves, and xochitl refreshes the full area that it left (this
 was also the behavior before the fix). Options were an area on the micro-cell only for a tap, or no
 area for a tap. Owner decision: keep it as it is.
+
+### Owner request: support the reMarkable Paper Pro Move, 2026-11-10
+
+The owner has no Move. The facts come from the AppLoad source (`src/qtfb/common.h`: the framebuffer type 4
+is 954×1696 RGB888; the server makes the buffer from the type that the app asks for, and it scales the
+buffer to the screen), from the reMarkable SDKs of OS 3.28.0.172 (the target sysroots of `ferrari` and
+`chiappa` are the same, thus the same static aarch64 build runs on the two devices) and from the product
+pages (954×1696 at 264 DPI).
+
+Owner decisions (REQUIREMENTS.md §1.1): cells of 78 px in the two orientations (first 100 px; changed
+to 90 px so that the meter fits in landscape and the board keeps its physical position; then 80 px,
+because with 90 px the board went 24 px under the toolbar in portrait. Options: 84 px (gap 3 px),
+82 px, 80 px (gap 21 px), 75 px (the physical gap of the Paper Pro); the owner selected 80 px; on 2026-11-11, 78 px with the lines on their own pixels), toolbar slots of 96 px
+with the icons of the Paper Pro, panel rows of 112 px, the Cell colors panel as three columns of two
+rows in landscape, the Checkpoints panel from slot 1 in landscape, a maximum of 4 checkpoints on all
+devices (first: rows of 150 px with a smaller board, rejected), a page scale of 954 / 1404, the compact
+result card, new manual images. Rejected: AppLoad scaling of the Paper Pro buffer (not crisp, and the
+pen area of the ink patch is at the wrong place).
+
+Details that the implementation added, with no device test: the compact card in portrait is 24 px from
+the toolbar (CMP-7); in landscape its column is 300 px wide and 120 px from the screen edge, because at
+48 px it touched the close button (with cells of 90 px the board started at y 72, in the slot of the
+close button). The column has the height of the board (720 px): its contents have smaller spaces than
+on the Paper Pro and no "New game" heading. On
+the Move, the Checkpoints panel with 4 rows covers the top of the meter in portrait (y 1312, the meter
+at y 1272): a panel can cover the board and the meter there, as the owner allowed for the board.
+
+Owner decision (after the first Move images): the portrait statistics and Licenses pages were 40 %
+empty at the bottom. The extra 624 units of a portrait page now contain more rows: 18 games, 20 Licenses
+rows, 57 lines of license text, and rows of 186 units in the "By difficulty" table. Rejected options:
+taller rows only, more list rows only, no change.
+
+Examination: `tests/move_device.rs` (layout rules in the four layouts, all rules of `check_app` on the
+reference states, the app against `images/move/` in portrait and landscape, the manual pages pixel for
+pixel) and `snapshot -- --device move`. Device test: pending (no device).
+
+## Owner request: board lines on their own pixels, 2026-11-11
+
+Request: "lets use the same thickness for the pro. but also lets make sure that the borders are outside of the
+boxes. i see that on the edges, pencil marks are not actually centered in the microcell because the border is
+overlapping". Before, the lines were at the center of the cell borders: a 13 px line covered 6 px of each cell
+next to it, a 3 px line 1 px, thus a pencil mark in a micro-cell next to the border was not at the center of the
+visible part of the micro-cell.
+
+Owner decisions (AskUserQuestion): the border and the box lines are 7 px on the Paper Pro and on the Move (first
+asked: 13 px was too thick on the Move); all lines, also the 3 px cell lines, have their own pixels between the
+cells; the cells keep their size on the Paper Pro (147 px) and the board grows to 9 × 147 + 4 × 7 + 6 × 3 = 1369 px
+(rejected: smaller cells with the same board size); on the Move the cells are 78 px (board 748 px, 7 px from the
+toolbar in portrait; options were 75, 77, 78 and 79 px; 80 px gave a board 2 px under the toolbar).
+
+Effects on the Paper Pro: the board is at x 125–1494, y 395–1764 (14 px from the open toolbar, before 37 px); the
+meter and the result card move down by 23 px (card y 1813–2133). The Helpers and the Complete a puzzle manual pages
+take their crops of the board from the geometry (the Helpers crop was a fixed Paper Pro rectangle). Examination:
+`cargo test` (the pixel model of the board in `tests/inv_render.rs`, the black pixels of the lines in
+`tests/render.rs`), the snapshot tool against the new images. Device test on the Paper Pro: pending.
+

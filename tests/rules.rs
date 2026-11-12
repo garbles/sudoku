@@ -27,7 +27,7 @@ fn checkpoint_clocks(d: &Driver) -> Vec<u64> {
 
 #[test]
 fn the_list_of_checkpoints_obeys_ckp_4_in_all_layouts() {
-    // CKP-4, CKP-1, CKP-3, UND-2: the player makes a list with taps. A sixth save and a save of a board that
+    // CKP-4, CKP-1, CKP-3, UND-2: the player makes a list with taps. A fifth save and a save of a board that
     // is in the list (also a board that is not the newest) add nothing. The clocks go down from the
     // newest, and each is at most the clock of the game. A delete in the middle keeps the order.
     for (landscape, right_handed) in [(false, false), (false, true), (true, false), (true, true)] {
@@ -36,10 +36,10 @@ fn the_list_of_checkpoints_obeys_ckp_4_in_all_layouts() {
         let what = format!("landscape {landscape}, right-handed {right_handed}");
         let mut d = Driver::new(83);
         d.button(Button::Menu);
-        // With this switch off, a tap adds each mark (MRK-7). Thus the fixture has 6 different boards.
+        // With this switch off, a tap adds each mark (MRK-7). Thus the fixture has 5 different boards.
         d.app.settings.auto_hide_on = false;
         let cell = empty_cell(&d.app.game);
-        for digit in 1..=5u8 {
+        for digit in 1..=4u8 {
             d.tap_micro(cell, digit);
             d.wait(1000);
             d.button(Button::Checkpoints);
@@ -48,19 +48,19 @@ fn the_list_of_checkpoints_obeys_ckp_4_in_all_layouts() {
             d.button(Button::Menu);
         }
         let saved_marks = |d: &Driver, i: usize| d.app.game.checkpoints[i].board.marks[cell.0 as usize][cell.1 as usize];
-        for i in 0..5 {
-            assert_eq!(saved_marks(&d, i).count_ones() as usize, 5 - i, "{what}: the newest is first");
+        for i in 0..4 {
+            assert_eq!(saved_marks(&d, i).count_ones() as usize, 4 - i, "{what}: the newest is first");
         }
         let clocks = checkpoint_clocks(&d);
         assert!(clocks.windows(2).all(|w| w[0] > w[1]), "{what}: {clocks:?}");
         assert!(clocks[0] <= d.app.game.elapsed_ms, "{what}");
 
         // The list is full.
-        d.tap_micro(cell, 6);
+        d.tap_micro(cell, 5);
         let undo_items = d.app.game.undo.len();
         d.button(Button::Checkpoints);
         tap_save(&mut d);
-        assert_eq!(checkpoint_clocks(&d), clocks, "{what}: a sixth save adds nothing");
+        assert_eq!(checkpoint_clocks(&d), clocks, "{what}: a fifth save adds nothing");
         d.button(Button::Menu);
 
         // A delete in the middle: the order stays, and a save is available again.
@@ -73,10 +73,10 @@ fn the_list_of_checkpoints_obeys_ckp_4_in_all_layouts() {
 
         // Back to the board of an old checkpoint: it is not the newest, and a save adds nothing.
         d.button(Button::Menu);
-        d.tap_micro(cell, 6);
         d.tap_micro(cell, 5);
         d.tap_micro(cell, 4);
         d.tap_micro(cell, 3);
+        d.tap_micro(cell, 2);
         assert_eq!(d.app.game.marks_at(cell), saved_marks(&d, 2), "{what}: the board of an older checkpoint");
         d.button(Button::Checkpoints);
         tap_save(&mut d);
@@ -89,7 +89,7 @@ fn the_list_of_checkpoints_obeys_ckp_4_in_all_layouts() {
         let clock_before = d.app.game.elapsed_ms;
         tap_save(&mut d);
         let list = checkpoint_clocks(&d);
-        assert_eq!(list.len(), 5, "{what}");
+        assert_eq!(list.len(), 4, "{what}");
         assert_eq!(list[1..], after_delete[..], "{what}");
         assert!(list[0] >= clock_before && list[0] <= d.app.game.elapsed_ms && list[0] > list[1], "{what}");
 
@@ -97,7 +97,7 @@ fn the_list_of_checkpoints_obeys_ckp_4_in_all_layouts() {
         // the game. A save and a delete add no undo item.
         let items = d.app.game.undo.len();
         assert_eq!(items, undo_items + 5, "{what}: UND-2: only the 5 taps on the board");
-        let (x, y) = exact_center(layout::ckp_button(4));
+        let (x, y) = exact_center(layout::ckp_button(3));
         d.finger_tap(x, y);
         assert_eq!(checkpoint_clocks(&d), list, "{what}: CKP-2");
         assert_eq!(d.app.game.undo.len(), items + 1, "{what}: UND-1");

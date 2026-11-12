@@ -1,4 +1,4 @@
-//! The states of the reference images in `images/pro/` (`layout::Device::images`) (the same data as the scripts in `scripts/`). The
+//! The states of the reference images in `images/pro/` (`layout::Model::images`) (the same data as the scripts in `scripts/`). The
 //! snapshot tool and the rendering tests use them to compare the app with the images. The snapshot
 //! tool also writes the sheet of all icons (`icon_sheet`).
 
@@ -100,9 +100,9 @@ fn add_marks_of(g: &mut Game, marked: &[(u8, u8)]) {
     }
 }
 
-/// The path of the design image `name` of the device (`layout::Device::images`).
+/// The path of the design image `name` of the device (`layout::Model::images`).
 pub fn image_path(root: impl AsRef<std::path::Path>, name: &str) -> std::path::PathBuf {
-    root.as_ref().join(crate::layout::device().images).join(name)
+    root.as_ref().join(crate::layout::device().model.images()).join(name)
 }
 
 /// The game of screen-completed-group.png (`board-state.py completed-group`): no clash, and box 0,
@@ -164,12 +164,12 @@ pub fn checkpoints_game() -> Game {
     game_with_checkpoints(three_checkpoints())
 }
 
-/// The game of checkpoints-menu-current.png: the maximum of five rows. The newest row has the same
+/// The game of checkpoints-menu-current.png: the maximum of four rows (CKP-4). The newest row has the same
 /// board as the game ("Current"), thus a save is not available for two causes (CKP-1).
 pub fn full_checkpoints_game() -> Game {
     let group: Vec<(u8, u8)> = ENTERED.iter().chain(&GROUP_ENTERED).copied().collect();
     let mut list = vec![checkpoint(&ENTERED, true, &MARKED, 20, 14), checkpoint(&group, false, &MARKED, 19, 26)];
-    list.extend(three_checkpoints());
+    list.extend(three_checkpoints().into_iter().take(2));
     game_with_checkpoints(list)
 }
 

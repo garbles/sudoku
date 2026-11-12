@@ -23,7 +23,19 @@ def device_values():
 
 DEVICE = device_values()
 C = int(DEVICE["C"])
-X0, Y0 = (int(DEVICE["PHYS_W"]) - 9*C)//2, (int(DEVICE["PHYS_H"]) - 9*C)//2   # must agree with ui-lib.sh
+# Each board line has its own pixels between the cells (ui-lib.sh line_off, src/layout.rs line_offset).
+BOX_LINE, CELL_LINE = 7, 3
+def line_w(k):
+    return BOX_LINE if k % 3 == 0 else CELL_LINE
+def line_off(k):
+    """The first pixel of board line k (0..9) from the board edge."""
+    b = (k + 2) // 3
+    return k*C + b*BOX_LINE + (k - b)*CELL_LINE
+def cell_off(i):
+    """The first pixel of the cells of column (or row) i from the board edge."""
+    return line_off(i) + line_w(i)
+BOARD = line_off(9) + BOX_LINE
+X0, Y0 = (int(DEVICE["PHYS_W"]) - BOARD)//2, (int(DEVICE["PHYS_H"]) - BOARD)//2   # must agree with ui-lib.sh
 REF_CELL = 147   # the cell of the reference design (the Paper Pro), the same as layout::REF_CELL
 
 def cs(v):
@@ -174,19 +186,20 @@ covered = filled + ([UNRECOGNIZED] if MODE == "unrecognized" else [])
 # starting-number color, white.
 highlighted = {(r, c) for r, c in filled if MODE == "highlight" and grid[r][c] == HIGHLIGHT}
 for r, c in covered:
-    x, y = X0+c*C, Y0+r*C
+    x, y = X0+cell_off(c), Y0+cell_off(r)
     bg = (CLASH_BG if (r, c) in conflicts else HIGHLIGHT_BG if (r, c) in highlighted
           else COMPLETED_BG if (r, c) in complete
           else STARTING_BG if GIVENS[r][c] != "." else "white")
-    out.append(f"stroke none fill {bg} rectangle {x},{y} {x+C},{y+C}")
-thin = " ".join(f"line {X0+i*C},{Y0} {X0+i*C},{Y0+9*C} line {X0},{Y0+i*C} {X0+9*C},{Y0+i*C}" for i in range(10) if i % 3)
-thick = " ".join(f"line {X0+i*C},{Y0} {X0+i*C},{Y0+9*C} line {X0},{Y0+i*C} {X0+9*C},{Y0+i*C}" for i in range(0, 10, 3))
-# The board lines have no anti-aliasing, as render.sh: the pixels whose centers are inside the stroke are black.
-out.append(f"stroke-antialias 0 fill none stroke black stroke-width 3 {thin}")
-out.append(f"stroke-width 12 stroke-linecap square {thick} stroke-antialias 1")
+    out.append(f"stroke none fill {bg} rectangle {x},{y} {x+C-1},{y+C-1}")
+def lines(ks):
+    """Filled rectangles for the board lines ks, vertical and horizontal, over the full board."""
+    return " ".join(f"rectangle {X0+line_off(k)},{Y0} {X0+line_off(k)+line_w(k)-1},{Y0+BOARD-1} "
+                    f"rectangle {X0},{Y0+line_off(k)} {X0+BOARD-1},{Y0+line_off(k)+line_w(k)-1}" for k in ks)
+# The board lines have no anti-aliasing, as render.sh.
+out.append(f"stroke none fill black {lines(range(10))}")
 # numbers: starting numbers black, player numbers #1E1E1E
 for r, c in filled:
-    x, y = X0+c*C, Y0+r*C
+    x, y = X0+cell_off(c), Y0+cell_off(r)
     color = "black" if GIVENS[r][c] != "." else PLAYER_DIGIT
     out.append(f"stroke none fill {color} font '{FONT}' font-size {cs(104)} text-anchor middle text {x+C//2},{y+cs(111)} '{grid[r][c]}'")
 # pencil marks: the possible digits of each cell with marks. The app draws the marks with no anti-aliasing
@@ -195,28 +208,28 @@ for r, c in filled:
 out.append("text-antialias 0")
 for r, c in MARKED:
     assert not grid[r][c]
-    x, y = X0+c*C, Y0+r*C
+    x, y = X0+cell_off(c), Y0+cell_off(r)
     for d in candidates(r, c):
         cx, cy = mark_anchor(x, y, d)
         out.append(f"stroke none fill gray15 font '{FONT}' font-size {cs(31)} text-anchor middle text {cx},{cy+cs(11)} '{d}'")
 out.append("text-antialias 1")
 
 if MODE == "unrecognized":
-    r, c = UNRECOGNIZED; x, y = X0+c*C, Y0+r*C
+    r, c = UNRECOGNIZED; x, y = X0+cell_off(c), Y0+cell_off(r)
     out.append(f"stroke none fill gray25 font '{FONT}' font-size {cs(104)} text-anchor middle text {x+C//2},{y+cs(111)} '?'")
 if MODE == "invalid-mark":
     # only the micro-cell changes: the other marks and the micro-cell lines of the cell stay
     r, c, d = INVALID_MARK
     assert not grid[r][c] and d not in candidates(r, c)
     # The app draws the x with no anti-aliasing, as the marks: each pixel is gray15 or the pixel under it.
-    cx, cy = mark_anchor(X0+c*C, Y0+r*C, d)
+    cx, cy = mark_anchor(X0+cell_off(c), Y0+cell_off(r), d)
     h = X_HALF
     out.append(f"stroke-antialias 0 fill none stroke gray15 stroke-width {X_WIDTH} stroke-linecap round "
                f"line {cx-h},{cy-h} {cx+h},{cy+h} line {cx-h},{cy+h} {cx+h},{cy-h} stroke-antialias 1")
 if MODE == "completed":
     # the result card replaces the difficulty meter below the board (ui-lib.sh result_card, mode 2 = LEVEL)
-    dy = Y0 + 9*C + 50
-    out.append(f"stroke none fill white rectangle {X0},{dy-30} {X0+9*C},{dy+30}")
+    dy = Y0 + BOARD + 50
+    out.append(f"stroke none fill white rectangle {X0},{dy-30} {X0+BOARD},{dy+30}")
     card = subprocess.run(["sh", "-c", '. "$0"; result_card portrait $LEVEL', os.path.join(HERE, "ui-lib.sh")],
                           check=True, capture_output=True, text=True).stdout
     out.append(card)

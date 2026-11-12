@@ -115,8 +115,11 @@ builds in parallel).
   slot (`ui-lib.sh`), and the Python scripts read the same file. The contents of a cell use the scale
   of `layout::Device::scale` (`board-state.py` `cs`). Do not add a fixed screen position to a
   script. The installer images (`images/install-*.png`) are the same for all models and stay in
-  `images/`. Only the Paper Pro has images now. `layout::Device::images` gives the folder of a model
-  to the snapshot tool and the tests (`reference::image_path`). The **Release**
+  `images/`. `DEVICE=move` writes `images/move/` (all images except `icons.png`). `Dockerfile.images`
+  makes the two sets. `layout::Model::images` gives the folder of a model to the snapshot tool
+  (`snapshot -- --device move DIR`) and the tests (`reference::image_path`). The device is a value of
+  the process, thus `tests/move_device.rs` is the separate test program of the Move; the other tests
+  use the Paper Pro. The owner has no Move: these images and tests are the only check of the Move. The **Release**
   workflow (`release.yml`, job `media`, one job for each Dockerfile) makes `images/` and `video/`
   again in each run, and it fails when they are not the same as the files in git. When you change
   them, run `make media` and commit the result.
@@ -234,11 +237,24 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `invariants.rs`: checks of the rules in INVARIANTS.md. Debug builds check them after each input.
 - `layout.rs`, `render.rs`, `font.rs`: positions, drawing (tiny-skia) and the font of the tablet.
   `layout::Device` holds the values of one tablet model: the physical screen, the cell size, the
-  qtfb framebuffer type and the page scale. `Device::PAPER_PRO` is the only model now. The contents
+  line widths of the board and of the cells (`lines`), the contents of a cell (`cell_contents`),
+  the qtfb framebuffer type, the page scale, the toolbar slot, the stroke widths and the outer sizes
+  of the icons (`icons`: the path points of each shape stay in `render::Icon::draw`), the result
+  card (`Device::card`: a `ResultCard`, the normal card or the compact card with their sizes; `layout::card_layout` adds the orientation), and one struct for
+  each other group of sizes (the slider and the meter, the panels and their switch, the pages, the
+  dialog, the statistics, the games list and the Licenses screens), the ink of the pen (`ink`) and
+  the renderer values (`raster`: the calibrations against ImageMagick, for example the text offset
+  and the stroke extra width, and the margins of the frame record, the board tiles and the drawing
+  threads). The code reads them with `layout::device()`.
+  `Device::PAPER_PRO` and `Device::MOVE` (the Paper Pro Move, REQUIREMENTS.md §1.1) are the values
+  of the models. Each one gives all values in full, also when the two models have the same value.
+  `layout::Model` names each model (`Model::ALL`; `Model::device` gives its values, and
+  `Device::model` gives the model of a `Device`: use `match` on it, not a comparison with a constant).
+  `platform::run` selects one with `Model::detect` (`/sys/devices/soc0/machine`). The contents
   of a cell (the number size and baseline, the pencil-mark size and positions, the x of a refused
-  tap) come from the cell size (`Device::scale`, from the reference cell of 147 px), thus do not
-  add fixed cell pixels in `render.rs`. The toolbar slots, the icons and the panel widths are the
-  same on each model, and each panel starts at the slot of its button (`Button::top_slot`). The
+  tap) come from the cell size (`Device::scale`, from the values of `Device::cell_contents` for
+  the reference cell of 147 px), thus do not add fixed cell pixels in `render.rs`. The icons have
+  the same size on each model, and each panel starts at the slot of its button (`layout::slot_top`). The
   device is a value of the process (`layout::device()`, set one time by `platform::run`), not of a
   thread. `layout.rs` gives the result card of a completed game (`result_card`, `level_button`) in place of
   the meter. `render.rs` draws it (`draw_result_card`, `OverlayLook::Card`). `render::SECONDARY`

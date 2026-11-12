@@ -9,6 +9,10 @@
 //!
 //!     cargo run --release --bin snapshot -- --icons FILE
 //!
+//! `--device move` (before the other arguments) draws the states for the Paper Pro Move and compares
+//! them with `images/move/` (`layout::Model::images`). The default device is the Paper Pro. The icon
+//! sheet is only in `images/pro/`: the icons have the same size on each model.
+//!
 //! It uses the fonts in scripts/fonts (refer to scripts/fonts/README.md). `SUDOKU_FONT` selects a
 //! different font file (for example the variable font of the device).
 
@@ -30,7 +34,16 @@ fn save(pm: &Pixmap, path: &Path) {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().skip(1).collect();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|a| a == "--device") {
+        let name = args.get(1).map(String::as_str);
+        let Some(model) = name.and_then(sudoku::layout::Model::from_option_name) else {
+            let names: Vec<_> = sudoku::layout::Model::ALL.map(sudoku::layout::Model::option_name).into();
+            panic!("--device {}, not {name:?}", names.join("|"));
+        };
+        sudoku::layout::set_device(model.device());
+        args.drain(..2);
+    }
     let fonts = Fonts::for_tools().expect("fonts");
     if args.first().is_some_and(|a| a == "--icons") {
         let file = args.get(1).expect("--icons FILE");
@@ -46,7 +59,7 @@ fn main() {
     for (name, setup) in reference::states() {
         let pm = reference::render(&fonts, setup);
         save(&pm, &out.join(name));
-        let reference = decode_png(&std::fs::read(reference::image_path(&root, name)).unwrap());
+        let reference = decode_png(&std::fs::read(reference::image_path(root, name)).unwrap());
         let (mad, big) = reference::compare(&pm, &reference);
         worst = worst.max(big);
         let off = reference::differences_off_edges(&pm, &reference, 1);
@@ -55,9 +68,11 @@ fn main() {
     save(&reference::render(&fonts, reference::ink_state), &out.join("ink.png"));
     let sheet = reference::icon_sheet(&fonts);
     save(&sheet, &out.join("icons.png"));
-    let (mad, big) = reference::compare(&sheet, &decode_png(&std::fs::read(reference::image_path(&root, "icons.png")).unwrap()));
-    worst = worst.max(big);
-    println!("{:28} mean diff {mad:5.2}  pixels > 64: {:.3}%", "icons.png", big * 100.0);
+    if let Ok(png) = std::fs::read(reference::image_path(root, "icons.png")) {
+        let (mad, big) = reference::compare(&sheet, &decode_png(&png));
+        worst = worst.max(big);
+        println!("{:28} mean diff {mad:5.2}  pixels > 64: {:.3}%", "icons.png", big * 100.0);
+    }
     // The same states in landscape (no reference images).
     sudoku::layout::set_orientation(sudoku::layout::Orientation::Landscape);
     for (name, setup) in reference::states() {

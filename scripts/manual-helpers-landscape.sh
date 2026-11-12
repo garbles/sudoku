@@ -30,7 +30,7 @@ text 972 380 38 gray25 start "the same number get the highlight color"
 text 972 430 38 gray25 start "(cyan is the default). To remove it, tap or"
 text 972 480 38 gray25 start "write on the board with the pen."
 text 972 530 38 gray25 start "Settings can turn it off."
-picture_w 1076 555 620 "$(shot "$UI/screen-highlight.png" 1336x596+142+412)"
+picture_w 1076 555 620 "$(shot "$UI/screen-highlight.png" $HELPERS_CROP_LANDSCAPE)"
 
 text 72 880 50 black start "Completed groups"
 text 72 940 38 gray25 start "A group is a row, a column or a 3x3"

@@ -242,11 +242,11 @@ pub fn button_center(b: layout::Button) -> (f32, f32) {
         Settings => (x, layout::tb_cy(2)),
         Undo => (x, layout::tb_cy(3)),
         Redo => (x, layout::tb_cy(4)),
-        Checkpoints => (x, layout::tb_cy(layout::CKP_SLOT)),
+        Checkpoints => (x, layout::tb_cy(5)),
         Help => (x, (layout::tb_bottom_y() - 168) as f32),
         Statistics => (x, (layout::tb_bottom_y() - 56) as f32),
         NewGame => (x, (layout::tb_bottom_y() + 56) as f32),
-        Close => (layout::close_cx(), layout::CLOSE_CY),
+        Close => (layout::close_cx(), layout::close_cy()),
     }
 }
 

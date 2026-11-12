@@ -89,6 +89,20 @@ fn level_center(b: LevelButton) -> (f32, f32) {
 
 /// The level button of an act that is one tap on a level button (CMP-10), from the state before the
 /// act: a complete game on the game screen with no panel. None for all other acts.
+/// The control of the analytics screens that `Act::ListControl(k)` taps (a finger tap at its center).
+fn list_control(k: u8) -> sudoku::layout::Rect {
+    match k {
+        0 => layout::back_button(),
+        1 => layout::all_games_button(),
+        2 => layout::prev_arrow(),
+        3 => layout::next_arrow(),
+        4 => layout::dialog_cancel(),
+        5 => layout::dialog_delete(),
+        6..=11 => layout::filter_segment(layout::list_filters().nth(k as usize - 6).unwrap()),
+        _ => layout::bin_button(k as usize - 12),
+    }
+}
+
 fn level_tap(a: &Act, b: &BeforeAct, completed: bool) -> Option<LevelButton> {
     if !completed || b.screen != Screen::Game || b.panel.is_some() {
         return None;
@@ -96,6 +110,8 @@ fn level_tap(a: &Act, b: &BeforeAct, completed: bool) -> Option<LevelButton> {
     let (x, y) = match *a {
         Act::Level(i, _) => level_center(LevelButton::ALL[i as usize]),
         Act::Point(x, y, _) => (x as f32, y as f32),
+        // A control of the analytics screens can be at the same place as a level button.
+        Act::ListControl(k) => pixel_center(list_control(k)),
         _ => return None,
     };
     layout::level_button_at(x, y)
@@ -107,13 +123,14 @@ fn level_tap_with_panel(a: &Act, b: &BeforeAct, completed: bool) -> bool {
     let (x, y) = match *a {
         Act::Level(i, _) => level_center(LevelButton::ALL[i as usize]),
         Act::Point(x, y, _) => (x as f32, y as f32),
+        Act::ListControl(k) => pixel_center(list_control(k)),
         _ => return false,
     };
     let area = match b.panel {
         Some(Panel::Colors) => layout::colors_panel(),
         Some(Panel::Settings) => layout::settings_panel(true),
         Some(Panel::NewGame) => layout::ng_panel(),
-        Some(Panel::Checkpoints) => layout::ckp_panel(5),
+        Some(Panel::Checkpoints) => layout::ckp_panel(4),
         None => return false,
     };
     completed && b.screen == Screen::Game && layout::level_button_at(x, y).is_some() && !area.contains(x, y)
@@ -355,17 +372,7 @@ fn run(d: &mut Driver, a: &Act) {
             }
         }
         Act::ListControl(k) => {
-            let r = match k {
-                0 => layout::back_button(),
-                1 => layout::all_games_button(),
-                2 => layout::prev_arrow(),
-                3 => layout::next_arrow(),
-                4 => layout::dialog_cancel(),
-                5 => layout::dialog_delete(),
-                6..=11 => layout::filter_segment(layout::list_filters().nth(k as usize - 6).unwrap()),
-                _ => layout::bin_button(k as usize - 12),
-            };
-            let (x, y) = pixel_center(r);
+            let (x, y) = pixel_center(list_control(k));
             d.finger_tap(x, y);
         }
     }
@@ -710,15 +717,15 @@ fn panels_never_cover_the_toolbar_and_the_toolbar_never_covers_the_board() {
         // NAV-15: for a right-handed player, the mirror image.
         layout::set_right_handed(true);
         assert_eq!(layout::tb_x(), 0, "{o:?}");
-        assert_eq!(layout::colors_panel().x0, layout::TB_SLOT, "{o:?}");
-        assert_eq!(layout::ng_panel().x0, layout::TB_SLOT, "{o:?}");
-        assert_eq!(layout::ckp_panel(0).x0, layout::TB_SLOT, "NAV-18: {o:?}");
-        assert!(layout::TB_SLOT < layout::board_x(), "{o:?}");
+        assert_eq!(layout::colors_panel().x0, layout::tb_slot(), "{o:?}");
+        assert_eq!(layout::ng_panel().x0, layout::tb_slot(), "{o:?}");
+        assert_eq!(layout::ckp_panel(0).x0, layout::tb_slot(), "NAV-18: {o:?}");
+        assert!(layout::tb_slot() < layout::board_x(), "{o:?}");
         layout::set_right_handed(false);
         assert!(layout::colors_panel().x1 <= layout::tb_x(), "{o:?}");
         assert!(layout::ng_panel().x1 <= layout::tb_x(), "{o:?}");
-        assert_eq!(layout::ckp_panel(5).x1, layout::tb_x(), "NAV-18: {o:?}");
-        assert!(layout::ckp_panel(5).y1 <= layout::screen_h() as i32, "NAV-18: {o:?}");
+        assert_eq!(layout::ckp_panel(4).x1, layout::tb_x(), "NAV-18: {o:?}");
+        assert!(layout::ckp_panel(4).y1 <= layout::screen_h() as i32, "NAV-18: {o:?}");
         assert!(layout::board_x() + layout::board_size() < layout::tb_x(), "{o:?}");
         assert!(layout::colors_panel().y1 <= layout::screen_h() as i32, "{o:?}");
         assert!(layout::meter_y() + 20 < layout::screen_h() as i32, "{o:?}");
@@ -2849,10 +2856,10 @@ fn ckp_step(d: &mut Driver, m: &mut CkpModel, open: &[Cell], a: &CkpAct, r: &mut
             ckp_panel(d);
             ckp_tap(d, exact_center(layout::ckp_save_row()), pen);
             let same = m.list.iter().position(|(b, _)| *b == was);
-            r.full += usize::from(in_progress && m.list.len() == 5);
+            r.full += usize::from(in_progress && m.list.len() == 4);
             r.same_new += usize::from(in_progress && same == Some(0));
             r.same_old += usize::from(in_progress && same.is_some_and(|i| i > 0));
-            if in_progress && m.list.len() < 5 && same.is_none() {
+            if in_progress && m.list.len() < 4 && same.is_none() {
                 // CKP-1: the clock at the save, between the clock before the act and the clock after it.
                 let Some(k) = d.app.game.checkpoints.first() else { return Err(format!("CKP-1: no checkpoint after {a:?}")) };
                 if k.elapsed_ms < before.elapsed_ms || k.elapsed_ms > d.app.game.elapsed_ms {

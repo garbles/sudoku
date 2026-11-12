@@ -28,7 +28,7 @@ text 72 940 38 gray25 start "the highlight color (cyan is the"
 text 72 990 38 gray25 start "default). To remove it, tap or"
 text 72 1040 38 gray25 start "write on the board with the pen."
 text 72 1090 38 gray25 start "Settings can turn it off."
-picture_w 724 750 608 "$(shot "$UI/screen-highlight.png" 1336x743+142+412)"
+picture_w 724 750 608 "$(shot "$UI/screen-highlight.png" $HELPERS_CROP)"
 
 text 72 1165 50 black start "Completed groups"
 text 72 1225 38 gray25 start "A group is a row, a column or a 3x3 box. When a group is full and has no"

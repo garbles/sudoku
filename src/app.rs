@@ -442,9 +442,8 @@ impl App {
     /// The New game slider stops with approximate text widths of the labels "Easy" and "Hard", for
     /// a caller that has no font (most tests). `render::ng_stops` uses the true widths of the font.
     pub fn placeholder_ng_stops() -> [f32; layout::STOPS as usize] {
-        const EASY_LABEL_W: f32 = 50.0;
-        const HARD_LABEL_W: f32 = 70.0;
-        layout::slider_stops(layout::ng_tx(), layout::ng_tr(), EASY_LABEL_W, HARD_LABEL_W)
+        let slider = layout::device().slider;
+        layout::slider_stops(layout::ng_tx(), layout::ng_tr(), slider.approx_easy_w, slider.approx_hard_w)
     }
 
     // ---- Time
@@ -980,7 +979,7 @@ impl App {
             Gesture::Control(t) => self.release_control(t, x, y, now),
             Gesture::Swipe { x0, y0, target } => {
                 let (dx, dy) = (x - x0, y - y0);
-                if dx.abs() >= layout::SWIPE_MIN && dx.abs() > dy.abs() {
+                if dx.abs() >= layout::device().page.swipe && dx.abs() > dy.abs() {
                     self.swipe(dx < 0.0);
                 } else if let Some(t) = target {
                     self.release_control(t, x, y, now);

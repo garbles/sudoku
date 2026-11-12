@@ -358,7 +358,7 @@ fn menu_and_panels() {
     d.button(Button::Menu);
     assert!(!d.app.ui.menu.is_open());
     // The close button shows only with the open menu (NAV-6).
-    d.finger_tap(layout::close_cx(), layout::CLOSE_CY);
+    d.finger_tap(layout::close_cx(), layout::close_cy());
     assert!(!d.app.quit);
     d.button(Button::Menu);
     d.button(Button::Close);
@@ -3298,7 +3298,8 @@ fn gray_range(pm: &tiny_skia::Pixmap, (x0, y0): (i32, i32), (x1, y1): (i32, i32)
 /// The gray values of the icon in the slot of the bookmark.
 fn bookmark_grays(app: &App) -> (u8, u8) {
     let pm = draw_screen(app, &fonts());
-    let (x, y) = (layout::tb_cx() as i32, layout::tb_cy(5) as i32);
+    let (x, y) = button_center(Button::Checkpoints);
+    let (x, y) = (x as i32, y as i32);
     gray_range(&pm, (x - 16, y - 22), (x + 16, y + 22))
 }
 
@@ -3390,9 +3391,9 @@ fn the_full_row_is_the_tap_area_of_save_in_all_layouts() {
 
 #[test]
 fn a_full_list_has_no_save() {
-    // CKP-1, CKP-4: the limit of 5, with a board that no checkpoint has. A delete makes a save
+    // CKP-1, CKP-4: the limit of 4, with a board that no checkpoint has. A delete makes a save
     // available again.
-    let mut d = with_checkpoints(302, 5);
+    let mut d = with_checkpoints(302, 4);
     new_mark(&mut d);
     open_checkpoints(&mut d);
     let list = d.app.game.checkpoints.clone();
@@ -3406,14 +3407,14 @@ fn a_full_list_has_no_save() {
     assert_eq!(play_state(&d.app.game), board_now, "CKP-1");
     assert!(!d.app.game_dirty, "CKP-1");
 
-    d.finger_tap(bin_point(4).0, bin_point(4).1);
-    assert_eq!(d.app.game.checkpoints.len(), 4, "CKP-3");
-    assert_eq!(d.app.game.checkpoints[..], list[..4], "CKP-3: the bin of the last row");
+    d.finger_tap(bin_point(3).0, bin_point(3).1);
+    assert_eq!(d.app.game.checkpoints.len(), 3, "CKP-3");
+    assert_eq!(d.app.game.checkpoints[..], list[..3], "CKP-3: the bin of the last row");
     assert!(d.app.game.can_save_checkpoint(), "CKP-1");
     assert_eq!(save_row_grays(&d.app).0, 0, "CKP-1");
     d.wait(BACK_GUARD_MS); // CKP-8
     d.finger_tap(save_point().0, save_point().1);
-    assert_eq!(d.app.game.checkpoints.len(), 5, "CKP-1");
+    assert_eq!(d.app.game.checkpoints.len(), 4, "CKP-1");
     assert!(d.app.game.same_board(&d.app.game.checkpoints[0].board), "CKP-1: the newest is first");
 }
 
@@ -3708,17 +3709,17 @@ fn the_second_tap_of_a_double_tap_on_a_bin_changes_nothing() {
 #[test]
 fn the_guard_uses_the_area_of_the_panel_at_its_maximum_size() {
     // CKP-8: the panel has 3 rows and ends at y 1212. A press below it, in the area of the panel with
-    // 5 rows, does not close it. The four corners of the area are included. One pixel out of the area,
+    // 4 rows (to y 1392), does not close it. The four corners of the area are included. One pixel out of the area,
     // the tap closes the panel (NAV-11).
     for_each_layout(|case| {
         let (x0, x1) = documented_checkpoints_x();
-        for p in [at(x0, 560), at(x1, 560), at(x0, 1572), at(x1, 1572), at(x0 + 100, 1400)] {
+        for p in [at(x0, 560), at(x1, 560), at(x0, 1392), at(x1, 1392), at(x0 + 100, 1300)] {
             let (mut d, _) = just_deleted(312);
             let before = guard_state(&d);
             d.finger_tap(p.0, p.1);
             assert_eq!(guard_state(&d), before, "CKP-8: {p:?} ({case})");
         }
-        for p in [at(x0 - 1, 1000), at(x1 + 1, 1000), at(x0 + 100, 559), at(x0 + 100, 1573)] {
+        for p in [at(x0 - 1, 1000), at(x1 + 1, 1000), at(x0 + 100, 559), at(x0 + 100, 1393)] {
             let (mut d, _) = just_deleted(312);
             let (game, _) = guard_state(&d);
             d.finger_tap(p.0, p.1);
@@ -3753,10 +3754,10 @@ fn the_guard_ends_after_half_a_second() {
 
         // The time starts again at each delete. A tap below the panel closes it only after the time.
         let (x0, _) = documented_checkpoints_x();
-        d.finger_tap((x0 + 100) as f32, 1400.0);
+        d.finger_tap((x0 + 100) as f32, 1300.0);
         assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "CKP-8: the time of the second delete ({case})");
         d.wait(BACK_GUARD_MS);
-        d.finger_tap((x0 + 100) as f32, 1400.0);
+        d.finger_tap((x0 + 100) as f32, 1300.0);
         assert_eq!(d.app.ui.menu, Menu::Open(None), "CKP-8, NAV-11: after the time ({case})");
     });
 }
@@ -3997,7 +3998,8 @@ fn the_bookmark_shows_the_state_of_its_panel() {
         d.button(Button::Menu);
         assert_eq!(bookmark_grays(&d.app), (0, 255), "CKP-9 ({case})");
         let pm = draw_screen(&d.app, &fonts());
-        let (x, y) = (layout::tb_cx() as i32, layout::tb_cy(5) as i32);
+        let (x, y) = button_center(Button::Checkpoints);
+        let (x, y) = (x as i32, y as i32);
         assert_eq!(rgb_at(&pm, x - 50, y - 50), [255, 255, 255], "NAV-8 ({case})");
         d.button(Button::Checkpoints);
         assert_eq!(bookmark_grays(&d.app), (0, 255), "CKP-9 ({case})");
@@ -4042,7 +4044,7 @@ fn the_panel_has_the_documented_position_in_the_four_layouts() {
     for_each_layout(|case| {
         let (x0, x1) = documented_checkpoints_x();
         assert_eq!(x1 - x0 + 1, 600, "NAV-18 ({case})");
-        for (n, bottom) in [(0, 864), (1, 852), (2, 1032), (3, 1212), (5, 1572)] {
+        for (n, bottom) in [(0, 864), (1, 852), (2, 1032), (3, 1212), (4, 1392)] {
             let case = format!("{case}, {n} rows");
             let r = layout::ckp_panel(n);
             assert_eq!((r.x0, r.y0, r.x1 - 1, r.y1 - 1), (x0, 560, x1, bottom), "NAV-18 ({case})");

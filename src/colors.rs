@@ -16,7 +16,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 
 use crate::font::{Anchor, Weight};
-use crate::layout::{close_cx, Device, CLOSE_CY};
+use crate::layout::{close_cx, close_cy, Device};
 use crate::render::{Canvas, Icon, Rgb};
 use crate::settings::{Color, BLACK, ENTRY_DIGIT};
 
@@ -342,7 +342,7 @@ fn slider(c: &mut Canvas, y: f32, label: &str, value: u8) {
 /// Draws the full screen. The canvas must be white.
 pub fn draw(c: &mut Canvas, picker: &Picker) {
     let (colors, s) = (&picker.colors, CELL as f32);
-    Icon::Close.draw(c, close_cx(), CLOSE_CY, BLACK);
+    Icon::Close.draw(c, close_cx(), close_cy(), BLACK);
     for (i, color) in Color::ALL.iter().enumerate() {
         let x = LEFT + i as f32 * s;
         button(c, x, x + s, BUTTON_Y, color.name(), colors.palette[i], picker.selected == Target::Palette(i));

@@ -271,8 +271,11 @@ pub fn run() -> Result<(), String> {
             libc::signal(sig, on_signal as *const () as libc::sighandler_t);
         }
     }
-    // The tablet, before the first layout value. The app is made for the Paper Pro (REQUIREMENTS.md §1).
-    crate::layout::set_device(crate::layout::Device::PAPER_PRO);
+    // The tablet, before the first layout value (REQUIREMENTS.md §1): the code name of the device tree.
+    let machine = std::fs::read_to_string("/sys/devices/soc0/machine").unwrap_or_default();
+    let device = crate::layout::Model::detect(&machine).device();
+    crate::layout::set_device(device);
+    eprintln!("sudoku: device {} ({})", device.model.name(), machine.trim());
     let fonts = Fonts::load()?;
     // The toolbar is at the side of the hand that does not write (REQUIREMENTS.md §3.1).
     // SUDOKU_XOCHITL_CONF replaces the path of the file (for the tests).

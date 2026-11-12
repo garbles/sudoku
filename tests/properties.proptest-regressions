@@ -12,3 +12,4 @@ cc 9c566eb0319ff15ad0447b046eb466ead60a56d44a1853c029652370fabced15 # shrinks to
 cc 5e1ceae3594a5dd11aee17c7e6e0efc1737f8e1544c11244a311929e6e6ebdf0 # shrinks to seed = 0, acts = [Solve, NewGame(0, false), Level(2, 0)]
 cc 9574b23a6497abfd3314e687388197aa38034ff2028d987aec071dfab148330d # shrinks to seed = 8797195520394558368, acts = [TapMicro(0, 0, 1), TapMicro(0, 0, 1), TapMicro(0, 0, 1), Solve, DeleteAllFlow(Some(false)), ListControl(0), Level(0, 0)]
 cc ee564dcb8e2cad4132c935cc626bc3a5b2213560216b3c4d4c6edd349af55424 # shrinks to seed = 0, acts = [TapMicro(0, 0, 1), TapMicro(0, 0, 1), Solve, DeleteAllFlow(Some(false)), Button(7), Symmetric]
+cc bd15ccc2181804a0e3f356258cbe29c4482fa145718ba0a1a4f75fefb847d340 # shrinks to seed = 0, acts = [Solve, ListControl(3)]

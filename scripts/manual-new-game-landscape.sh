@@ -26,7 +26,7 @@ text 1330 405 38 gray25 start "shows the difficulty of the"
 text 1330 455 38 gray25 start "current puzzle. You cannot"
 text 1330 505 38 gray25 start "change it during a game."
 DW=$((DIFF_W+80))
-picture 1330 560 "$(shot "$UI/screen.png" ${DW}x70+$((X0+C*9/2-DW/2))+$((Y0+C*9+50-35)))"
+picture 1330 560 "$(shot "$UI/screen.png" ${DW}x70+$((X0+BOARD/2-DW/2))+$((Y0+BOARD+50-35)))"
 
 pagenum 8 9
 render "$1/manual-new-game-landscape.png"

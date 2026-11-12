@@ -6,9 +6,12 @@ UI_DIR="$(cd "$(dirname "$0")" && pwd)"
 UI_FONT="$UI_DIR/fonts/rmsans-500.ttf"     # reMarkable Sans Medium, the UI font of the system
 DIGIT_FONT="$UI_DIR/fonts/rmsans-400.ttf"  # reMarkable Sans Regular, for the board numbers
 UI_SIZE=25                                 # size of the menu text
-TB_W=112; TB_X=$((PHYS_W-TB_W))           # the toolbar column on the right (x 1508); one item each 112 px
-TB_CX=$(awk -v x=$TB_X 'BEGIN{ printf "%.1f", x + 55.5 }')         # the x center of the toolbar slots (1563.5)
-tb_cy() { echo "$1" | awk -v w=$TB_W '{ printf "%.1f", 55.5 + $1*w }'; }   # the y center of toolbar slot k (from the top)
+TB_W=$TB_SLOT; TB_X=$((PHYS_W-TB_W))      # the toolbar column on the right (x 1508); one item each 112 px
+TB_C=$(awk -v w=$TB_W 'BEGIN{ printf "%.1f", int(w/2) - 0.5 }')   # the center of an icon in its slot (55.5)
+TB_CX=$(awk -v x=$TB_X -v c=$TB_C 'BEGIN{ printf "%.1f", x + c }')  # the x center of the toolbar slots (1563.5)
+tb_cy() { echo "$1" | awk -v w=$TB_W -v c=$TB_C '{ printf "%.1f", c + $1*w }'; }   # the y center of toolbar slot k (from the top)
+TB_BOTTOM_DY=$((TB_W/2))                   # the center of an icon of a bottom slot, below the top of the slot (56)
+PANEL_ROW=112                              # the rows of the Settings panel and the row "Save checkpoint", on each model
 TB_BOTTOM_Y=$((PHYS_H-TB_W))               # the top of the bottom toolbar slot (y 2048)
 # slot_y K : the top of toolbar slot K: 0-5 from the top (menu, cell colors, settings, undo, redo, checkpoints), or
 # help, statistics and new (the bottom group: the + is in the bottom slot).
@@ -28,7 +31,17 @@ menu_icon() {
 
 # Board: 9x9 cells of C px (147 px, micro-cells of 49 px), at the center of the screen. On the Paper Pro, the open menu
 # (x>=1508) does not cover the board (gap of 37 px).
-X0=$(((PHYS_W-9*C)/2)); Y0=$(((PHYS_H-9*C)/2))
+# Each board line has its own pixels between the cells (src/layout.rs line_offset): the border and the box lines are
+# BOX_LINE px, the lines between the cells CELL_LINE px. BOARD is the side of the board (1369 px on the Paper Pro), and
+# X0, Y0 its top left (the first pixel of the border).
+BOX_LINE=7; CELL_LINE=3
+BOARD=$((9*C+4*BOX_LINE+6*CELL_LINE))
+X0=$(((PHYS_W-BOARD)/2)); Y0=$(((PHYS_H-BOARD)/2))
+# line_w K, line_off K, cell_off I : the width of board line K (0..9), its first pixel from the board edge, and the
+# first pixel of the cells of column (or row) I (after line I)
+line_w() { if [ $(($1%3)) = 0 ]; then echo $BOX_LINE; else echo $CELL_LINE; fi; }
+line_off() { echo $(($1*C+($1+2)/3*BOX_LINE+($1-($1+2)/3)*CELL_LINE)); }
+cell_off() { echo $(($(line_off $1)+$(line_w $1))); }
 
 # The micro-cell lines of an empty cell (REQUIREMENTS.md §4.1): two vertical and two horizontal lines of 2 px, on the
 # pixels MICRO_OFF1, MICRO_OFF1+1, MICRO_OFF2 and MICRO_OFF2+1 from the cell origin, over the full cell. Each pixel of a
@@ -71,7 +84,7 @@ DIFF_W=440
 NG_PL=$((TB_X-1-DIFF_W-65))   # the left edge of the New game panel (inner margins of 33 px and 32 px; x 1002)
 # The New game panel has three rows of 112 px, with a black line of 2 px between them: the slider, "Symmetrical" with a
 # switch, and "Start new game" next to the +. Its top is 226 px above the bottom toolbar slot (y 1822).
-NG_TOP=$((TB_BOTTOM_Y-226)); NG_SLIDER_Y=$((NG_TOP+56)); NG_SYM_DIVIDER=$((TB_BOTTOM_Y-114)); NG_SYM_Y=$((TB_BOTTOM_Y-56))
+NG_TOP=$((TB_BOTTOM_Y-2*TB_W-2)); NG_SLIDER_Y=$((NG_TOP+TB_W/2)); NG_SYM_DIVIDER=$((TB_BOTTOM_Y-TB_W-2)); NG_SYM_Y=$((TB_BOTTOM_Y-TB_W/2))
 
 # The palette of the cell colors, in panel order. board-state.py and manual-lib.sh have the same values. The digits
 # of the player are #1E1E1E. Starting digits are black.
@@ -82,7 +95,7 @@ STARTING_BG=$COLOR_GRAY; CLASH_BG=$COLOR_RED; HIGHLIGHT_BG=$COLOR_CYAN; COMPLETE
 
 # The Settings panel: 400 px wide (x 1108-1507), from the top of the slot of the gear (slot 2). The rows start at y 226, one each 114 px (112 px and a line of
 # 2 px): the three switches, the version, "Third-party licenses", and the update row of a stable build.
-SET_W=400; SET_PL=$((TB_X-SET_W)); SET_PR=$((TB_X-1)); SET_TOP=$((2*TB_W)); SET_ROW0=$((SET_TOP+2)); SET_STEP=$((TB_W+2))
+SET_W=400; SET_PL=$((TB_X-SET_W)); SET_PR=$((TB_X-1)); SET_TOP=$((2*TB_W)); SET_ROW0=$((SET_TOP+2)); SET_STEP=$((PANEL_ROW+2))
 SET_VERSION_Y=$((SET_ROW0+3*SET_STEP)); SET_LICENSES_Y=$((SET_ROW0+4*SET_STEP)); SET_UPDATE_Y=$((SET_ROW0+5*SET_STEP))
 SET_BOTTOM_DEV=$((SET_UPDATE_Y-1)); SET_BOTTOM_STABLE=$((SET_UPDATE_Y+SET_STEP-1))   # y 795 and 909
 
@@ -90,19 +103,30 @@ SET_BOTTOM_DEV=$((SET_UPDATE_Y-1)); SET_BOTTOM_STABLE=$((SET_UPDATE_Y+SET_STEP-1
 # portrait position: the board and the meter move by (LS_DX, LS_DY) (270, -270), the toolbar to LS_TB_X (2048), and
 # the bottom toolbar slots also by LS_BOTTOM_DY (-540).
 LS_W=$PHYS_H; LS_H=$PHYS_W
-LS_DX=$(((LS_W-9*C)/2-X0)); LS_DY=$(((LS_H-9*C)/2-Y0)); LS_TB_X=$((LS_W-TB_W)); LS_BOTTOM_DY=$((LS_H-PHYS_H))
+LS_DX=$(((LS_W-BOARD)/2-X0)); LS_DY=$(((LS_H-BOARD)/2-Y0)); LS_TB_X=$((LS_W-TB_W)); LS_BOTTOM_DY=$((LS_H-PHYS_H))
 
 # The Cell colors panel: two columns of 400 px and three rows of 360 px (y 112 to 1192). It touches the toolbar.
 # Left column, from the top: starting, clashing, highlighted. Right column: completed, micro-cell lines, empty space.
-CM_COL=400; CM_W=$((2*CM_COL)); CM_ROW=360; CM_TOP=$TB_W; CM_BOTTOM=$((CM_TOP+3*CM_ROW))   # from slot 1
+# The panel has three rows when they fit on the screen, else two rows and three columns (the Move in landscape,
+# src/layout.rs color_rows). CM_* is portrait; CM_*_LANDSCAPE is landscape.
+CM_COL=400; CM_ROW=360; CM_TOP=$TB_W   # from slot 1
+cm_rows() { if [ $((CM_TOP+3*CM_ROW)) -lt $1 ]; then echo 3; else echo 2; fi; }   # cm_rows SCREEN_H
+CM_ROWS=$(cm_rows $PHYS_H); CM_W=$((6/CM_ROWS*CM_COL)); CM_BOTTOM=$((CM_TOP+CM_ROWS*CM_ROW))
 CM_PL=$((TB_X-CM_W))         # 708: left-handed in portrait (x 708-1507)
-CM_PL_LANDSCAPE=$((LS_TB_X-CM_W))   # 1248: left-handed in landscape (x 1248-2047)
+CM_ROWS_LANDSCAPE=$(cm_rows $LS_H); CM_W_LANDSCAPE=$((6/CM_ROWS_LANDSCAPE*CM_COL))
+CM_BOTTOM_LANDSCAPE=$((CM_TOP+CM_ROWS_LANDSCAPE*CM_ROW))
+CM_PL_LANDSCAPE=$((LS_TB_X-CM_W_LANDSCAPE))   # 1248: left-handed in landscape (x 1248-2047)
 CM_PL_RIGHT=$TB_W            # right-handed in the two orientations (x 112-911)
 
 # The Checkpoints panel: 600 px wide, at y 560 in all layouts. It touches the toolbar. It has the row "Save checkpoint"
 # (y 560-671), then rows of 180 px, the newest first. The last y of the panel is CKP_EMPTY_BOTTOM with no checkpoint,
 # else CKP_ROW0 + 180 n (the bottom line is y-1 and y, as in the other panels).
-CKP_W=600; CKP_TOP=$((5*TB_W)); CKP_ROW0=$((CKP_TOP+TB_W)); CKP_STEP=180; CKP_EMPTY_BOTTOM=$((CKP_TOP+304))   # from slot 5
+# The panel starts at the slot of the bookmark (slot 5). If the panel with the maximum of 4 rows does not fit below
+# it, it starts at slot 1 (the Move in landscape, src/layout.rs ckp_top). CKP_TOP_LANDSCAPE is the top in landscape.
+CKP_W=600; CKP_STEP=180; CKP_MAX=4
+ckp_top() { if [ $((5*TB_W+PANEL_ROW+CKP_MAX*CKP_STEP)) -lt $1 ]; then echo $((5*TB_W)); else echo $TB_W; fi; }   # ckp_top SCREEN_H
+CKP_TOP=$(ckp_top $PHYS_H); CKP_TOP_LANDSCAPE=$(ckp_top $LS_H)
+CKP_ROW0=$((CKP_TOP+PANEL_ROW)); CKP_EMPTY_BOTTOM=$((CKP_TOP+304))
 CKP_PL=$((TB_X-CKP_W))       # 908: left-handed in portrait (x 908-1507)
 CKP_PL_LANDSCAPE=$((LS_TB_X-CKP_W))   # 1448: left-handed in landscape (x 1448-2047)
 CKP_PL_RIGHT=$TB_W           # right-handed in the two orientations (x 112-711)
@@ -152,12 +176,19 @@ meter() {
 }
 
 # The result card of a completed puzzle (REQUIREMENTS.md §8.3). It replaces the difficulty meter.
-# Portrait: below the board, the same for the two hands: x 148-1471 (the board width), y 1790-2110.
-CARD_X0=$X0; CARD_X1=$((X0+9*C)); CARD_Y0=$((Y0+9*C+49)); CARD_Y1=$((Y0+9*C+49+320))
+# Portrait: below the board, the same for the two hands: x 125-1494 (the board width), y 1813-2133.
+CARD_X0=$X0; CARD_X1=$((X0+BOARD)); CARD_Y0=$((Y0+BOARD+49)); CARD_Y1=$((Y0+BOARD+49+320))
+# The compact card of a small screen (COMPACT_CARD=1, src/layout.rs result_card): in portrait it is 370 px high, at the
+# center of the screen and 24 px from the toolbar. In landscape it is the same column, with smaller spaces.
+if [ "$COMPACT_CARD" = 1 ]; then
+  CARD_HALF=$((PHYS_W/2-TB_W-24)); CARD_X0=$((PHYS_W/2-CARD_HALF)); CARD_X1=$((PHYS_W/2+CARD_HALF)); CARD_Y1=$((CARD_Y0+370))
+fi
+# The landscape column of the compact card is 300 px wide, one toolbar slot and 24 px from the screen edge (below).
 CARD_MID=$((CARD_X0+640))              # the vertical line between the result and the level buttons (x 788)
 # Landscape: a column with the height of the board (y 148-1471), 322 px wide, at the side opposite the toolbar.
 CARD_LS_W=322; CARD_LS_X_LEFT=48; CARD_LS_X_RIGHT=$((LS_W-48-CARD_LS_W))   # left-handed x 48-370, right-handed x 1790-2112
-CARD_LS_Y0=$((Y0+LS_DY)); CARD_LS_Y1=$((Y0+9*C+LS_DY))
+if [ "$COMPACT_CARD" = 1 ]; then CARD_LS_W=300; CARD_LS_X_LEFT=$((TB_W+24)); CARD_LS_X_RIGHT=$((LS_W-TB_W-24-CARD_LS_W)); fi
+CARD_LS_Y0=$((Y0+LS_DY)); CARD_LS_Y1=$((Y0+BOARD+LS_DY))
 CARD_LS_SPLIT=560                      # the horizontal line is 560 px above the bottom of the column (y 911)
 # The sample values of the reference state: the time, and the comparison with the results of analytics.py at
 # mode 2 (LEVEL), without the result of the current game (seed 1, the second result).
@@ -176,12 +207,59 @@ level_label() { case $1 in 0) echo Easier ;; 1) echo Same ;; *) echo Harder ;; e
 # level_mode I LEVEL : the mode that level button I starts, or nothing when the button is not available
 level_mode() { lm=$(($2+$1-1)); if [ $lm -ge 0 ] && [ $lm -lt $STOPS ]; then echo $lm; fi; }
 
+# compact_card portrait|left|right LEVEL : MVG for the compact result card (src/render.rs draw_compact_card_below and draw_card_column). Portrait:
+# the result at the top, a horizontal gray70 line 250 px below the top, then the three level buttons in one row (80 px
+# high, 32 px from the sides, 16 px between them), each with its label above a small meter. Landscape: the column of
+# result_card with smaller spaces, the line 380 px below the top and buttons of 88 px with a pitch of 100 px (no
+# "New game" heading).
+compact_card() {
+  rl=$2
+  if [ $1 = portrait ]; then
+    rx0=$CARD_X0; ry0=$CARD_Y0; rx1=$CARD_X1; ry1=$CARD_Y1; rtx=$((rx0+40)); div=$((ry0+250))
+    echo "stroke none fill white rectangle $((rx0-1)),$((ry0-1)) $rx1,$ry1"
+    card_frame $rx0 $ry0 $rx1 $ry1 black
+    card_text "$DIGIT_FONT" 30 $TEXT_GRAY start $rtx $((ry0+50)) "Completed in"
+    card_text "$UI_FONT" 72 black start $rtx $((ry0+130)) "$CARD_TIME"
+    labeled_slider $rtx $((rtx+DIFF_W)) $((ry0+175)) $rl; echo
+    card_text "$DIGIT_FONT" 25 $TEXT_GRAY start $rtx $((ry0+225)) "Average $CARD_AVERAGE  ·  Previous best $CARD_BEST"
+    echo "stroke none fill gray70 rectangle $((rx0+24)),$((div-1)) $((rx1-25)),$div"
+    bw=$(((rx1-rx0-64-32)/3))
+    for i in 0 1 2; do
+      bx0=$((rx0+32+i*(bw+16))); bx1=$((bx0+bw)); by0=$((div+18)); by1=$((by0+80)); bcx=$(((bx0+bx1)/2))
+      bm=$(level_mode $i $rl); fg=black; [ -z "$bm" ] && fg=gray70
+      card_frame $bx0 $by0 $bx1 $by1 $([ -n "$bm" ] && echo black || echo gray80)
+      card_text "$UI_FONT" 28 $fg middle $bcx $((by0+34)) "$(level_label $i)"
+      [ -n "$bm" ] && { meter $((bcx-3*22)) $((by0+58)) 22 $bm; echo; }
+    done
+  else
+    rx0=$CARD_LS_X_LEFT; [ $1 = right ] && rx0=$CARD_LS_X_RIGHT
+    rx1=$((rx0+CARD_LS_W)); ry0=$CARD_LS_Y0; ry1=$CARD_LS_Y1; rtx=$((rx0+28)); rcx=$(((rx0+rx1)/2)); div=$((ry0+380))
+    card_frame $rx0 $ry0 $rx1 $ry1 black
+    card_text "$DIGIT_FONT" 30 $TEXT_GRAY start $rtx $((ry0+50)) "Completed in"
+    card_text "$UI_FONT" 64 black start $rtx $((ry0+128)) "$CARD_TIME"
+    meter $((rcx-3*36)) $((ry0+176)) 36 $rl; echo
+    card_text "$DIGIT_FONT" 25 $TEXT_GRAY start $rtx $((ry0+232)) "Average at this level"
+    card_text "$UI_FONT" 36 black start $rtx $((ry0+272)) "$CARD_AVERAGE"
+    card_text "$DIGIT_FONT" 25 $TEXT_GRAY start $rtx $((ry0+312)) "Previous best"
+    card_text "$UI_FONT" 36 black start $rtx $((ry0+352)) "$CARD_BEST"
+    echo "stroke none fill gray70 rectangle $rtx,$((div-1)) $((rx1-29)),$div"
+    for i in 0 1 2; do
+      bx0=$((rx0+20)); bx1=$((rx1-20)); by0=$((div+20+100*i)); by1=$((by0+88))
+      bm=$(level_mode $i $rl); fg=black; [ -z "$bm" ] && fg=gray70
+      card_frame $bx0 $by0 $bx1 $by1 $([ -n "$bm" ] && echo black || echo gray80)
+      card_text "$UI_FONT" 30 $fg middle $rcx $((by0+38)) "$(level_label $i)"
+      [ -n "$bm" ] && { meter $((rcx-3*30)) $((by0+66)) 30 $bm; echo; }
+    done
+  fi
+}
+
 # result_card portrait|left|right LEVEL : MVG for the result card. "left" and "right" are the landscape column of a
 # left-handed and a right-handed player (2160x1620 coordinates). The contents of the column are the same for the
 # two hands. The three level buttons have a white inside (no button is selected). A button that is not available
 # has a gray80 frame, a gray70 label and no meter.
 result_card() {
   rl=$2
+  if [ "$COMPACT_CARD" = 1 ]; then compact_card $1 $2; return 0; fi
   if [ $1 = portrait ]; then
     rx0=$CARD_X0; ry0=$CARD_Y0; rx1=$CARD_X1; ry1=$CARD_Y1; rtx=$((rx0+40))
     echo "stroke none fill white rectangle $((rx0-1)),$((ry0-1)) $rx1,$ry1"

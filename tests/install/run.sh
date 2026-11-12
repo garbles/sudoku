@@ -20,7 +20,8 @@
 #   offline   The tablet has no internet at the first check. Vellum is not installed.
 #   download  The computer has no internet at the first download.
 #   stop      The tablet is not connected, and the user types q.
-#   other     The tablet is a Paper Pro Move, and the user does not continue.
+#   other     The tablet is a reMarkable 2, and the user does not continue.
+#   move      The scenario "again" on a Paper Pro Move: the installer accepts the tablet with no question.
 #   patch     All steps are done, but the ink patch is old: the installer copies it and starts xovi again.
 #   stamp     All steps are done, but the stamp file of the ink patch is missing (an installer before the
 #             stamp file): the installer writes the stamp file and does not start xovi again.
@@ -147,7 +148,8 @@ case "$SCENARIO" in
   offline) installed; rm "$S/vellum" "$S/appload"; echo 1 >"$S/offline"; input "" "" ;;
   download) installed; echo 1 >"$S/no-network"; input "" "" ;;
   stop) echo 9 >"$S/unreachable"; input "" q ;;
-  other) installed; printf 'reMarkable Chiappa\n' >"$S/model"; input "" "" ;;
+  other) installed; printf 'reMarkable 2.0\n' >"$S/model"; input "" "" ;;
+  move) installed; printf 'reMarkable Chiappa\n' >"$S/model"; input "" ;;
   patch) installed; printf 'old\n' >"$S/patch"; printf 'old\n' >"$S/stamp"; input "" "" ;;
   stamp) installed; rm "$S/stamp"; input "" ;;
   badpatch) installed; printf 'changed\n' >"$SIM/web/sudoku-penregion.qmd"; input "" ;;

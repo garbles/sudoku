@@ -2,7 +2,9 @@
 //! the scripts that make the images in `images/pro/`.
 //!
 //! Coordinates are in ImageMagick units: a pixel center is at an integer coordinate. tiny-skia puts a
-//! pixel center at +0.5. Thus each drawing gets a translation of 0.5 px.
+//! pixel center at +0.5 px. Thus each drawing gets this translation (`RasterMetrics::pixel_center_offset`).
+//! The other calibrations against ImageMagick and the margins of the drawings are also in
+//! `RasterMetrics`, and the ink of the pen is in `InkMetrics`.
 
 use std::sync::OnceLock;
 
@@ -21,21 +23,6 @@ pub type Rgb = [u8; 3];
 
 pub use crate::settings::{BLACK, ENTRY_DIGIT};
 
-/// ImageMagick puts text a little to the left and higher than tiny-skia. This offset (px) gives the
-/// smallest difference to the reference images (the snapshot tool measures it).
-const TEXT_OFFSET: (f32, f32) = (-1.0, -1.0);
-/// The same offset (screen px) for the screens with a scale (the analytics screens).
-const TEXT_OFFSET_PAGE: (f32, f32) = (-0.5, -0.5);
-
-/// ImageMagick draws strokes a little wider than tiny-skia. This extra width (px) gives the smallest
-/// difference to the reference images.
-const STROKE_EXTRA: f32 = 0.25;
-
-/// The width of the ink of the pen (px). The ink is a crisp drawing (INP-25): each pixel is black or
-/// the pixel that was under it.
-pub const INK_WIDTH: f32 = 5.0;
-/// The radius of the dot of a tap (px, R§5.1).
-pub const INK_DOT_RADIUS: f32 = 2.5;
 const WHITE: Rgb = [255, 255, 255];
 /// The caution icon on the gear (REQUIREMENTS.md §9.2).
 pub const CAUTION_RED: Rgb = [0xD6, 0x2D, 0x20];
@@ -109,9 +96,10 @@ impl Units {
 
     /// The offset of the text (screen px) that gives the smallest difference to the reference images.
     fn text_offset(self) -> (f32, f32) {
+        let raster = layout::device().raster;
         match self {
-            Units::Screen => TEXT_OFFSET,
-            Units::Page => TEXT_OFFSET_PAGE,
+            Units::Screen => raster.text_offset,
+            Units::Page => raster.page_text_offset,
         }
     }
 }
@@ -323,7 +311,7 @@ fn paint(c: Rgb) -> Paint<'static> {
 
 fn stroke(w: f32, round: bool) -> Stroke {
     Stroke {
-        width: w + STROKE_EXTRA,
+        width: w + layout::device().raster.stroke_extra,
         line_cap: if round { LineCap::Round } else { LineCap::Butt },
         line_join: if round { LineJoin::Round } else { LineJoin::Miter },
         ..Stroke::default()
@@ -356,16 +344,17 @@ impl<'a> Canvas<'a> {
         paint(c)
     }
 
-    /// Draws one stroke of the ink of the pen (`INK_WIDTH`, black): a dot of `INK_DOT_RADIUS` for one
-    /// point, else a line with round ends and joins. The ink is a crisp drawing (INP-25): each pixel
-    /// is black or the pixel under it, also over a filled cell. The ink is not a drawing that
-    /// covers a board cell (refer to `FrameRecord::pen_change`).
+    /// Draws one stroke of the ink of the pen (`InkMetrics::width`, black): a dot of
+    /// `InkMetrics::dot_radius` for one point, else a line with round ends and joins. The ink is a
+    /// crisp drawing (INP-25): each pixel is black or the pixel under it, also over a filled cell.
+    /// The ink is not a drawing that covers a board cell (refer to `FrameRecord::pen_change`).
     pub fn ink(&mut self, stroke: &[(f32, f32)]) {
+        let ink = layout::device().ink;
         self.ink = true;
         match stroke {
             [] => {}
-            [(x, y)] => self.circle(*x, *y, INK_DOT_RADIUS, Some(BLACK), None),
-            _ => self.polyline(stroke, INK_WIDTH, BLACK, true),
+            [(x, y)] => self.circle(*x, *y, ink.dot_radius, Some(BLACK), None),
+            _ => self.polyline(stroke, ink.width, BLACK, true),
         }
         self.ink = false;
     }
@@ -425,9 +414,10 @@ impl<'a> Canvas<'a> {
         let (x0, x1) = pts.iter().fold((f32::MAX, f32::MIN), |(a, c), p| (a.min(p.x), c.max(p.x)));
         let (y0, y1) = pts.iter().fold((f32::MAX, f32::MIN), |(a, c), p| (a.min(p.y), c.max(p.y)));
         let scale = tf.sx.abs().max(tf.sy.abs()).max(tf.kx.abs()).max(tf.ky.abs());
+        let raster = layout::device().raster;
         // A box with no width or height (a straight line) gets a small size.
         match SkRect::from_ltrb(x0, y0, x1.max(x0 + 0.01), y1.max(y0 + 0.01)) {
-            Some(r) => self.touched(r, 2.0 * (w + STROKE_EXTRA) * scale + 2.0),
+            Some(r) => self.touched(r, 2.0 * (w + raster.stroke_extra) * scale + raster.path_record_margin),
             None => self.touched_all(),
         }
     }
@@ -485,8 +475,8 @@ impl<'a> Canvas<'a> {
     }
 
     fn tf(&self) -> Transform {
-        let scale = self.units.scale();
-        Transform::from_row(scale, 0.0, 0.0, scale, 0.5, 0.5 - self.top as f32)
+        let (scale, center) = (self.units.scale(), layout::device().raster.pixel_center_offset);
+        Transform::from_row(scale, 0.0, 0.0, scale, center, center - self.top as f32)
     }
 
     pub fn clear(&mut self) {
@@ -508,7 +498,7 @@ impl<'a> Canvas<'a> {
 
     /// ImageMagick `rectangle x0,y0 x1,y1` with a fill: the pixels from x0 to x1, x1 included.
     pub fn rect(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, c: Rgb) {
-        let h = 0.5 / self.units.scale();
+        let h = layout::device().raster.pixel_center_offset / self.units.scale();
         if let Some(r) = SkRect::from_ltrb(x0 - h, y0 - h, x1 + h, y1 + h) {
             let tf = self.tf();
             self.pm.fill_rect(r, &self.paint(c), tf, None);
@@ -585,19 +575,6 @@ impl<'a> Canvas<'a> {
         self.polyline(&[(x0, y0), (x1, y1)], w, c, true);
     }
 
-    /// A line with square ends (the thick lines of the board).
-    fn line_square(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, w: f32, c: Rgb) {
-        let mut pb = PathBuilder::new();
-        pb.move_to(x0, y0);
-        pb.line_to(x1, y1);
-        let path = pb.finish().unwrap();
-        let mut s = stroke(w, false);
-        s.line_cap = LineCap::Square;
-        let tf = self.tf();
-        self.pm.stroke_path(&path, &self.paint(c), &s, tf, None);
-        self.touched_path(&path, tf, w);
-    }
-
     /// A line with flat ends.
     fn line_butt(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, w: f32, c: Rgb) {
         self.polyline(&[(x0, y0), (x1, y1)], w, c, false);
@@ -671,31 +648,38 @@ impl<'a> Canvas<'a> {
 
 // ---- Images in the app
 
-/// The manual pages (REQUIREMENTS.md §12), in order.
-static MANUAL: [&[u8]; MANUAL_PAGES as usize] = [
-    include_bytes!("../images/pro/manual-how-to-play.png"),
-    include_bytes!("../images/pro/manual-candidates.png"),
-    include_bytes!("../images/pro/manual-pen.png"),
-    include_bytes!("../images/pro/manual-pen-rules.png"),
-    include_bytes!("../images/pro/manual-helpers.png"),
-    include_bytes!("../images/pro/manual-mistakes.png"),
-    include_bytes!("../images/pro/manual-menu.png"),
-    include_bytes!("../images/pro/manual-new-game.png"),
-    include_bytes!("../images/pro/manual-finished.png"),
-];
+/// The manual pages (REQUIREMENTS.md §12) of the design images of a model (`dir`, refer to
+/// `Model::images`), in order. `suffix` is "" for portrait and "-landscape" for landscape
+/// (scripts/manual-*-landscape.sh).
+macro_rules! manual_pages {
+    ($dir:literal, $suffix:literal) => {
+        [
+            include_bytes!(concat!("../images/", $dir, "/manual-how-to-play", $suffix, ".png")),
+            include_bytes!(concat!("../images/", $dir, "/manual-candidates", $suffix, ".png")),
+            include_bytes!(concat!("../images/", $dir, "/manual-pen", $suffix, ".png")),
+            include_bytes!(concat!("../images/", $dir, "/manual-pen-rules", $suffix, ".png")),
+            include_bytes!(concat!("../images/", $dir, "/manual-helpers", $suffix, ".png")),
+            include_bytes!(concat!("../images/", $dir, "/manual-mistakes", $suffix, ".png")),
+            include_bytes!(concat!("../images/", $dir, "/manual-menu", $suffix, ".png")),
+            include_bytes!(concat!("../images/", $dir, "/manual-new-game", $suffix, ".png")),
+            include_bytes!(concat!("../images/", $dir, "/manual-finished", $suffix, ".png")),
+        ]
+    };
+}
 
-/// The same pages for the landscape orientation (scripts/manual-*-landscape.sh).
-static MANUAL_LANDSCAPE: [&[u8]; MANUAL_PAGES as usize] = [
-    include_bytes!("../images/pro/manual-how-to-play-landscape.png"),
-    include_bytes!("../images/pro/manual-candidates-landscape.png"),
-    include_bytes!("../images/pro/manual-pen-landscape.png"),
-    include_bytes!("../images/pro/manual-pen-rules-landscape.png"),
-    include_bytes!("../images/pro/manual-helpers-landscape.png"),
-    include_bytes!("../images/pro/manual-mistakes-landscape.png"),
-    include_bytes!("../images/pro/manual-menu-landscape.png"),
-    include_bytes!("../images/pro/manual-new-game-landscape.png"),
-    include_bytes!("../images/pro/manual-finished-landscape.png"),
-];
+type ManualPngs = [&'static [u8]; MANUAL_PAGES as usize];
+static MANUAL_PRO: ManualPngs = manual_pages!("pro", "");
+static MANUAL_PRO_LANDSCAPE: ManualPngs = manual_pages!("pro", "-landscape");
+static MANUAL_MOVE: ManualPngs = manual_pages!("move", "");
+static MANUAL_MOVE_LANDSCAPE: ManualPngs = manual_pages!("move", "-landscape");
+
+/// The manual pages of the device: portrait and landscape.
+fn manual_pngs() -> (&'static ManualPngs, &'static ManualPngs) {
+    match layout::device().model {
+        layout::Model::PaperPro => (&MANUAL_PRO, &MANUAL_PRO_LANDSCAPE),
+        layout::Model::Move => (&MANUAL_MOVE, &MANUAL_MOVE_LANDSCAPE),
+    }
+}
 
 /// Decodes a PNG (gray, gray with alpha, RGB or RGBA; 8 or 16 bits) into a pixmap.
 pub fn decode_png(data: &[u8]) -> Pixmap {
@@ -738,10 +722,11 @@ fn manual_page(page: u8) -> &'static (Pixmap, bool) {
         let opaque = pm.pixels().iter().all(|p| p.alpha() == 255);
         (pm, opaque)
     };
+    let (portrait, landscape) = manual_pngs();
     if layout::orientation() == layout::Orientation::Landscape {
-        LANDSCAPE[i].get_or_init(|| load(MANUAL_LANDSCAPE[i]))
+        LANDSCAPE[i].get_or_init(|| load(landscape[i]))
     } else {
-        PAGES[i].get_or_init(|| load(MANUAL[i]))
+        PAGES[i].get_or_init(|| load(portrait[i]))
     }
 }
 
@@ -776,14 +761,14 @@ pub fn draw(c: &mut Canvas, app: &App) {
     }
 }
 
-/// The font and the size of the two labels of the difficulty slider.
+/// The font of the two labels of the difficulty slider. The size is `Device::slider`.
 const SLIDER_LABEL_WEIGHT: Weight = Weight::Medium;
-const SLIDER_LABEL_SIZE: f32 = 25.0;
 
 /// The text widths of the labels "Easy" and "Hard" of the difficulty slider.
 pub fn slider_label_widths(fonts: &Fonts) -> (f32, f32) {
     let font = fonts.get(SLIDER_LABEL_WEIGHT);
-    (font.width(SLIDER_LABEL_SIZE, "Easy"), font.width(SLIDER_LABEL_SIZE, "Hard"))
+    let size = layout::device().slider.label_size;
+    (font.width(size, "Easy"), font.width(size, "Hard"))
 }
 
 /// The x positions of the stops of a difficulty slider with its labels from `xl` to `xr`.
@@ -830,7 +815,8 @@ fn draw_game(c: &mut Canvas, app: &App) {
         bookmark: !app.game.completed,
     };
     put_overlay(c, menu, |c| {
-        menu_icon(c, tb_cx(), tb_cy(0), app.ui.menu.is_open(), layout::right_handed(), BLACK);
+        let (x, y) = icon_center(Button::Menu);
+        menu_icon(c, x, y, app.ui.menu.is_open(), layout::right_handed(), BLACK);
         if let Menu::Open(panel) = app.ui.menu {
             draw_toolbar(c, app, panel);
         }
@@ -843,74 +829,148 @@ fn draw_game(c: &mut Canvas, app: &App) {
 /// The result card of a complete puzzle (REQUIREMENTS.md §8.3, CMP-4, CMP-7 to CMP-9): "Completed
 /// in", the time, the meter of the mode, the comparison with the earlier results at this mode, and
 /// the level buttons Easier, Same and Harder. The three buttons have the same look (Same has no
-/// highlight). A button that is not available has a gray80 frame, a gray70 label and no meter. The
-/// contents of the landscape column are the same for the two hands.
+/// highlight, `ButtonLook`). The contents of a landscape column are the same for the two hands.
 fn draw_result_card(c: &mut Canvas, mode: u8, seconds: u64, comparison: Comparison) {
     let r = layout::result_card();
-    let (x0, y0, x1, y1) = (r.x0 as f32, r.y0 as f32, r.x1 as f32, r.y1 as f32);
     card_frame(c, r, BLACK);
     let time = format_clock(seconds);
-    let divider = layout::card_divider() as f32;
-    // The look of a level button: the frame, the label and the mode of its meter.
-    let look = |b: LevelButton| match b.target(mode) {
-        Some(m) => (BLACK, BLACK, Some(m)),
-        None => (gray(80), gray(70), None),
-    };
-    if layout::orientation() == layout::Orientation::Portrait {
-        let tx = x0 + 40.0;
-        c.text(Weight::Regular, 30.0, tx, y0 + 66.0, Anchor::Start, "Completed in", SECONDARY);
-        c.text(Weight::Medium, 96.0, tx, y0 + 180.0, Anchor::Start, &time, BLACK);
-        labeled_slider(c, r.x0 + 40, r.x0 + 40 + DIFF_W, r.y0 + 232, mode);
-        let compare = match comparison {
-            Comparison::Earlier { average, best } => format!("Average {}  ·  Previous best {}", format_clock(average), format_clock(best)),
-            Comparison::First => FIRST_GAME.to_string(),
-        };
-        c.text(Weight::Regular, 25.0, tx, y0 + 293.0, Anchor::Start, &compare, SECONDARY);
-        c.rect(divider - 1.0, y0 + 24.0, divider, y1 - 25.0, gray(70));
-        c.text(Weight::Medium, 28.0, divider + 32.0, y0 + 55.0, Anchor::Start, "New game", BLACK);
-        for b in LevelButton::ALL {
-            let br = layout::level_button(b);
-            let (bx0, by0, bx1, by1) = (br.x0 as f32, br.y0 as f32, br.x1 as f32, br.y1 as f32);
-            let cy = (by0 + by1) / 2.0;
-            let (frame, label, target) = look(b);
-            card_frame(c, br, frame);
-            c.text(Weight::Medium, 30.0, bx0 + 28.0, cy + 11.0, Anchor::Start, b.label(), label);
-            if let Some(m) = target {
-                // The last stop is 40 px from the right frame.
-                meter(c, bx1 - 40.0 - (MODES - 1) as f32 * CARD_BUTTON_STEP, cy, CARD_BUTTON_STEP, m, MeterStyle::ON_WHITE);
-            }
-        }
-    } else {
-        let (tx, cx) = (x0 + 28.0, (x0 + x1) / 2.0);
-        // A centered meter with `step` between its stops.
-        let centered = |step: f32| cx - (MODES - 1) as f32 / 2.0 * step;
-        c.text(Weight::Regular, 30.0, tx, y0 + 70.0, Anchor::Start, "Completed in", SECONDARY);
-        // Medium 72 at all times: a time of one hour or more fits in the column.
-        c.text(Weight::Medium, 72.0, tx, y0 + 185.0, Anchor::Start, &time, BLACK);
-        meter(c, centered(40.0), y0 + 255.0, 40.0, mode, MeterStyle::ON_WHITE);
-        match comparison {
-            Comparison::Earlier { average, best } => {
-                for (k, (label, v)) in [("Average at this level", average), ("Previous best", best)].into_iter().enumerate() {
-                    let y = y0 + 370.0 + k as f32 * 110.0;
-                    c.text(Weight::Regular, 25.0, tx, y, Anchor::Start, label, SECONDARY);
-                    c.text(Weight::Medium, 40.0, tx, y + 48.0, Anchor::Start, &format_clock(v), BLACK);
-                }
-            }
-            Comparison::First => c.text(Weight::Regular, 25.0, tx, y0 + 370.0, Anchor::Start, FIRST_GAME, SECONDARY),
-        }
-        c.rect(tx, divider - 1.0, x1 - 29.0, divider, gray(70));
-        c.text(Weight::Medium, 28.0, tx, divider + 60.0, Anchor::Start, "New game", BLACK);
-        for b in LevelButton::ALL {
-            let br = layout::level_button(b);
-            let by0 = br.y0 as f32;
-            let (frame, label, target) = look(b);
-            card_frame(c, br, frame);
-            c.text(Weight::Medium, 32.0, cx, by0 + 50.0, Anchor::Middle, b.label(), label);
-            if let Some(m) = target {
-                meter(c, centered(36.0), by0 + 88.0, 36.0, m, MeterStyle::ON_WHITE);
-            }
+    match layout::card_layout() {
+        CardLayout::Below(card) => draw_card_below(c, card, r, mode, &time, comparison),
+        CardLayout::Column(card) => draw_card_column(c, card, r, mode, &time, comparison),
+        CardLayout::CompactBelow(card) => draw_compact_card_below(c, card, r, mode, &time, comparison),
+    }
+}
+
+/// The look of a level button: an available button has a black frame, a black label and the meter
+/// of its target mode. A button that is not available has a gray80 frame, a gray70 label and no
+/// meter.
+struct ButtonLook {
+    frame: Rgb,
+    label: Rgb,
+    target: Option<u8>,
+}
+
+impl ButtonLook {
+    fn of(b: LevelButton, mode: u8) -> ButtonLook {
+        match b.target(mode) {
+            Some(m) => ButtonLook { frame: BLACK, label: BLACK, target: Some(m) },
+            None => ButtonLook { frame: gray(80), label: gray(70), target: None },
         }
     }
+}
+
+/// The x of the first stop of a meter with `step` between its stops, centered at `cx`.
+fn centered_meter_x(cx: f32, step: f32) -> f32 {
+    cx - (MODES - 1) as f32 / 2.0 * step
+}
+
+/// The comparison of a portrait card in one line.
+fn comparison_line(comparison: Comparison) -> String {
+    match comparison {
+        Comparison::Earlier { average, best } => format!("Average {}  ·  Previous best {}", format_clock(average), format_clock(best)),
+        Comparison::First => FIRST_GAME.to_string(),
+    }
+}
+
+/// A line of text of the result card at `x`, with its baseline `line.baseline` below `top`.
+#[allow(clippy::too_many_arguments)]
+fn card_text(c: &mut Canvas, weight: Weight, line: CardText, x: f32, top: f32, anchor: Anchor, s: &str, color: Rgb) {
+    c.text(weight, line.size, x, top + line.baseline as f32, anchor, s, color);
+}
+
+/// A small meter of the result card at the center `cx`, with its center line `m.y` below `top`.
+fn card_meter(c: &mut Canvas, m: CardMeter, cx: f32, top: f32, level: u8) {
+    meter(c, centered_meter_x(cx, m.step), top + m.y as f32, m.step, level, MeterStyle::ON_WHITE);
+}
+
+/// The comparison of a landscape card (CMP-8) at `x`, below the top `y0` of the card.
+fn comparison_column(c: &mut Canvas, sizes: ComparisonColumn, x: f32, y0: f32, comparison: Comparison) {
+    match comparison {
+        Comparison::Earlier { average, best } => {
+            for (k, (label, v)) in [("Average at this level", average), ("Previous best", best)].into_iter().enumerate() {
+                let y = y0 + sizes.label.baseline as f32 + k as f32 * sizes.pitch as f32;
+                c.text(Weight::Regular, sizes.label.size, x, y, Anchor::Start, label, SECONDARY);
+                card_text(c, Weight::Medium, sizes.value, x, y, Anchor::Start, &format_clock(v), BLACK);
+            }
+        }
+        Comparison::First => card_text(c, Weight::Regular, sizes.label, x, y0, Anchor::Start, FIRST_GAME, SECONDARY),
+    }
+}
+
+/// The level buttons of a card with `LabelAboveMeter` contents: each label above its meter, at the
+/// center of the button.
+fn level_buttons_above(c: &mut Canvas, contents: LabelAboveMeter, mode: u8) {
+    for b in LevelButton::ALL {
+        let (br, look) = (layout::level_button(b), ButtonLook::of(b, mode));
+        let (by0, bcx) = (br.y0 as f32, (br.x0 as f32 + br.x1 as f32) / 2.0);
+        card_frame(c, br, look.frame);
+        card_text(c, Weight::Medium, contents.label, bcx, by0, Anchor::Middle, b.label(), look.label);
+        if let Some(m) = look.target {
+            card_meter(c, contents.meter, bcx, by0, m);
+        }
+    }
+}
+
+/// `CardLayout::Below`: the result at the left, a vertical divider, then "New game" and a column
+/// of level buttons, each with its label at the left and its meter at the right.
+fn draw_card_below(c: &mut Canvas, card: BelowCard, r: Rect, mode: u8, time: &str, comparison: Comparison) {
+    let (y0, y1) = (r.y0 as f32, r.y1 as f32);
+    let divider = layout::card_divider() as f32;
+    let text_x = r.x0 + card.text_x;
+    let tx = text_x as f32;
+    card_text(c, Weight::Regular, card.heading, tx, y0, Anchor::Start, "Completed in", SECONDARY);
+    card_text(c, Weight::Medium, card.time, tx, y0, Anchor::Start, time, BLACK);
+    labeled_slider(c, text_x, text_x + layout::device().slider.width, r.y0 + card.slider_y, mode);
+    card_text(c, Weight::Regular, card.comparison, tx, y0, Anchor::Start, &comparison_line(comparison), SECONDARY);
+    c.rect(divider - 1.0, y0 + card.divider_top as f32, divider, y1 - card.divider_bottom as f32, gray(70));
+    let title_x = divider + card.buttons.inset as f32;
+    card_text(c, Weight::Medium, card.title, title_x, y0, Anchor::Start, "New game", BLACK);
+    let contents = card.button;
+    for b in LevelButton::ALL {
+        let (br, look) = (layout::level_button(b), ButtonLook::of(b, mode));
+        let (bx0, by0, bx1, by1) = (br.x0 as f32, br.y0 as f32, br.x1 as f32, br.y1 as f32);
+        let cy = (by0 + by1) / 2.0;
+        card_frame(c, br, look.frame);
+        card_text(c, Weight::Medium, contents.label, bx0 + contents.label_x as f32, cy, Anchor::Start, b.label(), look.label);
+        if let Some(m) = look.target {
+            let step = contents.meter_step;
+            meter(c, bx1 - contents.meter_right as f32 - (MODES - 1) as f32 * step, cy, step, m, MeterStyle::ON_WHITE);
+        }
+    }
+}
+
+/// `CardLayout::Column` (the normal card and the compact card): the result at the top, a horizontal
+/// divider, then "New game" (if the card has a title) and a column of level buttons, each with its
+/// label above its meter.
+fn draw_card_column(c: &mut Canvas, card: ColumnCard, r: Rect, mode: u8, time: &str, comparison: Comparison) {
+    let (x0, y0, x1) = (r.x0 as f32, r.y0 as f32, r.x1 as f32);
+    let divider = layout::card_divider() as f32;
+    let (tx, cx) = (x0 + card.text_x as f32, (x0 + x1) / 2.0);
+    card_text(c, Weight::Regular, card.heading, tx, y0, Anchor::Start, "Completed in", SECONDARY);
+    card_text(c, Weight::Medium, card.time, tx, y0, Anchor::Start, time, BLACK);
+    card_meter(c, card.meter, cx, y0, mode);
+    comparison_column(c, card.comparison, tx, y0, comparison);
+    c.rect(tx, divider - 1.0, x1 - card.divider_right as f32, divider, gray(70));
+    if let Some(title) = card.title {
+        card_text(c, Weight::Medium, title, tx, divider, Anchor::Start, "New game", BLACK);
+    }
+    level_buttons_above(c, card.button, mode);
+}
+
+/// `CardLayout::CompactBelow` (a small screen, owner decision 2026-11-10): the contents of
+/// `draw_card_below` with smaller spaces. The result at the top, a horizontal divider, then the
+/// three level buttons in one row, each with its label above its meter. No "New game" title.
+fn draw_compact_card_below(c: &mut Canvas, card: CompactBelowCard, r: Rect, mode: u8, time: &str, comparison: Comparison) {
+    let (x0, y0, x1) = (r.x0 as f32, r.y0 as f32, r.x1 as f32);
+    let divider = layout::card_divider() as f32;
+    let text_x = r.x0 + card.text_x;
+    let tx = text_x as f32;
+    card_text(c, Weight::Regular, card.heading, tx, y0, Anchor::Start, "Completed in", SECONDARY);
+    card_text(c, Weight::Medium, card.time, tx, y0, Anchor::Start, time, BLACK);
+    labeled_slider(c, text_x, text_x + layout::device().slider.width, r.y0 + card.slider_y, mode);
+    card_text(c, Weight::Regular, card.comparison, tx, y0, Anchor::Start, &comparison_line(comparison), SECONDARY);
+    c.rect(x0 + card.divider_left as f32, divider - 1.0, x1 - card.divider_right as f32, divider, gray(70));
+    level_buttons_above(c, card.button, mode);
 }
 
 /// A frame of 2 px of the result card or of a level button: the pixel columns x0 - 1, x0, x1 - 1
@@ -925,8 +985,6 @@ fn card_frame(c: &mut Canvas, r: Rect, color: Rgb) {
 
 /// The text of the result card with no earlier result at the mode (CMP-8).
 const FIRST_GAME: &str = "First game at this level";
-/// The step of the small meter of a level button in portrait.
-const CARD_BUTTON_STEP: f32 = 30.0;
 
 /// A group of drawings out of the board that the overlay cache keeps (refer to `put_overlay`): all
 /// that its pixels depend on, with the layout.
@@ -1156,8 +1214,6 @@ fn mark_anchor(xf: f32, yf: f32, digit: u8) -> (f32, f32) {
 /// The color of the pencil marks and of the x of a refused tap (§15). They are crisp drawings
 /// (MRK-19): each pixel of them is this color.
 pub const MARK_COLOR: Rgb = gray(15);
-/// The line width of the x of a refused tap (§15, MRK-13).
-const REFUSED_X_WIDTH: f32 = 3.0;
 
 /// Draws one cell with its top left at (xf, yf; integer screen px): the background or the faint
 /// micro-cell grid (a pattern, BRD-9), then the number, the "?" or the pencil marks and the x of a
@@ -1168,21 +1224,21 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
     let d = layout::device();
     let cs = d.cell as f32;
     match look {
-        CellLook::Value(_, bg, _) => c.rect(xf, yf, xf + cs, yf + cs, bg),
+        CellLook::Value(_, bg, _) => c.rect(xf, yf, xf + cs - 1.0, yf + cs - 1.0, bg),
         CellLook::Question => {}
         CellLook::Empty(_, lines, _) => {
-            // The micro-cell grid of an empty cell (BRD-6): 2 px lines on the pixels `micro_offset(k)`
-            // and the pixel after it, over the full cell, as a pattern of gray15 and white pixels with
-            // the darkness of the gray of the setting (BRD-9). The pattern starts at the first pixel of
+            // The micro-cell grid of an empty cell (BRD-6): lines of `LineWidths::micro_line` px
+            // from the pixels `micro_offset(k)`, over the full cell, as a pattern of gray15 and white
+            // pixels with the darkness of the gray of the setting (BRD-9). The pattern starts at the first pixel of
             // each line: the row index of the matrix is the position along the line, the column index
             // the position across it. A line writes only its gray15 pixels, thus a crossing is the
             // union of the two patterns. None: no lines.
             if let Some(shade) = line_shade(lines) {
-                let (x, y) = (xf as i32, yf as i32);
+                let (x, y, w) = (xf as i32, yf as i32, d.lines.micro_line);
                 for k in 1..=2 {
                     let o = micro_offset(k);
-                    c.pattern(x + o, y, 2, cell_size(), Axis::Y, shade, |_, _| true);
-                    c.pattern(x, y + o, cell_size(), 2, Axis::X, shade, |_, _| true);
+                    c.pattern(x + o, y, w, d.cell, Axis::Y, shade, |_, _| true);
+                    c.pattern(x, y + o, d.cell, w, Axis::X, shade, |_, _| true);
                 }
             }
         }
@@ -1205,52 +1261,40 @@ fn draw_cell(c: &mut Canvas, look: CellLook, xf: f32, yf: f32) {
             // peer has its digit, thus no mark shows under it (MRK-12).
             if let Some(digit) = refused {
                 let (cx, cy) = mark_anchor(xf, yf, digit);
-                let h = d.refused_x_half();
-                c.line(cx - h, cy - h, cx + h, cy + h, REFUSED_X_WIDTH, MARK_COLOR);
-                c.line(cx - h, cy + h, cx + h, cy - h, REFUSED_X_WIDTH, MARK_COLOR);
+                let (h, w) = (d.refused_x_half(), d.lines.refused_x_line);
+                c.line(cx - h, cy - h, cx + h, cy + h, w, MARK_COLOR);
+                c.line(cx - h, cy + h, cx + h, cy - h, w, MARK_COLOR);
             }
         }
     }
 }
 
-/// The lines of the board, in the order of the drawing: the thin lines, then the thick lines. Only the
-/// lines that `keep` accepts (the index 0 to 9 and true for a vertical line). With `near`, only the
-/// part of each line near the area (x0, y0, x1, y1): the pixels of that area are the same as with the
-/// full lines, because the lines are straight and the ends of the parts are out of the area. The
-/// lines are crisp drawings (BRD-11): black on full pixels, with no anti-aliasing.
+/// The lines of the board: the border, the box lines and the cell lines, each on its own pixels
+/// between the cells (`Device::line_offset`, BRD-11). Only the lines that `keep` accepts (the index 0
+/// to 9 and true for a vertical line). With `near`, only the part of each line near the area (x0, y0,
+/// x1, y1): the pixels of that area are the same as with the full lines. The lines are crisp drawings
+/// (BRD-11): black rectangles on full pixels, with no anti-aliasing.
 fn board_lines(c: &mut Canvas, keep: impl Fn(i32, bool) -> bool, near: Option<(i32, i32, i32, i32)>) {
-    let (x0, y0, b) = (board_x() as f32, board_y() as f32, board_size() as f32);
-    // The part of a line from `a` to `a + b` near the span s0..s1 (with a margin larger than the
-    // ends of the thick lines).
-    let part = |a: f32, s0: i32, s1: i32| match near {
-        None => (a, a + b),
-        Some(_) => ((s0 as f32 - 16.0).max(a), (s1 as f32 + 16.0).min(a + b)),
+    let d = layout::device();
+    let (x0, y0, b, m) = (board_x(), board_y(), d.board_size(), d.raster.line_near_margin);
+    // The part of a line from `a` to `a + b - 1` near the span s0..s1.
+    let part = |a: i32, s0: i32, s1: i32| match near {
+        None => (a, a + b - 1),
+        Some(_) => ((s0 - m).max(a), (s1 + m).min(a + b - 1)),
     };
     let (nx0, ny0, nx1, ny1) = near.unwrap_or((0, 0, 0, 0));
     let (vy0, vy1) = part(y0, ny0, ny1);
     let (hx0, hx1) = part(x0, nx0, nx1);
-    for i in (0..=9).filter(|i| i % 3 != 0) {
-        let o = (i * cell_size()) as f32;
-        if keep(i, true) {
-            c.line_butt(x0 + o, vy0, x0 + o, vy1, 3.0, BLACK);
+    for k in 0..=9 {
+        let (o, w) = (d.line_offset(k), d.line_width(k));
+        if keep(k, true) {
+            c.rect((x0 + o) as f32, vy0 as f32, (x0 + o + w - 1) as f32, vy1 as f32, BLACK);
         }
-        if keep(i, false) {
-            c.line_butt(hx0, y0 + o, hx1, y0 + o, 3.0, BLACK);
-        }
-    }
-    for i in (0..=9).step_by(3) {
-        let o = (i * cell_size()) as f32;
-        if keep(i, true) {
-            c.line_square(x0 + o, vy0, x0 + o, vy1, 13.0, BLACK);
-        }
-        if keep(i, false) {
-            c.line_square(hx0, y0 + o, hx1, y0 + o, 13.0, BLACK);
+        if keep(k, false) {
+            c.rect(hx0 as f32, (y0 + o) as f32, hx1 as f32, (y0 + o + w - 1) as f32, BLACK);
         }
     }
 }
-
-/// The width of the band around the cells that the thick lines of the board touch (px).
-const BOARD_MARGIN: usize = 8;
 
 /// The key of a cached area of the board: the fonts (address), the board origin, the area origin and
 /// the cell look (None: the band around the cells).
@@ -1307,7 +1351,6 @@ fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, overlays: BoardOver
         return;
     };
     let fonts = c.fonts as *const Fonts as usize;
-    let n = cell_size() as usize + 1;
     let looks: Vec<_> = cells().map(|cell| (cell, cell_look(g, settings, &colors, overlays, cell))).collect();
     let key = |a: &Area, look| (fonts, bx, by, a.x0, a.y0, look);
     // The slots of the board: the cells (in the order of `cells`), then the band.
@@ -1353,10 +1396,11 @@ fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, overlays: BoardOver
                 let (row, col) = looks[i].0;
                 let (r, kc) = (row as i32, col as i32);
                 let (xi, yi) = (a.x0, a.y0);
-                put_cached(c, *k, x, y, n, n, |c| {
+                // The tile is the cell and the lines at its right and below it (`board_slots`).
+                put_cached(c, *k, x, y, w, h, |c| {
                     draw_cell(c, look, xi as f32, yi as f32);
-                    let near = Some((xi, yi, xi + cell_size(), yi + cell_size()));
-                    board_lines(c, |i, vertical| if vertical { i == kc || i == kc + 1 } else { i == r || i == r + 1 }, near);
+                    let near = Some((xi, yi, a.x1 - 1, a.y1 - 1));
+                    board_lines(c, |i, vertical| if vertical { i == kc + 1 } else { i == r + 1 }, near);
                 });
             }
             None => put_cached(c, *k, x, y, w, h, |c| board_lines(c, |_, _| true, None)),
@@ -1364,9 +1408,6 @@ fn draw_board(c: &mut Canvas, g: &Game, settings: &Settings, overlays: BoardOver
         c.set_slot(i, *k);
     }
 }
-
-/// The rows that a stripe of the board draws above and below its rows (refer to `draw_board_stripes`).
-const STRIPE_MARGIN: usize = 8;
 
 /// Draws the full board (all cells, then all lines) on white in the area `area` of the frame. The
 /// threads draw horizontal stripes of the area: each thread draws all of the board on its own
@@ -1380,8 +1421,9 @@ fn draw_board_stripes(c: &mut Canvas, (ax, ay, aw, ah): (usize, usize, usize, us
     let (rotation, right_handed) = (crate::layout::rotation(), crate::layout::right_handed());
     // The stripes end at the borders of cell rows: a glyph that the edge of the pixmap clips gets
     // other pixels (tiny-skia cuts its curves), and no glyph crosses these borders.
-    let by = board_y() as usize;
-    let mut edges: Vec<usize> = (1..threads).map(|k| by + (9 * k / threads) * cell_size() as usize).collect();
+    let (d, by) = (crate::layout::device(), board_y() as usize);
+    let margin = d.raster.stripe_margin as usize;
+    let mut edges: Vec<usize> = (1..threads).map(|k| by + d.line_offset((9 * k / threads) as i32) as usize).collect();
     edges.insert(0, ay);
     edges.push(ay + ah);
     edges.dedup();
@@ -1394,9 +1436,9 @@ fn draw_board_stripes(c: &mut Canvas, (ax, ay, aw, ah): (usize, usize, usize, us
                     crate::layout::set_rotation(rotation);
                     crate::layout::set_right_handed(right_handed);
                     // The clip at the edge of a pixmap changes the pixels near it: the stripe pixmap
-                    // has STRIPE_MARGIN more rows above and below.
-                    let top = y0 - STRIPE_MARGIN.min(y0);
-                    let mut pm = Pixmap::new(fw, (y0 - top + h + STRIPE_MARGIN) as u32).unwrap();
+                    // has `RasterMetrics::stripe_margin` more rows above and below.
+                    let top = y0 - margin.min(y0);
+                    let mut pm = Pixmap::new(fw, (y0 - top + h + margin) as u32).unwrap();
                     pm.fill(tiny_skia::Color::WHITE);
                     let mut s = Canvas { pm: &mut pm, fonts, units: Units::Screen, record: None, top: top as i32, ink: false };
                     for &(cell, look) in looks {
@@ -1415,23 +1457,26 @@ fn draw_board_stripes(c: &mut Canvas, (ax, ay, aw, ah): (usize, usize, usize, us
     }
 }
 
-/// The slots of the board: the area of each cell tile (the cell + 1 px, in the order of `cells`), then
-/// the band around the cells (top, bottom, left and right). Together they are the board area.
+/// The slots of the board: the area of each cell tile (the cell and the lines at its right and below
+/// it, in the order of `cells`), then the band around the cells with the top and the left border (top,
+/// bottom, left and right). Together they are the board area.
 fn board_slots() -> impl Iterator<Item = Area> {
-    let n = cell_size() as usize + 1;
-    let (mu, bu) = (BOARD_MARGIN, board_size() as usize);
+    let d = layout::device();
+    let (mu, bu, lw) = (d.raster.board_margin as usize, d.board_size() as usize, d.lines.box_line as usize);
     let (bxu, byu) = (board_x() as usize, board_y() as usize);
     let s = bxu - mu;
     let bands = [
-        Area::xywh(s, byu - mu, bu + 1 + 2 * mu, mu),
-        Area::xywh(s, byu + bu + 1, bu + 1 + 2 * mu, mu),
-        Area::xywh(s, byu, mu, bu + 1),
-        Area::xywh(bxu + bu + 1, byu, mu, bu + 1),
+        Area::xywh(s, byu - mu, bu + 2 * mu, mu + lw),
+        Area::xywh(s, byu + bu, bu + 2 * mu, mu),
+        Area::xywh(s, byu + lw, mu + lw, bu - lw),
+        Area::xywh(bxu + bu, byu + lw, mu, bu - lw),
     ];
+    let c = d.cell as usize;
     cells()
-        .map(move |cell| {
-            let (x, y) = cell_origin(cell);
-            Area::xywh(x as usize, y as usize, n, n)
+        .map(move |(r, k)| {
+            let (x, y) = cell_origin((r, k));
+            let (w, h) = (c + d.line_width(k as i32 + 1) as usize, c + d.line_width(r as i32 + 1) as usize);
+            Area::xywh(x as usize, y as usize, w, h)
         })
         .chain(bands)
 }
@@ -1439,12 +1484,12 @@ fn board_slots() -> impl Iterator<Item = Area> {
 /// The board area that `draw_board` writes fully: the cells and the band around them (x, y, w, h).
 /// None if the area is not fully on the screen (then `draw_board` does not use the tiles).
 fn board_area(pm: &Pixmap) -> Option<(usize, usize, usize, usize)> {
-    let (bx, by, m) = (board_x(), board_y(), BOARD_MARGIN as i32);
+    let (bx, by, m) = (board_x(), board_y(), layout::device().raster.board_margin);
     let (fw, fh) = (pm.width() as i32, pm.height() as i32);
     if bx < m || by < m || bx + board_size() + m >= fw || by + board_size() + m >= fh {
         return None;
     }
-    let n = (board_size() + 1 + 2 * m) as usize;
+    let n = (board_size() + 2 * m) as usize;
     Some(((bx - m) as usize, (by - m) as usize, n, n))
 }
 
@@ -1498,8 +1543,10 @@ fn cell_look(g: &Game, settings: &Settings, colors: &BoardColors, overlays: Boar
 
 /// The difficulty slider with its labels (ui-lib.sh `labeled_slider`).
 fn labeled_slider(c: &mut Canvas, xl: i32, xr: i32, y: i32, level: u8) {
-    c.text(SLIDER_LABEL_WEIGHT, SLIDER_LABEL_SIZE, xl as f32, (y + 9) as f32, Anchor::Start, "Easy", BLACK);
-    c.text(SLIDER_LABEL_WEIGHT, SLIDER_LABEL_SIZE, xr as f32, (y + 9) as f32, Anchor::End, "Hard", BLACK);
+    let sizes = layout::device().slider;
+    let baseline = (y + sizes.label_baseline) as f32;
+    c.text(SLIDER_LABEL_WEIGHT, sizes.label_size, xl as f32, baseline, Anchor::Start, "Easy", BLACK);
+    c.text(SLIDER_LABEL_WEIGHT, sizes.label_size, xr as f32, baseline, Anchor::End, "Hard", BLACK);
     let stops = slider_stops(c.fonts, xl, xr);
     slider(c, &stops, y as f32, level);
 }
@@ -1507,19 +1554,25 @@ fn labeled_slider(c: &mut Canvas, xl: i32, xr: i32, y: i32, level: u8) {
 fn slider(c: &mut Canvas, stops: &[f32; STOPS as usize], y: f32, level: u8) {
     let (xa, xb) = (stops[0], stops[STOPS as usize - 1]);
     let xk = stops[level as usize];
-    c.line(xk, y, xb, y, 3.0, gray(60));
-    c.line(xa, y, xk, y, 5.0, BLACK);
+    let m = layout::device().slider.meter;
+    c.line(xk, y, xb, y, m.track, gray(60));
+    c.line(xa, y, xk, y, m.active_track, BLACK);
     for (i, &x) in stops.iter().enumerate() {
         let fill = if (i as u8) < level { BLACK } else { WHITE };
-        c.circle(x, y, 6.0, Some(fill), Some((BLACK, 3.0)));
+        c.circle(x, y, m.stop_radius, Some(fill), Some((BLACK, m.outline)));
     }
-    c.circle(xk, y, 13.0, Some(BLACK), Some((WHITE, 3.0)));
+    c.circle(xk, y, m.knob_radius, Some(BLACK), Some((WHITE, m.outline)));
 }
 
 /// The open menu (toolbar.sh).
 fn draw_toolbar(c: &mut Canvas, app: &App, panel: Option<Panel>) {
+    let draw = |c: &mut Canvas, icon: Icon, b: Button, color| {
+        let (x, y) = icon_center(b);
+        icon.draw(c, x, y, color);
+    };
+
     // The close button (top left, or top right for a right-handed player).
-    Icon::Close.draw(c, close_cx(), CLOSE_CY, BLACK);
+    draw(c, Icon::Close, Button::Close, BLACK);
 
     // A panel button is white on black while its panel is open (NAV-8).
     let colors_active = panel == Some(Panel::Colors);
@@ -1527,42 +1580,43 @@ fn draw_toolbar(c: &mut Canvas, app: &App, panel: Option<Panel>) {
     let plus_active = panel == Some(Panel::NewGame);
     let bookmark_active = panel == Some(Panel::Checkpoints);
     if colors_active {
-        active_slot(c, TB_SLOT);
+        active_slot(c, slot_top(Button::Colors));
     }
     if settings_active {
-        active_slot(c, 2 * TB_SLOT);
+        active_slot(c, slot_top(Button::Settings));
     }
-    Icon::Gear.draw(c, tb_cx(), tb_cy(2), if settings_active { WHITE } else { BLACK });
+    draw(c, Icon::Gear, Button::Settings, if settings_active { WHITE } else { BLACK });
     if app.update.caution() {
-        Icon::Caution.draw(c, tb_cx() + 16.0, tb_cy(2) - 16.0, WHITE);
+        let (x, y) = icon_center(Button::Settings);
+        let offset = layout::device().icons.caution_offset;
+        Icon::Caution.draw(c, x + offset, y - offset, WHITE);
     }
     if plus_active {
-        active_slot(c, tb_bottom_y());
+        active_slot(c, slot_top(Button::NewGame));
     }
 
-    Icon::PaintBucket.draw(c, tb_cx(), tb_cy(1), if colors_active { WHITE } else { BLACK });
+    draw(c, Icon::PaintBucket, Button::Colors, if colors_active { WHITE } else { BLACK });
 
     // Undo and redo: black when available, gray when not (UND-7, UND-8).
-    for (icon, k, available) in [(Icon::Undo, 3, app.game.can_undo()), (Icon::Redo, 4, app.game.can_redo())] {
-        icon.draw(c, tb_cx(), tb_cy(k), if available { BLACK } else { gray(70) });
+    for (icon, b, available) in [(Icon::Undo, Button::Undo, app.game.can_undo()), (Icon::Redo, Button::Redo, app.game.can_redo())] {
+        draw(c, icon, b, if available { BLACK } else { gray(70) });
     }
 
     // The bookmark: gray on a complete puzzle (CKP-9), and white on black while its panel is open (NAV-8).
     if bookmark_active {
-        active_slot(c, layout::CKP_SLOT * TB_SLOT);
+        active_slot(c, slot_top(Button::Checkpoints));
     }
     let bookmark = match (bookmark_active, app.game.completed) {
         (true, _) => WHITE,
         (false, true) => gray(70),
         (false, false) => BLACK,
     };
-    Icon::Bookmark.draw(c, tb_cx(), tb_cy(layout::CKP_SLOT), bookmark);
+    draw(c, Icon::Bookmark, Button::Checkpoints, bookmark);
 
     // + (new game), Analytics and Help at the bottom.
-    let x = tb_cx();
-    Icon::Plus.draw(c, x, (tb_bottom_y() + 56) as f32, if plus_active { WHITE } else { BLACK });
-    Icon::Statistics.draw(c, x, (tb_bottom_y() - 56) as f32, BLACK);
-    Icon::Help.draw(c, x, (tb_bottom_y() - 168) as f32, BLACK);
+    draw(c, Icon::Plus, Button::NewGame, if plus_active { WHITE } else { BLACK });
+    draw(c, Icon::Statistics, Button::Statistics, BLACK);
+    draw(c, Icon::Help, Button::Help, BLACK);
 }
 
 /// The open panel of the menu.
@@ -1576,105 +1630,124 @@ fn draw_panel(c: &mut Canvas, app: &App, panel: Panel) {
 }
 
 fn active_slot(c: &mut Canvas, y: i32) {
-    c.rect(tb_x() as f32, y as f32, (tb_x() + TB_SLOT) as f32, (y + 111) as f32, BLACK);
+    c.rect(tb_x() as f32, y as f32, (tb_x() + tb_slot()) as f32, (y + tb_slot() - 1) as f32, BLACK);
 }
 
-/// A pop-up frame that touches the toolbar (toolbar.sh `panel`).
+/// A pop-up frame that touches the toolbar (toolbar.sh `panel`), with a border of
+/// `PanelMetrics::line`. `pr` and `bot` are the last pixels of the frame.
 fn panel_frame(c: &mut Canvas, pl: i32, pr: i32, top: i32, bot: i32) {
+    // The offset of the last pixel of a line from its first pixel.
+    let last = (layout::device().panel.line - 1) as f32;
     let (pl, pr, top, bot) = (pl as f32, pr as f32, top as f32, bot as f32);
     c.rect(pl, top, pr, bot, WHITE);
-    c.rect(pl, top, pr, top + 1.0, BLACK);
-    c.rect(pl, top, pl + 1.0, bot, BLACK);
-    c.rect(pr - 1.0, top, pr, bot, BLACK);
+    c.rect(pl, top, pr, top + last, BLACK);
+    c.rect(pl, top, pl + last, bot, BLACK);
+    c.rect(pr - last, top, pr, bot, BLACK);
     if bot < screen_h() as f32 {
-        c.rect(pl, bot - 1.0, pr, bot, BLACK);
+        c.rect(pl, bot - last, pr, bot, BLACK);
     }
+}
+
+/// The divider of `PanelMetrics::line` between two rows of a panel from `pl` to `pr` (the last
+/// pixel), directly above the row with its top at `y`.
+fn panel_divider(c: &mut Canvas, pl: i32, pr: i32, y: i32) {
+    c.rect(pl as f32, (y - layout::device().panel.line) as f32, pr as f32, (y - 1) as f32, BLACK);
 }
 
 /// The Settings panel (REQUIREMENTS.md §9.1): one row with a name and a switch for each `Switch`, the version, and the
 /// update row of a stable or a preview build (§9.2).
 fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
+    let panel = layout::device().panel;
     let (pl, pr) = (layout::settings_pl(), layout::settings_pr());
-    let p = layout::settings_panel(update.has_row());
-    panel_frame(c, pl, pr, p.y0, p.y1 - 1);
+    let (text_x, value_x) = ((pl + panel.inset) as f32, (pr - panel.inset) as f32);
+    let frame = layout::settings_panel(update.has_row());
+    panel_frame(c, pl, pr, frame.y0, frame.y1 - 1);
+    // Draws the divider above a row, and gives the center line and the baseline of the row.
+    let divider_row = |c: &mut Canvas, i: usize| {
+        let r = layout::settings_row(i);
+        if i > 0 {
+            panel_divider(c, pl, pr, r.y0);
+        }
+        let cy = r.y0 + panel.center;
+        (cy as f32, (cy + panel.baseline) as f32)
+    };
     for s in Switch::ALL {
-        let r = layout::settings_row(s.row());
-        if s.row() > 0 {
-            c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
-        }
-        let cy = (r.y0 + 56) as f32;
+        let (cy, baseline) = divider_row(c, s.row());
         let name = s.label();
-        let first = if name.len() == 1 { cy + 9.0 } else { cy - 7.0 };
+        let first = if name.len() == 1 { baseline } else { cy - panel.first_of_two as f32 };
         for (k, line) in name.iter().enumerate() {
-            c.text(Weight::Medium, 25.0, (pl + 33) as f32, first + 32.0 * k as f32, Anchor::Start, line, BLACK);
+            c.text(Weight::Medium, panel.text_size, text_x, first + (panel.line_pitch * k as i32) as f32, Anchor::Start, line, BLACK);
         }
-        switch(c, (pr - 33) as f32, cy, settings.is_on(s));
+        switch(c, value_x, cy, settings.is_on(s));
     }
-    let r = layout::settings_row(layout::VERSION_ROW);
-    c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
-    let y = (r.y0 + 65) as f32;
-    c.text(Weight::Medium, 25.0, (pl + 33) as f32, y, Anchor::Start, "Version", BLACK);
-    c.text(Weight::Regular, 25.0, (pr - 33) as f32, y, Anchor::End, &update.current, BLACK);
-    let r = layout::settings_row(layout::LICENSES_ROW);
-    c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
-    c.text(Weight::Medium, 25.0, (pl + 33) as f32, (r.y0 + 65) as f32, Anchor::Start, "Third-party licenses", BLACK);
-    Icon::OpenList.draw(c, (pr - 45) as f32, (r.y0 + 56) as f32, BLACK);
+    let (_, baseline) = divider_row(c, layout::VERSION_ROW);
+    c.text(Weight::Medium, panel.text_size, text_x, baseline, Anchor::Start, "Version", BLACK);
+    c.text(Weight::Regular, panel.text_size, value_x, baseline, Anchor::End, &update.current, BLACK);
+    let (cy, baseline) = divider_row(c, layout::LICENSES_ROW);
+    c.text(Weight::Medium, panel.text_size, text_x, baseline, Anchor::Start, "Third-party licenses", BLACK);
+    Icon::OpenList.draw(c, (pr - panel.icon_inset) as f32, cy, BLACK);
     if !update.has_row() {
         return;
     }
-    let r = layout::settings_row(layout::UPDATE_ROW);
-    c.rect(pl as f32, (r.y0 - 2) as f32, pr as f32, (r.y0 - 1) as f32, BLACK);
+    let (cy, baseline) = divider_row(c, layout::UPDATE_ROW);
     if let Some(text) = update.row_text() {
-        c.text(Weight::Regular, 25.0, (pl + 33) as f32, (r.y0 + 65) as f32, Anchor::Start, text, SECONDARY);
+        c.text(Weight::Regular, panel.text_size, text_x, baseline, Anchor::Start, text, SECONDARY);
     } else if let Some(button) = update.button() {
-        // A box with a 2 px border, the icon and the text.
+        // A box with a border of the width of the panel lines, the icon and the text.
+        let m = layout::device().settings.update_button;
         let b = layout::update_button();
+        let last = (panel.line - 1) as f32;
         let (x0, y0, x1, y1) = (b.x0 as f32, b.y0 as f32, b.x1 as f32, b.y1 as f32);
-        c.rect(x0, y0, x1, y0 + 1.0, BLACK);
-        c.rect(x0, y1 - 1.0, x1, y1, BLACK);
-        c.rect(x0, y0, x0 + 1.0, y1, BLACK);
-        c.rect(x1 - 1.0, y0, x1, y1, BLACK);
-        let (ix, cy) = (x0 + 40.0, (r.y0 + 56) as f32);
+        c.rect(x0, y0, x1, y0 + last, BLACK);
+        c.rect(x0, y1 - last, x1, y1, BLACK);
+        c.rect(x0, y0, x0 + last, y1, BLACK);
+        c.rect(x1 - last, y0, x1, y1, BLACK);
         let icon = match button {
             UpdateButton::Install(_) => Icon::Install,
             UpdateButton::Check => Icon::CheckForUpdate,
             UpdateButton::Restart => Icon::Restart,
         };
-        icon.draw(c, ix, cy, BLACK);
-        c.text(Weight::Medium, 25.0, x0 + 72.0, cy + 9.0, Anchor::Start, button.text(), BLACK);
+        icon.draw(c, x0 + m.icon_x as f32, cy, BLACK);
+        c.text(Weight::Medium, panel.text_size, x0 + m.text_x as f32, baseline, Anchor::Start, button.text(), BLACK);
     }
 }
 
-/// A switch with its right end at x: a track of 72 x 36 px and a knob of 28 px. The curves are made at
-/// the origin and moved by a transform, because the f32 rounding of curves at absolute positions gives
-/// other edge pixels at a different x. Thus the switch has the same pixels for the two hands (NAV-15).
+/// A switch with its right end at x (`SwitchMetrics`). The curves are made at the origin and moved by
+/// a transform, because the f32 rounding of curves at absolute positions gives other edge pixels at a
+/// different x. Thus the switch has the same pixels for the two hands (NAV-15).
 fn switch(c: &mut Canvas, x1: f32, cy: f32, on: bool) {
-    let (w, r) = (72.0, 18.0);
+    let m = layout::device().switch;
+    let (w, r, k) = (m.length, m.radius, m.curve_control);
     let mut pb = PathBuilder::new();
     pb.move_to(r, -r);
     pb.line_to(w - r, -r);
-    pb.cubic_to(w - r + 9.94, -r, w, -9.94, w, 0.0);
-    pb.cubic_to(w, 9.94, w - r + 9.94, r, w - r, r);
+    pb.cubic_to(w - r + k, -r, w, -k, w, 0.0);
+    pb.cubic_to(w, k, w - r + k, r, w - r, r);
     pb.line_to(r, r);
-    pb.cubic_to(r - 9.94, r, 0.0, 9.94, 0.0, 0.0);
-    pb.cubic_to(0.0, -9.94, r - 9.94, -r, r, -r);
+    pb.cubic_to(r - k, r, 0.0, k, 0.0, 0.0);
+    pb.cubic_to(0.0, -k, r - k, -r, r, -r);
     pb.close();
     let track = pb.clone();
     let x0 = x1 - w;
     let at = Transform::from_translate(x0, cy);
     c.path_fill(pb, at, if on { BLACK } else { WHITE });
-    c.path_stroke(track, at, 3.0, BLACK);
+    c.path_stroke(track, at, m.outline, BLACK);
     let mut knob = PathBuilder::new();
-    knob.push_circle(0.0, 0.0, 14.0);
+    knob.push_circle(0.0, 0.0, m.knob_radius);
     let (knob_x, knob_color) = if on { (x1 - r, WHITE) } else { (x0 + r, BLACK) };
     c.path_fill(knob, Transform::from_translate(knob_x, cy), knob_color);
 }
 
 fn draw_colors_panel(c: &mut Canvas, settings: &Settings) {
     let (pl, pr) = (colors_pl(), colors_pr());
-    panel_frame(c, pl, pr, COLORS_TOP, COLORS_BOTTOM);
-    // The line between the two columns (NAV-17).
-    c.rect((pl + COLOR_COLUMN_W) as f32, COLORS_TOP as f32, (pl + COLOR_COLUMN_W + 1) as f32, COLORS_BOTTOM as f32, BLACK);
+    let (top, bottom) = (layout::colors_top(), layout::colors_bottom());
+    let d = layout::device();
+    panel_frame(c, pl, pr, top, bottom);
+    // The lines between the columns (NAV-17).
+    for k in 1..layout::color_columns() {
+        let x = pl + k * d.colors_panel.section_width;
+        c.rect(x as f32, top as f32, (x + d.panel.line - 1) as f32, bottom as f32, BLACK);
+    }
     for section in Section::ALL {
         let selected = settings.color(section);
         let items = Color::ALL.map(|color| {
@@ -1707,10 +1780,6 @@ enum Dot {
     Lines(LineGray),
 }
 
-/// The radius of the white disc of a swatch of the Micro-cell lines section, inside its ring
-/// (COL-13): the pattern writes only the pixels inside it.
-const SWATCH_DISC_RADIUS: f32 = 17.5;
-
 /// The state of an item in a section of the Cell colors panel.
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 enum Swatch {
@@ -1725,10 +1794,12 @@ enum Swatch {
 /// selected item. A taken item has a gray ring, a gray name and a line through the dot.
 fn color_section(c: &mut Canvas, index: usize, title: &str, items: &[(Dot, String, Swatch); 9]) {
     let (left, top) = (layout::color_section_left(index), layout::color_section_top(index));
-    if top > COLORS_TOP {
-        c.rect(left as f32, top as f32, (left + COLOR_COLUMN_W - 1) as f32, (top + 1) as f32, BLACK);
+    let (panel, m) = (layout::device().panel, layout::device().colors_panel);
+    if top > layout::colors_top() {
+        c.rect(left as f32, top as f32, (left + m.section_width - 1) as f32, (top + panel.line - 1) as f32, BLACK);
     }
-    c.text(Weight::Medium, 25.0, (left + 33) as f32, (top + COLOR_TITLE_Y) as f32, Anchor::Start, title, BLACK);
+    let (x, y) = ((left + panel.inset) as f32, (top + m.title_baseline) as f32);
+    c.text(Weight::Medium, panel.text_size, x, y, Anchor::Start, title, BLACK);
     for (i, (dot, name, state)) in items.iter().enumerate() {
         let cell = layout::color_grid_cell(index, i);
         // The panel is white under the item, and the item draws only in its cell.
@@ -1796,12 +1867,13 @@ fn put_box(c: &mut Canvas, (x0, y0, x1, y1): (i32, i32, i32, i32), look: BoxLook
     });
 }
 
-/// One item of the Cell colors panel: the swatch (a 19 px circle with a 2 px ring), and its name
-/// below it. A `Dot::Lines` swatch is white, with the pattern of its gray inside the ring (COL-13).
+/// One item of the Cell colors panel (`ColorItemMetrics`): the swatch (a circle with a ring), and its
+/// name below it. A `Dot::Lines` swatch is white, with the pattern of its gray inside the ring (COL-13).
 fn color_item(c: &mut Canvas, cell: Rect, dot: Dot, name: &str, state: Swatch) {
+    let (text_size, m) = (layout::device().panel.text_size, layout::device().colors_panel.item);
     let (x0, y0) = (cell.x0 as f32, cell.y0 as f32);
     // The swatch: centered in the width of the cell, above the name.
-    let (cx, cy) = (x0 + (COLOR_CELL / 2) as f32, y0 + 30.0);
+    let (cx, cy) = (x0 + (m.width / 2) as f32, (cell.y0 + m.swatch_y) as f32);
     let (fg, ring) = match state {
         Swatch::Selected => {
             c.rect(x0, y0, (cell.x1 - 1) as f32, (cell.y1 - 1) as f32, BLACK);
@@ -1814,14 +1886,14 @@ fn color_item(c: &mut Canvas, cell: Rect, dot: Dot, name: &str, state: Swatch) {
         Dot::Color(rgb) => rgb,
         Dot::Lines(_) => WHITE,
     };
-    c.circle(cx, cy, 19.0, Some(fill), Some((ring, 2.0)));
+    c.circle(cx, cy, m.swatch_radius, Some(fill), Some((ring, m.ring)));
     if let Dot::Lines(g) = dot {
         if let Some(shade) = line_shade(g) {
-            // COL-13: the pattern of the gray on the white disc of SWATCH_DISC_RADIUS inside the ring,
+            // COL-13: the pattern of the gray on the white disc of `pattern_radius` inside the ring,
             // from the top left of the box of the disc (`BAYER[dy mod 4][dx mod 4]`). A pixel (integer
             // screen position, the center of the pixel in the coordinates of the canvas) is inside the
             // disc when its distance to the center is less than the radius.
-            let r = SWATCH_DISC_RADIUS;
+            let r = m.pattern_radius;
             let (ox, oy) = ((cx - r).floor() as i32 - 1, (cy - r).floor() as i32 - 1);
             let size = 2 * (r.ceil() as i32 + 1);
             c.pattern(ox, oy, size, size, Axis::Y, shade, |dx, dy| {
@@ -1831,23 +1903,31 @@ fn color_item(c: &mut Canvas, cell: Rect, dot: Dot, name: &str, state: Swatch) {
         }
     }
     if state == Swatch::Taken {
-        c.line(cx - 17.0, cy + 17.0, cx + 17.0, cy - 17.0, 2.5, gray(50));
+        let r = m.strike_reach;
+        c.line(cx - r, cy + r, cx + r, cy - r, m.strike_width, gray(50));
     }
-    c.text(Weight::Medium, 25.0, cx, y0 + 76.0, Anchor::Middle, name, fg);
+    c.text(Weight::Medium, text_size, cx, (cell.y0 + m.name_baseline) as f32, Anchor::Middle, name, fg);
 }
 
 /// The New game panel (§11): the slider, the Symmetrical row with the switch of the Settings panel
-/// (DIF-8), and Start new game, with a divider below each of the first two rows.
+/// (DIF-8), and Start new game, with a divider above each of the last two rows. The names and the
+/// switch have the text, the baseline and the inset of the rows of the Settings panel
+/// (`PanelMetrics`).
 fn draw_new_game_panel(c: &mut Canvas, slider_level: u8, symmetric: bool) {
-    panel_frame(c, ng_pl(), ng_pr(), ng_top(), screen_h() as i32);
-    for below in [layout::ng_slider_row(), layout::ng_symmetric_row()] {
-        c.rect(ng_pl() as f32, below.y1 as f32, ng_pr() as f32, (below.y1 + layout::NG_DIVIDER - 1) as f32, BLACK);
+    let panel = layout::device().panel;
+    let (pl, pr) = (ng_pl(), ng_pr());
+    panel_frame(c, pl, pr, ng_top(), screen_h() as i32);
+    for row in [layout::ng_symmetric_row(), layout::ng_start_row()] {
+        panel_divider(c, pl, pr, row.y0);
     }
     labeled_slider(c, ng_tx(), ng_tr(), ng_slider_y(), slider_level);
-    let cy = layout::ng_symmetric_y() as f32;
-    c.text(Weight::Medium, 25.0, ng_tx() as f32, cy + 9.0, Anchor::Start, "Symmetrical", BLACK);
-    switch(c, (ng_pr() - 33) as f32, cy, symmetric);
-    c.text(Weight::Medium, 25.0, ng_tx() as f32, (ng_start_y() + 9) as f32, Anchor::Start, "Start new game", BLACK);
+    let name = |c: &mut Canvas, cy: i32, text: &str| {
+        c.text(Weight::Medium, panel.text_size, ng_tx() as f32, (cy + panel.baseline) as f32, Anchor::Start, text, BLACK);
+    };
+    let cy = layout::ng_symmetric_y();
+    name(c, cy, "Symmetrical");
+    switch(c, (pr - panel.inset) as f32, cy as f32, symmetric);
+    name(c, ng_start_y(), "Start new game");
 }
 
 /// The Checkpoints panel (§9.3, toolbar.sh `ckp_frame` and `ckp_row`).
@@ -1858,27 +1938,31 @@ fn draw_checkpoints_panel(c: &mut Canvas, g: &Game, settings: &Settings) {
     panel_frame(c, pl, pr, p.y0, bottom);
     // The record keeps one area for all drawings in the panel, and not one area for each digit.
     // The margin contains the margin of a drawing at the edge of the panel.
+    let d = layout::device();
     if let Some(r) = SkRect::from_ltrb(pl as f32, p.y0 as f32, p.x1 as f32, p.y1 as f32) {
-        c.touched(r, 3.0);
+        c.touched(r, d.raster.checkpoints_record_margin);
     }
-    let divider = |c: &mut Canvas, y: i32| c.rect(pl as f32, (y - 2) as f32, pr as f32, (y - 1) as f32, BLACK);
+    let (panel, m) = (d.panel, d.checkpoints);
     let at = |dx: i32| (pl + dx) as f32;
 
     // The row "Save checkpoint" (CKP-1).
-    divider(c, layout::ckp_row_top(0));
+    panel_divider(c, pl, pr, layout::ckp_row_top(0));
     let save = if g.can_save_checkpoint() { BLACK } else { gray(70) };
-    Icon::Plus.draw(c, at(layout::CKP_SAVE_ICON.0), layout::CKP_SAVE_ICON.1 as f32, save);
-    c.text(Weight::Medium, 28.0, at(layout::CKP_SAVE_TEXT.0), layout::CKP_SAVE_TEXT.1 as f32, Anchor::Start, "Save checkpoint", save);
+    let top = layout::ckp_top();
+    let cy = top + panel.center;
+    Icon::Plus.draw(c, at(m.save_icon_x), cy as f32, save);
+    c.text(Weight::Medium, m.title_size, at(m.save_text_x), (cy + panel.baseline) as f32, Anchor::Start, "Save checkpoint", save);
 
     if n == 0 {
-        let (first, second) = layout::CKP_EMPTY_BASELINES;
-        c.text(Weight::Regular, 28.0, at(layout::CKP_EMPTY_CX), first as f32, Anchor::Middle, "No checkpoints", SECONDARY);
-        c.text(Weight::Regular, 25.0, at(layout::CKP_EMPTY_CX), second as f32, Anchor::Middle, "Save the board before a difficult guess.", SECONDARY);
+        let e = m.empty;
+        c.text(Weight::Regular, m.title_size, at(e.center_x), (top + e.title_baseline) as f32, Anchor::Middle, "No checkpoints", SECONDARY);
+        let hint = "Save the board before a difficult guess.";
+        c.text(Weight::Regular, panel.text_size, at(e.center_x), (top + e.hint_baseline) as f32, Anchor::Middle, hint, SECONDARY);
     }
     for (i, k) in g.checkpoints.iter().enumerate() {
         let y0 = layout::ckp_row_top(i);
         if i > 0 {
-            divider(c, y0);
+            panel_divider(c, pl, pr, y0);
         }
         let look = CheckpointRow {
             board: k.board.clone(),
@@ -1891,7 +1975,7 @@ fn draw_checkpoints_panel(c: &mut Canvas, g: &Game, settings: &Settings) {
             hide: settings.auto_hide_on,
         };
         // The box is in the white panel, between the side lines and the lines between the rows.
-        let row_box = (pl + 2, y0, pr - 1, y0 + layout::CKP_ROW_H - 2);
+        let row_box = (pl + panel.line, y0, pr + 1 - panel.line, y0 + m.row - panel.line);
         put_box(c, row_box, BoxLook::CheckpointRow(Box::new(look.clone())), |c| checkpoint_row(c, &look, pl, y0, i));
     }
 }
@@ -1915,14 +1999,15 @@ struct CheckpointRow {
 
 /// The contents of row `i` of the Checkpoints panel, in a white box.
 fn checkpoint_row(c: &mut Canvas, look: &CheckpointRow, pl: i32, y0: i32, i: usize) {
+    let d = layout::device();
+    let (size, m) = (d.panel.text_size, d.checkpoints);
     let at = |dx: i32| (pl + dx) as f32;
-    small_board(c, look, pl + layout::CKP_BOARD.0, y0 + layout::CKP_BOARD.1);
+    small_board(c, look, pl + m.board.x, y0 + m.board.y);
 
-    let (clock_y, cells_y) = layout::CKP_TEXT_BASELINES;
     let played = format!("{} played", format_clock(look.seconds));
-    c.text(Weight::Regular, 25.0, at(layout::CKP_TEXT_X), (y0 + clock_y) as f32, Anchor::Start, &played, SECONDARY);
+    c.text(Weight::Regular, size, at(m.text.x), (y0 + m.text.clock_baseline) as f32, Anchor::Start, &played, SECONDARY);
     let filled = format!("{} of 81 cells", look.board.filled_count());
-    c.text(Weight::Regular, 25.0, at(layout::CKP_TEXT_X), (y0 + cells_y) as f32, Anchor::Start, &filled, SECONDARY);
+    c.text(Weight::Regular, size, at(m.text.x), (y0 + m.text.cells_baseline) as f32, Anchor::Start, &filled, SECONDARY);
 
     // The button (CKP-2): the pixels from the first to the last x and y of `ckp_button`.
     let b = layout::ckp_button(i);
@@ -1931,18 +2016,20 @@ fn checkpoint_row(c: &mut Canvas, look: &CheckpointRow, pl: i32, y0: i32, i: usi
     let (label, label_color) = if look.current {
         ("Current", WHITE)
     } else {
-        c.rect(bx0 + 2.0, by0 + 2.0, bx1 - 2.0, by1 - 2.0, WHITE);
+        let line = d.panel.line as f32;
+        c.rect(bx0 + line, by0 + line, bx1 - line, by1 - line, WHITE);
         ("Restore", BLACK)
     };
-    c.text(Weight::Medium, 25.0, at(layout::CKP_BUTTON_TEXT.0), (y0 + layout::CKP_BUTTON_TEXT.1) as f32, Anchor::Middle, label, label_color);
+    c.text(Weight::Medium, size, at(m.button.label_x), (y0 + m.button.label_baseline) as f32, Anchor::Middle, label, label_color);
 
-    Icon::Bin.draw(c, at(layout::CKP_BIN.0), (y0 + layout::CKP_BIN.1) as f32, BLACK);
+    Icon::Bin.draw(c, at(m.bin.x), (y0 + m.bin.y) as f32, BLACK);
 }
 
 /// The small board of a checkpoint with its first cell at (bx, by) (CKP-7, board-state.py `mini_board`).
 /// The colors have the same rules as the board, with no highlight.
 fn small_board(c: &mut Canvas, look: &CheckpointRow, bx: i32, by: i32) {
-    let size = layout::CKP_BOARD_CELL;
+    let m = layout::device().checkpoints.board;
+    let size = m.cell;
     let board = &look.board;
     let sets = board.board_sets();
     let origin = |(r, col): crate::game::Cell| (bx + col as i32 * size, by + r as i32 * size);
@@ -1968,7 +2055,8 @@ fn small_board(c: &mut Canvas, look: &CheckpointRow, bx: i32, by: i32) {
         let (x, y) = origin(cell);
         for d in 1..=9 {
             if marks & crate::game::mark_bit(d as u8) != 0 {
-                let (dx, dy) = (x + 3 + 5 * ((d - 1) % 3), y + 3 + 5 * ((d - 1) / 3));
+                let (column, line) = ((d - 1) % 3, (d - 1) / 3);
+                let (dx, dy) = (x + m.mark_inset + m.mark_pitch * column, y + m.mark_inset + m.mark_pitch * line);
                 c.rect(dx as f32, dy as f32, (dx + 1) as f32, (dy + 1) as f32, SECONDARY);
             }
         }
@@ -1990,7 +2078,7 @@ fn small_board(c: &mut Canvas, look: &CheckpointRow, bx: i32, by: i32) {
         let (x, y) = origin(cell);
         let col = if is_given(cell) { BLACK } else { ENTRY_DIGIT };
         let digit = board.value[cell.0 as usize][cell.1 as usize].to_string();
-        c.text(Weight::Regular, 14.0, x as f32 + size as f32 / 2.0, (y + 14) as f32, Anchor::Middle, &digit, col);
+        c.text(Weight::Regular, m.digit_size, x as f32 + size as f32 / 2.0, (y + m.digit_baseline) as f32, Anchor::Middle, &digit, col);
     }
 }
 
@@ -2019,32 +2107,45 @@ const METER_TRACK: Rgb = gray(60);
 fn meter(c: &mut Canvas, xa: f32, y: f32, step: f32, level: u8, style: MeterStyle) {
     let MeterStyle { on, hollow } = style;
     let (xk, xb) = (xa + level as f32 * step, xa + (MODES - 1) as f32 * step);
-    c.line(xk, y, xb, y, 2.5, METER_TRACK);
-    c.line(xa, y, xk, y, 4.5, on);
+    let m = layout::device().meter;
+    c.line(xk, y, xb, y, m.track, METER_TRACK);
+    c.line(xa, y, xk, y, m.active_track, on);
     for i in 0..MODES {
         let x = xa + i as f32 * step;
-        c.circle(x, y, 5.0, Some(if i < level { on } else { hollow }), Some((on, 2.5)));
+        c.circle(x, y, m.stop_radius, Some(if i < level { on } else { hollow }), Some((on, m.outline)));
     }
-    c.circle(xk, y, 11.0, Some(on), Some((hollow, 2.5)));
+    c.circle(xk, y, m.knob_radius, Some(on), Some((hollow, m.outline)));
 }
 
 /// "< Back", the title and the page arrows.
 fn chrome(c: &mut Canvas, title: &str, page: Option<(usize, usize)>) {
-    Icon::Back.draw(c, 43.0, 48.0, BLACK);
-    c.text(Weight::Medium, 22.0, 66.0, 56.0, Anchor::Start, "Back", BLACK);
-    c.text(Weight::Medium, 84.0, 72.0, 170.0, Anchor::Start, title, BLACK);
+    let p = layout::device().page;
+    let back = p.back;
+    Icon::Back.draw(c, back.icon_x, back.icon_y, BLACK);
+    c.text(Weight::Medium, back.text.size, back.text_x, back.text.baseline, Anchor::Start, "Back", BLACK);
+    c.text(Weight::Medium, p.title.size, p.margin, p.title.baseline, Anchor::Start, title, BLACK);
     if let Some((n, total)) = page {
+        let number = p.page_number;
         let (cx, ny) = page_number_pos();
-        c.text(Weight::Regular, 28.0, cx, ny, Anchor::Middle, &format!("{n} / {total}"), SECONDARY);
+        c.text(Weight::Regular, number.text.size, cx, ny, Anchor::Middle, &format!("{n} / {total}"), SECONDARY);
         let prev = if n == 1 { gray(80) } else { BLACK };
         let next = if n == total { gray(80) } else { BLACK };
-        Icon::PagePrevious.draw(c, cx - 79.0, ny - 10.0, prev);
-        Icon::PageNext.draw(c, cx + 79.0, ny - 10.0, next);
+        let arrow_y = ny - number.arrow_dy;
+        Icon::PagePrevious.draw(c, cx - number.arrow_dx, arrow_y, prev);
+        Icon::PageNext.draw(c, cx + number.arrow_dx, arrow_y, next);
     }
 }
 
+/// A horizontal line of a page from `x0` to `x1`, with its top at `y`.
 fn hline(c: &mut Canvas, y: f32, x0: f32, x1: f32) {
-    c.rect(x0, y, x1, y + 1.7, BLACK);
+    c.rect(x0, y, x1, y + layout::device().page.line, BLACK);
+}
+
+/// The center line of a row of a page with its top at `top`, on a full layout unit (rounded
+/// down). The icons and the meters of the row are on it, and the baseline of its text is
+/// `PageMetrics::row_text` below it.
+fn row_center(top: f32, height: f32) -> f32 {
+    top + (height / 2.0).floor()
 }
 
 fn avg_text(rows: &[&ResultRow]) -> String {
@@ -2054,50 +2155,56 @@ fn avg_text(rows: &[&ResultRow]) -> String {
 /// Draws the statistics page (in page units).
 fn draw_summary(c: &mut Canvas, results: &[ResultRow], confirm_all: bool) {
     chrome(c, "Statistics", None);
+    let d = layout::device();
+    let (p, s) = (d.page, d.summary);
     let all: Vec<&ResultRow> = results.iter().collect();
     // ANA-3
     let (bw, right, count_x) = (summary_box_w(), page_right(), summary_count_x());
-    for (x0, label, value) in [(72.0, "Puzzles completed", all.len().to_string()), (100.0 + bw, "Average time", avg_text(&all))] {
-        c.stroke_rect(x0, 250.0, x0 + bw, 440.0, 1.7, BLACK);
-        c.text(Weight::Regular, 30.0, x0 + 30.0, 305.0, Anchor::Start, label, SECONDARY);
-        c.text(Weight::Medium, 84.0, x0 + 30.0, 405.0, Anchor::Start, &value, BLACK);
+    let b = s.boxes;
+    for (x0, label, value) in [(p.margin, "Puzzles completed", all.len().to_string()), (p.margin + b.gap + bw, "Average time", avg_text(&all))] {
+        c.stroke_rect(x0, b.top, x0 + bw, b.bottom, p.line, BLACK);
+        c.text(Weight::Regular, b.label.size, x0 + b.text_x, b.top + b.label.baseline, Anchor::Start, label, SECONDARY);
+        c.text(Weight::Medium, b.value.size, x0 + b.text_x, b.top + b.value.baseline, Anchor::Start, &value, BLACK);
     }
-    c.text(Weight::Medium, 50.0, 72.0, 550.0, Anchor::Start, "By difficulty", BLACK);
-    c.text(Weight::Regular, 30.0, 72.0, 615.0, Anchor::Start, "Difficulty", SECONDARY);
-    c.text(Weight::Regular, 30.0, count_x, 615.0, Anchor::End, "Completed", SECONDARY);
-    c.text(Weight::Regular, 30.0, right, 615.0, Anchor::End, "Average time", SECONDARY);
-    let mut y = SUMMARY_TABLE_Y;
-    hline(c, y, 72.0, right);
+    c.text(Weight::Medium, s.heading.size, p.margin, s.heading.baseline, Anchor::Start, "By difficulty", BLACK);
+    let t = s.table;
+    for (x, anchor, title) in [(p.margin, Anchor::Start, "Difficulty"), (count_x, Anchor::End, "Completed"), (right, Anchor::End, "Average time")] {
+        c.text(Weight::Regular, t.header.size, x, t.header.baseline, anchor, title, SECONDARY);
+    }
+    let mut y = t.top;
+    hline(c, y, p.margin, right);
     // ANA-4
     let row = summary_row();
+    let text = p.row_text;
     for mode in 0..MODES {
         let rows: Vec<&ResultRow> = results.iter().filter(|r| r.mode == mode).collect();
-        let cy = y + (row / 2.0).floor();
+        let cy = row_center(y, row);
         let name = match mode {
             0 => "Easy",
             m if m == MODES - 1 => "Hard",
             _ => "",
         };
-        c.text(Weight::Regular, 34.0, 72.0, cy + 12.0, Anchor::Start, name, BLACK);
-        meter(c, 230.0, cy, METER_STEP, mode, MeterStyle::ON_WHITE);
-        c.text(Weight::Regular, 34.0, count_x, cy + 12.0, Anchor::End, &rows.len().to_string(), BLACK);
-        c.text(Weight::Regular, 34.0, right, cy + 12.0, Anchor::End, &avg_text(&rows), BLACK);
+        c.text(Weight::Regular, text.size, p.margin, cy + text.baseline, Anchor::Start, name, BLACK);
+        meter(c, t.meter_x, cy, t.meter_step, mode, MeterStyle::ON_WHITE);
+        c.text(Weight::Regular, text.size, count_x, cy + text.baseline, Anchor::End, &rows.len().to_string(), BLACK);
+        c.text(Weight::Regular, text.size, right, cy + text.baseline, Anchor::End, &avg_text(&rows), BLACK);
         y += row;
-        hline(c, y, 72.0, right);
+        hline(c, y, p.margin, right);
     }
-    y += 70.0;
+    let buttons = s.buttons;
+    y += buttons.below_table;
     debug_assert_eq!(y, summary_buttons_y());
-    let all_right = right - DELETE_ALL_W - 28.0;
-    c.stroke_rect(72.0, y, all_right, y + ROW, 1.7, BLACK);
-    let mid = y + (ROW / 2.0).floor();
-    c.text(Weight::Medium, 34.0, 102.0, mid + 12.0, Anchor::Start, "All completed games", BLACK);
-    Icon::OpenList.draw(c, all_right - 34.0, mid, BLACK);
+    let all_right = all_games_right();
+    c.stroke_rect(p.margin, y, all_right, y + p.row, p.line, BLACK);
+    let mid = row_center(y, p.row);
+    c.text(Weight::Medium, text.size, p.margin + buttons.all_games_text_x, mid + text.baseline, Anchor::Start, "All completed games", BLACK);
+    Icon::OpenList.draw(c, all_right - buttons.all_games_icon_dx, mid, BLACK);
     // "Delete all games": gray, with no effect, if there are no results (ANA-12).
     let col = if results.is_empty() { gray(70) } else { BLACK };
-    let x0 = right - DELETE_ALL_W;
-    c.stroke_rect(x0, y, right, y + ROW, 1.7, col);
-    Icon::Bin.draw(c, x0 + 50.0, mid, col);
-    c.text(Weight::Medium, 34.0, x0 + 90.0, mid + 12.0, Anchor::Start, "Delete all games", col);
+    let x0 = delete_all_x();
+    c.stroke_rect(x0, y, right, y + p.row, p.line, col);
+    Icon::Bin.draw(c, x0 + buttons.delete_all_icon_x, mid, col);
+    c.text(Weight::Medium, text.size, x0 + buttons.delete_all_text_x, mid + text.baseline, Anchor::Start, "Delete all games", col);
     if confirm_all {
         let n = results.len();
         let what = if n == 1 { "1 completed game is deleted.".to_string() } else { format!("All {n} completed games are deleted.") };
@@ -2124,19 +2231,23 @@ fn restart_dialog(c: &mut Canvas) {
 /// A dialog at the center of the page, on the pale screen (analytics.py): a title, two lines, and two
 /// buttons in the last row. The right button is white on black.
 fn dialog_box(c: &mut Canvas, title: &str, lines: [&str; 2], buttons: [&str; 2]) {
+    let (p, d) = (layout::device().page, layout::device().dialog);
     c.veil(0.6);
     let (dx0, dy0, dx1, dy1) = dialog();
     c.rect(dx0, dy0, dx1, dy1, WHITE);
-    c.stroke_rect(dx0, dy0, dx1, dy1, 1.7, BLACK);
-    c.text(Weight::Medium, 44.0, dx0 + 40.0, dy0 + 75.0, Anchor::Start, title, BLACK);
-    c.text(Weight::Regular, 34.0, dx0 + 40.0, dy0 + 140.0, Anchor::Start, lines[0], SECONDARY);
-    c.text(Weight::Regular, 34.0, dx0 + 40.0, dy0 + 190.0, Anchor::Start, lines[1], SECONDARY);
-    hline(c, dy1 - ROW, dx0, dx1);
+    c.stroke_rect(dx0, dy0, dx1, dy1, p.line, BLACK);
+    let tx = dx0 + d.text_x;
+    c.text(Weight::Medium, d.title.size, tx, dy0 + d.title.baseline, Anchor::Start, title, BLACK);
+    for (line, baseline) in lines.into_iter().zip(d.body_baselines) {
+        c.text(Weight::Regular, d.body_size, tx, dy0 + baseline, Anchor::Start, line, SECONDARY);
+    }
+    let buttons_y = dy1 - p.row;
+    hline(c, buttons_y, dx0, dx1);
     let mid = ((dx0 + dx1) / 2.0).floor();
-    c.rect(mid, dy1 - ROW, dx1, dy1, BLACK);
-    let by = dy1 - (ROW / 2.0).floor() + 12.0;
-    c.text(Weight::Medium, 34.0, ((dx0 * 3.0 + dx1) / 4.0).floor(), by, Anchor::Middle, buttons[0], BLACK);
-    c.text(Weight::Medium, 34.0, ((dx0 + dx1 * 3.0) / 4.0).floor(), by, Anchor::Middle, buttons[1], WHITE);
+    c.rect(mid, buttons_y, dx1, dy1, BLACK);
+    let by = dy1 - (p.row / 2.0).floor() + p.row_text.baseline;
+    c.text(Weight::Medium, p.row_text.size, ((dx0 * 3.0 + dx1) / 4.0).floor(), by, Anchor::Middle, buttons[0], BLACK);
+    c.text(Weight::Medium, p.row_text.size, ((dx0 + dx1 * 3.0) / 4.0).floor(), by, Anchor::Middle, buttons[1], WHITE);
 }
 
 /// A date in local time, for example "22 Oct 2026, 20:22".
@@ -2163,50 +2274,55 @@ pub fn format_date(unix: i64) -> String {
 fn draw_list(c: &mut Canvas, app: &App) {
     let pages = app.page_count();
     chrome(c, "Completed games", Some((app.list.page, pages)));
+    let d = layout::device();
+    let (p, g) = (d.page, d.games_list);
     // The filter: All, then one segment for each mode. The selected segment is black.
-    let seg = seg_w();
+    let (f, seg) = (g.filter, seg_w());
+    let (top, bottom) = (f.top, f.top + f.height);
     for filter in list_filters() {
         let x = filter_segment_x(filter);
         let selected = app.list.filter == filter;
         if selected {
-            c.rect(x, SEG_Y, x + seg, SEG_Y + 80.0, BLACK);
+            c.rect(x, top, x + seg, bottom, BLACK);
         }
-        c.stroke_rect(x, SEG_Y, x + seg, SEG_Y + 80.0, 1.7, BLACK);
+        c.stroke_rect(x, top, x + seg, bottom, p.line, BLACK);
         match filter {
             None => {
-                c.text(Weight::Medium, 32.0, x + seg / 2.0, SEG_Y + 52.0, Anchor::Middle, "All", if selected { WHITE } else { BLACK });
+                c.text(Weight::Medium, f.all.size, x + seg / 2.0, top + f.all.baseline, Anchor::Middle, "All", if selected { WHITE } else { BLACK });
             }
             Some(mode) => {
-                // The meter is at the center of the segment (24.75 units from the left in portrait).
-                let mx = x + (seg - (MODES - 1) as f32 * FILTER_METER_STEP) / 2.0;
+                // The meter is at the center of the segment (24.75 units from the left in portrait on the Paper Pro).
+                let mx = x + (seg - (MODES - 1) as f32 * f.meter_step) / 2.0;
                 let style = if selected { MeterStyle::ON_BLACK } else { MeterStyle::ON_WHITE };
-                meter(c, mx, SEG_Y + 40.0, FILTER_METER_STEP, mode, style);
+                meter(c, mx, row_center(top, f.height), f.meter_step, mode, style);
             }
         }
     }
-    // One table across the full width: 12 rows in portrait, 6 rows in landscape (layout.rs).
+    // One table across the full width, with the rows of `list_rows` (layout.rs).
     let (meter_dx, time_dx, bin_dx) = list_offsets();
     let (x, w) = list_column();
     let rows = app.page_rows();
     debug_assert!(rows.len() <= list_rows());
-    c.text(Weight::Regular, 30.0, x, 395.0, Anchor::Start, "Date", SECONDARY);
-    c.text(Weight::Regular, 30.0, x + meter_dx, 395.0, Anchor::Start, "Difficulty", SECONDARY);
-    c.text(Weight::Regular, 30.0, x + time_dx, 395.0, Anchor::End, "Time", SECONDARY);
-    hline(c, LIST_Y, x, x + w);
+    let (row, text, header) = (p.row, p.row_text, g.header);
+    c.text(Weight::Regular, header.size, x, header.baseline, Anchor::Start, "Date", SECONDARY);
+    c.text(Weight::Regular, header.size, x + meter_dx, header.baseline, Anchor::Start, "Difficulty", SECONDARY);
+    c.text(Weight::Regular, header.size, x + time_dx, header.baseline, Anchor::End, "Time", SECONDARY);
+    hline(c, g.top, x, x + w);
     for (i, r) in rows.iter().enumerate() {
         let y = list_row(i);
-        let cy = y + (ROW / 2.0).floor();
+        let cy = row_center(y, row);
         let (date, clock) = (format_date(r.finished_at), format_clock(r.seconds));
         // The box between the lines above and below the row (screen px): the page is white there.
         let sc = |v: f32| v * page_scale() + 0.5;
-        let row_box = (sc(x) as i32 - 2, sc(y + 1.7) as i32 + 2, sc(x + w) as i32 + 2, sc(y + ROW) as i32 - 1);
+        let m = g.row_box_margin;
+        let row_box = (sc(x) as i32 - m, sc(y + p.line) as i32 + m, sc(x + w) as i32 + m, sc(y + row) as i32 - 1);
         put_box(c, row_box, BoxLook::ListRow(date.clone(), r.mode, clock.clone()), |c| {
-            c.text(Weight::Regular, 34.0, x, cy + 12.0, Anchor::Start, &date, BLACK);
-            meter(c, x + meter_dx, cy, METER_STEP, r.mode, MeterStyle::ON_WHITE);
-            c.text(Weight::Regular, 34.0, x + time_dx, cy + 12.0, Anchor::End, &clock, BLACK);
+            c.text(Weight::Regular, text.size, x, cy + text.baseline, Anchor::Start, &date, BLACK);
+            meter(c, x + meter_dx, cy, g.meter_step, r.mode, MeterStyle::ON_WHITE);
+            c.text(Weight::Regular, text.size, x + time_dx, cy + text.baseline, Anchor::End, &clock, BLACK);
             Icon::Bin.draw(c, x + bin_dx, cy, BLACK);
         });
-        hline(c, y + ROW, x, x + w);
+        hline(c, y + row, x, x + w);
     }
     if let Some(r) = &app.list.confirm {
         let when = format!("{}, completed in {}.", format_date(r.finished_at), format_clock(r.seconds));
@@ -2220,17 +2336,21 @@ fn draw_licenses(c: &mut Canvas, app: &App) {
     let all = crate::licenses::all();
     let pages = crate::licenses::pages(all.crates.len(), layout::licenses_rows());
     chrome(c, "Licenses", Some((app.licenses.page, pages)));
+    let d = layout::device();
+    let (row, l) = (d.page.row, d.licenses.list);
     let (x, w) = list_column();
-    c.text(Weight::Regular, 30.0, x, 270.0, Anchor::Start, "The app contains these open source components.", SECONDARY);
-    hline(c, LICENSES_Y, x, x + w);
+    c.text(Weight::Regular, l.intro.size, x, l.intro.baseline, Anchor::Start, "The app contains these open source components.", SECONDARY);
+    hline(c, l.top, x, x + w);
     for (i, index) in app.licenses_page_rows().enumerate() {
         let k = &all.crates[index];
         let y = layout::licenses_row(i);
-        let baseline = y + ROW / 2.0 + 11.0;
-        c.text(Weight::Medium, 32.0, x, baseline, Anchor::Start, &k.name, BLACK);
-        c.text(Weight::Regular, 30.0, x + w - 60.0, baseline, Anchor::End, &k.version, SECONDARY);
-        Icon::OpenList.draw(c, x + w - 15.0, y + ROW / 2.0, BLACK);
-        hline(c, y + ROW, x, x + w);
+        // The center line of the row is not rounded down (not `row_center`).
+        let center = y + row / 2.0;
+        let baseline = center + l.text_below_center;
+        c.text(Weight::Medium, l.name_size, x, baseline, Anchor::Start, &k.name, BLACK);
+        c.text(Weight::Regular, l.version_size, x + w - l.version_end_from_right, baseline, Anchor::End, &k.version, SECONDARY);
+        Icon::OpenList.draw(c, x + w - l.icon_from_right, center, BLACK);
+        hline(c, y + row, x, x + w);
     }
 }
 
@@ -2240,14 +2360,15 @@ fn draw_license_text(c: &mut Canvas, app: &App) {
     let k = &crate::licenses::all().crates[app.licenses.open];
     let (lines, pages) = app.license_text_page();
     chrome(c, &k.name, Some((app.licenses.text_page, pages)));
+    let t = layout::device().licenses.text;
     let (x, w) = list_column();
-    c.text(Weight::Regular, 30.0, x, 232.0, Anchor::Start, &format!("Version {} · {}", k.version, k.license.replace(" OR ", " / ")), SECONDARY);
-    hline(c, 260.0, x, x + w);
+    c.text(Weight::Regular, t.subtitle.size, x, t.subtitle.baseline, Anchor::Start, &format!("Version {} · {}", k.version, k.license.replace(" OR ", " / ")), SECONDARY);
+    hline(c, t.divider_top, x, x + w);
     for (i, line) in lines.iter().enumerate() {
-        let y = layout::LICENSE_TEXT_Y + i as f32 * layout::LICENSE_LINE;
+        let y = layout::license_line(i);
         match line {
-            Line::Heading(s) => c.text(Weight::Medium, 28.0, x, y, Anchor::Start, s, BLACK),
-            Line::Body(s) => c.text(Weight::Regular, 25.0, x, y, Anchor::Start, s, BLACK),
+            Line::Heading(s) => c.text(Weight::Medium, t.heading_size, x, y, Anchor::Start, s, BLACK),
+            Line::Body(s) => c.text(Weight::Regular, t.body_size, x, y, Anchor::Start, s, BLACK),
             Line::Blank => {}
         }
     }
@@ -2282,14 +2403,15 @@ pub enum Icon {
     Bin,
 }
 
-/// The icon of the menu button (NAV-7), with its center at (cx, cy): a ring (radius 18 px, line of
-/// 3 px) and a dot (radius 4.5 px), 5.5 px to the left of the center and 5.5 px above it (open) or
-/// below it (closed). `mirror` puts the dot to the right of the center (NAV-15). The same values
-/// as `menu_icon` in scripts/ui-lib.sh.
+/// The icon of the menu button (NAV-7), with its center at (cx, cy): a ring
+/// (`IconMetrics::menu_radius`) and a dot (radius 4.5 px), 5.5 px to the left of the center and
+/// 5.5 px above it (open) or below it (closed). `mirror` puts the dot to the right of the center
+/// (NAV-15). The same values as `menu_icon` in scripts/ui-lib.sh.
 fn menu_icon(c: &mut Canvas, cx: f32, cy: f32, open: bool, mirror: bool, col: Rgb) {
+    let m = layout::device().icons;
     let dx = if mirror { 5.5 } else { -5.5 };
     let dy = if open { -5.5 } else { 5.5 };
-    c.circle(cx, cy, 18.0, None, Some((col, 3.0)));
+    c.circle(cx, cy, m.menu_radius, None, Some((col, m.stroke)));
     c.circle(cx + dx, cy + dy, 4.5, Some(col), None);
 }
 
@@ -2325,13 +2447,16 @@ impl Icon {
 
     /// Draws the icon with its center at (cx, cy). The caution icon uses `col` for its border and its
     /// mark. Each icon is a crisp drawing (no anti-aliasing; NAV-20, owner approval 2026-11-08).
+    /// The stroke widths and the outer sizes come from `IconMetrics`; the numbers here are the path
+    /// points of each shape.
     pub fn draw(self, c: &mut Canvas, cx: f32, cy: f32, col: Rgb) {
+        let m = layout::device().icons;
         match self {
             Icon::MenuClosed | Icon::MenuOpen => menu_icon(c, cx, cy, self == Icon::MenuOpen, false, col),
             Icon::Close => {
-                c.circle(cx, cy, 17.5, None, Some((col, 3.0)));
-                c.line(cx - 5.5, cy - 5.5, cx + 5.5, cy + 5.5, 3.0, col);
-                c.line(cx + 5.5, cy - 5.5, cx - 5.5, cy + 5.5, 3.0, col);
+                c.circle(cx, cy, m.close_radius, None, Some((col, m.stroke)));
+                c.line(cx - 5.5, cy - 5.5, cx + 5.5, cy + 5.5, m.stroke, col);
+                c.line(cx + 5.5, cy - 5.5, cx - 5.5, cy + 5.5, m.stroke, col);
             }
             Icon::PaintBucket => {
                 let tf = Transform::from_translate(cx, cy);
@@ -2347,7 +2472,7 @@ impl Icon {
                 pb.line_to(-15.0, -12.0);
                 pb.cubic_to(-17.0, -14.0, -15.0, -18.0, -12.0, -17.0);
                 pb.line_to(-5.0, -12.0);
-                c.path_stroke(pb, tf, 3.0, col);
+                c.path_stroke(pb, tf, m.stroke, col);
                 let mut pb = PathBuilder::new();
                 pb.move_to(16.0, 3.0);
                 pb.cubic_to(16.0, 3.0, 21.0, 10.0, 21.0, 13.0);
@@ -2359,18 +2484,18 @@ impl Icon {
             }
             // A gear with eight teeth (scripts/toolbar.sh `gear_icon`).
             Icon::Gear => {
-                c.circle(cx, cy, 11.0, None, Some((col, 3.0)));
-                c.circle(cx, cy, 4.5, None, Some((col, 3.0)));
+                c.circle(cx, cy, m.gear_radius, None, Some((col, m.stroke)));
+                c.circle(cx, cy, 4.5, None, Some((col, m.stroke)));
                 for k in 0..8 {
                     let a = (k as f32 * 45.0).to_radians();
                     let (s, co) = a.sin_cos();
-                    c.line_butt(cx + 11.0 * co, cy + 11.0 * s, cx + 17.0 * co, cy + 17.0 * s, 6.0, col);
+                    c.line_butt(cx + m.gear_radius * co, cy + m.gear_radius * s, cx + m.gear_tooth_tip * co, cy + m.gear_tooth_tip * s, m.gear_tooth_width, col);
                 }
             }
             // The red caution icon at the top right of the gear (REQUIREMENTS.md §9.2).
             Icon::Caution => {
-                c.circle(cx, cy, 10.0, Some(CAUTION_RED), Some((col, 3.0)));
-                c.line(cx, cy - 6.0, cx, cy + 1.5, 3.0, col);
+                c.circle(cx, cy, m.caution_radius, Some(CAUTION_RED), Some((col, m.stroke)));
+                c.line(cx, cy - 6.0, cx, cy + 1.5, m.stroke, col);
                 c.circle(cx, cy + 5.5, 1.6, Some(col), None);
             }
             Icon::Undo | Icon::Redo => {
@@ -2383,7 +2508,7 @@ impl Icon {
                 pb.move_to(-10.0, -12.0);
                 pb.line_to(-18.0, -4.0);
                 pb.line_to(-10.0, 4.0);
-                c.path_stroke(pb, tf, 3.0, col);
+                c.path_stroke(pb, tf, m.stroke, col);
             }
             // A bookmark with a notch at the bottom (§15): a closed line.
             Icon::Bookmark => {
@@ -2394,26 +2519,26 @@ impl Icon {
                 pb.line_to(0.0, 8.0);
                 pb.line_to(-12.0, 18.0);
                 pb.close();
-                c.path_stroke(pb, Transform::from_translate(cx, cy), 3.0, col);
+                c.path_stroke(pb, Transform::from_translate(cx, cy), m.stroke, col);
             }
             Icon::Help => {
-                c.circle(cx, cy, 19.0, None, Some((col, 3.0)));
-                c.text(Weight::Medium, 26.0, cx, cy + 9.0, Anchor::Middle, "?", col);
+                c.circle(cx, cy, m.help_radius, None, Some((col, m.stroke)));
+                c.text(Weight::Medium, m.help_text_size, cx, cy + 9.0, Anchor::Middle, "?", col);
             }
             // A line graph on axes.
             Icon::Statistics => {
-                c.polyline(&[(cx - 18.0, cy - 18.0), (cx - 18.0, cy + 18.0), (cx + 18.0, cy + 18.0)], 3.0, col, true);
-                c.polyline(&[(cx - 12.0, cy + 8.0), (cx - 4.0, cy - 2.0), (cx + 3.0, cy + 4.0), (cx + 15.0, cy - 12.0)], 3.0, col, true);
+                c.polyline(&[(cx - 18.0, cy - 18.0), (cx - 18.0, cy + 18.0), (cx + 18.0, cy + 18.0)], m.stroke, col, true);
+                c.polyline(&[(cx - 12.0, cy + 8.0), (cx - 4.0, cy - 2.0), (cx + 3.0, cy + 4.0), (cx + 15.0, cy - 12.0)], m.stroke, col, true);
             }
             Icon::Plus => {
-                c.line(cx - 18.0, cy, cx + 18.0, cy, 3.0, col);
-                c.line(cx, cy - 18.0, cx, cy + 18.0, 3.0, col);
+                c.line(cx - 18.0, cy, cx + 18.0, cy, m.stroke, col);
+                c.line(cx, cy - 18.0, cx, cy + 18.0, m.stroke, col);
             }
             // A down arrow into a tray.
             Icon::Install => {
-                c.line(cx, cy - 13.0, cx, cy + 5.0, 3.0, col);
-                c.polyline(&[(cx - 8.0, cy - 3.0), (cx, cy + 5.0), (cx + 8.0, cy - 3.0)], 3.0, col, true);
-                c.polyline(&[(cx - 13.0, cy + 3.0), (cx - 13.0, cy + 13.0), (cx + 13.0, cy + 13.0), (cx + 13.0, cy + 3.0)], 3.0, col, true);
+                c.line(cx, cy - 13.0, cx, cy + 5.0, m.stroke, col);
+                c.polyline(&[(cx - 8.0, cy - 3.0), (cx, cy + 5.0), (cx + 8.0, cy - 3.0)], m.stroke, col, true);
+                c.polyline(&[(cx - 13.0, cy + 3.0), (cx - 13.0, cy + 13.0), (cx + 13.0, cy + 13.0), (cx + 13.0, cy + 3.0)], m.stroke, col, true);
             }
             // A circular arrow: an arc (radius 12 px) clockwise from 330 degrees (the upper right)
             // through the bottom and the left to the top (630 degrees), with the gap at the upper
@@ -2429,9 +2554,9 @@ impl Icon {
                     .collect();
                 let (ex, ey) = (cx + 5.0, arc[arc.len() - 1].1);
                 arc.push((ex, ey));
-                c.polyline(&arc, 3.0, col, true);
+                c.polyline(&arc, m.stroke, col, true);
                 let wing = |deg: f32| (ex + 7.0 * deg.to_radians().cos(), ey + 7.0 * deg.to_radians().sin());
-                c.polyline(&[wing(225.0), (ex, ey), wing(135.0)], 3.0, col, true);
+                c.polyline(&[wing(225.0), (ex, ey), wing(135.0)], m.stroke, col, true);
             }
             // A power symbol: an arc (radius 12 px) clockwise from 300 to 600 (240) degrees, with
             // the gap at the top, and a line from 15 px to 3 px above the center.
@@ -2442,21 +2567,20 @@ impl Icon {
                         (cx + 12.0 * a.cos(), cy + 12.0 * a.sin())
                     })
                     .collect();
-                c.polyline(&arc, 3.0, col, true);
-                c.polyline(&[(cx, cy - 15.0), (cx, cy - 3.0)], 3.0, col, true);
+                c.polyline(&arc, m.stroke, col, true);
+                c.polyline(&[(cx, cy - 15.0), (cx, cy - 3.0)], m.stroke, col, true);
             }
-            Icon::Back => c.polyline(&[(cx + 5.0, cy - 11.0), (cx - 5.0, cy), (cx + 5.0, cy + 11.0)], 3.0, col, true),
-            Icon::PagePrevious => c.polyline(&[(cx + 5.0, cy - 10.0), (cx - 5.0, cy), (cx + 5.0, cy + 10.0)], 3.0, col, true),
-            Icon::PageNext => c.polyline(&[(cx - 5.0, cy - 10.0), (cx + 5.0, cy), (cx - 5.0, cy + 10.0)], 3.0, col, true),
-            Icon::OpenList => c.polyline(&[(cx - 6.0, cy - 12.0), (cx + 6.0, cy), (cx - 6.0, cy + 12.0)], 3.0, col, true),
+            Icon::Back => c.polyline(&[(cx + 5.0, cy - 11.0), (cx - 5.0, cy), (cx + 5.0, cy + 11.0)], m.stroke, col, true),
+            Icon::PagePrevious => c.polyline(&[(cx + 5.0, cy - 10.0), (cx - 5.0, cy), (cx + 5.0, cy + 10.0)], m.stroke, col, true),
+            Icon::PageNext => c.polyline(&[(cx - 5.0, cy - 10.0), (cx + 5.0, cy), (cx - 5.0, cy + 10.0)], m.stroke, col, true),
+            Icon::OpenList => c.polyline(&[(cx - 6.0, cy - 12.0), (cx + 6.0, cy), (cx - 6.0, cy + 12.0)], m.stroke, col, true),
             // The bin of a delete button.
             Icon::Bin => {
-                let w = 2.6;
-                c.line(cx - 14.0, cy - 11.0, cx + 14.0, cy - 11.0, w, col);
-                c.polyline(&[(cx - 5.0, cy - 11.0), (cx - 5.0, cy - 15.0), (cx + 5.0, cy - 15.0), (cx + 5.0, cy - 11.0)], w, col, true);
-                c.polyline(&[(cx - 10.0, cy - 11.0), (cx - 8.0, cy + 15.0), (cx + 8.0, cy + 15.0), (cx + 10.0, cy - 11.0)], w, col, true);
-                c.line(cx - 3.0, cy - 5.0, cx - 3.0, cy + 9.0, w, col);
-                c.line(cx + 3.0, cy - 5.0, cx + 3.0, cy + 9.0, w, col);
+                c.line(cx - 14.0, cy - 11.0, cx + 14.0, cy - 11.0, m.bin_stroke, col);
+                c.polyline(&[(cx - 5.0, cy - 11.0), (cx - 5.0, cy - 15.0), (cx + 5.0, cy - 15.0), (cx + 5.0, cy - 11.0)], m.bin_stroke, col, true);
+                c.polyline(&[(cx - 10.0, cy - 11.0), (cx - 8.0, cy + 15.0), (cx + 8.0, cy + 15.0), (cx + 10.0, cy - 11.0)], m.bin_stroke, col, true);
+                c.line(cx - 3.0, cy - 5.0, cx - 3.0, cy + 9.0, m.bin_stroke, col);
+                c.line(cx + 3.0, cy - 5.0, cx + 3.0, cy + 9.0, m.bin_stroke, col);
             }
         }
     }

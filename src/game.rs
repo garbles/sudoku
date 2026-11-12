@@ -711,17 +711,17 @@ mod tests {
     }
 
     #[test]
-    fn the_list_has_at_most_five_checkpoints_the_newest_first() {
+    fn the_list_has_at_most_four_checkpoints_the_newest_first() {
         // CKP-4
         let mut g = sample(&[(0, 0), (0, 1)]);
-        for d in 1..=5 {
+        for d in 1..=4 {
             g.elapsed_ms = d * 1000;
             g.toggle_mark_with((0, 0), d as u8, false);
             assert!(g.save_checkpoint());
         }
         g.toggle_mark_with((0, 0), 6, false);
         assert!(!g.save_checkpoint(), "the list is full");
-        assert_eq!(g.checkpoints.iter().map(Checkpoint::seconds).collect::<Vec<_>>(), [5, 4, 3, 2, 1]);
+        assert_eq!(g.checkpoints.iter().map(Checkpoint::seconds).collect::<Vec<_>>(), [4, 3, 2, 1]);
     }
 
     #[test]

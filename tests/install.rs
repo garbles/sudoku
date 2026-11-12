@@ -402,8 +402,17 @@ fn q_stops_the_installer() {
 fn other_tablet_needs_a_confirmation() {
     let (out, code) = run("other");
     assert_eq!(code, 1, "{out}");
-    assert_has(&out, "This tablet is not a reMarkable Paper Pro");
+    assert_has(&out, "This tablet is not a Paper Pro or a Paper Pro Move");
     assert!(!out.contains(" 5/11 "), "{out}");
+}
+
+#[test]
+fn the_paper_pro_move_needs_no_confirmation() {
+    // R§1, R§14.6: the Paper Pro Move is a supported tablet.
+    let (out, code) = run("move");
+    assert_eq!(code, 0, "{out}");
+    assert_has(&out, "Tablet: reMarkable Paper Pro Move");
+    assert!(!out.contains("This tablet is not"), "{out}");
 }
 
 #[test]
@@ -489,7 +498,7 @@ fn arrow_keys_select_a_version_in_a_terminal() {
 #[test]
 fn output_fits_the_terminal() {
     for scenario in [
-        "first", "connect", "password", "hostkey", "offline", "download", "stop", "other", "patch", "stamp",
+        "first", "connect", "password", "hostkey", "offline", "download", "stop", "other", "move", "patch", "stamp",
         "missing", "select", "typed", "wifi", "wifi-usb", "restart", "again", "tripletap-repair",
         "tripletap-repair-fail", "tripletap-install-fail", "tripletap-offline", "tablet-update",
         "tablet-update-sync-fail", "tablet-update-still-stale",

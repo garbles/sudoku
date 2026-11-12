@@ -30,7 +30,11 @@ const _: () = {
     assert!(d.refused_x_half() == 10.0, "MRK-13");
     assert!(d.digit_size() == 104.0 && d.digit_baseline() == 111.0, "BRD-8");
 };
-const _: () = assert!(crate::render::INK_WIDTH == 5.0 && crate::render::INK_DOT_RADIUS == 2.5, "INP-25");
+const _: () = {
+    let (pro, mv) = (crate::layout::Device::PAPER_PRO.ink, crate::layout::Device::MOVE.ink);
+    assert!(pro.width == 5.0 && pro.dot_radius == 2.5, "INP-25");
+    assert!(mv.width == 5.0 && mv.dot_radius == 2.5, "INP-25");
+};
 // BRD-9: the dots of the micro-cell lines are gray15 (not black: the mono waveform), the pattern is
 // the 4x4 Bayer matrix, and each 2x4 px run of a line has the quantity of dots of its gray (the same
 // in the two directions: both sample the columns 0 and 1 of the matrix). BRD-10, BRD-11 and COL-13
@@ -274,36 +278,57 @@ fn check_completed_color(app: &App) -> Result<(), String> {
     Ok(())
 }
 
+/// True on the Paper Pro Move: the rules give its positions separately (R§1).
+fn on_move() -> bool {
+    match layout::device().model {
+        layout::Model::PaperPro => false,
+        layout::Model::Move => true,
+    }
+}
+
 /// NAV-14, NAV-17: the positions of the open panel for the current layout.
 fn check_panel_layout(app: &App) -> Result<(), String> {
     match app.ui.menu.panel() {
         Some(Panel::Colors) => {
             let p = layout::colors_panel();
-            let x0 = match (layout::right_handed(), layout::orientation()) {
-                (true, _) => 112,
-                (false, layout::Orientation::Portrait) => 708,
-                (false, layout::Orientation::Landscape) => 1248,
+            let landscape = layout::orientation() == layout::Orientation::Landscape;
+            // The Paper Pro, and the Move (owner decisions 2026-11-10: three columns of two rows in landscape).
+            let (x0, w, y0, y1) = match (on_move(), layout::right_handed(), landscape) {
+                (false, true, _) => (112, 800, 112, 1193),
+                (false, false, false) => (708, 800, 112, 1193),
+                (false, false, true) => (1248, 800, 112, 1193),
+                (true, true, false) => (96, 800, 96, 1177),
+                (true, false, false) => (58, 800, 96, 1177),
+                (true, true, true) => (96, 1200, 96, 817),
+                (true, false, true) => (400, 1200, 96, 817),
             };
-            ensure!((p.x0, p.x1, p.y0, p.y1) == (x0, x0 + 800, 112, 1193), "NAV-17", "the Cell colors panel is at {p:?}");
+            ensure!((p.x0, p.x1, p.y0, p.y1) == (x0, x0 + w, y0, y1), "NAV-17", "the Cell colors panel is at {p:?}");
         }
         Some(Panel::Settings) => {
             let p = layout::settings_panel(app.update.has_row());
             ensure!(p.x1 - p.x0 == 400, "NAV-14", "the Settings panel is at {p:?}");
         }
         Some(Panel::Checkpoints) => {
-            let x0 = match (layout::right_handed(), layout::orientation()) {
-                (true, _) => 112,
-                (false, layout::Orientation::Portrait) => 908,
-                (false, layout::Orientation::Landscape) => 1448,
+            let landscape = layout::orientation() == layout::Orientation::Landscape;
+            // The Paper Pro, and the Move (owner decisions 2026-11-10: from slot 1 in landscape).
+            let (x0, top) = match (on_move(), layout::right_handed(), landscape) {
+                (false, true, _) => (112, 560),
+                (false, false, false) => (908, 560),
+                (false, false, true) => (1448, 560),
+                (true, true, false) => (96, 480),
+                (true, false, false) => (258, 480),
+                (true, true, true) => (96, 96),
+                (true, false, true) => (1000, 96),
             };
             let n = app.game.checkpoints.len();
-            let bottom = if n == 0 { 864 } else { 672 + 180 * n as i32 };
+            let bottom = if n == 0 { top + 304 } else { top + 112 + 180 * n as i32 };
             let p = layout::ckp_panel(n);
-            ensure!((p.x0, p.x1, p.y0, p.y1) == (x0, x0 + 600, 560, bottom + 1), "NAV-18", "the Checkpoints panel is at {p:?}");
+            ensure!((p.x0, p.x1, p.y0, p.y1) == (x0, x0 + 600, top, bottom + 1), "NAV-18", "the Checkpoints panel is at {p:?}");
             for corner in [(p.x0, p.y0), (p.x1 - 1, p.y0), (p.x0, p.y1 - 1), (p.x1 - 1, p.y1 - 1)] {
                 ensure!(layout::game_button(corner.0 as f32, corner.1 as f32, true).is_none(), "NAV-18", "the panel covers a button at {corner:?}");
             }
-            ensure!(p.y1 + 13 < layout::meter_y() || p.x1 <= layout::meter_xl() || p.x0 >= layout::meter_xr(), "NAV-18", "the panel covers the meter");
+            // On the Move, a panel can cover the board and the meter (owner decision 2026-11-10).
+            ensure!(on_move() || p.y1 + 13 < layout::meter_y() || p.x1 <= layout::meter_xl() || p.x0 >= layout::meter_xr(), "NAV-18", "the panel covers the meter");
         }
         _ => {}
     }
@@ -316,16 +341,20 @@ fn check_panel_layout(app: &App) -> Result<(), String> {
 /// the menu is open.
 fn check_card_layout() -> Result<(), String> {
     let r = layout::result_card();
-    let expected = match (layout::orientation(), layout::right_handed()) {
-        (layout::Orientation::Portrait, _) => Rect::new(148, 1790, 1471, 2110),
-        (layout::Orientation::Landscape, false) => Rect::new(48, 148, 370, 1471),
-        (layout::Orientation::Landscape, true) => Rect::new(1790, 148, 2112, 1471),
+    let expected = match (on_move(), layout::orientation(), layout::right_handed()) {
+        (false, layout::Orientation::Portrait, _) => Rect::new(125, 1813, 1494, 2133),
+        (false, layout::Orientation::Landscape, false) => Rect::new(48, 125, 370, 1494),
+        (false, layout::Orientation::Landscape, true) => Rect::new(1790, 125, 2112, 1494),
+        // The compact card of the Move (owner decision 2026-11-10).
+        (true, layout::Orientation::Portrait, _) => Rect::new(120, 1271, 834, 1641),
+        (true, layout::Orientation::Landscape, false) => Rect::new(120, 103, 420, 851),
+        (true, layout::Orientation::Landscape, true) => Rect::new(1276, 103, 1576, 851),
     };
     ensure!(r == expected, "CMP-7", "the result card is at {r:?}");
     let (w, h) = (layout::screen_w() as i32, layout::screen_h() as i32);
-    let toolbar = Rect::new(layout::tb_x(), 0, layout::tb_x() + layout::TB_SLOT, h);
-    let close_x = if layout::right_handed() { w - layout::TB_SLOT } else { 0 };
-    let close = Rect::new(close_x, 0, close_x + layout::TB_SLOT, layout::TB_SLOT);
+    let toolbar = Rect::new(layout::tb_x(), 0, layout::tb_x() + layout::tb_slot(), h);
+    let close_x = if layout::right_handed() { w - layout::tb_slot() } else { 0 };
+    let close = Rect::new(close_x, 0, close_x + layout::tb_slot(), layout::tb_slot());
     let board = Rect::new(layout::board_x(), layout::board_y(), layout::board_x() + layout::board_size(), layout::board_y() + layout::board_size());
     for (name, o) in [("the toolbar", toolbar), ("the close button", close), ("the board", board)] {
         ensure!(!r.overlaps(&o), "CMP-7", "the result card {r:?} touches {name} {o:?}");

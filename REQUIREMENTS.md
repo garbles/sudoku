@@ -37,8 +37,10 @@ document does not include unknown behavior.
 
 ## 1. Device and display
 
-- The target device is the **reMarkable Paper Pro**. It has a color e-ink display of 1620×2160 px
-  (portrait) at 229 DPI and a 64-bit ARM processor.
+- The target devices are the **reMarkable Paper Pro** and the **reMarkable Paper Pro Move**. The Paper
+  Pro has a color e-ink display of 1620×2160 px (portrait) at 229 DPI and a 64-bit ARM processor. All
+  pixel values in this document are the values of the Paper Pro, if the text does not tell about the
+  Move. [§1.1](#11-paper-pro-move) gives the values of the Move.
 - Build the executables in the Linux Dockerfile of the project. Refer to `AGENTS.md`.
 - The app operates in portrait and in landscape (2160×1620). When the tablet turns, AppLoad tells the
   app the rotation, and the app shows its landscape layout. Refer to [§3.3](#33-landscape).
@@ -47,6 +49,53 @@ document does not include unknown behavior.
 - The UI font is **reMarkable Sans**, the font of the device. The app loads the font from the tablet
   when the app starts (`/usr/share/remarkable/webui/reMarkableSans.woff2`). The app does not include a
   copy of the font.
+
+### 1.1 Paper Pro Move
+
+The reMarkable Paper Pro Move has a color e-ink display of 954×1696 px (portrait) at 264 DPI (owner
+decisions 2026-11-10). The owner has no Move: the design images of the Move
+([`images/move/`](images/move/)) and the tests on the computer are the only reference.
+
+- **Device.** The app reads the code name of the device tree (`/sys/devices/soc0/machine`) when it
+  starts: `Chiappa` is the Move, all other names are the Paper Pro. On the Move the app asks qtfb for
+  the framebuffer type 4 (RGB888, 954×1696); on the Paper Pro, type 1 (1620×2160).
+- **Board.** Cells of 78 px in the two orientations, with the lines of the Paper Pro (7 px and 3 px,
+  each on its own pixels): a board of 748 px at the center of the screen. Thus the board keeps its
+  physical position when the tablet turns, and in portrait it is 7 px from the toolbar. The contents of a
+  cell have the sizes of the Paper Pro multiplied by 78 / 147 and rounded to full pixels: numbers of
+  55 px with the baseline at 59 px, pencil marks of 16 px at 13, 39 and 65 px, the x of a refused tap
+  from −5 to +5 px. The difficulty meter is 50 px below the board, as on the Paper Pro.
+- **Toolbar.** Slots of 96 px in the two orientations. The icons have the size and the line width of the
+  Paper Pro, at the center of the slot. The open toolbar has no background. It does not cover the board.
+- **Panels.** The panels have the widths of the Paper Pro, and they touch the toolbar. Each panel starts
+  at the top of the slot of its button. A panel can cover the board and the difficulty meter. The rows of
+  the Settings panel and the row "Save checkpoint" are 112 px high, as on the Paper Pro. The rows of the
+  New game panel are 96 px high: they line up with the toolbar slots.
+  - In landscape (954 px high), the Cell colors panel has three columns of two rows (1200×720 px, from
+    slot 1): Starting and Clashing numbers, Highlighted numbers and Completed groups, Micro-cell lines.
+    In portrait it has the two columns of three rows of the Paper Pro.
+  - In landscape, the Checkpoints panel starts at the top of slot 1 (y 96), because the panel with
+    4 rows does not fit below slot 5. In portrait it starts at slot 5 (y 480).
+- **Result card** (compact card, [§8.3](#83-complete)). Portrait: 714×370 px (x 120–834, 49 px
+  below the board, 24 px from the toolbar). From the top: "Completed in" (Regular 30), the time (Medium
+  72), the slider of the mode, the comparison line (Regular 25), a `gray70` line 250 px below the top,
+  then the three level buttons in one row (206×80 px, 18 px below the line, 32 px from the sides, 16 px
+  between them). Each button has its label (Medium 28) above a small meter (step 22 px). Landscape: a
+  column of 300×748 px (the height of the board), 120 px from the screen edge at the side opposite the
+  toolbar (x 120–420 for a left-handed player, x 1276–1576 for a right-handed player), with the contents
+  of the landscape card of the Paper Pro in less space: "Completed in" (Regular 30) 50 px below the top,
+  the time (Medium 64) at 128 px, the meter (step 36 px) at 176 px, the comparison labels (Regular 25)
+  at 232 and 312 px with their values (Medium 36) 40 px below them, a `gray70` line 380 px below the
+  top, then three buttons of 88 px with a pitch of 100 px, the first 20 px below the line (label
+  Medium 30, meter step 30 px). There is no "New game" heading, as in portrait.
+- **Pages.** The manual, the statistics and the Licenses screens use a scale of 0.679487 (954 / 1404):
+  a page is 1404 units wide, as on the Paper Pro, and taller (2496 units in portrait). The contents keep
+  their positions in units, and the page number stays at the bottom edge. In portrait, the extra
+  624 units contain more rows (owner decision 2026-11-10): the list of completed games shows 18 games,
+  the Licenses list 20 rows and the license text 57 lines on each page. The rows of the "By difficulty"
+  table are 186 units high (97 + 624 / 7, rounded down). In landscape the page is 1404 units high, as on
+  the Paper Pro, thus nothing changes. The manual pages are images of the Move (`images/move/manual-*.png`). In them, a crop of a
+  screen of the Move has the same size in units as the crop of the Paper Pro.
 
 ## 2. Screens
 
@@ -94,15 +143,15 @@ open ([§9](#9-the-menu)): refer to [`screen-toolbar.png`](images/pro/screen-too
 
 | Item | Position and size | Notes |
 |---|---|---|
-| Board | 9×9 cells of **147 px**; x 148–1471, y 418–1741 (at the center of the screen) | Lines of 13 px are around the board and the 3×3 boxes. Lines of 3 px are between the cells. |
+| Board | 9×9 cells of **147 px** and the lines between them: 1369 px, x 125–1494, y 395–1764 (at the center of the screen) | Lines of 7 px are around the board and between the 3×3 boxes. Lines of 3 px are between the cells of a box. Each line has its own pixels between the cells: no line covers a pixel of a cell, thus the pencil marks are at the center of their micro-cells also next to the border (owner request 2026-11-11). Cell (0, 0) starts at (132, 402). |
 | Micro-cells | Each cell has a very faint 3×3 grid of **49 px** micro-cells (2 px lines, default `gray90`; the player can select a different gray or no lines, §10). Each line is a dotted pattern of `gray15` and white pixels with the darkness of the selected gray ([§4.1](#41-types-of-cell); owner approval 2026-11-08) | Each micro-cell is for one digit. The positions are the same as a keypad: 1 2 3 / 4 5 6 / 7 8 9. |
 | Difficulty meter | Below the board, at the center, 50 px from the board | The player cannot change it. It shows "Easy", seven stops and "Hard". The large knob shows the mode of the current puzzle. When the puzzle is complete, the **result card** replaces the meter ([§8.3](#83-complete); owner approval 2026-11-07). |
-| Result card | Only on a complete puzzle: x 148–1471, y 1790–2110 (49 px below the board, 320 px high). The same for a left-handed and a right-handed player | The time, the comparison with the earlier results and the level buttons Easier, Same and Harder ([§8.3](#83-complete)). |
+| Result card | Only on a complete puzzle: x 125–1494, y 1813–2133 (49 px below the board, 320 px high). The same for a left-handed and a right-handed player | The time, the comparison with the earlier results and the level buttons Easier, Same and Harder ([§8.3](#83-complete)). |
 | Menu button | Top right, circle of 38 px, center at (1563.5, 55.5) | Closed icon: dot at the bottom left. Open icon: dot at the top left. Each icon is a ring (radius 18 px, line of 3 px) and a dot (radius 4.5 px), 5.5 px left of the center and 5.5 px below it (closed) or above it (open). |
 | Close button | Top left, circle of 38 px with ×, center at (55.5, 55.5) | The close button shows **only when the menu is open**. The device does the same. |
 
-The open menu starts at x 1508. The board ends at x 1471. Thus the open menu does not cover the board
-(gap of 37 px).
+The open menu starts at x 1508. The board ends at x 1494. Thus the open menu does not cover the board
+(gap of 14 px).
 
 The positions above are for a **left-handed** player. The app reads the handedness of the device
 (`RightHanded` in `[General]` of `/home/root/.config/remarkable/xochitl.conf`) when it starts. For a
@@ -209,8 +258,8 @@ unless this table or the section of the item gives a different size for landscap
 
 | Item | Landscape position |
 |---|---|
-| Board | At the center: x 418–1741, y 148–1471. The difficulty meter is 50 px below the board. |
-| Result card | A column with the height of the board (y 148–1471), 322 px wide, at the side opposite the toolbar: x 48–370 for a left-handed player (toolbar at the right), x 1790–2112 for a right-handed player (toolbar at the left). Only the column moves: its contents are the same for the two hands (not a mirror image). [§8.3](#83-complete) gives the contents (owner approval 2026-11-07). |
+| Board | At the center: x 395–1764, y 125–1494. The difficulty meter is 50 px below the board. |
+| Result card | A column with the height of the board (y 125–1494), 322 px wide, at the side opposite the toolbar: x 48–370 for a left-handed player (toolbar at the right), x 1790–2112 for a right-handed player (toolbar at the left). Only the column moves: its contents are the same for the two hands (not a mirror image). [§8.3](#83-complete) gives the contents (owner approval 2026-11-07). |
 | Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. The Cell colors panel is at x 1248–2047, y 112–1192 (right-handed: x 112–911; [§10](#10-cell-colors-panel)). The Checkpoints panel is at x 1448–2047, with its top at y 560 (right-handed: x 112–711; [§9.3](#93-checkpoints-panel)). |
 | Close button | Top left, as in portrait. For a right-handed player, the toolbar is at the left edge (x 0–112) and the close button is at the top right (§3.1). |
 | Manual | Each page has a landscape version with two columns (`manual-*-landscape.png`, made by `scripts/manual-*-landscape.sh`). The content is the same as in portrait. |
@@ -273,8 +322,9 @@ give the same pixels. The dots are `gray15` and not black: with black dots, an e
 black and white area, and xochitl selected its mono waveform when a color appeared in the cell (a
 written digit that clashes), thus the clash color was washed out. With `gray15` dots the clash color
 is correct, and the dots look nearly black on the panel ([§14.4](#144-launcher); owner test
-2026-11-08). The board lines (3 px and 13 px, black) have no anti-aliasing (owner approval
-2026-11-08, on the tablet). Before, each board line had one faint anti-aliased pixel (value 191 of
+2026-11-08). The board lines (3 px and 7 px, black, each on its own pixels between the cells) have
+no anti-aliasing (owner approval 2026-11-08, on the tablet). Before the crisp lines (with lines of
+13 px at the center of the cell borders), each board line had one faint anti-aliased pixel (value 191 of
 255) on its right or bottom side (at offset + 2 for a 3 px line, offset + 7 for a 13 px line), and
 the ends of the border had pixels of 143. With the crisp lines these pixels are white: the black
 pixels do not change, the faint edge pixels go away.
@@ -799,16 +849,16 @@ unless a different source is given.
 
 | Item | Position and size | Content |
 |---|---|---|
-| Frame | x 148–1471 (the board width), y 1790–2110 (y0 = 1790, y1 = 2110) | 2 px black, white inside |
-| "Completed in" | x 188 (x0 + 40), baseline y 1856 (y0 + 66) | reMarkable Sans Regular 30 px, `gray25` |
-| Time | x 188, baseline y 1970 (y0 + 180) | Medium 96 px, black |
-| Difficulty slider | x 188–628 (440 px), center line y 2022 (y0 + 232) | The mode of the puzzle, with the labels "Easy" and "Hard". The same drawing as the meter below the board. |
-| Comparison line | x 188, baseline y 2083 (y0 + 293) | Regular 25 px, `gray25`: "Average m:ss  ·  Previous best m:ss" (two spaces at each side of the middle dot), or "First game at this level" |
-| Divider | x 788 (x0 + 640), 2 px wide, from y0 + 24 to y1 − 24 | `gray70` |
-| "New game" | x 820 (the divider + 32), baseline y0 + 55 | Medium 28 px, black |
-| Level buttons | x 820–1439 (x1 − 32). From the top: **Easier** y 1865–1935, **Same** y 1945–2015, **Harder** y 2025–2095 (70 px high, pitch 80 px, the first at y0 + 75) | 2 px black frame, white inside (no black fill). Label: Medium 30 px, black, at x + 28, baseline at the vertical center + 11. At the right: a small meter of the mode that the button starts (no labels, the meter of the statistics tables, stop step 30 px); its last stop is 40 px from the right frame. |
+| Frame | x 125–1494 (the board width), y 1813–2133 (y0 = 1813, y1 = 2133) | 2 px black, white inside |
+| "Completed in" | x 165 (x0 + 40), baseline y 1879 (y0 + 66) | reMarkable Sans Regular 30 px, `gray25` |
+| Time | x 165, baseline y 1993 (y0 + 180) | Medium 96 px, black |
+| Difficulty slider | x 165–605 (440 px), center line y 2045 (y0 + 232) | The mode of the puzzle, with the labels "Easy" and "Hard". The same drawing as the meter below the board. |
+| Comparison line | x 165, baseline y 2106 (y0 + 293) | Regular 25 px, `gray25`: "Average m:ss  ·  Previous best m:ss" (two spaces at each side of the middle dot), or "First game at this level" |
+| Divider | x 765 (x0 + 640), 2 px wide, from y0 + 24 to y1 − 24 | `gray70` |
+| "New game" | x 797 (the divider + 32), baseline y0 + 55 | Medium 28 px, black |
+| Level buttons | x 797–1462 (x1 − 32). From the top: **Easier** y 1888–1958, **Same** y 1968–2038, **Harder** y 2048–2118 (70 px high, pitch 80 px, the first at y0 + 75) | 2 px black frame, white inside (no black fill). Label: Medium 30 px, black, at x + 28, baseline at the vertical center + 11. At the right: a small meter of the mode that the button starts (no labels, the meter of the statistics tables, stop step 30 px); its last stop is 40 px from the right frame. |
 
-**Landscape** (2160×1620). The card is a column, x0 to x1, y0 = 148 to y1 = 1471 (the height of the
+**Landscape** (2160×1620). The card is a column, x0 to x1, y0 = 125 to y1 = 1494 (the height of the
 board), 322 px wide, at the side opposite the toolbar ([§3.3](#33-landscape)). The text starts at
 x0 + 28.
 
@@ -818,7 +868,7 @@ x0 + 28.
 | Time | Baseline y0 + 185 | **Medium 72 px**, black, at all times (owner decision 2026-11-07: a time of one hour or more must fit in the column) |
 | Difficulty meter | At the center of the column, y0 + 255 | The mode of the puzzle, no labels, stop step 40 px |
 | Comparison | Labels at baseline y0 + 370 and y0 + 480; values at baseline y0 + 418 and y0 + 528 | Label Regular 25 px `gray25`, value Medium 40 px black: "Average at this level" / m:ss, then "Previous best" / m:ss (110 px lower). With no earlier result: only "First game at this level" (Regular 25 px, `gray25`, baseline y0 + 370). |
-| Divider | 2 px, `gray70`, from x0 + 28 to x1 − 28, at y1 − 560 (y 911) | |
+| Divider | 2 px, `gray70`, from x0 + 28 to x1 − 28, at y1 − 560 (y 934) | |
 | "New game" | Baseline at the divider + 60 | Medium 28 px, black |
 | Level buttons | x0 + 20 to x1 − 20. **Easier**, **Same**, **Harder** from the top, each 120 px high, pitch 140 px, the first at the divider + 90 | 2 px black frame, white inside. Label: Medium 32 px, black, centered, baseline at the button top + 50. Below it: a small meter (no labels, stop step 36 px), centered, at the button top + 88. |
 
@@ -1352,7 +1402,8 @@ request 2026-11-07).
   the title **Licenses**, then the `gray25` text "The app contains these open source components." Each
   row (97 units) has the name of the entry (Medium, 32) and its version (Regular, 30, `gray25`, at the
   right), and a › at the right end. The row does not show the license (owner decision 2026-11-07).
-  Each page shows 14 rows in portrait and 9 rows in landscape. The ‹ › arrows and a finger swipe change
+  Each page shows 14 rows in portrait and 9 rows in landscape (20 in portrait on the Move,
+  [§1.1](#11-paper-pro-move)). The ‹ › arrows and a finger swipe change
   the page. A tap on a row opens its license text at page 1. **< Back** shows the game with the menu open
   and no panel, and the toolbar ignores a press for 0.5 s ([§9](#9-the-menu)).
 - **License text.** The title is the name of the entry. Below it is the line "Version <version> ·
@@ -1360,7 +1411,8 @@ request 2026-11-07).
   `MIT / Apache-2.0` (owner decision 2026-11-07). `AND` and `WITH` do not change. Then, for each license
   file: its name (Medium, 28), an empty line, and its text (Regular, 25), with lines of 36 units. A line
   of more than 80 characters breaks at the last space before the limit (or at the limit if there is no
-  space). Each page shows 40 lines in portrait and 27 lines in landscape. The ‹ › arrows and a finger
+  space). Each page shows 40 lines in portrait and 27 lines in landscape (57 in portrait on the Move,
+  [§1.1](#11-paper-pro-move)). The ‹ › arrows and a finger
   swipe change the page. **< Back** shows the Licenses list at the same page.
 - A turn of the tablet keeps the first entry (list) or the first line (text) of the page on the new
   page. The app does not keep the state of these screens: after a close, it starts on the game.
@@ -1610,7 +1662,8 @@ Image: [`images/pro/analytics.png`](images/pro/analytics.png).
 - The **By difficulty** table has one row for each mode, from Easy to Hard. Each row shows the
   difficulty meter, the quantity of completed puzzles and the average time. If a mode has no results,
   its average is "–". The rows are 97 units high in portrait and 76 units high in landscape, so that
-  the seven rows and the buttons below them fit on the landscape page.
+  the seven rows and the buttons below them fit on the landscape page (186 units in portrait on the
+  Move, [§1.1](#11-paper-pro-move)).
 - **All completed games ›** opens the list.
 - **Delete all games** is a button with a bin icon at the right of "All completed games ›", in the same
   row (in portrait and in landscape). A tap on it opens a **confirmation dialog** at the center of the
@@ -1638,7 +1691,8 @@ Image: [`images/pro/analytics-games.png`](images/pro/analytics-games.png).
 - The columns are **Date** (date and time of completion, for example "22 Oct 2026, 20:22"),
   **Difficulty** (meter), **Time** (`m:ss` or `h:mm:ss`) and a **bin** button. The newest game is
   first.
-- Each page shows **12 games** (6 games in landscape, [§3.3](#33-landscape)). The ‹ › arrows and finger swipes change the page. A change of filter
+- Each page shows **12 games** (6 games in landscape, [§3.3](#33-landscape); 18 games in portrait on the
+  Move, [§1.1](#11-paper-pro-move)). The ‹ › arrows and finger swipes change the page. A change of filter
   shows page 1.
 - A tap on a bin opens a **confirmation dialog** on the list. The list becomes pale. The dialog shows:
   - "Delete this game?"
@@ -2043,8 +2097,8 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Item | Value |
 |---|---|
 | Screen | 1620×2160, 229 DPI |
-| Board | Cells of 147 px, micro-cells of 49 px, origin (148, 418) |
-| Board lines | Box and border 13 px black; cell 3 px black. No anti-aliasing: each pixel is black or white. Before, each board line had one faint anti-aliased pixel (value 191 of 255) on its right or bottom side (at offset + 2 for a 3 px line, offset + 7 for a 13 px line), and the ends of the border had pixels of 143. With the crisp lines these pixels are white: the black pixels do not change, the faint edge pixels go away (§4.1; owner approval 2026-11-08) |
+| Board | Cells of 147 px, micro-cells of 49 px; the board from (125, 395), cell (0, 0) at (132, 402) |
+| Board lines | Box and border 7 px black; cell 3 px black; each line on its own pixels between the cells (owner request 2026-11-11). No anti-aliasing: each pixel is black or white. Before, each board line had one faint anti-aliased pixel (value 191 of 255) on its right or bottom side (at offset + 2 for a 3 px line, offset + 7 for a 13 px line), and the ends of the border had pixels of 143. With the crisp lines these pixels are white: the black pixels do not change, the faint edge pixels go away (§4.1; owner approval 2026-11-08) |
 | Micro-cell lines | 2 px, at 49 px and 98 px from the cell origin and the pixel after, over the full cell. A pattern of `gray15` and white pixels with the darkness of the selected gray (default `gray90`, §10): ordered 4×4 Bayer dither, matrix `[[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]]`, a pixel is `gray15` when `matrix × 16 + 8 <= 255 − gray`. The pattern starts at the first pixel of each line; the row index of the matrix is the position along the line (modulo 4), the column index is the position across it (0 the offset pixel, 1 the next): `matrix[dy mod 4][dx]` for a vertical line, `matrix[dx mod 4][dy]` for a horizontal line. No other gray and no intermediate value (§4.1; owner approval 2026-11-08) |
 | Numbers | reMarkable Sans Regular 104 px; starting numbers black, your numbers dark gray (`#1E1E1E`; owner approval 2026-11-04 and 2026-11-05) |
 | Pencil marks | reMarkable Sans Regular 31 px, `gray15`, at the center of their micro-cell. No anti-aliasing: each pixel is `gray15` or the pixel of the empty cell under it (owner approval 2026-11-07) |
@@ -2059,7 +2113,7 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Background of a filled cell | First rule that applies: clash, highlight, completed, starting number, white (§4.2) |
 | UI text | reMarkable Sans Medium 25 px (menus, meter labels). The version value and the text of an update state are reMarkable Sans Regular 25 px (§9.1, §9.2). |
 | Secondary text | `gray25` (`#404040`) for all secondary text and marks: the result card text, the "?", the box labels and the column headings of Statistics and of the completed games list, the help line and the row text of the Checkpoints panel and the mark dots of the small boards, the Licenses screens (intro text, versions, the version and license line), the page number "n / total" (Regular 28) of the completed games list, the Licenses screens and the manual pages (owner decision 2026-11-10), the text rows of the update states, the two text lines of each dialog, the pages of the manual and the labels of the icon sheet `images/pro/icons.png`. No text uses `gray40` (`#666666`): it was hard to read on the tablet (owner request 2026-11-07). The micro-cell line setting 40 of the Cell colors panel stays (§10), and the other grays do not change. Since 2026-11-08 no pixel of the app is `gray40`: the micro-cell lines show the selected gray as a pattern of `gray15` and white (§4.1). The only exception is the anti-aliasing of the manual pages: an edge of a darker text or line there can have single pixels of this value. |
-| Result card | 2 px black frame, white. Portrait: x 148–1471, y 1790–2110. Landscape: a column of 322 px, y 148–1471, x 48–370 (left-handed) or x 1790–2112 (right-handed). "Completed in" Regular 30 `gray25`; time Medium 96 (portrait) or Medium 72 (landscape), black; comparison Regular 25 `gray25`; divider 2 px `gray70`; "New game" Medium 28; level buttons with a 2 px black frame (not available: `gray80` frame, `gray70` label, no meter). §8.3 gives all positions (owner approval 2026-11-07). |
+| Result card | 2 px black frame, white. Portrait: x 125–1494, y 1813–2133. Landscape: a column of 322 px, y 125–1494, x 48–370 (left-handed) or x 1790–2112 (right-handed). "Completed in" Regular 30 `gray25`; time Medium 96 (portrait) or Medium 72 (landscape), black; comparison Regular 25 `gray25`; divider 2 px `gray70`; "New game" Medium 28; level buttons with a 2 px black frame (not available: `gray80` frame, `gray70` label, no meter). §8.3 gives all positions (owner approval 2026-11-07). |
 | Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |
 | Bookmark icon | Closed line of 3 px through (-12,-18), (12,-18), (12,18), (0,8), (-12,18) from the center of top slot 5 (y 560–671). Black; white on black while its panel is open; `gray70` on a complete puzzle (owner approval 2026-11-06) |
 | Panels | 2 px black border, rows of 112 px, 2 px dividers, inner margin of 33 px |
@@ -2109,7 +2163,9 @@ These items are closed:
 
 ## 17. Image reference
 
-This table gives all the images in [`images/pro/`](images/pro/) and the sections that tell about them. The
+[`images/move/`](images/move/) has the same images for the Paper Pro Move ([§1.1](#11-paper-pro-move)),
+with the positions of the Move, except the icon sheet `icons.png` (the icons have the same size on the two
+devices). This table gives all the images in [`images/pro/`](images/pro/) and the sections that tell about them. The
 images that show pencil marks or an x on the board (for example `screen-in-progress.png` and
 `screen-invalid-mark.png`) show them with no anti-aliasing, as the app draws them
 ([§15](#15-visual-specification); owner decision 2026-11-07). The app draws all items with no

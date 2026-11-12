@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs Sudoku on a reMarkable Paper Pro. Each release has this file:
+# Installs Sudoku on a reMarkable Paper Pro or Paper Pro Move. Each release has this file:
 #
 #   curl -fsSL https://github.com/garbles/sudoku/releases/latest/download/install.sh | bash
 #
@@ -176,10 +176,10 @@ banner() {
   case "$version" in *@*) version="latest version" ;; pre-*) version="preview $version" ;; esac
   printf '\n   %s┏━━━━━━━┯━━━━━━━┯━━━━━━━┓%s\n' "$GRAY" "$R"
   printf '%s    %sS U D O K U%s\n' "$(grid_row G5 G3 . "|" . G7 . "|" . U1 G2)" "${B}${MAGENTA}" "$R"
-  printf '%s    for reMarkable Paper Pro\n' "$(grid_row G6 . . "|" G1 G9 G5 "|" . H4 .)"
+  printf '%s    for reMarkable Paper Pro and Paper Pro Move\n' "$(grid_row G6 . . "|" G1 G9 G5 "|" . H4 .)"
   printf '%s\n' "$(grid_row . G9 G8 "|" . . H4 "|" U3 G6 .)"
   printf '   %s┗━━━━━━━┷━━━━━━━┷━━━━━━━┛%s    %sInstaller · %s%s\n\n' "$GRAY" "$R" "$GRAY" "$version" "$R"
-  printf '  This installer puts Sudoku on your reMarkable Paper Pro. At each step it\n'
+  printf '  This installer puts Sudoku on your Paper Pro or Paper Pro Move. At each step it\n'
   printf '  tells you what to do. It skips the steps that are done already.\n'
   printf '  %sTo stop at any time, push Ctrl+C.%s\n' "$GRAY" "$R"
 }
@@ -753,14 +753,16 @@ tablet_info() {
     *Ferrari*)
       ok "Tablet: reMarkable Paper Pro, software ${os:-unknown}."
       ;;
+    *Chiappa*)
+      ok "Tablet: reMarkable Paper Pro Move, software ${os:-unknown}."
+      ;;
     "")
       warn "Tablet: unknown model, software ${os:-unknown}. The installer continues."
       ;;
     *)
-      case "$model" in *Chiappa*) model="reMarkable Paper Pro Move" ;; esac
       warn "Tablet: $model, software ${os:-unknown}."
-      box "$YELLOW" "This tablet is not a reMarkable Paper Pro" \
-        "Sudoku is made for the screen of the Paper Pro (1620 x 2160)." \
+      box "$YELLOW" "This tablet is not a Paper Pro or a Paper Pro Move" \
+        "Sudoku is made for the Paper Pro and the Paper Pro Move." \
         "On a different tablet, it can show incorrectly or not start."
       confirm "Continue?" n || stop
       ;;

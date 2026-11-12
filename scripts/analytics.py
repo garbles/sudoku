@@ -20,10 +20,10 @@ OUT = sys.argv[1]
 FONT = os.path.join(HERE, "fonts", "rmsans-400.ttf")
 HEAD = os.path.join(HERE, "fonts", "rmsans-500.ttf")
 
-def device_values():
-    """The values of the tablet model DEVICE (default: pro) from devices/DEVICE.conf (refer to device-lib.sh)."""
+def device_values(name):
+    """The values of the tablet model `name` from devices/<name>.conf (refer to device-lib.sh)."""
     values = {}
-    with open(os.path.join(HERE, "devices", os.environ.get("DEVICE", "pro") + ".conf")) as f:
+    with open(os.path.join(HERE, "devices", name + ".conf")) as f:
         for line in f:
             line = line.split("#")[0].strip()
             if line:
@@ -31,11 +31,17 @@ def device_values():
                 values[key] = value
     return values
 
-DEVICE = device_values()
+def page_size(values):
+    """The page in layout units (portrait): the screen over the scale, rounded (the same as device-lib.sh)."""
+    scale = float(values["PAGE_SCALE"])
+    return int(int(values["PHYS_W"]) / scale + 0.5), int(int(values["PHYS_H"]) / scale + 0.5)
+
+DEVICE = device_values(os.environ.get("DEVICE", "pro"))   # the tablet model (default: pro)
 PHYS_W, PHYS_H, DPI = int(DEVICE["PHYS_W"]), int(DEVICE["PHYS_H"]), DEVICE["DPI"]
 SCALE = float(DEVICE["PAGE_SCALE"])
-# The page in layout units (portrait): the screen over the scale, rounded (the same as device-lib.sh).
-PAGE_W, PAGE_H = int(PHYS_W / SCALE + 0.5), int(PHYS_H / SCALE + 0.5)
+PAGE_W, PAGE_H = page_size(DEVICE)
+# The page of the Paper Pro (1404x1872): the fixed row counts of the lists and of "By difficulty" fill it.
+PRO_PAGE_W, PRO_PAGE_H = page_size(device_values("pro"))
 STOPS = 7
 TEXT_GRAY = "gray25"   # the secondary text (ui-lib.sh TEXT_GRAY, #404040)
 
@@ -80,8 +86,13 @@ class Page:
         self.box_w = (self.w - 172) / 2               # 616 in portrait
         self.count_x = self.right - 432               # 900 in portrait
         self.seg_w = (self.w - 144) / (STOPS + 1)     # 157.5 in portrait
-        self.summary_row = 76 if landscape else ROW    # the rows of "By difficulty": 7 rows fit in landscape
-        self.per_page = 6 if landscape else 12         # the games list: one table across the full width
+        # The height more than the page of the Paper Pro (src/layout.rs extra_page_h): 624 on the Move in portrait.
+        self.extra = max(0, round(self.h - (PRO_PAGE_W if landscape else PRO_PAGE_H)))
+        # the rows of "By difficulty": 7 rows fit in landscape; a taller page divides its extra height between them
+        self.summary_row = (76 if landscape else ROW) + self.extra // STOPS
+        self.per_page = (6 if landscape else 12) + self.extra // ROW   # the games list: one table across the full width
+        self.licenses_rows = (9 if landscape else 14) + self.extra // ROW
+        self.license_lines = (27 if landscape else 40) + self.extra // LICENSE_LINE
         self.col_w = self.w - 144
         self.offsets = (488, self.col_w - 222, self.col_w - 42)   # meter, end of time, bin (1038, 1218 in portrait)
         self.dialog = (self.w / 2 - 450, self.h / 2 - 176, self.w / 2 + 450, self.h / 2 + 174)
@@ -119,6 +130,7 @@ def render(out, P, name, base=None):
     os.remove(mvg)
 
 ROW = 97  # 112 device px, the height of a list row on the device
+LICENSE_LINE = 36  # the distance between two lines of license text (src/layout.rs, Device::licenses)
 FILTER_STEP = 18  # the distance between the stops of the small meters in the filter segments
 
 def bin_icon(out, bx, cy):
@@ -204,7 +216,7 @@ def screens(P):
     dialog(out, P, "Delete this game?", f"{when.strftime('%-d %b %Y, %H:%M')}, completed in {clock(secs)}.")
     render(out, P, "analytics-delete.png")
 
-DELETE_ALL_W = 400   # the width of "Delete all games" (src/layout.rs)
+DELETE_ALL_W = 400   # the width of "Delete all games" (SummaryButtonMetrics::delete_all_width in src/layout.rs)
 
 def dialog(out, P, title, line, line2="You cannot undo this action.", buttons=("Cancel", "Delete")):
     """A dialog at the center of the page, on the pale screen. The right button is white on black."""
@@ -223,7 +235,7 @@ def dialog(out, P, title, line, line2="You cannot undo this action.", buttons=("
 # --- the Licenses screens (REQUIREMENTS.md §9.4, src/licenses.rs). The data is assets/licenses.json.
 with open(os.path.join(HERE, "..", "assets", "licenses.json"), encoding="utf-8") as f:
     LICENSES = json.load(f)
-LICENSES_Y = 300          # the top of the list (src/layout.rs)
+LICENSES_Y = 300          # the top of the list (src/layout.rs, Device::licenses)
 WRAP = 80                 # the maximum characters in a line of license text (src/licenses.rs)
 
 def wrap(line, width=WRAP):
@@ -258,7 +270,7 @@ def chevron(out, cx, cy):
 
 def licenses(P):
     crates = LICENSES["crates"]
-    rows = 9 if P.landscape else 14
+    rows = P.licenses_rows
     x, w = 72, P.col_w
     out = []
     chrome(out, P, "Licenses", (1, (len(crates) + rows - 1) // rows))
@@ -275,13 +287,13 @@ def licenses(P):
 
     # The first page of the text of the UJI data.
     c = next(c for c in crates if c["name"] == "UJI Pen Characters")
-    lines, per_page = license_lines(c), 27 if P.landscape else 40
+    lines, per_page = license_lines(c), P.license_lines
     out = []
     chrome(out, P, c["name"], (1, (len(lines) + per_page - 1) // per_page))
     text(out, x, 232, 30, TEXT_GRAY, "start", f"Version {c['version']} · {c['license'].replace(' OR ', ' / ')}")
     hline(out, 260, x, x + w)
     for i, (kind, s) in enumerate(lines[:per_page]):
-        y = 320 + i*36
+        y = 320 + i*LICENSE_LINE
         if kind == "head":
             text(out, x, y, 28, "black", "start", s, HEAD)
         elif kind == "body":

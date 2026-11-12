@@ -58,10 +58,14 @@ UNIT_BG='#DCE9F7'   # only for the rules on page 1. It is not a color of the boa
 # sections (the panel is at x 708-1507, y 112-1192). The crop is 912x362+708+111 on the Paper Pro.
 COLOR_PANEL_CROP=$((CM_W+TB_W))x$((CM_ROW+2))+$CM_PL+$((CM_TOP-1))
 
-# The last row of the board and the result card (x 148-1471, y 1790-2110) in screen-completed.png, for page 9: 6 px
-# around the board row at the left and the right, from 6 px above the last row to 10 px below the card
-# (1336x532+142+1588 on the Paper Pro).
-FINISHED_CROP=$((9*C+13))x$((CARD_Y1+10-(Y0+8*C-6)))+$((X0-6))+$((Y0+8*C-6))
+# The last row of the board and the result card in screen-completed.png, for page 9: the board width (with the
+# border), from 5 px above the line above the last row to 10 px below the card.
+FINISHED_Y=$((Y0+$(line_off 8)-5))
+FINISHED_CROP=${BOARD}x$((CARD_Y1+10-FINISHED_Y))+$X0+$FINISHED_Y
+# The top rows of the board in screen-highlight.png, for the Helpers page: the board width (with the border), from the
+# top of the border to the end of the line below row 4 (portrait) or row 3 (landscape).
+HELPERS_CROP=${BOARD}x$(($(line_off 5)+CELL_LINE))+$X0+$Y0
+HELPERS_CROP_LANDSCAPE=${BOARD}x$(($(line_off 4)+CELL_LINE))+$X0+$Y0
 
 # minib X Y "r,c,bg ..." "r,c,digit,color ..." : a small 9x9 board (cells of 34 px) with colored cells and digits
 MC=34
@@ -133,10 +137,13 @@ text() { f=$FONT; [ $3 -ge 50 ] && f=$HEAD_FONT; echo "stroke none fill $4 font 
 # shot SRC GEOMETRY : cut an area of a UI image (device pixels) into a temporary file, and print its path
 shot() { f=$(mktemp).png; magick "$1" -crop "$2" +repage "$f"; echo "$f"; }
 
-# picture X Y FILE : put an image at its real size on the device (layout units are device px / SCALE)
+# picture X Y FILE : put a crop of a UI image (device px) on the page. One device px is 1 / PICTURE_SCALE layout units,
+# the scale of the Paper Pro: on the Paper Pro the crop has its real size, and on each model it has the same size in
+# layout units, thus the page layout is the same.
+PICTURE_SCALE=1.153846
 picture() {
   w=$(magick identify -format %w "$3"); h=$(magick identify -format %h "$3")
-  echo "image over $1,$2 $(awk -v w=$w -v s=$SCALE 'BEGIN{printf "%.1f", w/s}'),$(awk -v h=$h -v s=$SCALE 'BEGIN{printf "%.1f", h/s}') '$3'" >> $M
+  echo "image over $1,$2 $(awk -v w=$w -v s=$PICTURE_SCALE 'BEGIN{printf "%.1f", w/s}'),$(awk -v h=$h -v s=$PICTURE_SCALE 'BEGIN{printf "%.1f", h/s}') '$3'" >> $M
 }
 
 # picture_w X Y W FILE : put an image with a width of W layout units (the height keeps the ratio)

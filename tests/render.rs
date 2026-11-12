@@ -56,7 +56,7 @@ fn screens_agree_with_the_reference_images() {
         let (max_mean, max_big) = limits(name);
         assert!(mean < max_mean && big < max_big, "{name}: mean difference {mean:.2}, {:.3}% of pixels differ", big * 100.0);
         // Each pixel that differs is at the edge of an item: no item is missing, extra or moved.
-        let off2 = reference::differences_off_edges(&pm, &want, 2);
+        let off2 = without_glyph_edges_under_lines(&pm, &want, reference::differences_off_edges(&pm, &want, 2));
         assert!(off2.is_empty(), "{name}: pixels that differ away from all edges: {:?}", &off2[..off2.len().min(10)]);
         let off1 = without_mark_stem_shifts(&fonts, setup, &pm, &want, reference::differences_off_edges(&pm, &want, 1));
         let off1 = without_glyph_edges_under_lines(&pm, &want, off1);
@@ -321,8 +321,8 @@ fn the_board_is_at_its_position_in_each_orientation() {
         let pm = reference::render(&fonts, |a| a.game = reference::sample_game());
         let (bx, by) = (sudoku::layout::board_x(), sudoku::layout::board_y());
         let b = sudoku::layout::board_size();
-        // The four thick borders of the board.
-        for (x, y) in [(bx, by + b / 2), (bx + b, by + b / 2), (bx + b / 2, by), (bx + b / 2, by + b)] {
+        // The four borders of the board: the first and the last pixel of the board are border pixels.
+        for (x, y) in [(bx, by + b / 2), (bx + b - 1, by + b / 2), (bx + b / 2, by), (bx + b / 2, by + b - 1)] {
             let p = rgb_at(&pm, x, y);
             assert!(p[0] < 60, "{o:?}: no board border at ({x}, {y}): {p:?}");
         }
@@ -399,7 +399,7 @@ fn a_turn_from_portrait_to_landscape_shows_the_landscape_screen() {
     // The board is at the landscape position: its four thick borders (NAV-10).
     let (bx, by) = (sudoku::layout::board_x(), sudoku::layout::board_y());
     let b = sudoku::layout::board_size();
-    for (x, y) in [(bx, by + b / 2), (bx + b, by + b / 2), (bx + b / 2, by), (bx + b / 2, by + b)] {
+    for (x, y) in [(bx, by + b / 2), (bx + b - 1, by + b / 2), (bx + b / 2, by), (bx + b / 2, by + b - 1)] {
         let p = rgb_at(&shot, x, y);
         assert!(p[0] < 60, "no board border after the turn at ({x}, {y}): {p:?}");
     }
@@ -1266,8 +1266,8 @@ fn the_colors_panel_has_the_same_pixels_and_covers_nothing_in_each_layout() {
                 if (x0..x0 + 800).contains(&x) && (112..=1192).contains(&y) {
                     continue;
                 }
-                assert!((tb..tb + sudoku::layout::TB_SLOT).contains(&x), "{at}: the panel changes ({x}, {y})");
-                slots.insert(y / sudoku::layout::TB_SLOT);
+                assert!((tb..tb + sudoku::layout::tb_slot()).contains(&x), "{at}: the panel changes ({x}, {y})");
+                slots.insert(y / sudoku::layout::tb_slot());
             }
             assert_eq!(slots.len(), 1, "{at}: the panel changes the toolbar slots {slots:?}");
             // The inner pixels of the panel: all of them, except the two side lines.
@@ -1412,7 +1412,7 @@ fn the_lines_of_the_checkpoints_panel_are_at_the_exact_pixels_of_each_image() {
     let images = [
         ("checkpoints-menu-empty.png", "checkpoints-menu-empty.png", Portrait, 908, 0),
         ("checkpoints-menu.png", "checkpoints-menu.png", Portrait, 908, 3),
-        ("checkpoints-menu-current.png", "checkpoints-menu-current.png", Portrait, 908, 5),
+        ("checkpoints-menu-current.png", "checkpoints-menu-current.png", Portrait, 908, 4),
         ("checkpoints-menu-right-handed.png", "checkpoints-menu-right-handed.png", Portrait, 112, 3),
         ("checkpoints-menu.png", "checkpoints-menu-landscape.png", Landscape, 1448, 3),
     ];
@@ -1465,7 +1465,7 @@ fn the_checkpoints_panel_has_the_same_pixels_and_covers_nothing_in_each_layout()
     let fonts = fonts();
     let mut empty = reference::checkpoints_game();
     empty.checkpoints.clear();
-    for (game, n) in [(empty, 0), (reference::checkpoints_game(), 3), (reference::full_checkpoints_game(), 5)] {
+    for (game, n) in [(empty, 0), (reference::checkpoints_game(), 3), (reference::full_checkpoints_game(), 4)] {
         let bottom = ckp_bottom(n);
         let mut first: Option<Vec<[u8; 3]>> = None;
         for (layout, pl) in LAYOUTS.into_iter().zip(CKP_LEFT) {
@@ -1540,8 +1540,8 @@ fn the_rows_show_the_clock_and_the_quantity_of_all_filled_cells() {
     use sudoku::render::gray;
     let fonts = fonts();
     let mut game = reference::full_checkpoints_game();
-    game.checkpoints[4].elapsed_ms += 999;
-    let rows = [("20:14", 41), ("19:26", 46), ("18:32", 40), ("11:07", 36), ("4:15", 32)];
+    game.checkpoints[3].elapsed_ms += 999;
+    let rows = [("20:14", 41), ("19:26", 46), ("18:32", 40), ("11:07", 36)];
     for (layout, pl) in LAYOUTS.into_iter().zip(CKP_LEFT) {
         set_layout(layout);
         let pm = draw_app(&fonts, &with_panel(&fonts, game.clone()));
@@ -1630,7 +1630,7 @@ fn the_small_board_has_the_colors_of_the_rules_of_the_board() {
         let high = draw(|a| a.ui.highlight = Some(5));
         assert!(plain.data() != high.data(), "{layout:?}: the highlight does not show on the board");
         for (x, y) in changed_pixels(&plain, &high) {
-            assert!(!(pl..pl + 600).contains(&x) || !(560..=1572).contains(&y), "{layout:?}: the highlight changes ({x}, {y}) in the panel");
+            assert!(!(pl..pl + 600).contains(&x) || !(560..=1392).contains(&y), "{layout:?}: the highlight changes ({x}, {y}) in the panel");
         }
     }
     reset_layout();
@@ -1737,12 +1737,12 @@ fn the_save_row_and_the_buttons_follow_the_board_of_the_game() {
     let mut duplicate = reference::sample_game();
     assert!(duplicate.save_checkpoint());
 
-    let mut four = reference::checkpoints_game();
-    assert!(four.save_checkpoint());
-    four.toggle_mark((8, 0), 3); // The game now differs from each row.
+    let mut three = reference::checkpoints_game();
+    three.toggle_mark((8, 0), 3); // The game now differs from each row.
 
-    let mut full = reference::full_checkpoints_game();
-    full.checkpoints[0].board.marks[8][0] = sudoku::game::mark_bit(3);
+    let mut full = reference::checkpoints_game();
+    assert!(full.save_checkpoint());
+    full.toggle_mark((8, 0), 3); // The game now differs from each row, but the list is full (CKP-4).
 
     let mut hidden = reference::sample_game();
     hidden.toggle_mark_with((8, 0), 1, false); // A peer has a 1, thus this mark does not show.
@@ -1751,8 +1751,8 @@ fn the_save_row_and_the_buttons_follow_the_board_of_the_game() {
 
     let cases: [(&str, sudoku::game::Game, bool, &[bool]); 4] = [
         ("one row with the same board", duplicate, false, &[true]),
-        ("four rows and a different board", four, true, &[false, false, false, false]),
-        ("five rows and a different board", full, false, &[false, false, false, false, false]),
+        ("three rows and a different board", three, true, &[false, false, false]),
+        ("four rows and a different board", full, false, &[false, false, false, false]),
         ("a difference only in a hidden mark", hidden, true, &[false]),
     ];
     for (name, game, can_save, current) in cases {
@@ -2039,7 +2039,7 @@ fn the_frame_of_the_result_card_is_at_the_exact_pixels_of_each_image() {
         set_layout((Landscape, right_handed));
         let card = sudoku::layout::result_card();
         set_layout((Portrait, false));
-        assert_eq!((card.x0, card.y0, card.x1 - card.x0, card.y1 - card.y0), (x0, 148, 322, 1323), "right-handed {right_handed}: {card:?}");
+        assert_eq!((card.x0, card.y0, card.x1 - card.x0, card.y1 - card.y0), (x0, 125, 322, 1369), "right-handed {right_handed}: {card:?}");
     }
 }
 
@@ -2084,7 +2084,7 @@ fn the_new_game_panel_has_three_rows_and_the_settings_switch_in_each_layout() {
     // bottom toolbar slot. The switch has the same pixels as a switch of the Settings panel, in its
     // on and off looks. The switch selection changes only the pixels of the switch.
     use sudoku::app::{Menu, Panel};
-    use sudoku::layout::{ng_pl, ng_pr, ng_symmetric_y, ng_top, tb_bottom_y, TB_SLOT};
+    use sudoku::layout::{ng_pl, ng_pr, ng_symmetric_y, ng_top, tb_bottom_y, tb_slot};
     use sudoku::settings::Switch;
     let fonts = fonts();
     for layout in LAYOUTS {
@@ -2102,11 +2102,11 @@ fn the_new_game_panel_has_three_rows_and_the_settings_switch_in_each_layout() {
         // The frame line at the top, and the two dividers: at the bottom of the slider row and at the
         // bottom of the Symmetrical row. Between them, the inner pixels at the right side are white.
         let mid = (pl + pr) / 2;
-        let dividers = [ng_top(), ng_top() + 1, ng_top() + TB_SLOT, ng_top() + TB_SLOT + 1, tb_bottom_y(), tb_bottom_y() + 1];
+        let dividers = [ng_top(), ng_top() + 1, ng_top() + tb_slot(), ng_top() + tb_slot() + 1, tb_bottom_y(), tb_bottom_y() + 1];
         for y in dividers {
             assert_eq!(rgb_at(&on, mid, y), [0; 3], "{at}: no black line at ({mid}, {y})");
         }
-        for y in [ng_top() + TB_SLOT - 1, ng_top() + TB_SLOT + 2, tb_bottom_y() - 1, tb_bottom_y() + 2] {
+        for y in [ng_top() + tb_slot() - 1, ng_top() + tb_slot() + 2, tb_bottom_y() - 1, tb_bottom_y() + 2] {
             assert_eq!(rgb_at(&on, pr - 10, y), [255; 3], "{at}: the line at ({}, {y}) is too thick", pr - 10);
         }
         // The label "Symmetrical" is in the Symmetrical row, from the left text margin.
@@ -2419,8 +2419,10 @@ fn the_board_lines_of_the_image_and_of_the_app_are_black_and_crisp() {
             black += (p == [0, 0, 0]) as usize;
         }
     }
-    // 4 thick lines and 6 thin lines in each direction, about 1350 px long.
-    assert!(black > 2 * (4 * 13 + 6 * 3) * 1300, "only {black} black pixels");
+    // BRD-11: 4 lines of 7 px and 6 lines of 3 px in each direction, over the full board, each on its own
+    // pixels: the vertical and the horizontal bands, less their crossings. No other pixel is black.
+    let (lines, b) = (4 * 7 + 6 * 3, board_size() as usize);
+    assert_eq!(black, 2 * lines * b - lines * lines, "the black pixels of the board lines");
 }
 
 #[test]
@@ -2443,7 +2445,7 @@ fn the_swatches_of_the_micro_cell_lines_have_the_pattern_of_their_gray() {
         setup(&mut app);
         for g in LineGray::ALL {
             let cell = sudoku::layout::line_gray_cell(g);
-            let (cx, cy) = (cell.x0 + sudoku::layout::COLOR_CELL / 2, cell.y0 + 30);
+            let (cx, cy) = (cell.x0 + sudoku::layout::device().colors_panel.item.width / 2, cell.y0 + 30);
             let (ox, oy) = (cx - 19, cy - 19);
             let mut dots = 0;
             for y in cy - 16..=cy + 16 {

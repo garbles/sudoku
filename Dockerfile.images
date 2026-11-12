@@ -1,7 +1,7 @@
 # check=skip=FromPlatformFlagConstDisallowed
-# Makes the design images of the Paper Pro (images/pro/*.png), the AppLoad icon
+# Makes the design images of each tablet model (images/pro/*.png, images/move/*.png), the AppLoad icon
 # (appload/sudoku/icon.png) and the icon sheet (images/pro/icons.png) again. Dockerfile.installer makes
-# images/install-*.png. scripts/build.sh selects the device with DEVICE (default: pro).
+# images/install-*.png. scripts/build.sh selects the model with DEVICE (scripts/devices/*.conf).
 #
 #   docker build --platform linux/arm64 -f Dockerfile.images --output type=local,dest=. .
 #
@@ -17,8 +17,9 @@ COPY icon.svg icon.svg
 # scripts/analytics.py draws the Licenses screens from this file.
 COPY assets/licenses.json assets/licenses.json
 # Remove the time stamps from the PNG files, so that the same images give the same bytes.
-RUN mkdir -p images appload/sudoku && sh scripts/build.sh screens icon \
- && magick mogrify -define png:exclude-chunks=date,time images/pro/*.png
+RUN mkdir -p images appload/sudoku && DEVICE=pro sh scripts/build.sh screens icon \
+ && DEVICE=move sh scripts/build.sh screens \
+ && magick mogrify -define png:exclude-chunks=date,time images/pro/*.png images/move/*.png
 
 # The snapshot tool draws the icon sheet with the code of the app. The app contains the manual pages
 # of the stage build (include_bytes!), and the sheet shows the AppLoad icon of that stage.
@@ -40,5 +41,6 @@ RUN touch src/lib.rs src/bin/*.rs && cargo run --release --locked --bin snapshot
 
 FROM scratch AS export
 COPY --from=build /src/images/pro/*.png /images/pro/
+COPY --from=build /src/images/move/*.png /images/move/
 COPY --from=icons /src/images/pro/icons.png /images/pro/icons.png
 COPY --from=build /src/appload/sudoku/icon.png /appload/sudoku/icon.png

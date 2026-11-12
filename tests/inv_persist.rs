@@ -784,10 +784,11 @@ fn a_restore_with_a_solved_board_is_not_used_when_all_else_agrees() {
 
 /// A game with exactly 5 checkpoints. They are different only in one mark, and all have the clock of
 /// their digit. The board of the game is different from all of them.
-fn five_checkpoints() -> Game {
+fn checkpoints(n: u8) -> Game {
+    // A game with `n` correct checkpoints, each with a different mark in one cell, the newest first.
     let mut g = new_game(906, 2);
     let (r, c) = empty_cell(&g);
-    for d in 1..=5 {
+    for d in 1..=n {
         g.marks[r as usize][c as usize] = mark_bit(d);
         g.checkpoints.insert(0, Checkpoint { board: g.board(), elapsed_ms: d as u64 * 100 });
     }
@@ -797,15 +798,26 @@ fn five_checkpoints() -> Game {
 }
 
 #[test]
-fn more_than_five_checkpoints_are_not_used() {
-    // PER-5, CKP-4: 5 is correct, and 6 is not.
-    let base = five_checkpoints();
-    let (r, c) = empty_cell(&base);
-    let mut sixth = base.board();
-    sixth.marks[r as usize][c as usize] = mark_bit(6);
-    let mut bad = base.clone();
-    bad.checkpoints.insert(0, Checkpoint { board: sixth, elapsed_ms: 600 });
-    assert_rejected(&base, &bad, "CKP-4", "six-checkpoints");
+fn a_file_with_more_than_four_checkpoints_keeps_the_four_newest() {
+    // CKP-4, CKP-5, PER-5: an earlier version allowed 5 checkpoints. A file with 5 (or more) correct
+    // checkpoints is the same game with its 4 newest checkpoints, not a new game. The other values of
+    // the file do not change.
+    for n in [5, 6] {
+        let name = format!("ckp-{n}");
+        let g = checkpoints(n);
+        assert!(check_game(&g).expect_err(&name).contains("CKP-4"), "{name}: the file breaks CKP-4");
+        let dir = data_dir(&name);
+        let path = dir.join("game.json");
+        save_json(&path, &g).unwrap();
+        let loaded: Game = load_json(&path).expect("the file is JSON of a game");
+        std::fs::remove_dir_all(&dir).ok();
+        let app = open_app(Some(loaded), None, ResultsDb::in_memory(), 5);
+        let mut want = g.clone();
+        want.checkpoints.truncate(4);
+        assert_eq!(app.game, want, "{name}: the 4 newest checkpoints stay");
+        assert_eq!(app.game.checkpoints[0], g.checkpoints[0], "{name}: the newest is first");
+        check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
+    }
 }
 
 #[test]
@@ -949,8 +961,8 @@ fn the_limits_of_ckp_4_and_ckp_5_are_correct_in_a_file() {
     }
     assert_used(&g, "ckp-equal-clocks");
 
-    // Exactly 5 checkpoints.
-    assert_used(&five_checkpoints(), "ckp-five");
+    // Exactly 4 checkpoints.
+    assert_used(&checkpoints(4), "ckp-four");
 
     // Two boards with the same numbers and the same visible marks, different only in a hidden mark of
     // an entry: they are different boards (`same_board`).

@@ -302,6 +302,7 @@ impl Presenter {
     /// Draws the app, copies the changes into `fb` and calls `update` for each physical rectangle to
     /// send to the screen.
     pub fn present(&mut self, app: &mut App, fonts: &Fonts, fb: &mut [u8], now: u64, mut update: impl FnMut(Update)) {
+        let ink = crate::layout::device().ink;
         self.times = Times::default();
         if self.use_pen_region {
             // The pen region follows the pen (`App::pen_cell`): the cell of the waiting ink, or the
@@ -325,7 +326,7 @@ impl Presenter {
                 .as_ref()
                 .filter(|_| writing)
                 .and_then(|s| bounding_box(s.iter().map(|&(x, y)| (x as i32, y as i32))))
-                .map(|b: ScreenRect| b.expand(render::INK_WIDTH.ceil() as i32 + 1).clip_to_screen());
+                .map(|b: ScreenRect| b.expand(ink.width.ceil() as i32 + 1).clip_to_screen());
             let t = Instant::now();
             render::draw(&mut Canvas::retained(&mut self.frame, &mut self.record, fonts), app);
             self.times.draw = t.elapsed();
@@ -348,7 +349,7 @@ impl Presenter {
             let (x0, y0, x1, y1) = new.iter().fold((f32::MAX, f32::MAX, f32::MIN, f32::MIN), |(a, b, c, d), &(x, y)| {
                 (a.min(x), b.min(y), c.max(x), d.max(y))
             });
-            let m = render::INK_WIDTH;
+            let m = ink.width;
             let rect = ScreenRect::new(
                 (x0 - m).floor() as i32,
                 (y0 - m).floor() as i32,
@@ -411,7 +412,7 @@ impl Presenter {
                 // In the pen region, an overlap does not cause gaps: the tip need not wait.
                 .filter(|_| self.pen_cell.is_none())
                 .map(|&(x, y)| {
-                    let m = render::INK_WIDTH.ceil() as i32 + 2;
+                    let m = ink.width.ceil() as i32 + ink.tip_margin;
                     let (x, y) = (x.round() as i32, y.round() as i32);
                     ScreenRect::point(x, y).expand(m).clip_to_screen().physical().pixel_cells()
                 });

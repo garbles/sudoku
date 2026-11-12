@@ -9,7 +9,7 @@
 #   screen-completed-menu.png menu open on a complete (locked) puzzle: undo, redo and checkpoints not available
 #   checkpoints-menu-empty.png    the Checkpoints panel with no checkpoint
 #   checkpoints-menu.png          the Checkpoints panel with three rows
-#   checkpoints-menu-current.png  the maximum of five rows: the first row is "Current", and a save is not available
+#   checkpoints-menu-current.png  the maximum of four rows: the first row is "Current", and a save is not available
 #   checkpoints-menu-right-handed.png, checkpoints-menu-landscape.png  checkpoints-menu.png in these layouts
 #   color-menu-right-handed.png  color-menu.png for a right-handed player (toolbar on the left)
 #   color-menu-landscape.png  color-menu.png in landscape (2160x1620 on the Paper Pro)
@@ -69,17 +69,17 @@ bookmark_icon() {
 
 # plus_icon ACTIVE : + (new game) in the bottom toolbar slot. Analytics and Help are above it.
 plus_icon() {
-  cy=$((TB_BOTTOM_Y+56)); fg=black
+  cy=$((TB_BOTTOM_Y+TB_BOTTOM_DY)); fg=black
   # x positions from the center of the slot (TB_CX): xc(DX) is TB_CX + DX
   xc() { awk -v c=$TB_CX -v d=$1 'BEGIN{ printf "%.1f", c + d }'; }
   [ -n "$1" ] && { active_slot bottom; fg=white; }
   echo "fill none stroke $fg stroke-width 3 stroke-linecap round line $(xc -18),$cy $(xc 18),$cy line $TB_CX,$((cy-18)) $TB_CX,$((cy+18))" >> $M
   # Analytics: a line graph on two axes
-  ay=$((TB_BOTTOM_Y-56))
+  ay=$((TB_BOTTOM_Y-TB_W+TB_BOTTOM_DY))
   echo "fill none stroke black stroke-width 3 stroke-linecap round stroke-linejoin round polyline $(xc -18),$((ay-18)) $(xc -18),$((ay+18)) $(xc 18),$((ay+18))" >> $M
   echo "polyline $(xc -12),$((ay+8)) $(xc -4),$((ay-2)) $(xc 3),$((ay+4)) $(xc 15),$((ay-12))" >> $M
   # Help: ? in a circle
-  hy=$((TB_BOTTOM_Y-168))
+  hy=$((TB_BOTTOM_Y-2*TB_W+TB_BOTTOM_DY))
   echo "fill none stroke black stroke-width 3 circle $TB_CX,$hy $(xc 19),$hy" >> $M
   echo "stroke none fill black font '$UI_FONT' font-size 26 text-anchor middle text $TB_CX,$((hy+9)) '?'" >> $M
 }
@@ -158,8 +158,17 @@ color_section() {
 # compose BASE OUTFILE : draw the MVG on BASE
 # The menu button shows its open icon. BASE shows the closed icon: a white square removes it first.
 # The close button shows at the top left (circle of 38 px, stroke of 3 px, measured on the device).
-CLOSE="fill none stroke black stroke-width 3 circle 55.5,55.5 73,55.5 stroke-linecap round line 50,50 61,61 line 61,50 50,61"
-compose() { magick "$OUT/$1" -draw "stroke none fill white rectangle $TB_X,0 $((PHYS_W-1)),$((TB_W-1))" -draw "$(menu_icon open)" -draw "$CLOSE" -draw @$M -units PixelsPerInch -density $DPI "$OUT/$2"; : > $M; }
+# The positions are from the center of the slot (TB_C, 55.5): the circle has a radius of 17.5 px, the lines go 5.5 px.
+CLOSE=$(awk -v c=$TB_C 'BEGIN{ printf "fill none stroke black stroke-width 3 circle %g,%g %g,%g stroke-linecap round line %g,%g %g,%g line %g,%g %g,%g", c, c, c+17.5, c, c-5.5, c-5.5, c+5.5, c+5.5, c+5.5, c-5.5, c-5.5, c+5.5 }')
+# When the board goes under the toolbar column (the Move: the toolbar has no background, thus the board shows between
+# the icons), compose also writes .tb-OUTFILE: the same drawing on a transparent screen. right_handed and landscape take
+# the toolbar from it, thus the board of the portrait image does not move with the toolbar.
+BOARD_UNDER_TB=0; [ $((X0+BOARD)) -gt $TB_X ] && BOARD_UNDER_TB=1
+compose() {
+  magick "$OUT/$1" -draw "stroke none fill white rectangle $TB_X,0 $((PHYS_W-1)),$((TB_W-1))" -draw "$(menu_icon open)" -draw "$CLOSE" -draw @$M -units PixelsPerInch -density $DPI "$OUT/$2"
+  [ $BOARD_UNDER_TB = 1 ] && magick -size ${PHYS_W}x$PHYS_H xc:none -draw "stroke none fill white rectangle $TB_X,0 $((PHYS_W-1)),$((TB_W-1))" -draw "$(menu_icon open)" -draw "$CLOSE" -draw @$M "$OUT/.tb-$2"
+  : > $M
+}
 
 # --- menu open on a new game
 toolbar gray70 ""
@@ -170,7 +179,7 @@ PL=$NG_PL; TX=$((PL+33)); TR=$((TX+DIFF_W))
 # Three rows: the slider (at the last selected mode), "Symmetrical" with its switch (on, the default), then "Start new
 # game" next to the +. The switch has its right end 33 px from the right edge, as in the Settings panel.
 panel $NG_TOP; divider $NG_SYM_DIVIDER; divider $TB_BOTTOM_Y
-R3=$((TB_BOTTOM_Y+56))
+R3=$((TB_BOTTOM_Y+TB_BOTTOM_DY))
 labeled_slider $TX $TR $NG_SLIDER_Y $LEVEL >> $M; echo >> $M
 label $TX $((NG_SYM_Y+9)) start black "Symmetrical"; switch $((PR-33)) $NG_SYM_Y on
 label $TX $((R3+9)) start black "Start new game"
@@ -182,15 +191,24 @@ PL=$SET_PL; TX=$((PL+33)); TR=$((PR-32))
 # removes the highlight). A vertical line of 2 px is between the columns. The space below the Micro-cell lines
 # section is plain white, with no line.
 # color_menu BASE OUTFILE LINE : the panel with the micro-cell line gray LINE selected, on BASE
+# cm_panel ROWS LINE : the MVG of the panel with ROWS section rows (3, or 2 with three columns) and the micro-cell line
+# gray LINE selected, at the left edge PL and the right edge PR. Section i is in column i / ROWS and row i % ROWS.
+cm_panel() {
+  rows=$1; cols=$((6/rows))
+  cm_at() { echo "$(($1/rows)) $(($1%rows))"; }
+  panel $CM_TOP $((CM_TOP+rows*CM_ROW))
+  k=1; while [ $k -lt $cols ]; do
+    echo "stroke none fill black rectangle $((PL+k*CM_COL)),$CM_TOP $((PL+k*CM_COL+1)),$((CM_TOP+rows*CM_ROW))" >> $M; k=$((k+1))
+  done
+  color_section $(cm_at 0) "Starting numbers" "$COLORS" "$STARTING_BG" "$CLASH_BG" "$HIGHLIGHT_BG" "$COMPLETED_BG"
+  color_section $(cm_at 1) "Clashing numbers" "$COLORS" "$CLASH_BG" "$STARTING_BG" "$HIGHLIGHT_BG" "$COMPLETED_BG"
+  color_section $(cm_at 2) "Highlighted numbers" "$COLORS" "$HIGHLIGHT_BG" "$STARTING_BG" "$CLASH_BG" "$COMPLETED_BG"
+  color_section $(cm_at 3) "Completed groups" "$COLORS" "$COMPLETED_BG" "$STARTING_BG" "$CLASH_BG" "$HIGHLIGHT_BG"
+  color_section $(cm_at 4) "Micro-cell lines" "$LINE_GRAYS" "$2"
+}
 color_menu() {
   PL=$CM_PL
-  panel $CM_TOP $CM_BOTTOM
-  echo "stroke none fill black rectangle $((PL+CM_COL)),$CM_TOP $((PL+CM_COL+1)),$CM_BOTTOM" >> $M
-  color_section 0 0 "Starting numbers" "$COLORS" "$STARTING_BG" "$CLASH_BG" "$HIGHLIGHT_BG" "$COMPLETED_BG"
-  color_section 0 1 "Clashing numbers" "$COLORS" "$CLASH_BG" "$STARTING_BG" "$HIGHLIGHT_BG" "$COMPLETED_BG"
-  color_section 0 2 "Highlighted numbers" "$COLORS" "$HIGHLIGHT_BG" "$STARTING_BG" "$CLASH_BG" "$COMPLETED_BG"
-  color_section 1 0 "Completed groups" "$COLORS" "$COMPLETED_BG" "$STARTING_BG" "$CLASH_BG" "$HIGHLIGHT_BG"
-  color_section 1 1 "Micro-cell lines" "$LINE_GRAYS" "$3"
+  cm_panel $CM_ROWS "$3"
   PL=$SET_PL
   toolbar black colors
   compose "$1" "$2"
@@ -343,9 +361,9 @@ ckp_frame black 3
 ckp_row 0 clean 18:32 restore; ckp_row 1 mid 11:07 restore; ckp_row 2 early 4:15 restore
 toolbar black checkpoints
 compose screen-in-progress.png checkpoints-menu.png
-ckp_frame gray70 5
+ckp_frame gray70 4
 ckp_row 0 current 20:14 current; ckp_row 1 group 19:26 restore; ckp_row 2 clean 18:32 restore
-ckp_row 3 mid 11:07 restore; ckp_row 4 early 4:15 restore
+ckp_row 3 mid 11:07 restore
 toolbar black checkpoints
 compose screen-in-progress.png checkpoints-menu-current.png
 PL=$SET_PL
@@ -355,8 +373,10 @@ PL=$SET_PL
 # do not change. All moves are full pixels.
 # right_handed SOURCE OUTFILE CROP X Y : the crop of the panel of SOURCE goes to X,Y.
 right_handed() {
-  magick "$OUT/screen-in-progress.png" \
-    \( "$OUT/$1" -crop ${TB_W}x$PHYS_H+$TB_X+0 +repage \) -geometry +0+0 -composite \
+  # $6 $7 $8: the source, the crop and the place of the toolbar column (refer to compose)
+  if [ $BOARD_UNDER_TB = 1 ]; then set -- "$@" "$OUT/.tb-$1" ${TB_W}x$((PHYS_H-TB_W))+$TB_X+$TB_W +0+$TB_W
+  else set -- "$@" "$OUT/$1" ${TB_W}x$PHYS_H+$TB_X+0 +0+0; fi
+  magick "$OUT/screen-in-progress.png" \( "$6" -crop $7 +repage \) -geometry $8 -composite \
     \( "$OUT/$1" -crop ${TB_W}x$TB_W+$TB_X+0 +repage -flop \) -geometry +0+0 -composite \
     \( "$OUT/$1" -crop ${TB_W}x$TB_W+0+0 +repage \) -geometry +$TB_X+0 -composite \
     \( "$OUT/$1" -crop $3 +repage \) -geometry +$4+$5 -composite \
@@ -368,24 +388,35 @@ right_handed() {
 TB_TOP_H=$((6*TB_W)); TB_LOW_Y=$((TB_BOTTOM_Y-2*TB_W))
 # The board area of the portrait image that moves (x 130-1489): 18 px around the board, and in screen-in-progress.png
 # also the meter below the board (to y 1839). The other pixels of the landscape image are white.
-BOARD_CROP_X=$((X0-18)); BOARD_CROP_Y=$((Y0-18)); BOARD_CROP_W=$((9*C+37))
-BOARD_CROP_H_METER=$((9*C+117)); BOARD_CROP_H=$((9*C+37))
+BOARD_CROP_X=$((X0-12)); BOARD_CROP_Y=$((Y0-12)); BOARD_CROP_W=$((BOARD+24))
+BOARD_CROP_H_METER=$((BOARD+111)); BOARD_CROP_H=$((BOARD+24))
 # landscape SOURCE OUTFILE CROP X Y : the crop of the panel of SOURCE goes to X,Y.
 landscape() {
+  tb="$OUT/$1"; [ $BOARD_UNDER_TB = 1 ] && tb="$OUT/.tb-$1"
   magick -size ${LS_W}x${LS_H} xc:white \
     \( "$OUT/screen-in-progress.png" -crop ${BOARD_CROP_W}x$BOARD_CROP_H_METER+$BOARD_CROP_X+$BOARD_CROP_Y +repage \) -geometry +$((BOARD_CROP_X+LS_DX))+$((BOARD_CROP_Y+LS_DY)) -composite \
     \( "$OUT/$1" -crop ${TB_W}x$TB_W+0+0 +repage \) -geometry +0+0 -composite \
-    \( "$OUT/$1" -crop ${TB_W}x$TB_TOP_H+$TB_X+0 +repage \) -geometry +$LS_TB_X+0 -composite \
-    \( "$OUT/$1" -crop ${TB_W}x$((PHYS_H-TB_LOW_Y))+$TB_X+$TB_LOW_Y +repage \) -geometry +$LS_TB_X+$((TB_LOW_Y+LS_BOTTOM_DY)) -composite \
+    \( "$tb" -crop ${TB_W}x$TB_TOP_H+$TB_X+0 +repage \) -geometry +$LS_TB_X+0 -composite \
+    \( "$tb" -crop ${TB_W}x$((PHYS_H-TB_LOW_Y))+$TB_X+$TB_LOW_Y +repage \) -geometry +$LS_TB_X+$((TB_LOW_Y+LS_BOTTOM_DY)) -composite \
     \( "$OUT/$1" -crop $3 +repage \) -geometry +$4+$5 -composite \
     -units PixelsPerInch -density $DPI "$OUT/$2"
 }
 CM_CROP=${CM_W}x$((CM_BOTTOM-CM_TOP+1))+$CM_PL+$CM_TOP   # the full panel, with its bottom line
 right_handed color-menu.png color-menu-right-handed.png $CM_CROP $CM_PL_RIGHT $CM_TOP
-landscape color-menu.png color-menu-landscape.png $CM_CROP $CM_PL_LANDSCAPE $CM_TOP
+if [ $CM_ROWS_LANDSCAPE = $CM_ROWS ]; then
+  landscape color-menu.png color-menu-landscape.png $CM_CROP $CM_PL_LANDSCAPE $CM_TOP
+else
+  # The panel has a different shape in landscape (the Move): the landscape screen of color-menu.png with no panel (the
+  # crop of the close button goes to its own place), then the panel drawn in landscape coordinates.
+  landscape color-menu.png .cm-landscape.png ${TB_W}x$TB_W+0+0 0 0
+  PL=$CM_PL_LANDSCAPE; PR=$((LS_TB_X-1))
+  cm_panel $CM_ROWS_LANDSCAPE gray90
+  magick "$OUT/.cm-landscape.png" -draw @$M -units PixelsPerInch -density $DPI "$OUT/color-menu-landscape.png"
+  rm -f "$OUT/.cm-landscape.png"; : > $M; PL=$SET_PL; PR=$SET_PR
+fi
 CKP_CROP=${CKP_W}x$((CKP_ROW0+3*CKP_STEP-CKP_TOP+1))+$CKP_PL+$CKP_TOP   # the panel of checkpoints-menu.png (three rows)
 right_handed checkpoints-menu.png checkpoints-menu-right-handed.png $CKP_CROP $CKP_PL_RIGHT $CKP_TOP
-landscape checkpoints-menu.png checkpoints-menu-landscape.png $CKP_CROP $CKP_PL_LANDSCAPE $CKP_TOP
+landscape checkpoints-menu.png checkpoints-menu-landscape.png $CKP_CROP $CKP_PL_LANDSCAPE $CKP_TOP_LANDSCAPE
 
 # --- The complete puzzle in landscape, menu closed (REQUIREMENTS.md §3.3, §8.3). The board and the menu button move by
 # full pixels from screen-completed.png. The result card is a column at the side opposite the toolbar: at the left
@@ -402,4 +433,4 @@ completed_landscape() {
 }
 completed_landscape left screen-completed-landscape.png
 completed_landscape right screen-completed-landscape-right-handed.png
-rm -f $M
+rm -f $M "$OUT"/.tb-*.png
