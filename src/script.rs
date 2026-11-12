@@ -22,8 +22,14 @@ const MARK_GAP_MS: u64 = 300;
 /// The pen lifts for this time between the strokes of one digit (less than the recognition pause).
 const STROKE_GAP_MS: u64 = 150;
 const FINGER_MS: u64 = 120;
-/// The size of the handwriting in a cell (the same as the tests).
+/// The size of the handwriting in the reference cell of 147 px (the same as the tests).
 const INK_BOX: f32 = 98.0;
+
+/// A length `v` of the reference cell of 147 px, in pixels of the cell of the device. On the Paper
+/// Pro, it is `v` (thus the scripts give the same events as before).
+fn cell_len(v: f32) -> f32 {
+    v * layout::cell_size() as f32 / 147.0
+}
 
 /// A fixed clock and seed, thus each run is the same. The scripts and the reference states use it.
 pub struct FixedEnv(pub u64);
@@ -253,8 +259,9 @@ pub fn parse(text: &str, pause_ms: u64) -> Result<Script, String> {
                     _ => return Err(err(format!("unknown line {line:?}"))),
                 };
                 let (x, y) = layout::cell_origin(cell);
-                let off = (layout::cell_size() as f32 - INK_BOX) / 2.0;
-                let ink = crate::recognizer::example_ink(d, writer, x as f32 + off, y as f32 + off, INK_BOX)
+                let ink_box = cell_len(INK_BOX);
+                let off = (layout::cell_size() as f32 - ink_box) / 2.0;
+                let ink = crate::recognizer::example_ink(d, writer, x as f32 + off, y as f32 + off, ink_box)
                     .ok_or_else(|| err(format!("no handwriting example of {d} by writer {writer}")))?;
                 for (i, s) in ink.iter().enumerate() {
                     if i > 0 {
@@ -279,7 +286,7 @@ pub fn parse(text: &str, pause_ms: u64) -> Result<Script, String> {
                 let (x, y) = layout::cell_origin(cell);
                 let (cx, cy) = (x as f32 + layout::cell_size() as f32 / 2.0, y as f32 + layout::cell_size() as f32 / 2.0);
                 let rub: Vec<(f32, f32)> =
-                    (0..7).map(|i| (cx + if i % 2 == 0 { -40.0 } else { 40.0 }, cy - 30.0 + i as f32 * 10.0)).collect();
+                    (0..7).map(|i| (cx + cell_len(if i % 2 == 0 { -40.0 } else { 40.0 }), cy + cell_len(-30.0 + i as f32 * 10.0))).collect();
                 tl.approach(rub[0].0, rub[0].1, Tool::Eraser);
                 tl.stroke(&rub, Tool::Eraser, INK_SPEED * 1.5);
                 tl.push(Ev::Hover(tl.pen_at, Tool::Eraser));

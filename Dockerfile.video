@@ -1,5 +1,6 @@
 # check=skip=FromPlatformFlagConstDisallowed
-# Makes the demo videos (video/demo.mp4, video/demo.gif, video/demo-full.mp4) again.
+# Makes the demo videos (video/demo.mp4, video/demo.gif, video/demo-full.mp4 and, for the Paper Pro
+# Move, video/demo-full-move.mp4) again.
 #
 #   docker build --platform linux/arm64 -f Dockerfile.video --output type=local,dest=. .
 #
@@ -22,7 +23,8 @@ COPY tests/fixtures tests/fixtures
 COPY video/demo.txt video/demo-full.txt video/
 RUN touch src/lib.rs src/bin/*.rs
 RUN cargo run --release --locked --bin video -- video/demo.txt video/demo.mp4 \
- && cargo run --release --locked --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4
+ && cargo run --release --locked --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4 \
+ && cargo run --release --locked --bin video -- --no-gif --device move video/demo-full.txt video/demo-full-move.mp4
 
 FROM scratch AS export
-COPY --from=build /src/video/demo.mp4 /src/video/demo.gif /src/video/demo-full.mp4 /video/
+COPY --from=build /src/video/demo.mp4 /src/video/demo.gif /src/video/demo-full.mp4 /src/video/demo-full-move.mp4 /video/

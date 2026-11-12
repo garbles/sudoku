@@ -26,6 +26,10 @@
 //! It uses the fonts in scripts/fonts (refer to scripts/fonts/README.md) and ffmpeg. After the MP4, the
 //! tool makes a smaller GIF from it with the same name (for example video/demo.gif), for README.md.
 //! With `--no-gif`, it makes only the MP4 (for example video/demo-full.mp4, for the website).
+//! With `--device move`, it runs the app on the screen of the Paper Pro Move (the default is the
+//! Paper Pro). The cell positions, the handwriting and the markers follow the cell of the device:
+//!
+//!     cargo run --release --bin video -- --no-gif --device move video/demo-full.txt video/demo-full-move.mp4
 
 use std::io::Write;
 use std::path::Path;
@@ -85,6 +89,9 @@ impl Markers {
     }
 
     fn draw(&mut self, pm: &mut Pixmap, t: u64) {
+        // The markers have their size on the Paper Pro (cell of 147 px). On a different device, they
+        // keep their size relative to a cell.
+        let k = layout::cell_size() as f32 / 147.0;
         let paint = |rgb: [u8; 3], a: f32| {
             let mut p = Paint::default();
             p.set_color_rgba8(rgb[0], rgb[1], rgb[2], (a.clamp(0.0, 1.0) * 255.0) as u8);
@@ -92,12 +99,12 @@ impl Markers {
             p
         };
         let circle = |pm: &mut Pixmap, x: f32, y: f32, r: f32, fill: Option<Paint>, line: Option<(Paint, f32)>| {
-            let Some(path) = PathBuilder::from_circle(x, y, r) else { return };
+            let Some(path) = PathBuilder::from_circle(x, y, r * k) else { return };
             if let Some(f) = fill {
                 pm.fill_path(&path, &f, FillRule::Winding, Transform::identity(), None);
             }
             if let Some((p, w)) = line {
-                pm.stroke_path(&path, &p, &Stroke { width: w, ..Stroke::default() }, Transform::identity(), None);
+                pm.stroke_path(&path, &p, &Stroke { width: w * k, ..Stroke::default() }, Transform::identity(), None);
             }
         };
         const DARK: [u8; 3] = [20, 20, 20];
@@ -125,7 +132,7 @@ impl Markers {
                 pb.move_to(w[0].1, w[0].2);
                 pb.line_to(w[1].1, w[1].2);
                 if let Some(path) = pb.finish() {
-                    let s = Stroke { width: 6.0, line_cap: LineCap::Round, ..Stroke::default() };
+                    let s = Stroke { width: 6.0 * k, line_cap: LineCap::Round, ..Stroke::default() };
                     pm.stroke_path(&path, &paint(DARK, 0.4 * a), &s, Transform::identity(), None);
                 }
             }
@@ -174,12 +181,28 @@ fn gif(mp4: &Path, out: &Path) -> bool {
 
 fn main() {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
-    let no_gif = args.first().is_some_and(|a| a == "--no-gif");
-    if no_gif {
-        args.remove(0);
+    let mut no_gif = false;
+    loop {
+        match args.first().map(String::as_str) {
+            Some("--no-gif") => {
+                no_gif = true;
+                args.remove(0);
+            }
+            Some("--device") => {
+                let name = args.get(1).map(String::as_str);
+                let Some(model) = name.and_then(layout::Model::from_option_name) else {
+                    let names: Vec<_> = layout::Model::ALL.map(layout::Model::option_name).into();
+                    eprintln!("--device {}, not {name:?}", names.join("|"));
+                    std::process::exit(2);
+                };
+                layout::set_device(model.device());
+                args.drain(..2);
+            }
+            _ => break,
+        }
     }
     let [script_path, out] = args.as_slice() else {
-        eprintln!("usage: video [--no-gif] SCRIPT OUT.mp4");
+        eprintln!("usage: video [--no-gif] [--device pro|move] SCRIPT OUT.mp4");
         std::process::exit(2);
     };
     if !out.ends_with(".mp4") {

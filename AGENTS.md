@@ -35,6 +35,7 @@ cargo run --release --bin snapshot -- DIR    # draw the reference states and the
 python3 scripts/invariants.py --open        # the visualizer of INVARIANTS.md (make invariants BASE=<ref>)
 cargo run --release --bin video -- video/demo.txt video/demo.mp4   # demo video from an event script (ffmpeg)
 cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4   # extended demo video for the website
+cargo run --release --bin video -- --no-gif --device move video/demo-full.txt video/demo-full-move.mp4   # the same for the Paper Pro Move
 scripts/bench.sh                             # performance bench: compare with bench/baseline-computer.json
 docker build --platform linux/arm64 -f Dockerfile.test .   # all tests on aarch64 Linux (release and debug)
 docker build --platform linux/arm64 --output type=local,dest=dist .   # static aarch64 build (no tests)
@@ -103,7 +104,8 @@ builds in parallel).
   README.md.
 - Extended demo video: `video/demo-full.txt` starts as `video/demo.txt` and plays the same puzzle to
   the completion, with pencil marks, pauses and incorrect numbers. `video/demo-full.mp4` (no GIF) is
-  for the website. When you change the first part of `video/demo.txt`, change `video/demo-full.txt`
+  for the website. `video/demo-full-move.mp4` plays the same script on the Paper Pro Move
+  (`--device move`): the cells, the handwriting and the markers follow the cell of the device. When you change the first part of `video/demo.txt`, change `video/demo-full.txt`
   also.
 - `Dockerfile.images`, `Dockerfile.installer` and `Dockerfile.video` use fixed versions of
   ImageMagick and ffmpeg (Alpine 3.22), so each computer makes the same files. `scripts/build.sh`
@@ -146,8 +148,10 @@ builds in parallel).
   passes all tests. A tablet that has the old build of this version does not update to the new
   build, because the version is not newer.
 - Website: `site/index.html` is the GitHub Pages site (https://garbles.github.io/sudoku/).
-  `pages.yml` publishes it on each push to `main` that changes `site/`, `video/demo-full.mp4` or
-  the app icon. The workflow adds `demo-full.mp4` and `icon.svg` to the site. The instructions on the
+  `pages.yml` publishes it on each push to `main` that changes `site/`, the extended demo videos or
+  the app icon. The workflow adds `demo-full.mp4`, `demo-full-move.mp4` and `icon.svg` to the site.
+  The video has controls (the user can move to a different time), and a switch below it selects
+  the Paper Pro or the Paper Pro Move. The instructions on the
   site must agree with README.md and `install.sh` (refer to Conventions & Patterns). In the repository settings, Pages > Source must be "GitHub Actions".
 - App icon: `icon.svg` is the source. Its digits are outlines of reMarkable Sans Regular.
   AppLoad reads only `icon.png` and shows it at 150x150, thus `scripts/build.sh` (rsvg-convert)

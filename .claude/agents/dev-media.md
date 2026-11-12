@@ -27,6 +27,8 @@ The Makefile does this. The builds are slow: use a timeout of 600000 ms.
      DIR/demo.mp4` (with a `DIR` in the scratchpad). If an event misses its target now (for example
      a button moved), change the event. If the demo must show the change, add the events.
    - `video/demo-full.txt` starts as `video/demo.txt`. Change its first part in the same way.
+   - `video/demo-full.txt` also makes `video/demo-full-move.mp4` (`--device move`, the Paper Pro
+     Move). Play it also: an event must hit its target on the two devices.
    - Then run `make media-video` and examine some frames of the new videos (for example with
      `ffmpeg -ss T -i FILE -frames:v 1 OUT.png`, then the Read tool).
 2. **Installer images** (only if `install.sh` changed its output): run `make media-installer` and

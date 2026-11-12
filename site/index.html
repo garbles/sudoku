@@ -116,11 +116,27 @@
         align-items: start;
       }
 
+      /* The tablet and the switch below it fit in the viewport, thus the switch is above the fold.
+       The height of the tablet is 1.393 times the width of .demo (the Paper Pro; the Paper Pro Move
+       is a little shorter), thus the width is (viewport height - offset) x 0.718. The offset (210px)
+       is the header and the top padding of main (114px), the switch (65px) and a gap below it. */
+      .demo {
+        --fit: max(260px, calc((100vh - 210px) * 0.718));
+        position: sticky;
+        top: 32px;
+        width: 100%;
+        max-width: var(--fit);
+        justify-self: center;
+      }
+      @supports (height: 100svh) {
+        .demo {
+          --fit: max(260px, calc((100svh - 210px) * 0.718));
+        }
+      }
+
       /* reMarkable Paper Pro: 196.6 x 274.1 mm. The screen (1620 x 2160 at 229 DPI) is 179.7 x 239.6 mm.
        The side and top bezels are narrow, the bottom bezel is wider. The aluminum edge has ridges. */
       .tablet {
-        position: sticky;
-        top: 32px;
         padding: 0.7%;
         border-radius: 4.4% / 3.2%;
         background:
@@ -150,6 +166,57 @@
         aspect-ratio: 1620 / 2160;
         background: #fff;
         box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.14);
+      }
+
+      /* reMarkable Paper Pro Move: the screen (954 x 1696 at 264 DPI) is 91.8 x 163.2 mm. The tablet
+       has approximately the same height as the Paper Pro above, thus the page does not move. */
+      .tablet[data-device="move"] {
+        width: 81%;
+        margin: 0 auto;
+        border-radius: 7.5% / 4.2%;
+      }
+      .tablet[data-device="move"] .tablet-face {
+        padding: 7% 6% 9%;
+        border-radius: 6.4% / 3.6%;
+      }
+      .tablet[data-device="move"] video {
+        aspect-ratio: 954 / 1696;
+      }
+
+      .device-switch {
+        display: flex;
+        justify-content: center;
+        gap: 4px;
+        width: max-content;
+        margin: 20px auto 0;
+        padding: 4px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+      }
+      .device-switch button {
+        font: inherit;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--muted);
+        background: none;
+        border: 0;
+        border-radius: 999px;
+        padding: 6px 14px;
+        cursor: pointer;
+        transition:
+          background 0.15s,
+          color 0.15s;
+      }
+      .device-switch button:hover {
+        color: var(--ink);
+      }
+      .device-switch button[aria-pressed="true"] {
+        background: var(--ink);
+        color: var(--paper);
+      }
+      .device-switch button:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
       }
 
       h1 {
@@ -293,10 +360,9 @@
           gap: 40px;
           padding-top: 32px;
         }
-        .tablet {
+        .demo {
           position: static;
-          max-width: 420px;
-          margin: 0 auto;
+          max-width: min(420px, var(--fit));
         }
       }
       @media (max-width: 480px) {
@@ -330,16 +396,28 @@
     </header>
 
     <main>
-      <div class="tablet">
-        <div class="tablet-face">
-          <video
-            src="demo-full.mp4"
-            autoplay
-            muted
-            loop
-            playsinline
-            aria-label="Demo: a full game, with pencil marks, numbers, clashes, the Cell colors menu, the eraser, undo and the completion"
-          ></video>
+      <div class="demo">
+        <div class="tablet" data-device="pro">
+          <div class="tablet-face">
+            <video
+              id="demo-video"
+              src="demo-full.mp4"
+              autoplay
+              muted
+              loop
+              playsinline
+              controls
+              aria-label="Demo: a full game, with pencil marks, numbers, clashes, the Cell colors menu, the eraser, undo and the completion"
+            ></video>
+          </div>
+        </div>
+        <div class="device-switch" role="group" aria-label="Tablet of the demo">
+          <button type="button" data-device="pro" data-src="demo-full.mp4" aria-pressed="true">
+            Paper Pro
+          </button>
+          <button type="button" data-device="move" data-src="demo-full-move.mp4" aria-pressed="false">
+            Paper Pro Move
+          </button>
         </div>
       </div>
 
@@ -386,6 +464,35 @@
     </footer>
 
     <script>
+      // The switch below the demo selects the video of the Paper Pro or of the Paper Pro Move. The two
+      // videos play the same script, thus the new video starts at the same time as the old one.
+      (function () {
+        var video = document.getElementById("demo-video");
+        var tablet = document.querySelector(".tablet");
+        var buttons = document.querySelectorAll(".device-switch button");
+        buttons.forEach(function (btn) {
+          btn.addEventListener("click", function () {
+            if (btn.getAttribute("aria-pressed") === "true") return;
+            var time = video.currentTime;
+            var paused = video.paused;
+            buttons.forEach(function (b) {
+              b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+            });
+            tablet.dataset.device = btn.dataset.device;
+            video.src = btn.dataset.src;
+            video.addEventListener(
+              "loadedmetadata",
+              function () {
+                video.currentTime = Math.min(time, video.duration || time);
+                if (paused) video.pause();
+                else video.play().catch(function () {});
+              },
+              { once: true },
+            );
+          });
+        });
+      })();
+
       document.querySelectorAll(".copy").forEach(function (btn) {
         btn.addEventListener("click", function () {
           var text = document.getElementById(btn.dataset.target).textContent;

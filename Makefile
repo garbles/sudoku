@@ -98,8 +98,9 @@ clippy: ## Run the Rust linter
 video: ## Make video/demo.mp4 and video/demo.gif (needs ffmpeg)
 	cargo run --release --bin video -- video/demo.txt video/demo.mp4
 
-video-full: ## Make video/demo-full.mp4 for the website (needs ffmpeg)
+video-full: ## Make video/demo-full.mp4 and video/demo-full-move.mp4 for the website (needs ffmpeg)
 	cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4
+	cargo run --release --bin video -- --no-gif --device move video/demo-full.txt video/demo-full-move.mp4
 
 # The media targets make the files with fixed tool versions (Docker). Commit the result.
 media: media-images media-installer media-video ## Make images/, the icon and video/ (Docker; make -j3 media for parallel builds)
@@ -110,7 +111,7 @@ media-images: fonts-check ## Make the design images images/pro/, the icon and th
 media-installer: ## Make the installer images images/install-*.png (Dockerfile.installer)
 	$(DOCKER) build --platform linux/arm64 -f Dockerfile.installer --output type=local,dest=. .
 
-media-video: fonts-check ## Make video/demo.mp4, video/demo.gif and video/demo-full.mp4 (Dockerfile.video)
+media-video: fonts-check ## Make video/demo.mp4, video/demo.gif, video/demo-full.mp4 and video/demo-full-move.mp4 (Dockerfile.video)
 	$(DOCKER) build --platform linux/arm64 -f Dockerfile.video --output type=local,dest=. .
 
 ## --- Performance ----------------------------------------------------------------------------

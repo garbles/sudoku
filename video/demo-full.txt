@@ -3,6 +3,8 @@
 # pauses to think, two more incorrect numbers (one is erased, one is undone) and the completion.
 # Make it with:
 #   cargo run --release --bin video -- --no-gif video/demo-full.txt video/demo-full.mp4
+# and for the Paper Pro Move:
+#   cargo run --release --bin video -- --no-gif --device move video/demo-full.txt video/demo-full-move.mp4
 # Cells are rRcC, with rows and columns from 1 to 9. The commands are in src/bin/video.rs.
 # Each write has a different writer, thus no two numbers have the same handwriting.
 
