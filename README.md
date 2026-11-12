@@ -1,5 +1,10 @@
 # Sudoku for reMarkable Paper Pro and Paper Pro Move
 
+> [!NOTE]
+> The app has not been tested on a real Paper Pro Move. Only the design images and the tests on the
+> computer examine the Paper Pro Move version. If you have a Paper Pro Move and you find a problem,
+> please [open an issue](https://github.com/garbles/sudoku/issues/new).
+
 A Sudoku game for the color e-ink display. It is the best way to play Sudoku: it feels like pen and
 paper, and it does the work that paper cannot do.
 
