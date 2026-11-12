@@ -117,8 +117,8 @@
       }
 
       /* The tablet and the switch below it fit in the viewport, thus the switch is above the fold.
-       The height of the tablet is 1.393 times the width of .demo (the Paper Pro; the Paper Pro Move
-       is a little shorter), thus the width is (viewport height - offset) x 0.718. The offset (210px)
+       The height of the tablet is 1.394 times the width of .demo (the Paper Pro and the Paper Pro
+       Move), thus the width is (viewport height - offset) x 0.718. The offset (210px)
        is the header and the top padding of main (114px), the switch (65px) and a gap below it. */
       .demo {
         --fit: max(260px, calc((100vh - 210px) * 0.718));
@@ -135,7 +135,9 @@
       }
 
       /* reMarkable Paper Pro: 196.6 x 274.1 mm. The screen (1620 x 2160 at 229 DPI) is 179.7 x 239.6 mm.
-       The side and top bezels are narrow, the bottom bezel is wider. The aluminum edge has ridges. */
+       The side and top bezels have the same width (8.45 mm). The bottom bezel is the remainder
+       (26.05 mm). The aluminum edge (0.7% of the width) has ridges. The padding of the face is a
+       percentage of the content width of .tablet (98.6%). */
       .tablet {
         padding: 0.7%;
         border-radius: 4.4% / 3.2%;
@@ -153,8 +155,8 @@
           0 30px 60px -20px rgba(0, 0, 0, 0.4);
       }
       .tablet-face {
-        padding: 6.1% 3.8% 10.5%;
-        border-radius: 3.8% / 2.8%;
+        padding: 3.649% 3.649% 12.728%;
+        border-radius: 3.8% / 2.7%;
         background: linear-gradient(180deg, #e6e5e0, #dcdbd5);
         box-shadow:
           inset 0 1px 0 rgba(255, 255, 255, 0.7),
@@ -168,16 +170,18 @@
         box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.14);
       }
 
-      /* reMarkable Paper Pro Move: the screen (954 x 1696 at 264 DPI) is 91.8 x 163.2 mm. The tablet
-       has approximately the same height as the Paper Pro above, thus the page does not move. */
+      /* reMarkable Paper Pro Move: 107.8 x 195.6 mm. The screen (954 x 1696 at 264 DPI) is 91.8 x 163.2
+       mm. The side and top bezels have the same width (8 mm). The bottom bezel is the remainder
+       (24.4 mm). The tablet has the same height as the Paper Pro above, thus the page does not move:
+       its width is 1.394 / (195.6 / 107.8) = 76.838% of .demo. */
       .tablet[data-device="move"] {
-        width: 81%;
+        width: 76.838%;
         margin: 0 auto;
-        border-radius: 7.5% / 4.2%;
+        border-radius: 7.5% / 4.1%;
       }
       .tablet[data-device="move"] .tablet-face {
-        padding: 7% 6% 9%;
-        border-radius: 6.4% / 3.6%;
+        padding: 6.631% 6.631% 22.127%;
+        border-radius: 6.4% / 3.5%;
       }
       .tablet[data-device="move"] video {
         aspect-ratio: 954 / 1696;
@@ -203,14 +207,11 @@
         border-radius: 999px;
         padding: 6px 14px;
         cursor: pointer;
-        transition:
-          background 0.15s,
-          color 0.15s;
       }
       .device-switch button:hover {
         color: var(--ink);
       }
-      .device-switch button[aria-pressed="true"] {
+      .device-switch button.active {
         background: var(--ink);
         color: var(--paper);
       }
@@ -219,10 +220,16 @@
         outline-offset: 2px;
       }
 
+      /* The heading is approximately 13.7 em wide. Its size follows the width of the column, thus it
+       stays on one line (7cqi gives a margin of approximately 4%). */
+      main > section {
+        container-type: inline-size;
+      }
       h1 {
         font-family: Fraunces, Georgia, serif;
         font-weight: 600;
         font-size: clamp(34px, 4.4vw, 52px);
+        font-size: min(52px, 7cqi);
         line-height: 1.08;
         letter-spacing: -0.015em;
         margin: 0 0 16px;
@@ -412,21 +419,32 @@
           </div>
         </div>
         <div class="device-switch" role="group" aria-label="Tablet of the demo">
-          <button type="button" data-device="pro" data-src="demo-full.mp4" aria-pressed="true">
+          <button
+            type="button"
+            data-device="pro"
+            data-src="demo-full.mp4"
+            class="active"
+          >
             Paper Pro
           </button>
-          <button type="button" data-device="move" data-src="demo-full-move.mp4" aria-pressed="false">
+          <button
+            type="button"
+            data-device="move"
+            data-src="demo-full-move.mp4"
+          >
             Paper Pro Move
           </button>
         </div>
       </div>
 
       <section>
-        <h1>Sudoku for reMarkable Paper Pro and Paper Pro Move</h1>
+        <h1>Sudoku for reMarkable Paper</h1>
         <p class="lede">
           Simply the best way to play Sudoku.
           <br />
-          Feels like pen and paper. Does the work that paper cannot.
+          Feels like pen and paper.
+          <br />
+          Does the work that paper cannot.
         </p>
 
         <h2>Installation</h2>
@@ -472,11 +490,11 @@
         var buttons = document.querySelectorAll(".device-switch button");
         buttons.forEach(function (btn) {
           btn.addEventListener("click", function () {
-            if (btn.getAttribute("aria-pressed") === "true") return;
+            if (btn.classList.contains("active")) return;
             var time = video.currentTime;
             var paused = video.paused;
             buttons.forEach(function (b) {
-              b.setAttribute("aria-pressed", b === btn ? "true" : "false");
+              b.classList.toggle("active", b === btn);
             });
             tablet.dataset.device = btn.dataset.device;
             video.src = btn.dataset.src;
