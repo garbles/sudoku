@@ -407,7 +407,7 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
   a black line of 5 px with round ends and joins; the ink of a tap is a dot with a radius of 2.5 px.
   The ink has **no anti-aliasing**: each pixel of a stroke or of the dot is black or the pixel that
   was under it, also where a stroke crosses a filled cell, also in the corpus build. The pen waveform
-  of the ink patch gives crisp pixels a smoother stroke ([§14.4](#144-launcher),
+  of the pen area gives crisp pixels a smoother stroke ([§14.4](#144-launcher),
   [§15](#15-visual-specification); owner approval 2026-11-07). A pen touch
   that starts on a **filled cell** shows no ink and starts no pen area ([§14.4](#144-launcher)). This
   includes a tap on a number and a stroke that starts on a number. A stroke that starts on an empty cell
@@ -419,7 +419,8 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
   pen is lifted for the **recognition pause of 1 s**. The pause starts at the pen lift, and a new stroke
   in the same cell stops it. Thus a number with more than one stroke (for example 4, 5 or 7) is correct
   (owner approval 2026-11-07).
-- The pause is one fixed value in the source. The AppLoad manifest does not set it, and no environment
+- The pause is one fixed value in the source. No AppLoad manifest of the app (`manifest.json` and
+  `external.manifest.json`) sets it, and no environment
   variable changes it. Thus an update gives the new pause at the next start of Sudoku, with no restart
   of xochitl, also when AppLoad keeps an old manifest in memory (owner approval 2026-11-07).
 - Time line for one number, in normal use: the app reads the ink at 1 s after the pen lift, the digit
@@ -553,7 +554,7 @@ number at the press, the action at the release), and a press on a control that r
 (the removal at the press, the action at the release) (owner approval 2026-11-07). A pen tap on a number
 while ink waits in a different cell is not a third case: the pen touch keeps the writing state until the
 lift, thus the redraw waits, and the read and the highlight go in one redraw (approved prototype 2026-11-07).
-This applies when the pen area is in use. When the ink patch is not active, redraws do not wait for the
+This applies when the pen area is in use: always in the frontend mode ([§14.4](#144-launcher)). In the external mode, when the ink patch is not active, redraws do not wait for the
 writing, thus this tap gives two updates: the read at the press and the highlight at the lift (review of the change, 2026-11-07). A tap on a number
 compares with the highlight as it was at the press, before the read of waiting ink: refer to
 [§6.2](#62-highlights) (approved prototype 2026-11-07). Each press also removes the "?" and the x
@@ -645,7 +646,7 @@ Consequences (owner approval 2026-11-07):
 - A pen press off the board on no control while ink waits reads the ink, and that read removes the
   highlight (approved prototype 2026-11-07).
 - A pen tap on a number while ink waits in a different cell reads the ink at the press and makes the
-  highlight at the lift, in one redraw when the pen area is in use. When the ink patch is not active, the
+  highlight at the lift, in one redraw when the pen area is in use. In the external mode ([§14.4](#144-launcher)), when the ink patch is not active, the
   tap gives two updates ([§5.2](#52-input-decisions); review of the change, 2026-11-07). A "?" of that read can show with that highlight (approved prototype 2026-11-07).
 - A tap on a number compares with the highlight as it was at the press, not with the highlight after
   the read. With highlight v and ink waiting in a different cell, a tap on v reads the ink at the press
@@ -1118,12 +1119,12 @@ other version name) does not look for updates and does not have the update row (
 **Look for an update.** The app reads two files of the latest stable release:
 
 - `https://github.com/garbles/sudoku/releases/latest/download/version.json`:
-  `{"version": "v<version>", "url": "<archive URL>", "sha256": "<checksum of the archive>",
-  "patch_url": "<ink patch URL>", "patch_sha256": "<checksum of the ink patch>"}`. The ink patch
-  ([§14.4](#144-launcher)) is a separate file of the release (`sudoku-penregion.qmd`), not a file in
-  the archive (owner decision 2026-11-01). A release before this decision does not have `patch_url`
-  and `patch_sha256`. The two fields are together or not at all, the URL must be HTTPS, and the
-  checksum must be a SHA-256 checksum.
+  `{"version": "v<version>", "url": "<archive URL>", "sha256": "<checksum of the archive>"}` (owner
+  approval 2026-11-12). A release has no ink patch file. A release from 2026-11-01 to this decision
+  also has `patch_url` and `patch_sha256`, for the separate ink patch file `sudoku-penregion.qmd`
+  ([§14.4](#144-launcher)). The app does not use these two fields, and it installs no ink patch. The
+  installer still uses them when the user selects such a release ([§14.6](#146-installer); owner
+  decision 2026-11-12).
 - `https://github.com/garbles/sudoku/releases/latest/download/version.json.sig`: the ed25519
   signature (64 bytes) of the bytes of `version.json`.
 
@@ -1141,10 +1142,12 @@ release is an update, also a stable release that is older than the preview (owne
 - The request runs in the background. It never stops the game or the input.
 - The app does not keep the result when it closes.
 
-**Caution icon.** When an update is available, the gear has a caution icon at its top right: a red
+**Caution icon.** When an update is available, and at each start of a stable or preview build while
+the update is not complete (below; owner decision 2026-11-12), the gear has a caution icon at its top right: a red
 (`#D62D20`) circle with a radius of 10 px and a white border of 3 px, with a white "!" in it. The
 center of the circle is 16 px to the right of and 16 px above the center of the gear. The icon
-stays until the app closes (also while the update installs and after it is installed). Image:
+stays until the app closes (also while the update installs and after it is installed, and while the
+row shows the button **Restart interface**). A `dev` build never has it. Image:
 [`screen-toolbar-update.png`](images/pro/screen-toolbar-update.png).
 
 **Update row.** The sixth row of the Settings panel has the same height, lines and border as the
@@ -1159,8 +1162,8 @@ other rows. It shows one of these:
 | An update is available | The button **Update to v\<version\>** |
 | The update installs | "Installing update..." |
 | The installation failed | "Update failed" for 3 seconds, then the button again |
-| The update is installed, and the ink patch did not change | "Restart Sudoku to update" |
-| The update is installed, and it replaced the ink patch | The button **Restart interface** |
+| The update is installed | "Restart Sudoku to update" |
+| The update is not complete (below): the app runs in the external mode, and its app folder has the frontend files | The button **Restart interface**, at each start in this state and for the full run. The row shows no other state: the app offers and installs no update in this state (owner decision 2026-11-12) |
 
 - The text of a state is reMarkable Sans Regular, 25 px, `gray25` (owner request 2026-11-07), at the left (33 px from the left
   edge of the panel). The baseline is 65 px below the top of the row.
@@ -1188,62 +1191,97 @@ other rows. It shows one of these:
   a failed attempt, the row shows the button that it showed before the attempt (**Check for
   updates** if no attempt was successful).
 - "Restart Sudoku to update" is only a text. The user closes the app and opens it again from
-  AppLoad. Then the new version operates (owner decision 2026-11-01).
+  AppLoad. Then the new version operates (owner decision 2026-11-01). In the frontend mode, this is
+  true only if AppLoad reads `resources.rcc` and starts `backend/entry` at each open of the app: the
+  device test of this is pending (DECISIONS.md, 2026-11-12).
 - **Restart interface** has the same design as the other two buttons. Its icon is a power symbol:
   an arc with a radius of 12 px, with a gap at the top (from 300 degrees clockwise to 240 degrees),
   and a line from 15 px to 3 px above the center. Image:
-  [`settings-restart.png`](images/pro/settings-restart.png). xochitl reads the ink patch only when it
-  starts, thus the reMarkable interface must start again (`/home/root/xovi/start`). A restart of
-  the tablet is not sufficient, because it stops xovi ([§14.6](#146-installer)). A tap on the
-  button does the same as **Restart** in the restart dialog (below), with no dialog.
+  [`settings-restart.png`](images/pro/settings-restart.png). The button shows at each start of the
+  app while the update is not complete (below), from the start until the app closes. AppLoad reads
+  the manifests of the apps only when the interface starts and when the user taps **Reload** in the
+  AppLoad menu, thus the reMarkable interface must start again (`/home/root/xovi/start`). A restart
+  of the tablet is not sufficient, because it stops xovi ([§14.6](#146-installer)). A tap on the
+  button does the same as **Restart** in the restart dialog (below), with no dialog (owner decision
+  2026-11-12; before: the button showed after an installation that replaced the ink patch).
 
-**Restart dialog** (owner decision 2026-11-01). When the installation replaced the ink patch, a
-dialog shows over the screen (also over a panel, the manual or the statistics). It has the same
-design and position as the delete dialogs of the statistics ([§13](#13-statistics)):
+**Restart dialog** (owner decision 2026-11-12; before: owner decision 2026-11-01, the dialog showed
+when an installation replaced the ink patch). The dialog shows when the app starts and the update is
+not complete (below: the app runs in the external mode, and its app folder has the frontend files).
+It shows only at the first start in this state: when the dialog shows, the app saves that it showed
+it ([§14.2](#142-settings-kept-when-the-app-closes)). At a later start in this state, no dialog
+shows, and only the update row shows the button **Restart interface**. At a start in the
+frontend mode, the app sets `restart_dialog_shown` to false and saves it. Thus the dialog can show again if this state comes back
+(owner decision 2026-11-12). A `dev` build has no update row ([§9.1](#91-settings-panel)): it shows
+the dialog at the first start in this state, and it has no button and no caution icon. The dialog shows over the game screen,
+which the app shows at each start ([§14.3](#143-game-in-progress-kept-when-the-app-closes)). It has
+the same design and position as the delete dialogs of the statistics ([§13](#13-statistics)):
 
-- Title: "Restart the interface?". Text: "The update has a new ink patch. To use it," and "the
-  reMarkable interface must start again.".
+- Title: "Restart the interface?". Text, two lines: "The update is not complete. To complete it," and
+  "the reMarkable interface must start again." (owner decision 2026-11-12; before: "The update has a
+  new ink patch. To use it," on the first line).
 - Buttons: **Later** (black on white, left) and **Restart** (white on black, right).
 - Before the dialog shows, the app reads the waiting ink. The highlight, the "?" and the x go away
   (the x: owner approval 2026-11-04). The highlight does not come back after **Later** (owner approval 2026-11-07). A pen or
-  a finger that is on the screen has no more effect.
+  a finger that is on the screen has no more effect. At the start of the app, no ink waits and the
+  board shows no highlight, no "?" and no x; these rules did not change (owner decision 2026-11-12:
+  the same rules as before).
 - While the dialog shows, only its two buttons operate (with the pen or a finger). All other taps
   and strokes have no effect.
 - **Later** closes the dialog. The update row shows the button **Restart interface**.
 - **Restart** saves the game. Then the app runs `/home/root/xovi/start` in a systemd unit of its own
   (`systemd-run`), because the stop of xochitl stops all processes of the xochitl service. The
-  interface starts again with xovi and the new patch. The new version of the app operates when the
-  user opens it again from AppLoad. If the app cannot start the script, the dialog closes, and the
-  row shows the button **Restart interface**.
+  interface starts again with xovi. After that start, AppLoad reads the new manifest, and the next
+  open of Sudoku from AppLoad uses the frontend ([§14.4](#144-launcher)). If the app cannot start the
+  script, the dialog closes, and the row shows the button **Restart interface**.
 
 Images: [`update-restart.png`](images/pro/update-restart.png) (the dialog),
 [`settings-restart.png`](images/pro/settings-restart.png) (the button after **Later**).
 
-**Installation.** The app runs as root. Thus it installs only an archive and an ink patch that agree
-with the signed `version.json`:
+**Installation.** The app runs as root. Thus it installs only an archive that agrees with the signed
+`version.json`. The app installs no ink patch (owner decision 2026-11-12):
 
 1. The app downloads the archive to `update/` in the data folder ([§14](#14-data-that-the-app-keeps)),
-   not to `/tmp`. If `version.json` has `patch_url`, it also downloads the ink patch.
-2. The SHA-256 checksum of the archive must be equal to `sha256` in `version.json`. The checksum of
-   the ink patch must be equal to `patch_sha256`. The app examines the two checksums before it
-   changes a file.
+   not to `/tmp`.
+2. The SHA-256 checksum of the archive must be equal to `sha256` in `version.json`. The app examines
+   the checksum before it changes a file.
 3. The app extracts the archive in `update/`. The archive must have the folder `sudoku/` with the
-   program `sudoku` and `external.manifest.json`. It must not have links, or paths that go out of
-   the folder.
-4. The app moves the new folder next to the AppLoad folder of the app as `sudoku.new`. Then it
-   renames the app folder to `sudoku.old` and `sudoku.new` to the app folder. If the second rename
-   fails, the app renames `sudoku.old` back. The app never writes over the files of the app that
-   operates. The program that operates continues with its old files.
+   program `sudoku` and `external.manifest.json`. An archive that has `manifest.json` must also have
+   `resources.rcc` and `backend/entry` ([§14.4](#144-launcher)). Thus the app accepts the
+   archive of a release before 2026-11-12, which has no frontend files. The archive must
+   not have links, or paths that go out of the folder. The app sets the executable mode of `sudoku`
+   and, if the archive has it, of `backend/entry`.
+4. The app moves the new folder next to the AppLoad folder of the app as `sudoku.new`. When the two
+   folders are on different file systems, the move is a copy, and the copy includes the subfolder
+   `backend/`. Then it renames the app folder to `sudoku.old` and `sudoku.new` to the app folder. If
+   the second rename fails, the app renames `sudoku.old` back. The app never writes over the files of
+   the app that operates. The program that operates continues with its old files.
 5. The app deletes `sudoku.old` and `update/`. When the app opens, it also deletes a `sudoku.old`,
    a `sudoku.new` and an `update/` that stay from an earlier installation.
-6. The app compares `patch_sha256` with the checksum in the stamp file of the ink patch
-   ([§14.4](#144-launcher)). If the two are different, or the stamp file is missing or not correct,
-   the app writes the new patch and then the stamp file with the new version and `patch_sha256`
-   (each file with one rename). Then the dialog "Restart the interface?" shows. If the two are
-   equal, the patch does not change. A release with no `patch_url` does not change the patch.
 
-If step 1, 2, 3 or 4 fails, the app folder does not change, and the row shows "Update failed". If
-step 6 fails, the row also shows "Update failed", and a new tap installs the release again.
+If a step from 1 to 4 fails, the app folder does not change, and the row shows "Update failed". The
+update does not examine the version of AppLoad: only the installer does
+([§14.6](#146-installer); owner decision 2026-11-12).
+
+**An update from a release before 2026-11-12** (owner decision 2026-11-12). The program of that
+release installs the archive: the archive has `external.manifest.json`, and `backend/entry` has its
+executable mode in the archive. Known limit: the program of an old release copies no subfolder when
+the update folder and the app folder are on different file systems. Then that program shows "Update
+failed", and the app folder does not change (not examined on a tablet; on the tablet the two folders
+are on the same file system). AppLoad keeps the old manifest until the interface starts again or
+the user taps **Reload** in the AppLoad menu. Thus the new program first runs in the external mode
+([§14.4](#144-launcher)), with the old ink patch that is on the tablet. **The update is not
+complete** in this state: the app runs in the external mode, and its app folder has the frontend
+files. Then the restart dialog shows (above), the update row shows the button **Restart
+interface**, and the gear has the caution icon. After the interface starts again, AppLoad reads the new manifest, and the next open of
+Sudoku uses the frontend. In the frontend mode, the app deletes the old ink patch, its stamp file and
+`/tmp/sudoku-pen-region`.
+
+**An update to a release before 2026-11-12** (owner decision 2026-11-12: accepted, no rule). A
+preview build with the frontend still offers an older stable release (above). The archive of that
+release has no `manifest.json` and no other frontend files, and the app installs it. After that
+update, the app does not open until the user taps **Reload** in the AppLoad menu, or the interface
+starts again. The first release with the frontend must be a stable release soon.
 
 ### 9.3 Checkpoints panel
 
@@ -1772,6 +1810,11 @@ The app adds a row when a puzzle is complete. Only the bin in the games list and
 - The three switches of the Settings panel: highlight numbers (default: on), hide pencil marks
   automatically (default: on) and color completed groups (default: on). A settings file of an earlier
   version has the name `auto_remove_on` for the second switch. The app reads it.
+- That the restart dialog showed: the key `restart_dialog_shown` of the settings file
+  ([§9.2](#92-updates); owner decision 2026-11-12). The app saves it when the dialog shows. A settings
+  file with no such value means that the dialog did not show. At a start in the frontend mode, the
+  app sets `restart_dialog_shown` to false and saves it ([§14.4](#144-launcher); owner decision
+  2026-11-12).
 
 **A settings file of an earlier version** (owner approval 2026-11-04 and 2026-11-05, except the rule
 for a file that breaks COL-5):
@@ -1830,31 +1873,110 @@ package manager **Vellum**:
 
 1. `vellum add appload`. This installs xovi, xovi-extensions, qt-resource-rebuilder and AppLoad. On
    OS 3.29 the package `launcherctl-appload` does not install, because its dependency
-   `lockscreen_hook` supports only OS versions before 3.28.
+   `lockscreen_hook` supports only OS versions before 3.28. The frontend of the app (below) needs
+   AppLoad v0.6.0 or later (owner decision 2026-11-12). For an older AppLoad on the tablet, run
+   `vellum update && vellum add -u appload`. A new AppLoad loads only when the interface starts
+   (step 3).
 2. `/home/root/xovi/rebuild_hashtable`.
-3. Copy the ink patch `dist/sudoku/sudoku-penregion.qmd` to
-   `/home/root/xovi/exthome/qt-resource-rebuilder/`, and write its stamp file
-   `sudoku-penregion.json` next to it.
-4. `/home/root/xovi/start`. Then `/home/root/.vellum/bin/vellum update` and
+3. `/home/root/xovi/start`. Then `/home/root/.vellum/bin/vellum update` and
    `/home/root/.vellum/bin/vellum add tripletap` (the power-button starter). After a restart of the
    tablet, xovi is off and AppLoad is not in the menu. Press the power button 3 times to start xovi.
    The screen starts again after some seconds. After an update of the tablet software, Vellum is
    stale: run `/home/root/.vellum/bin/vellum upgrade` and `/home/root/.vellum/bin/vellum reenable`,
    then `/home/root/xovi/rebuild_hashtable` and `/home/root/xovi/start` again (owner report
    2026-11-03).
+4. If the tablet has the ink patch of a release before 2026-11-12, delete `sudoku-penregion.qmd` and
+   its stamp file `sudoku-penregion.json` in `/home/root/xovi/exthome/qt-resource-rebuilder/`.
 5. Copy the folder `dist/sudoku` (from the Dockerfile) to `/home/root/xovi/exthome/appload/`.
+   AppLoad reads the manifests of the apps only when the interface (xochitl) starts and when the
+   user taps **Reload** in the AppLoad menu. Thus, when the type of the manifest changed (a release
+   before 2026-11-12 has only `external.manifest.json`), or the app folder was not on the tablet
+   before, start the interface again (`/home/root/xovi/start`). For a changed manifest, a tap on
+   **Reload** was sufficient on the tablet (DECISIONS.md, 2026-11-12). The deletion of the patch
+   in step 4 needs no start of the interface: the old patch does nothing in a window of the
+   frontend (its item and its timer operate only while the external framebuffer of the AppLoad
+   window is active).
+
+A new installation has no ink patch and no stamp file (owner decision 2026-11-12; before, a step
+copied the ink patch to `/home/root/xovi/exthome/qt-resource-rebuilder/` and wrote its stamp file).
 
 The installer (§14.6) does these steps automatically.
 
-**Ink patch** (owner decision, 2026-11-01). With the UI waveform of the window, the ink had gaps
-while the pen wrote (DECISIONS.md). The ink patch is a QML patch of AppLoad for qt-resource-rebuilder.
-It puts an area with the Pen screen mode of xochitl (the fast pen waveform) in the window of the app.
-The app gives the area in `/tmp/sudoku-pen-region` ("x y width height", or empty), and the patch
-reads it each 15 ms. The values are in the coordinates of the window of AppLoad: the screen as the
-player sees it, in each rotation of the tablet. AppLoad turns only the drawing of the framebuffer, not
-the items of its window. In portrait they are the framebuffer coordinates; in landscape a framebuffer
-rectangle puts the area on a different cell, and the ink gets the UI waveform (owner report
-2026-11-08: choppy ink with gaps, only in landscape):
+**App folder** (owner decision 2026-11-12). Sudoku is an AppLoad app with a QML frontend. Before,
+it was an external app with a QML patch of the AppLoad window (the ink patch, owner decision
+2026-11-01). The folder `sudoku/` of a release has all of these files:
+
+| File | Use |
+|---|---|
+| `sudoku` | The program. It stays at this position, because the update of the app expects it there ([§9.2](#92-updates)). |
+| `manifest.json` | The manifest of an app with a QML frontend. When a folder has this file and `external.manifest.json`, AppLoad uses this file. |
+| `resources.rcc` | The Qt resource file with the QML of the frontend (the Qt tool `rcc`, binary format, no compression). |
+| `backend/entry` | AppLoad starts this file with the path of a socket. It starts the program `sudoku` of the app folder with that path. Its mode is 755 in the archive itself, because the update of a release before 2026-11-12 sets the executable mode only for `sudoku`. |
+| `external.manifest.json` | The manifest of an external app. It must stay: the update of a release before 2026-11-12 refuses an archive without it. |
+| `icon.png` | The icon in AppLoad. |
+
+The **frontend files** are `manifest.json`, `resources.rcc` and `backend/entry`. The manifest of an
+app with a QML frontend has no `disablesWindowedMode` (refer to **Window mode** below).
+
+**Frontend** (owner decision 2026-11-12, approved on the tablet with the build `dev/qml-frontend`).
+With the UI waveform of the window, the ink had gaps while the pen wrote (DECISIONS.md). Thus the
+cell of the ink gets the fast pen waveform: the **pen area**. `DisplayMethodArea`
+(`import net.asivery.ApploadUtils`, AppLoad v0.5.1 and later) is the public QML item of AppLoad that
+sets the refresh mode of a part of the screen. Only an AppLoad app with a QML frontend can use it; an
+external app cannot. The minimum AppLoad version is **0.6.0** (owner decision 2026-11-12):
+`DisplayMethodArea` came with 0.5.1, but the rotation of the framebuffer, the aspect fit and the size
+of the framebuffer came with 0.6.0 (AppLoad source). On AppLoad 0.5.1 to 0.5.3 (possible only after
+an update of the app, [§9.2](#92-updates)), the frontend still loads: the app stays in portrait, and
+the pen area shows only on the full screen. The app runs in one of two modes:
+
+- **Frontend mode**: AppLoad started `backend/entry`, and the program has the path of the AppLoad
+  socket as argument 1. This is the usual mode.
+- **External mode**: the program has no socket argument. Refer to **External mode** below.
+
+In the frontend mode:
+
+- The frontend shows the qtfb framebuffer of the program on the full window, with the AppLoad item
+  `FBController` (`net.asivery.Framebuffer 1.0`) and a fixed framebuffer ID. The program connects to
+  qtfb with the same ID, and it uses no other ID. It connects after the first "frontend connected"
+  message, thus the framebuffer item has the rotation before the first frame. The program sends no
+  qtfb refresh mode in this mode: the test setting `refresh-mode` has an effect only in the external
+  mode.
+- The frontend puts the UI mode on the full window and the pen mode on the pen area. AppLoad gives
+  the values of `DisplayMethodArea` to the tablet by their position: 0 is the pen mode (`UFast`), 1
+  mono, 2 animation, 3 the UI mode, 4 the content mode. The names `Content` (3) and `UI` (4) of the
+  item are in the opposite order, and the AppLoad author keeps this order. Thus the frontend uses the
+  number 3 for the UI mode, not a name.
+- The program is the backend of the app. AppLoad starts `backend/entry` with the path of a UNIX
+  socket (SOCK_SEQPACKET) as argument 1. Each message on the socket is two packets: a header (the
+  type and the length, two `int`) and the text. A text is never empty, because AppLoad reads an empty
+  packet as the end of the connection. AppLoad sends the type -1 (stop), -2 (a frontend connected;
+  the text is the count of frontends) and -3 (a frontend closed; the text is the count that stays).
+- The program gives the pen area to the frontend as a message of type 1: the rectangle "x y width
+  height", or the text `none` when there is no area. There is no file `/tmp/sudoku-pen-region`,
+  no poll and no patch of the AppLoad window in this mode. The send of the pen area never blocks the
+  input loop. If the send fails, the app continues.
+- The framebuffer ID, the app ID and the message types have one value each for the frontend and the
+  program. For Sudoku: the app ID `sudoku`, the framebuffer ID 0x5355444F and the message type 1 for
+  the pen area.
+- The frontend shows the pen area exactly at the rectangle that the program gave, in each rotation
+  and on each model. It converts the rectangle with the scale and the offset of the framebuffer
+  picture in the window. On the Paper Pro in full screen, the scale is 1 and the offset is 0. On the
+  Paper Pro Move, the area is correct by calculation only: no device test is possible
+  ([§1.1](#11-paper-pro-move); owner decision 2026-11-12).
+- The frontend shows no pen area when the program gave no area, when the program stopped, when the
+  window is minimized or not active, and in a window that is not the full screen.
+- Nothing that the player sees changed with the frontend: all screens, the ink, the marks, the times
+  and the rules of the pen area (below) are the same as with the ink patch (owner approval on the
+  tablet, 2026-11-12).
+
+**Pen area.** The values of the rectangle are in the coordinates of the window of AppLoad: the screen
+as the player sees it, in each rotation of the tablet. AppLoad turns only the drawing of the
+framebuffer, not the items of its window. In portrait they are the framebuffer coordinates; in
+landscape a framebuffer rectangle puts the area on a different cell, and the ink gets the UI waveform
+(owner report 2026-11-08: choppy ink with gaps, only in landscape). The **area wait** is 45 ms: the
+time that the program waits after it gives a new area or a stop, so that the frontend (in the
+external mode: the ink patch) can apply it. The value comes from the ink patch, and it did not
+change: the owner approved the ink with it in the frontend mode (2026-11-12).
 
 - While the player writes in a cell, the area is the inside of that cell, aligned inward to 4 px.
   It does not touch the cells around it, because xochitl refreshes the full area when it starts and
@@ -1870,12 +1992,12 @@ rectangle puts the area on a different cell, and the ink gets the UI waveform (o
   the pen waveform, and the ink of the tap goes away with it. Only the changed pixels go, inside the
   micro-cell. The area does not stop and does not change at the lift: xochitl refreshes the full area
   when it stops or when it changes, and this would refresh the full cell and show the ink of the tap
-  again (owner request 2026-11-07). A tap that is shorter than the time that the patch needs to apply
-  the area (45 ms): the mark waits for that time.
+  again (owner request 2026-11-07). A tap that is shorter than the area wait
+  (45 ms): the mark waits for that time.
 - The area stays on its cell when the pen lifts. It changes only in these cases: a pen press on a
   different empty cell moves it (above); a redraw that needs the UI waveform inside the cell stops it
   first (a number or a "?" in the cell, a change of the micro-cell lines, a panel, a dialog or a
-  different screen over the cell): the redraw goes when the patch applied the stop (45 ms); the cell
+  different screen over the cell): the redraw goes after the area wait (45 ms); the cell
   becomes filled (a Redo or a Restore): the area stops at once; a turn of the tablet stops it. The pen
   waveform shows the pencil marks, the x and the ink of the cell (exactly black or `gray15` on white:
   these three drawings have no anti-aliasing, [§15](#15-visual-specification)): a redraw
@@ -1890,10 +2012,10 @@ rectangle puts the area on a different cell, and the ink gets the UI waveform (o
   stop of the area would refresh the full cell (owner decision 2026-11-08: only the micro-cell
   changes). When the pen leaves the micro-cell, the touch is writing and the area comes to the
   cell. If the area is on the cell already and the mark is older than the area (the area came to
-  the cell for a different mark), the area stops before the removal, and the removal goes when the
-  patch applied the stop (45 ms).
+  the cell for a different mark), the area stops before the removal, and the removal goes after the
+  area wait (45 ms).
 - A pen touch that starts on a filled cell starts no area ([§5.1](#51-rules); owner approval 2026-11-07).
-- The ink waits until the patch can apply a new area (45 ms). A redraw also waits for it, so that a mark
+- The ink waits until the new area can be applied (the area wait, 45 ms). A redraw also waits for it, so that a mark
   gets the pen waveform and colored cells get the UI waveform.
 - While the player writes, a redraw waits. The writing starts with the first stroke on the board.
   It stops when the app has read the last ink and the pen has written nothing on the board for
@@ -1908,11 +2030,70 @@ rectangle puts the area on a different cell, and the ink gets the UI waveform (o
   does not stop the ink in the next cell (owner decision 2026-11-02). Ink in the area does not wait
   for an older update there. The pixels of the x or of the "?" also wait for this redraw, thus they
   can stay under the ink until the writing stops (§5.1; owner decision 2026-11-04).
+
+**Start and stop of the program** (review of the prototype, 2026-11-12). In the frontend mode, one
+open of the app is one process:
+
+- When the program closes the socket or stops, AppLoad closes the window. A backend stays in the
+  background unless the frontend stops it. Thus the frontend stops the program when its window
+  closes (AppLoad calls `unloading()` of the frontend).
+- The program saves the game, removes the waiting ink ([§14.3](#143-game-in-progress-kept-when-the-app-closes))
+  and stops when its window closes by any cause: the close button of the app ([§9](#9-the-menu)), the
+  X of the AppLoad top bar, the stop message of AppLoad, a "frontend closed" message with the count
+  0, or the end of the connection. A program never runs with no window.
+- If no frontend connects in **10 s** after the start, the program saves the game and stops. Reason:
+  a frontend that cannot load (for example with an AppLoad that is too old) must not leave a program
+  in the background (LCH-2; owner decision 2026-11-12).
+
+**Rotation and top bar.** A QML frontend has no public value for the rotation of the tablet and no
+public function for the top bar of AppLoad. The frontend uses the value `globalRotation` and the
+function `swipeFromTheTop()` of the AppLoad window. It also reads the values `fullscreen` and
+`minimized` of that window (**Window mode** below). These four are internal names of AppLoad: examine
+them after each update of AppLoad. The rotation gets to the program as before: the frontend gives the
+rotation of the AppLoad window to the framebuffer item, and AppLoad sends it to the program on the
+qtfb connection. With them, the app shows its layout for the rotation of the tablet
+([§3.3](#33-landscape)), also when it starts with the tablet in landscape, and a drag from the top
+edge shows the top bar of AppLoad (owner approval on the tablet, 2026-11-12). If the frontend cannot
+find the rotation value or the top bar function, the app stays in portrait and operates fully, and
+the log gets one line. The app never shows a turned or a cut screen.
+
+**Window mode** (owner decision 2026-11-12). A long press on the icon of the app in AppLoad opens the
+app in a small window: the manifest of an app with a QML frontend cannot turn this off. In a window
+that is not the full screen, the app operates with a scaled picture, and the frontend shows no pen
+area. The ink is slower there. The frontend knows the full screen, and a minimized window, from the
+values `fullscreen` and `minimized` of the AppLoad window (internal names, above). If it cannot find
+the window, it knows the full screen only from the picture: the scale is 1 and the offset is 0.
+
+**Other apps of the project** (owner decision 2026-11-12). The corpus app `Sudoku (corpus)` has the
+same frontend, with its own app ID (`sudoku-corpus`) and its own framebuffer ID (0x53554443): no two
+installed apps have the same app ID or the same framebuffer ID. The color picker `Sudoku (colors)` stays an external app with no
+pen area, and its folder has no frontend files. The Paper Pro Move uses the frontend, as the Paper
+Pro.
+
+**External mode.** Without the socket argument, the program runs as an external app, as the releases
+before 2026-11-12: it connects to qtfb with `QTFB_KEY`, and it gives the pen area in the file
+`/tmp/sudoku-pen-region` ("x y width height", or empty). This mode stays for an update of the app
+from a release before 2026-11-12 ([§9.2](#92-updates)): AppLoad keeps the old manifest until the
+interface starts again or the user taps **Reload**, thus the new program first runs as an external
+app.
+
+- The old ink patch (`sudoku-penregion.qmd` in `/home/root/xovi/exthome/qt-resource-rebuilder/`) is a
+  QML patch of the AppLoad window for qt-resource-rebuilder. It reads the file each 15 ms and puts an
+  area with the Pen screen mode of xochitl at the rectangle. No release from 2026-11-12 has this
+  file, and the app does not install it. Only the patch that an earlier release put on the tablet can
+  be there.
 - xochitl reads the patch only when it starts. The app uses the area only if the patch was installed
   before xochitl started. Without the patch, the app sends the ink so that an update never touches
   changed pixels of an update in progress.
 - An update of the tablet software or of AppLoad can stop the patch. Then the window opens, but the
   ink can have gaps.
+- In the external mode, the app keeps the old patch, its stamp file `sudoku-penregion.json` and
+  `/tmp/sudoku-pen-region`. The app deletes these three files only when it runs in the frontend mode
+  (owner decision 2026-11-12). The app no longer reads or writes the stamp file (before: owner
+  decision 2026-11-01, it gave the version and the checksum of the installed patch).
+- The texts "when the ink patch is not active" of [§5.2](#52-input-decisions) and
+  [§6.2](#62-highlights) apply only to this mode. In the frontend mode, the program always operates
+  as with the pen area in use.
 
 **Crisp pixels in the pen area** (owner approval 2026-11-07, on the tablet). The pixel conversion of
 xochitl for the pen waveform sends gray pixels (the anti-aliased edges of a drawing) through the
@@ -1938,18 +2119,10 @@ rejected). This is the behavior for all players: no setting, no
 environment variable and no file changes it, and it is the same in all four layouts, in the first
 frame, in a redraw, in the snapshot tool, in the bench and in the videos.
 
-**Stamp file** (owner decision 2026-11-01). Next to the patch, the file
-`/home/root/xovi/exthome/qt-resource-rebuilder/sudoku-penregion.json` gives the version that
-installed the patch and the SHA-256 checksum of the patch:
-`{"version": "v<version>", "sha256": "<checksum>"}`. The installer (§14.6) and the update of the app
-(§9.2) write it each time that they install the patch. The installer of a preview version writes
-`pre-<sha>` as the version. The update compares the checksum of the new
-patch only with the checksum in this file. For the update, a missing stamp file means that the patch
-must be replaced.
-
 The close button shows the reMarkable interface again. AppLoad draws a black line of 2 px around the
 window of each app, also in full screen. The app cannot remove it. The app does not put content at
-the outer 2 px of the screen that is necessary to play.
+the outer 2 px of the screen that is necessary to play. The line was measured in the window of an
+external app (DECISIONS.md, 2026-10-25); it is not examined yet in the window of the frontend.
 
 ### 14.5 Puzzle generation
 
@@ -2014,8 +2187,9 @@ app opens a results database of version 1, it moves the rows to the new table wi
 ### 14.6 Installer
 
 `install.sh` installs the app on the tablet from a computer (macOS or Linux). Each release has this
-file. It installs the archive and the ink patch of its release. release.yml writes the version and
-the two checksums into it. The command for the latest stable release is:
+file. It installs the archive of its release. release.yml writes the version and the checksum of
+the archive into it. A release has no ink patch file (owner decision 2026-11-12). For an older
+release that has an ink patch, refer to step 2. The command for the latest stable release is:
 
 ```bash
 curl -fsSL https://github.com/garbles/sudoku/releases/latest/download/install.sh | bash
@@ -2035,7 +2209,7 @@ The installer has these requirements (owner decision, 2026-10-27):
   other than letters, digits, `.`, `_` and `-` stops the installer.
   `SUDOKU_VERSION` selects a release with no question, for example `v0.1.2` or the preview version
   `pre-1a2b3c4` (`0.1.2` gets the prefix `v`). For a version that is not the latest, the installer
-  reads the two checksums (archive and ink patch) from `version.json` of that release. If GitHub does not have the release, the
+  reads the checksum of the archive from `version.json` of that release, and also the checksum of the ink patch (`patch_sha256`) if that release has it. If GitHub does not have the release, the
   installer stops. For a preview version, it shows a warning.
 - **Idempotent.** Each installation step (4 to 11) examines the tablet or the computer first. If
   the step is done, the installer shows "(done already)" and does not change it. Steps 1 to 3 always
@@ -2055,16 +2229,16 @@ The steps:
 | Step | Examination | Action |
 |---|---|---|
 | 1. Programs | `ssh`, `ssh-keygen`, `curl`, `tar` and `sha256sum` or `shasum` | If a program is missing, the installer tells how to install it and stops. |
-| 2. Download | – | Asks for the version (or uses `SUDOKU_VERSION`). For a version that is not the latest, downloads `version.json` of that release. Downloads `sudoku-<version>.tar.gz` and the ink patch `sudoku-penregion.qmd` of the release, and compares their SHA-256 checksums. If a checksum is not correct, the installer stops. A release with no `patch_sha256` has no separate patch: then step 8 does nothing. |
+| 2. Download | – | Asks for the version (or uses `SUDOKU_VERSION`). For a version that is not the latest, downloads `version.json` of that release. Downloads `sudoku-<version>.tar.gz` of the release, and compares its SHA-256 checksum. A release with no patch fields in `version.json` has no ink patch, and the installer downloads none. For a release whose `version.json` has `patch_sha256` (a release before the frontend), the installer does as before for that release: it also downloads the ink patch `sudoku-penregion.qmd` of the release and compares its checksum (owner decision 2026-11-12). If a checksum is not correct, the installer stops. |
 | 3. Connection | SSH to `REMARKABLE_HOST` if it is set, else to `10.11.99.1` (the USB cable). The installer tells which of the two it uses | No answer on USB: instructions for the USB cable. No answer on Wi-Fi (`REMARKABLE_HOST`): instructions for Wi-Fi, then a menu: "Try again" (Wi-Fi again) or "Use the USB cable" (the installer continues with `10.11.99.1`). Connection refused: instructions for developer mode (with the caution that it erases the tablet). Changed host key: the installer removes the old key after a confirmation. |
 | 4. SSH key | `~/.ssh/id_ed25519_remarkable`, and the tablet accepts it | Makes the key (ed25519, no passphrase). Adds it to `/home/root/.ssh/authorized_keys`, with a different key of the computer or with the root password. The installer tells where the password is (Settings > General > Help > About > Copyrights and licenses). Shows the tablet model and software version. A tablet that is not a Paper Pro or a Paper Pro Move needs a confirmation. On a Paper Pro Move, a warning tells that the app has not been tested on a real Paper Pro Move, and where to report a problem. |
 | 5. Vellum | `/home/root/.vellum/bin/vellum` | Examines the internet connection of the tablet (instructions for Wi-Fi). Downloads the latest Vellum bootstrap script on the computer (curl examines the TLS certificate) and runs it on the tablet. The installer keeps no checksum of this script, because each Vellum release changes it. |
-| 6. AppLoad | `/home/root/xovi/extensions.d/appload.so` | Examines the internet connection of the tablet (instructions for Wi-Fi). Then `vellum update`, then `vellum add appload`. |
+| 6. AppLoad | `/home/root/xovi/extensions.d/appload.so`, and this AppLoad is v0.6.0 or newer ([§14.4](#144-launcher); owner decision 2026-11-12): `appload.so` has the text `fbRotation`, which came with 0.6.0 (the text `ApploadUtils` of `DisplayMethodArea` is in 0.5.1 and later, thus it is not sufficient) | Examines the internet connection of the tablet (instructions for Wi-Fi). Then `vellum update`, then `vellum add appload`. When AppLoad is on the tablet but is older than 0.6.0, the installer runs `vellum update && vellum add -u appload` (owner decision 2026-11-12): Vellum is a wrapper of apk, and `vellum add appload` does not update an installed AppLoad. This command was not run on the tablet (its AppLoad was the latest; DECISIONS.md), and the `fbRotation` check is not examined there yet. A new AppLoad loads only when the interface starts: refer to step 11. Only the installer examines the AppLoad version: the update of the app ([§9.2](#92-updates)) does not. |
 | 7. Hashtable | The state of Vellum after an update of the tablet software (the warning "reenable has not been run" from `vellum info remarkable-os`), and `/home/root/xovi/exthome/qt-resource-rebuilder/hashtab` | When Vellum does not report a change, the step skips when the hashtab file exists; else it tells the user that the screen stops for 1 to 2 minutes, then runs `xovi/rebuild_hashtable`. When Vellum reports a change, first tells the user "The tablet software changed. The installer updates Vellum and the xovi files." and examines the internet connection of the tablet (instructions for Wi-Fi). Then it tells the user that the screen stops for 1 to 2 minutes, shows "Updating Vellum after the tablet software change...", runs `vellum upgrade` and `vellum reenable`, and rebuilds the hashtable also when the hashtab file exists. If the command fails or Vellum still reports a change, the installer stops with "Vellum could not update the packages after the tablet software change." |
-| 8. Ink patch | The SHA-256 checksum of `sudoku-penregion.qmd` in `xovi/exthome/qt-resource-rebuilder` and the checksum in its stamp file `sudoku-penregion.json` are equal to the checksum of the downloaded patch | Copies the ink patch (§14.4) to the tablet. The tablet examines the checksum before it replaces the patch. Then it writes the stamp file with the version of the installer and the checksum. If only the stamp file is missing or different, the installer writes it, and step 9 does not start xovi again. |
-| 9. xovi | `xochitl` has `xovi.so`, step 8 did not replace the patch, and step 7 made no update after a change of the tablet software | Runs `xovi/start` (the user interface starts again). The patch operates only after this start. After a change of the tablet software, it shows "xovi must start again after the tablet software change." and starts xovi, also when xovi is on, after the message for the ink patch when that also applies. If step 7 showed the warning that the screen stops, this step does not show it again. |
+| 8. Ink patch | A release with no patch fields: `xovi/exthome/qt-resource-rebuilder` on the tablet has no `sudoku-penregion.qmd` and no stamp file `sudoku-penregion.json`. A release with `patch_sha256`: the SHA-256 checksum of `sudoku-penregion.qmd` on the tablet and the checksum in its stamp file are equal to the checksum of the downloaded patch | A release with no patch fields: deletes the old ink patch and its stamp file from the tablet, if they are there. An installation before 2026-11-12 put them there ([§14.4](#144-launcher)). A release with `patch_sha256` (owner decision 2026-11-12: as before for that release): copies the ink patch to the tablet and does not delete it. The tablet examines the checksum before it replaces the patch. Then the installer writes the stamp file (`{"version": "<version>", "sha256": "<checksum>"}`) with the version of the installer and the checksum. If only the stamp file is missing or different, the installer writes it, and step 9 does not start xovi again. |
+| 9. xovi | `xochitl` has `xovi.so`, step 8 did not replace the patch (only a release with `patch_sha256`), and step 7 made no update after a change of the tablet software | Runs `xovi/start` (the user interface starts again). A replaced patch operates only after this start. After a change of the tablet software, it shows "xovi must start again after the tablet software change." and starts xovi, also when xovi is on, after the message for the ink patch when that also applies. If step 7 showed the warning that the screen stops, this step does not show it again. A deleted patch (a release with no patch fields) is not a cause of a start of the interface, in this step or in step 11 (step 11 gives the three causes): the old patch does nothing in a window of the frontend, and each start of the interface has a risk (owner decision 2026-11-12). |
 | 10. Power button starter | The systemd unit `xovi-tripletap` is enabled and active | When the step is not done, shows the two information lines: "After a restart, xovi is off, and AppLoad is not in the menu." and "A triple press of the power button starts xovi again." Then examines the internet connection of the tablet (instructions for Wi-Fi), shows "Installing the power-button starter...", runs `vellum update`, then `vellum add tripletap`, and examines the service. If the service is not on, shows "Repairing the power-button starter...", runs the starter's `/home/root/xovi-tripletap/enable.sh` if it is present (else `vellum reenable` and `systemctl start xovi-tripletap`), and examines the service again. On success, shows "The power button starts xovi." If Vellum fails or the service is still not on, the installer stops before Sudoku. |
-| 11. Sudoku | The SHA-256 checksum of the installed `sudoku` is equal to the checksum in the archive | Copies the archive to the tablet and replaces the AppLoad folder `sudoku` only after all checks. The saved data (§14.1–14.3) does not change. |
+| 11. Sudoku | The AppLoad folder `sudoku` on the tablet has all files of the folder `sudoku/` of the archive (a release with the frontend: `sudoku`, `manifest.json`, `resources.rcc`, `backend/entry`, `external.manifest.json` and `icon.png`, [§14.4](#144-launcher)), and the SHA-256 checksum of each of them is equal to the checksum of that file in the archive (before 2026-11-12: only `sudoku`) | Copies the archive to the tablet and replaces the AppLoad folder `sudoku` only after all checks. The saved data (§14.1–14.3) does not change. Then the installer runs `xovi/start` (the interface starts again after the app folder is on the tablet) in exactly these three cases: the type of the manifest of the app on the tablet changed (an older release has only `external.manifest.json`); the app folder was not on the tablet before; step 6 updated AppLoad. Reason: AppLoad reads the manifests only when the interface starts and at **Reload**, and a new AppLoad loads only when the interface starts (§14.4). Thus a tap on Sudoku in AppLoad opens the app with the frontend, with no other action of the user (owner decision 2026-11-12). |
 
 At the end, a box tells how to open the app. After a restart of the tablet, xovi is off and AppLoad
 is not in the menu. Press the power button 3 times to start xovi. The screen starts again after some
@@ -2228,7 +2402,7 @@ micro-cell lines.
 | [`settings-up-to-date.png`](images/pro/settings-up-to-date.png) | [§9.2](#92-updates) |
 | [`settings-check-updates.png`](images/pro/settings-check-updates.png) | [§9.2](#92-updates) |
 | [`settings-restart.png`](images/pro/settings-restart.png) | [§9.2](#92-updates) |
-| [`update-restart.png`](images/pro/update-restart.png) | [§9.2](#92-updates) |
+| [`update-restart.png`](images/pro/update-restart.png) (the restart dialog, with the text of 2026-11-12: "The update is not complete. To complete it,") | [§9.2](#92-updates) |
 | [`screen-toolbar-update.png`](images/pro/screen-toolbar-update.png) | [§9.2](#92-updates) |
 | [`analytics-delete-all.png`](images/pro/analytics-delete-all.png) | [§13.1](#131-summary) |
 | `analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png` | [§3.3](#33-landscape), [§13](#13-statistics) |

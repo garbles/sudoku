@@ -1,5 +1,7 @@
-//! The device: AppLoad (qtfb) input and output, the save files and the main loop.
+//! The device: AppLoad (qtfb) input and output, the connection to the QML frontend, the save files
+//! and the main loop.
 
+pub mod appload;
 pub mod colors;
 pub mod evdev;
 pub mod qtfb;
@@ -13,6 +15,7 @@ use std::time::{Duration, Instant};
 use crate::app::{App, Input, Tool};
 use crate::font::Fonts;
 use crate::game::Game;
+use crate::launch::{self, Frontends, Launch};
 use crate::present::{self, Presenter};
 use crate::render;
 use crate::settings::Settings;
@@ -45,15 +48,17 @@ impl Paths {
     }
 }
 
-/// The ink patch: a QML patch of AppLoad that shows the pen region (`appload/sudoku/sudoku-penregion.qmd`).
-/// install.sh and the update (§9.2) copy it to `update::PATCH_DIR`.
+/// The ink patch of the releases before the frontend: a QML patch of the AppLoad window that shows
+/// the pen region of an external app. No release has it now, and the app does not install it: only
+/// the patch that an earlier release put in `update::PATCH_DIR` can be there (R§14.4, "External
+/// mode"). The frontend mode deletes it (UPD-11).
 fn pen_region_patch() -> PathBuf {
     Path::new(update::PATCH_DIR).join(update::PATCH_NAME)
 }
 
-/// True if xochitl applied the ink patch: the patch is installed, and xochitl (the parent process,
-/// because AppLoad starts the app) started after the patch was copied. xochitl reads the patches only
-/// when it starts. If the parent is not xochitl, the file is sufficient.
+/// The external mode: true if xochitl applied the ink patch: the patch is installed, and xochitl (the
+/// parent process, because AppLoad starts the app) started after the patch was copied. xochitl reads
+/// the patches only when it starts. If the parent is not xochitl, the file is sufficient.
 fn pen_region_patch_active() -> bool {
     let Ok(modified) = std::fs::metadata(pen_region_patch()).and_then(|m| m.modified()) else { return false };
     // SAFETY: getppid has no preconditions.
@@ -62,8 +67,9 @@ fn pen_region_patch_active() -> bool {
     if comm.trim() != "xochitl" {
         return true;
     }
-    // The boot time has whole seconds, thus the start time can be up to 1 s early. install.sh copies
-    // the patch and starts xochitl again at once: a tolerance of 2 s accepts this.
+    // The boot time has whole seconds, thus the start time can be up to 1 s early. The installer of an
+    // earlier release copied the patch and started xochitl again at once: a tolerance of 2 s accepts
+    // this.
     match process_start(ppid) {
         Some(started) => modified <= started + Duration::from_secs(2),
         None => true,
@@ -85,12 +91,12 @@ fn process_start(pid: libc::pid_t) -> Option<std::time::SystemTime> {
     Some(std::time::UNIX_EPOCH + Duration::from_secs(btime) + Duration::from_millis(ticks * 1000 / hz))
 }
 
-/// The file that gives the pen region to the patch: "x y width height" (physical pixels), or empty
-/// for no region. The patch reads it each 15 ms.
+/// The external mode: the file that gives the pen region to the ink patch: "x y width height" (the
+/// coordinates of the window), or empty for no region. The patch reads it each 15 ms.
 const PEN_REGION_FILE: &str = "/tmp/sudoku-pen-region";
 
-/// Writes the pen region for the patch. A rename replaces the file in one step, so that the patch
-/// never reads a part of it.
+/// The external mode: writes the pen region for the ink patch. A rename replaces the file in one
+/// step, so that the patch never reads a part of it.
 fn write_pen_region(region: Option<present::Update>) {
     let text = region.map_or(String::new(), |(x, y, w, h)| format!("{x} {y} {w} {h}\n"));
     let tmp = format!("{PEN_REGION_FILE}.tmp");
@@ -120,11 +126,108 @@ fn save(app: &mut App, paths: &Paths, saver: &Saver) {
     }
 }
 
+/// How the program gives the pen area to AppLoad (LCH-9).
+enum Link {
+    /// The frontend mode: a message on the AppLoad socket for the QML frontend.
+    Frontend {
+        socket: appload::Socket,
+        /// The last area that the presenter gave. A frontend that connects gets it again.
+        area: Option<present::Update>,
+    },
+    /// The external mode: the file for the ink patch of an earlier release.
+    External,
+}
+
+impl Link {
+    /// Gives the pen area `area` (None: no area). The call never waits, and a failure does not stop
+    /// the app (LCH-7).
+    fn give_pen_area(&mut self, area: Option<present::Update>) {
+        match self {
+            Link::Frontend { socket, area: last } => {
+                *last = area;
+                socket.send_pen_area(launch::pen_area_text(area));
+            }
+            Link::External => write_pen_region(area),
+        }
+    }
+}
+
+/// Why the main loop stopped. For each cause, the program saves the game and removes the waiting ink
+/// (LCH-1, NAV-6, PER-1, PER-6).
+#[derive(Clone, Copy)]
+enum End {
+    /// The close button of the app.
+    Quit,
+    /// A signal (SIGTERM, SIGINT or SIGHUP).
+    Signal,
+    /// The qtfb connection closed.
+    Framebuffer,
+    /// The frontend mode: a cause from AppLoad or from the frontend.
+    Frontend(launch::Stop),
+}
+
+impl End {
+    /// The cause, for the log.
+    fn cause(self) -> &'static str {
+        match self {
+            End::Quit => "the close button of the app",
+            End::Signal => "a signal",
+            End::Framebuffer => "the end of the qtfb connection",
+            End::Frontend(launch::Stop::Message) => "the stop message of AppLoad",
+            End::Frontend(launch::Stop::NoFrontendLeft) => "the last frontend closed",
+            End::Frontend(launch::Stop::ConnectionEnd) => "the end of the AppLoad connection",
+            End::Frontend(launch::Stop::NoFrontendInTime) => "no frontend connected in the connect time",
+        }
+    }
+}
+
+/// Reads the messages of AppLoad that are here. Returns the cause if the program must stop (LCH-1).
+/// A frontend that connects gets the pen area `area` again.
+fn read_appload(socket: &mut appload::Socket, frontends: &mut Frontends, area: Option<present::Update>) -> Option<launch::Stop> {
+    loop {
+        match socket.try_recv() {
+            Ok(Some((kind, text))) => {
+                if let Some(stop) = frontends.message(kind, &text) {
+                    return Some(stop);
+                }
+                if kind == launch::MSG_FRONTEND_CONNECTED {
+                    eprintln!("sudoku: a frontend connected (count {})", text.trim());
+                    socket.send_pen_area(launch::pen_area_text(area));
+                }
+            }
+            Ok(None) => return None,
+            Err(_) => return Some(launch::Stop::ConnectionEnd),
+        }
+    }
+}
+
+/// The frontend mode: waits until the first frontend connects, before the program connects to the
+/// framebuffer and draws. Returns the cause if the program must stop: no frontend connected in the
+/// connect time after `start` (LCH-2), or AppLoad or a signal stopped the program first. Thus a
+/// frontend that cannot load does not leave a program in the background.
+fn wait_for_frontend(socket: &mut appload::Socket, frontends: &mut Frontends, start: Instant) -> Option<End> {
+    loop {
+        if let Some(stop) = read_appload(socket, frontends, None) {
+            return Some(End::Frontend(stop));
+        }
+        if STOP.load(Ordering::SeqCst) {
+            return Some(End::Signal);
+        }
+        let ms = start.elapsed().as_millis() as u64;
+        if let Some(stop) = frontends.late(ms) {
+            return Some(End::Frontend(stop));
+        }
+        let wait = frontends.wait_ms(ms)?;
+        let mut pfd = libc::pollfd { fd: socket.fd(), events: libc::POLLIN, revents: 0 };
+        // SAFETY: one valid pollfd.
+        unsafe { libc::poll(&mut pfd, 1, wait.clamp(1, 1000) as libc::c_int) };
+    }
+}
+
 /// The result of update work on a background thread (REQUIREMENTS.md §9.2).
 enum UpdateResult {
     Checked(Result<Manifest, String>),
-    /// `Ok(true)`: the installation replaced the ink patch.
-    Installed(Result<bool, String>),
+    Installed(Result<(), String>),
 }
 
 /// Gets a file over HTTPS. GitHub sends a redirect to the file.
@@ -147,13 +250,9 @@ fn start_update(request: UpdateRequest, results: mpsc::Sender<UpdateResult>, sta
                 let app_dir = app_dir.ok_or("the folder of the app is not known")?;
                 eprintln!("sudoku: install {} from {} in {}", m.version, m.url, app_dir.display());
                 let archive = download(&m.url, Duration::from_secs(300))?;
-                let patch = match &m.patch {
-                    Some(p) => Some(download(&p.url, Duration::from_secs(60))?),
-                    None => None,
-                };
-                let changed = update::install_release(&archive, patch.as_deref(), &m, &staging, &app_dir, Path::new(update::PATCH_DIR))?;
-                eprintln!("sudoku: installed {} (ink patch {})", m.version, if changed { "replaced" } else { "not changed" });
-                Ok(changed)
+                update::install(&archive, &m, &staging, &app_dir)?;
+                eprintln!("sudoku: installed {}", m.version);
+                Ok(())
             })()),
         };
         let _ = results.send(result);
@@ -163,8 +262,8 @@ fn start_update(request: UpdateRequest, results: mpsc::Sender<UpdateResult>, sta
 /// The script of xovi that starts xochitl again with the extensions and the patches.
 const XOVI_START: &str = "/home/root/xovi/start";
 
-/// Starts the reMarkable interface again with xovi, so that xochitl reads the new ink patch (§9.2,
-/// "Restart"). xovi/start stops xochitl, and systemd then stops all processes of the xochitl
+/// Starts the reMarkable interface again with xovi, so that AppLoad reads the new manifest of the
+/// app (§9.2, "Restart"). xovi/start stops xochitl, and systemd then stops all processes of the xochitl
 /// service, also this app and its children. Thus systemd-run starts the script in a unit of its own.
 /// If systemd-run is not available, the script starts in a new session.
 fn restart_interface() -> Result<(), String> {
@@ -264,13 +363,26 @@ pub fn self_test(out: &str, seconds: u64) -> Result<(), String> {
     Ok(())
 }
 
-pub fn run() -> Result<(), String> {
+/// Runs the app. `socket` is argument 1 of the program: the path of the AppLoad socket in the
+/// frontend mode, or None in the external mode (LCH-9).
+pub fn run(socket: Option<String>) -> Result<(), String> {
+    // The connect time of LCH-2 starts here.
+    let start = Instant::now();
     // SAFETY: the handler only stores into an atomic.
     unsafe {
         for sig in [libc::SIGTERM, libc::SIGINT, libc::SIGHUP] {
             libc::signal(sig, on_signal as *const () as libc::sighandler_t);
         }
     }
+    // The frontend mode: connect to AppLoad first. AppLoad knows that the program runs only after
+    // this connection.
+    let mut link = match socket.as_deref() {
+        Some(path) => {
+            let socket = appload::Socket::connect(path).map_err(|e| format!("cannot connect to AppLoad at {path}: {e}"))?;
+            Link::Frontend { socket, area: None }
+        }
+        None => Link::External,
+    };
     // The tablet, before the first layout value (REQUIREMENTS.md §1): the code name of the device tree.
     let machine = std::fs::read_to_string("/sys/devices/soc0/machine").unwrap_or_default();
     let device = crate::layout::Model::detect(&machine).device();
@@ -287,7 +399,13 @@ pub fn run() -> Result<(), String> {
     let db = ResultsDb::open(&paths.results).map_err(|e| format!("cannot open the results database: {e}"))?;
     let saved: Option<Game> = store::load_json(&paths.game);
     let settings: Option<Settings> = store::load_json(&paths.settings);
-    let mut app = App::new(saved, settings, db, Box::new(SystemEnv::new()), render::ng_stops(&fonts));
+    // The folder of the program is found now: an installation renames it (REQUIREMENTS.md §9.2).
+    let app_dir = app_dir();
+    // In the external mode, the update is not complete if the app folder has the frontend files:
+    // AppLoad still uses the old manifest (UPD-10).
+    let mode = Launch::of_start(socket.as_deref(), || app_dir.as_deref().is_some_and(launch::has_frontend_files));
+    eprintln!("sudoku: launch {mode:?}");
+    let mut app = App::with_launch(mode, saved, settings, db, Box::new(SystemEnv::new()), render::ng_stops(&fonts));
     let game_path = paths.game.clone();
     // If the file `log-ink` is in the data folder, each reading of ink goes to `ink-log.jsonl` (one JSON
     // line: the strokes and the result). It is only for an examination of the recognizer.
@@ -318,15 +436,49 @@ pub fn run() -> Result<(), String> {
     crate::corpus::setup(&mut app, &data_dir);
     save(&mut app, &paths, &saver);
 
-    let key: i32 = std::env::var("QTFB_KEY")
-        .map_err(|_| "QTFB_KEY is not set. Start the app from AppLoad.".to_string())?
-        .parse()
-        .map_err(|_| "QTFB_KEY is not a number".to_string())?;
+    let now_ms = || start.elapsed().as_millis() as u64;
+    let result = show(&mut app, &fonts, &paths, &saver, &mut link, app_dir, start);
+    match &result {
+        Ok(end) => eprintln!("sudoku: the app stops ({})", end.cause()),
+        Err(e) => eprintln!("sudoku: the app stops: {e}"),
+    }
+    // The app closes: ink that waits is removed (PER-6) and the game is saved (PER-1, NAV-6). This
+    // is the same for each cause of the stop (LCH-1, LCH-2).
+    app.tick(now_ms());
+    app.suspend();
+    save(&mut app, &paths, &saver);
+    if !saver.flush() {
+        eprintln!("sudoku: the last save failed");
+    }
+    result.map(|_| ())
+}
+
+/// Connects to the framebuffer and runs the main loop until the app must stop. Returns the cause.
+/// `run` saves the game after it.
+fn show(app: &mut App, fonts: &Fonts, paths: &Paths, saver: &Saver, link: &mut Link, app_dir: Option<PathBuf>, start: Instant) -> Result<End, String> {
+    let now_ms = || start.elapsed().as_millis() as u64;
+    let mut frontends = Frontends::new();
+    let key: i32 = match link {
+        Link::Frontend { socket, .. } => {
+            // LCH-2: no window shows before the frontend loads, thus the program waits for it. Then
+            // the framebuffer item of the frontend has the rotation of the tablet for the first frame.
+            if let Some(end) = wait_for_frontend(socket, &mut frontends, start) {
+                return Ok(end);
+            }
+            // UPD-11: the ink patch of an earlier release has no more use. It does nothing in the
+            // window of the frontend.
+            update::remove_ink_patch(Path::new(update::PATCH_DIR), Path::new(PEN_REGION_FILE));
+            // LCH-5: the frontend shows the framebuffer with this fixed ID.
+            launch::IDS.framebuffer_id
+        }
+        Link::External => std::env::var("QTFB_KEY")
+            .map_err(|_| "QTFB_KEY is not set. Start the app from AppLoad.".to_string())?
+            .parse()
+            .map_err(|_| "QTFB_KEY is not a number".to_string())?,
+    };
     let mut conn = qtfb::Connection::connect(key).map_err(|e| format!("cannot connect to qtfb: {e}"))?;
     let eraser = evdev::Eraser::start();
 
-    let start = Instant::now();
-    let now_ms = || start.elapsed().as_millis() as u64;
     // AppLoad sends the rotation of the tablet when the app connects. Wait for it (a short time) before
     // the first drawing, so that the app does not show a portrait screen first in landscape. Input
     // that comes first is kept for the main loop.
@@ -343,7 +495,7 @@ pub fn run() -> Result<(), String> {
                 Ok(Some(qtfb::Event::Rotation(r))) => {
                     eprintln!("sudoku: rotation {r} at the start, {:?} after the connection", connected.elapsed());
                     crate::layout::set_rotation(r);
-                    app.rotate(render::ng_stops(&fonts));
+                    app.rotate(render::ng_stops(fonts));
                     break 'wait;
                 }
                 Ok(Some(qtfb::Event::Input(m))) => early_input.push(m),
@@ -353,25 +505,37 @@ pub fn run() -> Result<(), String> {
         }
     }
     let mut presenter = Presenter::new();
-    // The ink patch shows the pen region. Without it, the app does not use one.
-    presenter.use_pen_region = pen_region_patch_active();
+    // The frontend always shows the pen area. In the external mode, only the ink patch of an earlier
+    // release shows it: without that patch, the app does not use a pen region.
+    presenter.use_pen_region = match link {
+        Link::Frontend { .. } => true,
+        Link::External => pen_region_patch_active(),
+    };
     eprintln!("sudoku: pen region {}", if presenter.use_pen_region { "on" } else { "off" });
-    write_pen_region(None);
+    link.give_pen_area(None);
     // For a test on the device: SUDOKU_INK_WAVE_MS, or the file `ink-wave-ms` in the data folder,
     // changes the time that the app gives an update to complete (default present::INK_WAVE_MS).
     if let Some(ms) = test_setting("SUDOKU_INK_WAVE_MS", "ink-wave-ms").and_then(|s| s.trim().parse::<u64>().ok()) {
         eprintln!("sudoku: ink wave time {ms} ms");
         presenter.set_wave_ms(ms);
     }
-    // One refresh mode for the full time: a change of the mode makes AppLoad refresh the full window,
-    // which shows as a flash. For a test on the device, SUDOKU_REFRESH_MODE, or the file
-    // `refresh-mode` in the data folder, selects another mode (refer to `RefreshMode::from_name`).
-    let refresh_mode = test_setting("SUDOKU_REFRESH_MODE", "refresh-mode")
-        .and_then(|name| qtfb::RefreshMode::from_name(&name))
-        .unwrap_or(qtfb::RefreshMode::Ui);
-    eprintln!("sudoku: refresh mode {refresh_mode:?}");
-    conn.set_refresh_mode(refresh_mode).ok();
-    presenter.draw_all(&app, &fonts, conn.pixels());
+    match link {
+        // The frontend sets the refresh modes: the UI mode on the full window and the pen mode on the
+        // pen area (R§14.4). The program sends no refresh mode: the message would change nothing on
+        // the screen, and the server of AppLoad waits 1 s after it.
+        Link::Frontend { .. } => eprintln!("sudoku: the frontend sets the refresh mode"),
+        // One refresh mode for the full time: a change of the mode makes AppLoad refresh the full
+        // window, which shows as a flash. For a test on the device, SUDOKU_REFRESH_MODE, or the file
+        // `refresh-mode` in the data folder, selects another mode (refer to `RefreshMode::from_name`).
+        Link::External => {
+            let refresh_mode = test_setting("SUDOKU_REFRESH_MODE", "refresh-mode")
+                .and_then(|name| qtfb::RefreshMode::from_name(&name))
+                .unwrap_or(qtfb::RefreshMode::Ui);
+            eprintln!("sudoku: refresh mode {refresh_mode:?}");
+            conn.set_refresh_mode(refresh_mode).ok();
+        }
+    }
+    presenter.draw_all(app, fonts, conn.pixels());
     conn.update_all().map_err(|e| format!("qtfb update: {e}"))?;
     // The recognizer prepares its examples now, on threads. It starts after the first frame: the
     // first frame also uses all cores (the board stripes). A reading before the end waits for it.
@@ -385,17 +549,22 @@ pub fn run() -> Result<(), String> {
     // SUDOKU_LOG_INPUT=1, or the file `log-input` in the data folder, writes each input message to the
     // system log (for an examination on the device).
     let log_input = test_switch("SUDOKU_LOG_INPUT", "log-input");
-    // Updates (REQUIREMENTS.md §9.2). The folder of the program is found now: an installation renames
-    // it. Each build deletes the folders that stay from an earlier installation.
-    let app_dir = app_dir();
+    // Updates (REQUIREMENTS.md §9.2). Each build deletes the folders that stay from an earlier
+    // installation.
     let staging = store::data_dir().join("update");
     if let Some(dir) = app_dir.as_deref() {
         update::clean(&staging, dir);
     }
     let (update_tx, update_rx) = mpsc::channel();
 
-    while !app.quit && !STOP.load(Ordering::SeqCst) {
-        // Wait for input, a timer of the app, or the next clock save.
+    let end = loop {
+        if app.quit {
+            break End::Quit;
+        }
+        if STOP.load(Ordering::SeqCst) {
+            break End::Signal;
+        }
+        // Wait for input, a message of AppLoad, a timer of the app, or the next clock save.
         let now = now_ms();
         let mut wait = app.next_deadline().map(|d| d.saturating_sub(now)).unwrap_or(1000).min(1000);
         if let Some(w) = presenter.wait_ms(now) {
@@ -406,10 +575,26 @@ pub fn run() -> Result<(), String> {
             // PER-7: wake for the next clock save, not only at the next tick.
             wait = wait.min(CLOCK_SAVE_INTERVAL.saturating_sub(last_clock_save.elapsed()).as_millis() as u64);
         }
-        let mut pfd = libc::pollfd { fd: conn.fd(), events: libc::POLLIN, revents: 0 };
-        // SAFETY: one valid pollfd.
-        unsafe { libc::poll(&mut pfd, 1, wait as libc::c_int) };
+        // The second entry is the AppLoad socket of the frontend mode. poll ignores a negative
+        // descriptor (the external mode). A pen area that waits for space in the socket goes when the
+        // socket can take it (LCH-7).
+        let (appload_fd, appload_events) = match link {
+            Link::Frontend { socket, .. } => (socket.fd(), if socket.has_unsent() { libc::POLLIN | libc::POLLOUT } else { libc::POLLIN }),
+            Link::External => (-1, 0),
+        };
+        let mut pfds = [
+            libc::pollfd { fd: conn.fd(), events: libc::POLLIN, revents: 0 },
+            libc::pollfd { fd: appload_fd, events: appload_events, revents: 0 },
+        ];
+        // SAFETY: two valid pollfd.
+        unsafe { libc::poll(pfds.as_mut_ptr(), pfds.len() as libc::nfds_t, wait as libc::c_int) };
 
+        // LCH-1: the window closed, or AppLoad stops the program.
+        let mut stop = None;
+        if let Link::Frontend { socket, area } = link {
+            socket.flush();
+            stop = read_appload(socket, &mut frontends, *area);
+        }
         let mut closed = false;
         loop {
             match conn.try_recv() {
@@ -418,7 +603,7 @@ pub fn run() -> Result<(), String> {
                     // The layout keeps the rotation clamped to 0..=3: compare the same value.
                     if r.clamp(0, 3) != crate::layout::rotation() {
                         crate::layout::set_rotation(r);
-                        app.rotate(render::ng_stops(&fonts));
+                        app.rotate(render::ng_stops(fonts));
                         presenter.reset(now_ms());
                     }
                 }
@@ -442,8 +627,11 @@ pub fn run() -> Result<(), String> {
             }
         }
         app.tick(now_ms());
+        if let Some(stop) = stop {
+            break End::Frontend(stop);
+        }
         if closed {
-            break;
+            break End::Framebuffer;
         }
         if let Some(request) = app.update.request.take() {
             start_update(request, update_tx.clone(), staging.clone(), app_dir.clone());
@@ -451,7 +639,7 @@ pub fn run() -> Result<(), String> {
         while let Ok(result) = update_rx.try_recv() {
             match result {
                 UpdateResult::Checked(r) => app.update_checked(r),
-                UpdateResult::Installed(r) => app.update_installed(r, now_ms()),
+                UpdateResult::Installed(r) => app.install_finished(r, now_ms()),
             }
         }
 
@@ -459,7 +647,7 @@ pub fn run() -> Result<(), String> {
             app.game_dirty = true;
             last_clock_save = Instant::now();
         }
-        save(&mut app, &paths, &saver);
+        save(app, paths, saver);
         // "Restart" in the dialog "Restart the interface?": the game is saved now. The app continues
         // until xovi/start stops xochitl.
         if app.restart_ui {
@@ -472,23 +660,17 @@ pub fn run() -> Result<(), String> {
         }
 
         let mut updates = Vec::new();
-        presenter.present(&mut app, &fonts, conn.pixels(), now_ms(), |u| updates.push(u));
+        presenter.present(app, fonts, conn.pixels(), now_ms(), |u| updates.push(u));
         if let Some(region) = presenter.take_region_change() {
-            write_pen_region(region);
+            link.give_pen_area(region);
         }
         for (x, y, w, h) in updates {
             conn.update(x, y, w, h).ok();
         }
+    };
+    // The pen area stops with the app. After a cause from AppLoad, the socket is closed already.
+    if !matches!(end, End::Frontend(_)) {
+        link.give_pen_area(None);
     }
-    write_pen_region(None);
-
-    eprintln!("sudoku: the app stops (quit {}, signal {})", app.quit, STOP.load(Ordering::SeqCst));
-    // The app closes: ink that waits is removed (PER-6) and the game is saved (PER-1, NAV-6).
-    app.tick(now_ms());
-    app.suspend();
-    save(&mut app, &paths, &saver);
-    if !saver.flush() {
-        eprintln!("sudoku: the last save failed");
-    }
-    Ok(())
+    Ok(end)
 }

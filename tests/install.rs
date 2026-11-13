@@ -61,6 +61,25 @@ fn assert_all_done(out: &str) {
     assert_has(out, "Sudoku is ready");
 }
 
+/// The number of starts of xovi (the user interface of the tablet starts again) in the output.
+fn xovi_starts(out: &str) -> usize {
+    out.matches("Starting xovi...").count()
+}
+
+/// R§14.6 step 11: after the copy, xovi starts again (AppLoad reads the manifests only when the
+/// interface starts). The start comes after the copy, and the box "Before you continue" shows in this
+/// run before the start.
+fn assert_start_after_copy(out: &str) {
+    let s = step(out, 11);
+    let copy = s.find("Copying Sudoku to the tablet...").unwrap_or_else(|| panic!("no copy:\n{s}"));
+    let start = s.find("Starting xovi...").unwrap_or_else(|| panic!("no start of xovi after the copy:\n{s}"));
+    assert!(copy < start, "xovi starts before the copy:\n{s}");
+    assert!(s[start..].contains("xovi is on."), "{s}");
+    let warned = out.find("Before you continue").unwrap_or_else(|| panic!("no warning:\n{out}"));
+    let base = out.find(" 11/11 ").unwrap() + 1; // step() starts one character after the find
+    assert!(warned < base + start, "no warning before the start of xovi:\n{out}");
+}
+
 /// INS-2: step 10 is done. It shows "(done already)" and it changes nothing.
 fn assert_starter_done(out: &str) {
     let s = step(out, 10);
@@ -85,8 +104,9 @@ fn first_installation_does_all_steps() {
     assert_has(&step(&out, 7), "The hashtable is available.");
     // INS-7: without a tablet software change, step 7 shows the old information line.
     assert_has(&step(&out, 7), "xovi needs a table of the user interface files of the tablet.");
-    assert_has(&step(&out, 8), "Copying the ink patch to the tablet...");
-    assert_has(&step(&out, 8), "The ink patch is installed.");
+    // R§14.6 step 8: the release has no ink patch, and a new tablet has no old ink patch.
+    assert_has(&step(&out, 8), "The tablet has no old ink patch. (done already)");
+    assert!(!out.contains("ink patch..."), "no ink patch to download, copy or delete:\n{out}");
     // The hashtable step warned already. Step 9 does not ask again.
     assert!(!step(&out, 9).contains("Before you continue"), "{out}");
     assert_has(&step(&out, 9), "xovi is on.");
@@ -101,11 +121,19 @@ fn first_installation_does_all_steps() {
     assert_has(&s, "The power button starts xovi.");
     // INS-1: Sudoku is step 11, after the power-button starter.
     assert_has(&step(&out, 11), "Sudoku v0.1.2 is installed.");
+    // R§14.6 step 11 (A8): the app folder was not on the tablet, thus xovi starts again after the
+    // copy, also when step 9 started it. The box of step 7 was the warning of this run.
+    assert_start_after_copy(&out);
+    assert!(!step(&out, 11).contains("Before you continue"), "{out}");
+    assert_eq!(xovi_starts(&out), 2, "{out}");
     // INS-5: the final box gives the restart lines.
     assert_has(&out, "After a restart, xovi is off. AppLoad is not in the menu.");
     assert_has(&out, "Press the power button 3 times to start xovi. The screen");
     assert_has(&out, "starts again after some seconds.");
-    assert!(!out.contains("(done already)"), "{out}");
+    // Only step 8 is done on a new tablet (no old ink patch).
+    for n in (4..=STEPS).filter(|&n| n != 8) {
+        assert!(!step(&out, n).contains("(done already)"), "step {n}:\n{out}");
+    }
 }
 
 #[test]
@@ -118,6 +146,8 @@ fn second_run_skips_all_steps() {
     // INS-5: every run that reaches step 11 shows the final box.
     assert_has(&out, "Press the power button 3 times to start xovi. The screen");
     assert!(!out.contains("password:"), "the second run must not ask for the password:\n{out}");
+    // R§14.6: a second run changes nothing, and the interface does not start again.
+    assert_eq!(xovi_starts(&out), 0, "{out}");
 }
 
 #[test]
@@ -131,6 +161,7 @@ fn complete_installation_skips_all_steps() {
     assert_has(&out, "After a restart, xovi is off. AppLoad is not in the menu.");
     assert_has(&out, "Press the power button 3 times to start xovi. The screen");
     assert_has(&out, "starts again after some seconds.");
+    assert_eq!(xovi_starts(&out), 0, "{out}");
 }
 
 #[test]
@@ -158,9 +189,15 @@ fn restart_starts_xovi_and_replaces_an_old_version() {
     assert_has(&step(&out, 11), "A different version of Sudoku is on the tablet.");
     assert_has(&step(&out, 11), "Your games, settings and statistics stay on the tablet.");
     assert_has(&step(&out, 11), "Sudoku v0.1.2 is installed.");
+    // R§14.6 step 11: the earlier version had the frontend also (the same type of manifest). Thus
+    // the start of step 9 is the only start.
+    assert!(!step(&out, 11).contains("Starting xovi"), "{out}");
+    assert_eq!(xovi_starts(&out), 1, "{out}");
 }
 
-/// A new ink patch: the installer copies it, and xovi starts again (one time) to apply it.
+/// R§14.6 steps 8 and 9 (owner decision 2026-11-12, A2): SUDOKU_VERSION selects v0.1.1, a release
+/// before the frontend (its version.json has patch_sha256). The ink patch on the tablet is old: the
+/// installer copies the patch of the release, and xovi starts again (one time) to apply it.
 #[test]
 fn new_ink_patch_starts_xovi_again() {
     let (out, code) = run("patch");
@@ -171,11 +208,14 @@ fn new_ink_patch_starts_xovi_again() {
     assert_has(&step(&out, 9), "Before you continue");
     assert_has(&step(&out, 9), "xovi is on.");
     assert_starter_done(&out);
-    assert_has(&step(&out, 11), "(done already)");
+    assert_has(&step(&out, 11), "Sudoku v0.1.1 is installed. (done already)");
+    assert!(!out.contains("Deleting the old ink patch"), "{out}");
+    assert_eq!(xovi_starts(&out), 1, "{out}");
 }
 
-/// The ink patch is installed, but an earlier installer did not write the stamp file. The installer
-/// writes the stamp file. The patch did not change, thus xovi does not start again.
+/// R§14.6 step 8 (A2): v0.1.1 and its ink patch are installed, but an earlier installer did not
+/// write the stamp file. The installer writes the stamp file. The patch did not change, thus xovi
+/// does not start again.
 #[test]
 fn missing_stamp_file_is_written_without_a_restart() {
     let (out, code) = run("stamp");
@@ -185,11 +225,12 @@ fn missing_stamp_file_is_written_without_a_restart() {
     assert!(!step(&out, 8).contains("Copying the ink patch"), "{out}");
     assert_has(&step(&out, 9), "xovi is on. (done already)");
     assert_starter_done(&out);
-    assert_has(&step(&out, 11), "(done already)");
+    assert_has(&step(&out, 11), "Sudoku v0.1.1 is installed. (done already)");
+    assert_eq!(xovi_starts(&out), 0, "{out}");
 }
 
-/// A patch that does not agree with the checksum of the release stops the installer before it
-/// connects to the tablet.
+/// R§14.6 step 2 (A2): the ink patch of v0.1.1 does not agree with the checksum in its version.json.
+/// The installer stops before it connects to the tablet.
 #[test]
 fn bad_patch_checksum_stops_the_installer() {
     let (out, code) = run("badpatch");
@@ -197,6 +238,196 @@ fn bad_patch_checksum_stops_the_installer() {
     assert_has(&step(&out, 2), "Downloading the ink patch...");
     assert_has(&step(&out, 2), "The checksum of the download is not correct.");
     assert!(!out.contains("3/11"), "{out}");
+}
+
+/// R§14.6 steps 8, 9 and 11 (owner decisions 2026-11-12, A8): the tablet has v0.1.1, a release
+/// before the frontend, with its ink patch and stamp file. The installer deletes the patch and the
+/// stamp file, and the deletion alone does not start xovi (step 9 is done). Step 11 replaces the app:
+/// the type of the manifest changes (external to frontend), thus xovi starts again after the copy,
+/// one time.
+#[test]
+fn upgrade_from_a_release_with_the_ink_patch() {
+    let (out, code) = run("upgrade");
+    assert_eq!(code, 0, "{out}");
+    assert_has(&step(&out, 2), "Downloaded Sudoku v0.1.2. The checksum is correct.");
+    assert!(!step(&out, 2).contains("ink patch"), "{out}");
+    let s = step(&out, 8);
+    assert_has(&s, "Deleting the old ink patch from the tablet...");
+    assert_has(&s, "The old ink patch is deleted.");
+    assert!(!s.contains("Copying the ink patch"), "{s}");
+    assert_has(&step(&out, 9), "xovi is on. (done already)");
+    assert_starter_done(&out);
+    let s = step(&out, 11);
+    assert_has(&s, "A different version of Sudoku is on the tablet.");
+    assert_has(&s, "Your games, settings and statistics stay on the tablet.");
+    assert_has(&s, "Sudoku v0.1.2 is installed.");
+    assert!(!s.contains("(done already)"), "{s}");
+    assert_start_after_copy(&out);
+    assert_eq!(xovi_starts(&out), 1, "{out}");
+    assert_has(&out, "Sudoku is ready");
+}
+
+/// R§14.6 (idempotent), steps 8 and 11: after the upgrade, the patch and the stamp file are not on
+/// the tablet, and the app folder has the frontend. A second run changes nothing and does not start
+/// xovi.
+#[test]
+fn upgrade_then_a_second_run_changes_nothing() {
+    let (out, code) = run("upgrade-again");
+    assert_eq!(code, 0, "{out}");
+    assert_all_done(&out);
+    assert_has(&step(&out, 8), "The tablet has no old ink patch. (done already)");
+    assert_has(&step(&out, 11), "Sudoku v0.1.2 is installed. (done already)");
+    assert_eq!(xovi_starts(&out), 0, "{out}");
+}
+
+/// R§14.6 steps 8, 9 and 11: the tablet has the release with the frontend, but the old ink patch and
+/// its stamp file stay. The installer deletes them. A deleted patch is not a cause of a start of the
+/// interface, in step 9 or in step 11.
+#[test]
+fn old_ink_patch_is_deleted_without_a_restart() {
+    let (out, code) = run("leftover");
+    assert_eq!(code, 0, "{out}");
+    assert_has(&step(&out, 8), "Deleting the old ink patch from the tablet...");
+    assert_has(&step(&out, 8), "The old ink patch is deleted.");
+    assert_has(&step(&out, 9), "xovi is on. (done already)");
+    assert_has(&step(&out, 11), "Sudoku v0.1.2 is installed. (done already)");
+    assert_eq!(xovi_starts(&out), 0, "{out}");
+    assert!(!out.contains("Before you continue"), "no start of the interface, thus no warning:\n{out}");
+    assert_has(&out, "Sudoku is ready");
+}
+
+/// R§14.6 step 8 (idempotent: the installer examines the step again): the deletion does not remove
+/// the patch. The installer stops at step 8 and does not install Sudoku (INS-5: no final box).
+#[test]
+fn old_ink_patch_that_stays_stops_the_installer() {
+    let (out, code) = run("patch-delete-fail");
+    assert_eq!(code, 1, "{out}");
+    assert_has(&step(&out, 8), "Deleting the old ink patch from the tablet...");
+    assert!(!step(&out, 8).contains("The old ink patch is deleted."), "{out}");
+    assert!(!out.contains(" 9/11 "), "{out}");
+    assert!(!out.contains("Sudoku is ready"), "{out}");
+}
+
+/// R§14.6 steps 6 and 11 (owner decision 2026-11-12, A7, A11, A12): AppLoad 0.5.3 has
+/// DisplayMethodArea, but not the rotation of 0.6.0 (no text fbRotation in appload.so). The installer
+/// updates it with `vellum update && vellum add -u appload` (the fake ssh refuses another command).
+/// A new AppLoad loads only when the interface starts: the app is installed already and step 9 is
+/// done, thus step 11 starts xovi again.
+#[test]
+fn old_appload_is_updated_and_xovi_starts_again() {
+    let (out, code) = run("appload-old");
+    assert_eq!(code, 0, "{out}");
+    let s = step(&out, 6);
+    assert_has(&s, "Sudoku needs AppLoad 0.6.0 or newer.");
+    assert_has(&s, "Updating AppLoad with Vellum...");
+    assert_has(&s, "Upgrading appload (0.5.3-r0 -> 0.6.0-r1)");
+    assert_has(&s, "AppLoad is updated.");
+    assert!(!s.contains("(done already)"), "{s}");
+    assert_has(&step(&out, 9), "xovi is on. (done already)");
+    let s = step(&out, 11);
+    assert_has(&s, "Sudoku v0.1.2 is installed. (done already)");
+    assert_has(&s, "Before you continue");
+    assert_has(&s, "Starting xovi...");
+    assert_has(&s, "xovi is on.");
+    assert!(
+        s.find("Before you continue").unwrap() < s.find("Starting xovi...").unwrap(),
+        "the warning must come before the start:\n{s}"
+    );
+    assert_eq!(xovi_starts(&out), 1, "{out}");
+    assert_has(&out, "Sudoku is ready");
+}
+
+/// R§14.6 steps 6, 8 and 11: an old AppLoad and a release before the frontend with its ink patch.
+/// The installer updates AppLoad, deletes the patch and replaces the app. The start of xovi after the
+/// copy also loads the new AppLoad: xovi starts exactly one time.
+#[test]
+fn old_appload_and_old_release_start_xovi_one_time() {
+    let (out, code) = run("upgrade-appload");
+    assert_eq!(code, 0, "{out}");
+    assert_has(&step(&out, 6), "AppLoad is updated.");
+    assert_has(&step(&out, 8), "The old ink patch is deleted.");
+    assert_has(&step(&out, 9), "xovi is on. (done already)");
+    assert_start_after_copy(&out);
+    assert_eq!(xovi_starts(&out), 1, "{out}");
+}
+
+/// R§14.6 step 6: Vellum fails, or AppLoad is still older than 0.6.0 after the update. The installer
+/// stops at step 6. It does not start xovi and does not install Sudoku (INS-5: no final box).
+#[test]
+fn failed_appload_update_stops_at_step_6() {
+    for scenario in ["appload-fail", "appload-stays-old"] {
+        let (out, code) = run(scenario);
+        assert_eq!(code, 1, "{scenario}:\n{out}");
+        let s = step(&out, 6);
+        assert_has(&s, "Updating AppLoad with Vellum...");
+        assert_has(&s, "Vellum did not update AppLoad.");
+        assert!(!s.contains("AppLoad is updated."), "{scenario}:\n{s}");
+        assert!(!out.contains(" 7/11 "), "{scenario}:\n{out}");
+        assert_eq!(xovi_starts(&out), 0, "{scenario}:\n{out}");
+        assert!(!out.contains("Sudoku is ready"), "{scenario}:\n{out}");
+    }
+}
+
+/// R§14.6 step 11 (A8): all other steps are done, but the app folder is not on the tablet. The
+/// installer copies it, and xovi starts again after the copy (step 9 did not start it).
+#[test]
+fn new_app_folder_starts_xovi_again() {
+    let (out, code) = run("nofolder");
+    assert_eq!(code, 0, "{out}");
+    assert_has(&step(&out, 9), "xovi is on. (done already)");
+    let s = step(&out, 11);
+    assert!(!s.contains("A different version of Sudoku"), "no version was on the tablet:\n{s}");
+    assert_has(&s, "Sudoku v0.1.2 is installed.");
+    assert_start_after_copy(&out);
+    assert_eq!(xovi_starts(&out), 1, "{out}");
+}
+
+/// R§14.6 step 11, LCH-6: the step examines all files of the app folder, not only the program
+/// `sudoku`. Here only resources.rcc is different: the installer replaces the app. The type of the
+/// manifest does not change, thus xovi does not start again.
+#[test]
+fn step_11_examines_all_files_of_the_app_folder() {
+    let (out, code) = run("files");
+    assert_eq!(code, 0, "{out}");
+    let s = step(&out, 11);
+    assert!(!s.contains("(done already)"), "a different resources.rcc must not be accepted:\n{s}");
+    assert_has(&s, "A different version of Sudoku is on the tablet. The installer replaces it.");
+    assert_has(&s, "Copying Sudoku to the tablet...");
+    assert_has(&s, "Sudoku v0.1.2 is installed.");
+    assert_eq!(xovi_starts(&out), 0, "{out}");
+}
+
+/// R§14.6 steps 2, 8, 9 and 11 (owner decision 2026-11-12, A2): the tablet has v0.1.2 (the frontend),
+/// and SUDOKU_VERSION selects v0.1.1, a release whose version.json has patch_sha256. The installer
+/// downloads and installs its ink patch, does not delete it, and starts xovi for the patch (step 9).
+/// The type of the manifest changes (frontend to external), thus xovi also starts after the copy.
+#[test]
+fn old_release_gets_its_ink_patch() {
+    let (out, code) = run("old-release");
+    assert_eq!(code, 0, "{out}");
+    assert_has(&step(&out, 2), "Downloading the ink patch...");
+    assert_has(&step(&out, 2), "Downloaded Sudoku v0.1.1 and the ink patch. The checksums are correct.");
+    let s = step(&out, 8);
+    assert_has(&s, "Copying the ink patch to the tablet...");
+    assert_has(&s, "The ink patch is installed.");
+    assert!(!out.contains("Deleting the old ink patch"), "{out}");
+    assert_has(&step(&out, 9), "xovi must start again to apply the ink patch.");
+    assert_has(&step(&out, 9), "xovi is on.");
+    assert_has(&step(&out, 11), "Sudoku v0.1.1 is installed.");
+    assert_start_after_copy(&out);
+    assert_eq!(xovi_starts(&out), 2, "{out}");
+}
+
+/// R§14.6 (idempotent), A2: after the installation of v0.1.1, its ink patch and stamp file stay on
+/// the tablet. A second run with the same version changes nothing.
+#[test]
+fn old_release_keeps_its_ink_patch() {
+    let (out, code) = run("old-release-again");
+    assert_eq!(code, 0, "{out}");
+    assert_all_done(&out);
+    assert_has(&step(&out, 8), "The ink patch is installed. (done already)");
+    assert_has(&step(&out, 11), "Sudoku v0.1.1 is installed. (done already)");
+    assert_eq!(xovi_starts(&out), 0, "{out}");
 }
 
 /// REMARKABLE_HOST gives a Wi-Fi address. The first connection fails, and the user tries again on
@@ -379,7 +610,7 @@ fn header_lists_the_steps() {
     let script = include_str!("../install.sh");
     assert!(script.contains("\nSTEPS=11\n"), "STEPS is not 11");
     assert!(script.contains("\n#  10. Install the power-button starter."), "step 10 is not in the header");
-    assert!(script.contains("\n#  11. Install the Sudoku folder in AppLoad."), "step 11 is not in the header");
+    assert!(script.contains("\n#  11. Install the Sudoku folder in AppLoad"), "step 11 is not in the header");
 }
 
 #[test]
@@ -387,7 +618,8 @@ fn failed_download_tries_again() {
     let (out, code) = run("download");
     assert_eq!(code, 0, "{out}");
     assert_has(&step(&out, 2), "The download failed: curl: (6) Could not resolve host: github.com");
-    assert_has(&step(&out, 2), "The checksums are correct.");
+    // R§14.6 step 2: the latest release has no ink patch, thus one checksum.
+    assert_has(&step(&out, 2), "Downloaded Sudoku v0.1.2. The checksum is correct.");
 }
 
 #[test]
@@ -422,8 +654,12 @@ fn selected_version_replaces_the_version_of_the_installer() {
     assert_eq!(code, 0, "{out}");
     assert_has(&out, "Installer · preview pre-1a2b3c4");
     assert_has(&step(&out, 2), "pre-1a2b3c4 is a preview version.");
-    assert_has(&step(&out, 2), "Downloaded Sudoku pre-1a2b3c4 and the ink patch. The checksums are correct.");
+    // R§14.6 step 2: version.json of the preview release has no patch fields: no ink patch.
+    assert_has(&step(&out, 2), "Downloaded Sudoku pre-1a2b3c4. The checksum is correct.");
+    assert!(!out.contains("ink patch..."), "{out}");
     assert_has(&step(&out, 11), "Sudoku pre-1a2b3c4 is installed.");
+    // The installed build has the frontend also: the type of the manifest does not change.
+    assert_eq!(xovi_starts(&out), 0, "{out}");
     assert!(!out.contains("Which version"), "SUDOKU_VERSION: no question:\n{out}");
 }
 
@@ -453,7 +689,7 @@ fn list_of_versions_selects_a_preview_version() {
     }
     assert_eq!(s.matches("Type a number from 1 to 4.").count(), 2, "{s}");
     assert_has(&s, "Version: pre-1a2b3c4.");
-    assert_has(&s, "Downloaded Sudoku pre-1a2b3c4 and the ink patch. The checksums are correct.");
+    assert_has(&s, "Downloaded Sudoku pre-1a2b3c4. The checksum is correct.");
     assert_has(&step(&out, 11), "Sudoku pre-1a2b3c4 is installed.");
 }
 
@@ -502,7 +738,9 @@ fn output_fits_the_terminal() {
         "first", "connect", "password", "hostkey", "offline", "download", "stop", "other", "move", "patch", "stamp",
         "missing", "select", "typed", "wifi", "wifi-usb", "restart", "again", "tripletap-repair",
         "tripletap-repair-fail", "tripletap-install-fail", "tripletap-offline", "tablet-update",
-        "tablet-update-sync-fail", "tablet-update-still-stale",
+        "tablet-update-sync-fail", "tablet-update-still-stale", "upgrade", "upgrade-appload", "leftover",
+        "patch-delete-fail", "appload-old", "appload-fail", "appload-stays-old", "nofolder", "files",
+        "old-release",
     ] {
         let (out, _) = run(scenario);
         for line in out.lines() {
@@ -530,13 +768,15 @@ fn final_box_gives_the_restart_lines() {
     }
 }
 
-/// release.yml replaces the three values with sed. Each must be in install.sh exactly one time.
+/// release.yml replaces the two values with sed. Each must be in install.sh exactly one time. A
+/// release has no ink patch file (owner decision 2026-11-12), thus no placeholder for its checksum.
 #[test]
 fn release_placeholders() {
     let script = include_str!("../install.sh");
-    for p in ["@SUDOKU_VERSION@", "@SUDOKU_SHA256@", "@SUDOKU_PATCH_SHA256@"] {
+    for p in ["@SUDOKU_VERSION@", "@SUDOKU_SHA256@"] {
         assert_eq!(script.matches(p).count(), 1, "{p}");
     }
+    assert!(!script.contains("@SUDOKU_PATCH_SHA256@"), "the placeholder of the ink patch is still in install.sh");
     let status = Command::new("bash").arg("-n").arg(concat!(env!("CARGO_MANIFEST_DIR"), "/install.sh")).status().unwrap();
     assert!(status.success());
 }

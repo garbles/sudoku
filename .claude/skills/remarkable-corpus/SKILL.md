@@ -19,9 +19,9 @@ makes the review images, and the user reviews them.
   `corpus::setup` in `platform::run`. The build has these differences:
   - It is a separate app: `Sudoku (corpus)` in AppLoad, in the folder `sudoku-corpus`. The usual
     Sudoku app stays on the tablet and does not change.
-  - It has its own ink patch, `appload/sudoku-corpus/sudoku-corpus-penregion.qmd`, a copy of the
-    usual patch for its name. When you change the usual patch, change the copy also. The app also needs the usual patch on the tablet. A release
-    and `install.sh` do not use the copy.
+  - It has the frontend of the usual app with its own IDs (app ID `sudoku-corpus`, framebuffer ID
+    0x53554443), made by `appload/make-folder.sh OUT corpus`. It has no copy of the ink patch. A release
+    and `install.sh` do not use it.
   - The board is blank (no starting numbers), the menu is closed, and clashes, the highlight and the
     completed color do not show.
   - The data folder is `/home/root/.local/share/rm-sudoku-corpus`. Thus the build does not change
@@ -62,9 +62,10 @@ images or ask for a review before all sets are collected.
 
 3. **Install the corpus build.** Run `make install-corpus` (timeout 600000 ms). It uses
    `Dockerfile.corpus`, with the version name `dev/corpus`. If `docker` is not on `PATH`, the Makefile uses
-   OrbStack. If the build fails, show the error and stop. If the target tells that the ink patch
-   changed, ask the user to close all notebooks, then run `make xovi-restart`. Without this, the ink of the app has
-   gaps. If AppLoad does not show `Sudoku (corpus)`, tell the user to use the reload button of AppLoad.
+   OrbStack. If the build fails, show the error and stop. If the target tells that a manifest
+   is new or changed, tell the user to tap "Reload" in the AppLoad menu (or, with the owner's approval,
+   run `make xovi-restart`: close all notebooks first). Without this, AppLoad does not show
+   `Sudoku (corpus)` or runs the old manifest type.
 
 4. **Start a clean session.** Tell the user to close Sudoku (corpus) on the tablet (the open app keeps the
    old program, and it saves the board when it closes). When the user confirms, run

@@ -1,6 +1,6 @@
 ---
 name: remarkable-debug
-description: Examine the Sudoku app on the reMarkable Paper Pro when the screen output is wrong (gaps in the ink, ghosts, flashes, slow or missing updates) or when you change present.rs, the qtfb client or the ink patch. It gives the test settings of the app, the screen update log of xochitl, the lessons about screen updates and the debugging techniques. Use when the user reports a problem on the tablet screen, or asks to debug, examine or log the screen updates.
+description: Examine the Sudoku app on the reMarkable Paper Pro when the screen output is wrong (gaps in the ink, ghosts, flashes, slow or missing updates) or when you change present.rs, the qtfb client or the frontend. It gives the test settings of the app, the screen update log of xochitl, the lessons about screen updates and the debugging techniques. Use when the user reports a problem on the tablet screen, or asks to debug, examine or log the screen updates.
 ---
 
 # Debug the app on the tablet
@@ -21,7 +21,7 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
    - The input and the settings of the app: [techniques/app-settings.md](techniques/app-settings.md).
    - What gets to the panel: [techniques/xochitl-update-log.md](techniques/xochitl-update-log.md).
      It needs a restart of xochitl. **Ask the owner before each restart.**
-   - The pen area of the ink patch: [techniques/pen-area.md](techniques/pen-area.md).
+   - The pen area (frontend mode and external mode): [techniques/pen-area.md](techniques/pen-area.md).
    - The timing of a stroke from the journal: [techniques/stroke-timing.md](techniques/stroke-timing.md).
 4. Ask the user to do the test on the tablet. Then read the log:
    [techniques/read-the-update-log.md](techniques/read-the-update-log.md).
@@ -69,8 +69,8 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
   Rule: a drawing must keep at least some gray pixels where a color can appear later.
 - **The pen area starts at each pen down on an empty cell, and it stays after the lift.** The
   area starts 2 to 12 ms after the pen down (measured with the area at the pen down), and the first
-  ink waits until the patch applied it (45 ms). xochitl refreshes the full area when it starts, when
-  it stops and when it changes (also when no pixel in it changed), and the ink patch cannot avoid
+  ink waits until the frontend applied it (45 ms; in the external mode, the ink patch). xochitl refreshes the full area when it starts, when
+  it stops and when it changes (also when no pixel in it changed), and AppLoad cannot avoid
   this. Thus the area changes as rarely as possible: it follows the pen (`App::pen_cell`), it stays
   on its cell when the pen lifts, and it stops only before a redraw that needs the UI waveform in its
   cell (`FrameRecord::pen_change`: a number, a "?", other lines, a panel over the
@@ -103,16 +103,16 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
 - **One source for a value.** An environment value in `external.manifest.json` overrode the source
   constant of the pause, thus a change of the source had no effect, and a wrong time was reported.
   Prefer one source. Compare the log with the expected time before you report a result.
-- **AppLoad keeps the manifest in memory until xochitl restarts.** A change of the manifest on the
-  tablet does not apply before that.
 - **A running Sudoku keeps the old program after an install.** Compare the start time of the process
   with the time of the binary before you trust a test.
 - **The tablet sends a touch from the hand after each pen lift.** It comes approximately 97 ms
   after the pen lift and ends a few ms before the next pen down. The `log-input` setting shows it.
   The app ignores a touch that starts less than 150 ms after a pen lift (`HAND_TOUCH_MS`).
-- **The pen area can be off.** It is off when the patch file is newer than the start of xochitl.
-  The log has the line `sudoku: pen region off`, and the ink is slower. Examine this first for an
-  ink lag ([techniques/pen-area.md](techniques/pen-area.md)). `xovi/start` turns it on.
+- **In the external mode, the pen area can be off.** It is off when the patch file of an earlier
+  release is not there, or is newer than the start of xochitl. The log has the line
+  `sudoku: pen region off`, and the ink is slower. Examine this first for an ink lag
+  ([techniques/pen-area.md](techniques/pen-area.md)). `xovi/start` turns it on. In the frontend
+  mode, the area is always on.
 - **A restart of xochitl can fail.** One time in five restarts, `xovi/start` gave a segmentation
   fault of xochitl and a reboot of the tablet. The cause is not known. After the reboot, xovi
   operated. Tell the owner about this before a restart.
@@ -128,12 +128,14 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
   landscape screens are examined on the computer (refer to
   [techniques/check-the-orientations.md](techniques/check-the-orientations.md)).
 - **The pen area is in window coordinates.** AppLoad turns only the drawing of the framebuffer
-  (`FBController.fbRotation`). The items of its window, also the pen area of the ink patch, use the
-  coordinates of the screen as the player sees it. The app gave the area in framebuffer coordinates:
+  (`FBController.fbRotation`). The items of its window, also the pen area, use the
+  coordinates of the screen as the player sees it. (In the frontend mode the program sends the pen
+  area to the frontend as a message, and the frontend converts it; the file `/tmp/sudoku-pen-region`
+  applies only to the external mode, the older ink patch.) In the old external mode, the app gave the area in framebuffer coordinates:
   in portrait they are the same, but in landscape the area was on a different cell. The ink then got
   the UI waveform, and the scheduler did not wait for the updates in progress there (it thought that
   the cell was fast): the ink was choppy with gaps, only in landscape (owner report 2026-11-08). If a
-  problem occurs only in one orientation, compare `/tmp/sudoku-pen-region` with the cell on the
+  problem occurs only in one orientation, compare the pen area (the log line of the program in the frontend mode, `/tmp/sudoku-pen-region` in the external mode) with the cell on the
   screen first ([techniques/pen-area.md](techniques/pen-area.md)).
 - **One process drives the panel.** AppLoad runs in xochitl, thus the app must use the framebuffer of
   xochitl through qtfb. The app cannot drive the panel itself.
@@ -149,6 +151,16 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
   the passcode on the tablet during the run), then `/home/root/xovi/start`. A restart of the
   tablet can install a downloaded update.
 
+- **AppLoad reads the manifests only when the interface starts and at "Reload" in the AppLoad menu.**
+  A changed manifest type (frontend or external) needs one of them; "Reload" is sufficient. Examine
+  the log before you trust a test of the frontend: the first owner test (2026-11-12) ran the external
+  app. The log shows the mode (refer to [techniques/pen-area.md](techniques/pen-area.md)).
+- **After each AppLoad update, examine the four internal names of the AppLoad window that the
+  frontend reads** (`globalRotation`, `swipeFromTheTop()`, `fullscreen`, `minimized`). Without them
+  the app stays in portrait and writes one log line.
+- **In `DisplayMethodArea`, value 3 is the UI mode and value 4 is the content mode.** The names are
+  in the opposite order. The pen mode is 0.
+
 ## Notes for agents
 
 - A new git worktree does not contain `scripts/fonts/rmsans-*.ttf` (git ignores them). Copy them
@@ -156,6 +168,6 @@ Do not put xochitl internals (addresses, hashes, decompiled names) in the files 
 - The memory of `bd` gives the path of `docker` (OrbStack) when `docker` is not on `PATH`.
 - A test of the screen output needs the tablet: the tests on the computer cannot show the behavior
   of the panel. Change one setting at a time, and record each result in DECISIONS.md.
-- The ink patch (`appload/sudoku/sudoku-penregion.qmd`) uses names of xochitl and AppLoad. After an
+- The frontend (`appload/sudoku/ui/main.qml`) uses internal names of the AppLoad window. After an
   update of the tablet software or of AppLoad, make sure that it still operates
   ([techniques/pen-area.md](techniques/pen-area.md)).

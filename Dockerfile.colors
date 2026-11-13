@@ -10,7 +10,8 @@
 #
 # - The program `sudoku-colors` (AppLoad starts it with the name `sudoku`).
 # - The name `Sudoku (colors)` in AppLoad, and no rotation.
-# - No ink patch: this app has no ink.
+# - An external app with no pen area: this app has no ink. Its folder has no frontend files
+#   (manifest.json, resources.rcc, backend/entry; REQUIREMENTS.md §14.4).
 #
 # The result is dist/sudoku-colors/: a separate AppLoad folder, thus the usual Sudoku app does not
 # change.
@@ -25,14 +26,13 @@ COPY assets assets
 COPY images images
 COPY tests/fixtures tests/fixtures
 COPY video/demo-full.txt video/demo-full.txt
-COPY appload/sudoku appload/sudoku
+COPY appload/sudoku/external.manifest.json appload/sudoku/icon.png appload/sudoku/
 RUN --mount=type=cache,id=sudoku-dev-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=sudoku-dev-target,target=/src/target \
     SUDOKU_VERSION=dev/colors cargo build --profile tablet-dev --locked --bin sudoku-colors \
- && mkdir -p /out && cp -R appload/sudoku /out/sudoku-colors \
+ && mkdir -p /out/sudoku-colors && cp appload/sudoku/external.manifest.json appload/sudoku/icon.png /out/sudoku-colors/ \
  && sed -i 's/"name": "Sudoku"/"name": "Sudoku (colors)"/; s/"supportsRotation": true/"supportsRotation": false/' /out/sudoku-colors/external.manifest.json \
  && grep -qF '"name": "Sudoku (colors)"' /out/sudoku-colors/external.manifest.json \
- && rm /out/sudoku-colors/sudoku-penregion.qmd \
  && cp target/tablet-dev/sudoku-colors /out/sudoku-colors/sudoku && chmod 755 /out/sudoku-colors/sudoku
 
 FROM scratch AS export

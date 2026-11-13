@@ -2218,10 +2218,10 @@ fn confirm_dialog(c: &mut Canvas, title: &str, line: &str) {
     dialog_box(c, title, [line, "You cannot undo this action."], ["Cancel", "Delete"]);
 }
 
-/// The dialog "Restart the interface?" (§9.2, UPD-10), over all screens. The buttons are "Later" and
-/// "Restart".
+/// The dialog "Restart the interface?" (§9.2, UPD-10). It shows at the start of the app while the
+/// update is not complete, over the screen. The buttons are "Later" and "Restart".
 const RESTART_TITLE: &str = "Restart the interface?";
-const RESTART_LINES: [&str; 2] = ["The update has a new ink patch. To use it,", "the reMarkable interface must start again."];
+const RESTART_LINES: [&str; 2] = ["The update is not complete. To complete it,", "the reMarkable interface must start again."];
 
 /// Draws the dialog (in page units).
 fn restart_dialog(c: &mut Canvas) {

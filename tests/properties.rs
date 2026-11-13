@@ -4,7 +4,8 @@
 //! NAV-3, NAV-9, NAV-16, MRK-10 to MRK-16, HLT-1 to HLT-9, and the level buttons of the result card:
 //! CMP-9, CMP-10, DIF-4, DIF-5, DIF-8, PUZ-7, PUZ-8). The two-hand sequences examine the x of a
 //! refused tap, the highlight, the ink and the hand touches at each event (INP-2, INP-5, INP-20, INP-21,
-//! INP-22, INP-24). The group sequences at the end examine COL-8 to COL-12 against a separate model
+//! INP-22, INP-24). They also start the program again in each mode (LCH-9), with the restart dialog and
+//! the update row of an update that is not complete (UPD-3, UPD-10, UPD-13, UPD-14). The group sequences at the end examine COL-8 to COL-12 against a separate model
 //! (`inv_groups`).
 
 mod common;
@@ -15,9 +16,11 @@ use proptest::prelude::*;
 use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, HAND_TOUCH_MS, OVERLAY_MS};
 use sudoku::game::{cells, mark_bit, Cell, Change, Game, Group};
 use sudoku::invariants::check_app;
+use sudoku::launch::Launch;
 use sudoku::layout::{self, Button, LevelButton};
-use sudoku::reference;
 use sudoku::settings::{Color, Section, Settings, Switch};
+use sudoku::store::ResultsDb;
+use sudoku::update::{Manifest, Update, UpdateButton, UpdateState};
 
 #[derive(Clone, Debug)]
 enum Act {
@@ -852,6 +855,18 @@ struct Reached {
     hand_second: usize,
     /// A finger press kept waiting ink (INP-21).
     finger_keeps_ink: usize,
+    /// A start showed the restart dialog (UPD-10).
+    dialog: usize,
+    /// A start with the restart dialog removed a highlight or an x (HLT-2 items 5 and 7, MRK-15).
+    dialog_removed: usize,
+    /// A start with an update that is not complete and the update row (UPD-3, UPD-10, UPD-14).
+    restart_row: usize,
+    /// The same, with an available update that the row does not offer (UPD-14).
+    restart_available: usize,
+    /// A start with an update that is not complete and no update row (UPD-14).
+    restart_no_row: usize,
+    /// A start in the frontend mode with the saved value true (UPD-13).
+    frontend_reset: usize,
 }
 
 /// A driver that examines the rules of the x at each event.
@@ -1240,6 +1255,60 @@ impl Hands {
         Ok(())
     }
 
+    /// The program stops and starts again in the mode `launch` (PER-2, LCH-9): a new app with the saved
+    /// game and settings of this app, the saved value `restart_dialog_shown = shown`, and the menu open.
+    /// `row` 1 and 2 give the result of the first check for updates (UPD-8): an update or no update.
+    /// The time of the driver continues. No touch is on the screen.
+    fn start(&mut self, launch: Launch, shown: bool, row: u8) -> Result<(), String> {
+        let had = (self.d.app.ui.highlight.is_some(), self.d.app.ui.refused.is_some());
+        let mut settings = self.d.app.settings.clone();
+        settings.restart_dialog_shown = shown;
+        let env = TestEnv { time: START_TIME + 3600, seed: self.d.app.game.seed };
+        let app = App::with_launch(launch, Some(self.d.app.game.clone()), Some(settings), ResultsDb::in_memory(), Box::new(env), App::placeholder_ng_stops());
+        let now = self.d.now;
+        self.d = Driver::opened(app);
+        self.d.now = now;
+        (self.tool, self.pen_stopped, self.followed, self.press) = (None, false, None, None);
+        if row % 3 != 0 {
+            // A stable build: the platform gives the result of the first check, with the panel closed.
+            let mut u = Update::new("v0.1.0");
+            u.launch = self.d.app.update.launch;
+            u.request = None;
+            let version = if row % 3 == 1 { "v0.2.0" } else { "v0.1.0" };
+            u.checked(Ok(Manifest { version: version.to_string(), ..Manifest::default() }), false);
+            self.d.app.update = u;
+        }
+        check_app(&self.d.app)?;
+        x_state_rule(&self.d.app)?;
+        let a = &self.d.app;
+        let needed = launch.restart_needed();
+        if a.update.restart_needed() != needed {
+            return Err(format!("UPD-10: restart_needed {} with the launch {launch:?}", a.update.restart_needed()));
+        }
+        if a.update.dialog_shown() != (needed && !shown) {
+            return Err(format!("UPD-10: the dialog {} with the launch {launch:?} and the saved value {shown}", a.update.dialog_shown()));
+        }
+        let saved = match launch {
+            Launch::Frontend => false,
+            Launch::External(_) => shown || needed,
+        };
+        if a.settings.restart_dialog_shown != saved || a.settings_dirty != (saved != shown) {
+            return Err(format!("UPD-10, UPD-13: the saved value {shown} became {} with the launch {launch:?}", a.settings.restart_dialog_shown));
+        }
+        if a.ui.highlight.is_some() || a.ui.refused.is_some() || a.ui.question.is_some() || a.ui.pending_ink.is_some() || a.live_stroke.is_some() {
+            return Err("HLT-2 item 5, MRK-15, UPD-10: a start keeps a highlight, an x, a \"?\" or ink".to_string());
+        }
+        start_rule(a)?;
+        let has_row = a.update.state != UpdateState::Off;
+        self.reached.dialog += usize::from(a.update.dialog_shown());
+        self.reached.dialog_removed += usize::from(a.update.dialog_shown() && (had.0 || had.1));
+        self.reached.restart_row += usize::from(needed && has_row);
+        self.reached.restart_available += usize::from(needed && matches!(a.update.state, UpdateState::Available(_)));
+        self.reached.restart_no_row += usize::from(needed && !has_row);
+        self.reached.frontend_reset += usize::from(launch == Launch::Frontend && shown);
+        Ok(())
+    }
+
     /// The point of a refused tap on the board (the k-th of all that the board has now), if one exists.
     fn refused_point(&self, k: u8) -> Option<(f32, f32)> {
         let g = &self.d.app.game;
@@ -1308,9 +1377,12 @@ enum Hand {
     Wait(u16),
     /// The tablet turns (MRK-16).
     Turn,
-    /// The update dialog shows (MRK-15).
-    Dialog,
-    /// The update dialog closes.
+    /// The program stops and starts again (PER-2) with the saved game and settings, in a mode of
+    /// `start_launch`, with the saved value `restart_dialog_shown = shown`. `row` selects the update
+    /// state: the state of the build, an update that is available, or no update (UPD-3, UPD-10, UPD-13,
+    /// UPD-14). The dialog "Restart the interface?" shows only from this act (MRK-15).
+    Start { mode: u8, shown: bool, row: u8 },
+    /// "Later" closes the update dialog.
     Later,
     /// A pen tap on the k-th filled cell (HLT-3).
     NumberTap(u8),
@@ -1350,7 +1422,7 @@ fn hand() -> impl Strategy<Value = Hand> {
         3 => (spot, 0..9u8, any::<bool>()).prop_map(|(s, b, second)| Hand::Guard(s, b, second)),
         3 => (0..1500u16).prop_map(Hand::Wait),
         1 => Just(Hand::Turn),
-        1 => Just(Hand::Dialog),
+        2 => (0..4u8, proptest::bool::weighted(0.3), 0..3u8).prop_map(|(mode, shown, row)| Hand::Start { mode, shown, row }),
         1 => Just(Hand::Later),
         6 => any::<u8>().prop_map(Hand::NumberTap),
         2 => (any::<u8>(), 0..9u8, 0..9u8).prop_map(|(k, r, c)| Hand::NumberThenEraser(k, r, c)),
@@ -1579,27 +1651,66 @@ fn run_hand(h: &mut Hands, a: &Hand) -> Result<(), String> {
                 h.send(Input::TouchUp { id: 1, x: on_board.0, y: on_board.1 })?;
             }
         }
-        Hand::Dialog => {
-            if !h.d.app.update.dialog_shown() {
-                let mut u = reference::update_state(true);
-                u.tap();
-                u.request = None;
-                h.d.app.update = u;
-                let now = h.d.now;
-                h.d.app.update_installed(Ok(true), now);
-                check_app(&h.d.app)?;
-                x_state_rule(&h.d.app)?;
-                if h.d.app.ui.refused.is_some() {
-                    return Err("MRK-15: the x stays when the update dialog shows".to_string());
-                }
-                if h.d.app.ui.highlight.is_some() {
-                    return Err("HLT-2: the highlight stays when the update dialog shows".to_string());
-                }
+        Hand::Start { mode, shown, row } => {
+            // A new process starts only when no touch is on the screen.
+            if h.tool.is_none() && h.followed.is_none() {
+                h.start(start_launch(mode), shown, row)?;
             }
         }
-        Hand::Later => h.d.app.update.close_dialog(),
+        Hand::Later => {
+            // A finger tap on "Later" (UPD-10). The row keeps the button "Restart interface" (UPD-14).
+            if h.d.app.update.dialog_shown() && h.followed.is_none() {
+                let restart = h.d.app.restart_ui;
+                let (x, y) = pixel_center(layout::dialog_cancel());
+                h.send(Input::TouchDown { id: 1, x, y })?;
+                h.send(Input::TouchUp { id: 1, x, y })?;
+                let u = &h.d.app.update;
+                if u.dialog_shown() || !u.restart_needed() || h.d.app.restart_ui != restart {
+                    return Err(format!("UPD-10: \"Later\" gave the dialog {} with the launch {:?}", u.dialog_shown(), u.launch));
+                }
+                start_rule(&h.d.app)?;
+            }
+        }
     }
     h.d.app.quit = false;
+    Ok(())
+}
+
+/// The mode of the act `Hand::Start` (LCH-9). Half of the starts are in the external mode with the
+/// frontend files in the app folder: the update is not complete (UPD-10).
+fn start_launch(mode: u8) -> Launch {
+    match mode % 4 {
+        0 => Launch::Frontend,
+        1 => Launch::external(false),
+        _ => Launch::external(true),
+    }
+}
+
+/// UPD-3, UPD-10, UPD-14: the gear and the update row of the app, from the start until the app closes.
+fn start_rule(a: &App) -> Result<(), String> {
+    let u = &a.update;
+    let needed = u.restart_needed();
+    let has_row = u.state != UpdateState::Off;
+    let ready = matches!(u.state, UpdateState::Available(_) | UpdateState::Installing(_) | UpdateState::Failed(..) | UpdateState::Installed);
+    if u.caution() != (ready || (needed && has_row)) {
+        return Err(format!("UPD-3: the caution icon {} in the state {:?} with the launch {:?}", u.caution(), u.state, u.launch));
+    }
+    if u.dialog_shown() && !needed {
+        return Err(format!("UPD-10: the dialog with the launch {:?}", u.launch));
+    }
+    if (u.button() == Some(UpdateButton::Restart)) != (needed && has_row) {
+        return Err(format!("UPD-10, UPD-14: the button {:?} in the state {:?} with the launch {:?}", u.button(), u.state, u.launch));
+    }
+    if needed {
+        if u.row_text().is_some() {
+            return Err(format!("UPD-14: the row text {:?} while the update is not complete", u.row_text()));
+        }
+        // No installation starts in this state, also when an update is available.
+        let mut tapped = u.clone();
+        if tapped.tap() || tapped.request != u.request || tapped.state != u.state {
+            return Err(format!("UPD-14: a tap on the update row in the state {:?} started {:?}", u.state, tapped.request));
+        }
+    }
     Ok(())
 }
 
@@ -1694,6 +1805,12 @@ fn the_two_hand_sequences_reach_each_rule_of_the_x() {
         all.hand_x += h.reached.hand_x;
         all.hand_second += h.reached.hand_second;
         all.finger_keeps_ink += h.reached.finger_keeps_ink;
+        all.dialog += h.reached.dialog;
+        all.dialog_removed += h.reached.dialog_removed;
+        all.restart_row += h.reached.restart_row;
+        all.restart_available += h.reached.restart_available;
+        all.restart_no_row += h.reached.restart_no_row;
+        all.frontend_reset += h.reached.frontend_reset;
     }
     println!("shown {}, with a finger {}, press {}, release {}, guard {}, second finger in the guard time {}, time {}, turn {}", all.shown, all.shown_with_finger, all.press, all.release, all.guard, all.guard_second_finger, all.time, all.turn);
     println!(
@@ -1721,6 +1838,16 @@ fn the_two_hand_sequences_reach_each_rule_of_the_x() {
     assert!(all.hand_x > 0, "INP-20: no hand touch on a button with the x");
     assert!(all.hand_second > 0, "INP-20: no hand touch with a finger on the screen");
     assert!(all.finger_keeps_ink > 0, "INP-21: no finger press with waiting ink");
+    println!(
+        "starts: dialog {}, dialog removed a highlight or an x {}, restart row {}, restart row with an update {}, restart with no row {}, frontend reset {}",
+        all.dialog, all.dialog_removed, all.restart_row, all.restart_available, all.restart_no_row, all.frontend_reset
+    );
+    assert!(all.dialog > 0, "UPD-10: no start showed the restart dialog");
+    assert!(all.dialog_removed > 0, "HLT-2, MRK-15: no start with the dialog removed a highlight or an x");
+    assert!(all.restart_row > 0, "UPD-3, UPD-14: no start with the button \"Restart interface\"");
+    assert!(all.restart_available > 0, "UPD-14: no start with an update that the row does not offer");
+    assert!(all.restart_no_row > 0, "UPD-14: no start with no update row while the update is not complete");
+    assert!(all.frontend_reset > 0, "UPD-13: no start in the frontend mode with the saved value true");
 }
 
 /// A cell and a digit of a refused tap, and the cell of the only peer with the number. `d` has the menu
@@ -1931,7 +2058,9 @@ fn a_switch_under_a_finger_does_not_turn_off_under_the_x() {
 
 #[test]
 fn the_update_dialog_removes_the_x_and_no_tap_makes_an_x_under_it() {
-    // MRK-15, MRK-12, UPD-10: the dialog removes the x. A refused tap under the dialog makes no x.
+    // MRK-15, MRK-12, UPD-10, LCH-9: the dialog shows only at a start of the program in the external mode
+    // with the frontend files and the saved value false. That start removes the x. A refused tap under
+    // the dialog makes no x. After "Later", a refused tap makes the x again.
     let mut h = Hands::new(Driver::new(408));
     let g = &h.d.app.game;
     let (cell, digit) = cells()
@@ -1941,13 +2070,27 @@ fn the_update_dialog_removes_the_x_and_no_tap_makes_an_x_under_it() {
         .unwrap();
     h.d.tap_micro(cell, digit);
     assert!(h.d.app.ui.refused.is_some());
-    run_hand(&mut h, &Hand::Dialog).unwrap();
-    assert!(h.d.app.update.dialog_shown());
+    run_hand(&mut h, &Hand::Start { mode: 2, shown: false, row: 1 }).unwrap();
+    assert!(h.d.app.update.dialog_shown(), "UPD-10");
     assert_eq!(h.d.app.ui.refused, None, "MRK-15");
     let (px, py) = micro_center(cell, digit);
     h.send(Input::PenDown { x: px, y: py, tool: Tool::Pen }).unwrap();
     h.send(Input::PenUp { x: px, y: py }).unwrap();
     assert_eq!(h.d.app.ui.refused, None, "MRK-12: an x under the dialog");
+    run_hand(&mut h, &Hand::Later).unwrap();
+    assert!(!h.d.app.update.dialog_shown(), "UPD-10: Later");
+    assert_eq!(h.d.app.update.button(), Some(UpdateButton::Restart), "UPD-10, UPD-14: the row keeps the button after Later");
+    // The menu is open after the start (PER-2): the first pen tap closes it (NAV-11).
+    h.send(Input::PenDown { x: px, y: py, tool: Tool::Pen }).unwrap();
+    h.send(Input::PenUp { x: px, y: py }).unwrap();
+    if h.d.app.ui.refused.is_none() {
+        h.send(Input::PenDown { x: px, y: py, tool: Tool::Pen }).unwrap();
+        h.send(Input::PenUp { x: px, y: py }).unwrap();
+    }
+    assert_eq!(h.d.app.ui.refused.map(|r| (r.0, r.1)), Some((cell, digit)), "MRK-10: the x after Later");
+    // The same state at the next start: no dialog, the button stays (UPD-10, UPD-14).
+    run_hand(&mut h, &Hand::Start { mode: 2, shown: true, row: 1 }).unwrap();
+    assert!(!h.d.app.update.dialog_shown() && h.d.app.update.button() == Some(UpdateButton::Restart), "UPD-10");
 }
 
 /// The first refused tap of the board, as a cell and a digit.

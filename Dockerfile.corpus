@@ -11,12 +11,21 @@
 # - The Cargo feature `corpus`.
 # - The version `dev/corpus` in the Settings panel.
 # - The name `Sudoku (corpus)` in AppLoad.
-# - The ink patch `appload/sudoku-corpus/sudoku-corpus-penregion.qmd` in place of the usual patch: a
-#   copy for this name, with its own QML id, because the two patches go into the same file of
-#   AppLoad. Only make install-corpus installs it. A release and install.sh do not use it.
+# - The same QML frontend with its own app ID (`sudoku-corpus`) and its own framebuffer ID
+#   (appload/make-folder.sh; `launch::CORPUS` in src/launch.rs): no two installed apps have the
+#   same IDs (REQUIREMENTS.md §14.4).
 #
 # The result is dist/sudoku-corpus/: a separate AppLoad folder, thus the usual Sudoku app does not
 # change.
+
+# The files of the AppLoad folder with the QML frontend (REQUIREMENTS.md §14.4): the Qt tool `rcc`
+# makes resources.rcc from the QML (appload/make-folder.sh). Alpine 3.22 gives a fixed version of Qt.
+# This stage keeps the Qt packages out of the Rust stage.
+FROM --platform=linux/arm64 alpine:3.22 AS frontend
+RUN apk add --no-cache qt6-qtbase-dev
+COPY appload /appload
+RUN sh /appload/make-folder.sh /out/sudoku-corpus corpus
+
 FROM --platform=linux/arm64 rust:1.97-alpine AS build
 RUN apk add --no-cache musl-dev mold
 WORKDIR /src
@@ -28,17 +37,12 @@ COPY assets assets
 COPY images images
 COPY tests/fixtures tests/fixtures
 COPY video/demo-full.txt video/demo-full.txt
-COPY appload/sudoku appload/sudoku
-COPY appload/sudoku-corpus appload/sudoku-corpus
+COPY --from=frontend /out/sudoku-corpus /out/sudoku-corpus
 RUN --mount=type=cache,id=sudoku-dev-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=sudoku-dev-target,target=/src/target \
     SUDOKU_VERSION=dev/corpus cargo build --profile tablet-dev --locked --features corpus --bin sudoku \
- && mkdir -p /out && cp -R appload/sudoku /out/sudoku-corpus \
- && sed -i 's/"name": "Sudoku"/"name": "Sudoku (corpus)"/' /out/sudoku-corpus/external.manifest.json \
- && grep -qF '"name": "Sudoku (corpus)"' /out/sudoku-corpus/external.manifest.json \
- && rm /out/sudoku-corpus/sudoku-penregion.qmd \
- && cp appload/sudoku-corpus/sudoku-corpus-penregion.qmd /out/sudoku-corpus/ \
- && cp target/tablet-dev/sudoku /out/sudoku-corpus/sudoku && chmod 755 /out/sudoku-corpus/sudoku
+ && cp target/tablet-dev/sudoku /out/sudoku-corpus/sudoku \
+ && chmod 755 /out/sudoku-corpus/sudoku /out/sudoku-corpus/backend/entry
 
 FROM scratch AS export
 COPY --from=build /out /

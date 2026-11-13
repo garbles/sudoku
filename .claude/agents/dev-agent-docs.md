@@ -42,6 +42,7 @@ files that you own: `AGENTS.md`, `.claude/skills/` except `.claude/skills/remark
 
 ## Report
 
-Give at most 20 lines.
+Keep the report short: the agent that started you reads it in a session with a small context.
+Do not omit a bug, a failure or a changed hash to make it shorter.
 
 The statements that you changed (old and new text), or "no change", and the problems in other files.

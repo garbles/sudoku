@@ -7,6 +7,7 @@ mod common;
 use common::*;
 use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, BACK_GUARD_MS, HAND_TOUCH_MS, OVERLAY_MS, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
 use sudoku::game::{cells, mark_bit, peers, Cell};
+use sudoku::launch::Launch;
 use sudoku::layout::{self, Button};
 use sudoku::reference;
 use sudoku::render::rgb_at;
@@ -2170,49 +2171,64 @@ fn a_new_game_a_change_of_screen_and_the_update_dialog_remove_the_x() {
         d.wait(BACK_GUARD_MS);
     }
 
-    // The update dialog, also with a "?" in a different cell.
+    // The update dialog (UPD-10): it shows only when the app starts. The x and the "?" are not saved
+    // (MRK-17, PER-2), thus a start with the dialog from a game that had an x and a "?" in a different
+    // cell shows neither.
     let mut d = Driver::new(138);
-    d.app.update = sudoku::reference::update_state(true);
-    d.app.update.tap();
-    d.app.update.request = None;
-    let (cell, digit) = refused_pair(&d.app.game);
+    let (cell, digit) = refused_pair_off_dialog(&d.app.game);
     let other = cells().find(|&c| !d.app.game.is_filled(c) && c != cell).unwrap();
     d.write_strokes(&scribble_ink(other));
     d.tap_micro(cell, digit);
     assert!(d.app.ui.refused.is_some() && d.app.ui.question.is_some());
-    let now = d.now;
-    d.app.update_installed(Ok(true), now);
-    assert!(d.app.update.dialog_shown());
-    assert_eq!((d.app.ui.refused, d.app.ui.question), (None, None), "UPD-10");
+    let mut d = Driver::opened(app_with_launch(Launch::external(true), Some(d.app.game.clone()), Some(d.app.settings.clone()), 138));
+    assert!(d.app.update.dialog_shown(), "UPD-10");
+    assert_eq!((d.app.ui.refused, d.app.ui.question), (None, None), "UPD-10, PER-2");
     assert_x_rule(&d, "dialog");
+    // A tap under the dialog shows no x (MRK-12).
+    d.tap_micro(cell, digit);
+    assert!(d.app.update.dialog_shown(), "UPD-10");
+    assert_eq!(d.app.ui.refused, None, "MRK-12: a tap under the dialog");
+    assert_x_rule(&d, "a tap under the dialog");
 }
 
-#[test]
-fn the_update_dialog_stops_a_tap_and_shows_no_x() {
-    // MRK-10, MRK-12, UPD-10: a pen on the screen has no more effect when the dialog shows. With the
-    // dialog, a tap on the board does nothing.
-    let mut d = Driver::new(139);
-    d.app.update = sudoku::reference::update_state(true);
-    d.app.update.tap();
-    d.app.update.request = None;
-    let before = board(&d.app.game);
-    let (cell, digit) = refused_pairs(&d.app.game)
+/// A pair of a refused tap (MRK-10) whose micro-cell is not on a button of the dialog.
+fn refused_pair_off_dialog(g: &sudoku::game::Game) -> (Cell, u8) {
+    refused_pairs(g)
         .into_iter()
         .find(|p| {
             let (x, y) = micro_center(p.0, p.1);
             !layout::dialog_cancel().contains(x, y) && !layout::dialog_delete().contains(x, y)
         })
-        .unwrap();
+        .expect("a refused pair off the dialog buttons")
+}
+
+#[test]
+fn the_update_dialog_stops_the_pen_and_shows_no_x() {
+    // MRK-10, MRK-12, UPD-10: while the dialog shows, the pen has no effect on the board. A tap on a
+    // micro-cell shows no x, ink makes no stroke and waits for no read, and the eraser removes
+    // nothing. The game does not change.
+    let mut d = Driver::opened(app_restart_needed(false, 139));
+    assert!(d.app.update.dialog_shown(), "UPD-10");
+    // A number of the player in one of the two top rows, far from the dialog, for the eraser.
+    let filled = cells().find(|&c| c.0 < 2 && !d.app.game.is_filled(c)).unwrap();
+    let v = d.app.game.solution[filled.0 as usize][filled.1 as usize];
+    d.app.game.add_number(filled, v);
+    let before = board(&d.app.game);
+    let (cell, digit) = refused_pair_off_dialog(&d.app.game);
     let (x, y) = micro_center(cell, digit);
     d.send(Input::PenDown { x, y, tool: Tool::Pen });
-    let now = d.now;
-    d.app.update_installed(Ok(true), now);
-    assert!(d.app.update.dialog_shown());
+    assert!(d.app.live_stroke.is_none(), "UPD-10: no stroke is live");
     d.send(Input::PenUp { x, y });
-    assert_eq!(d.app.ui.refused, None, "UPD-10: the tap in progress");
-    d.tap_micro(cell, digit);
     assert_eq!(d.app.ui.refused, None, "MRK-12: a tap under the dialog");
+    // The cells of the two top rows are far from the dialog.
+    let empty = cells().find(|&c| c.0 < 2 && !d.app.game.is_filled(c)).unwrap();
+    d.write_strokes(&digit_ink(empty, 5));
+    assert!(d.app.ui.pending_ink.is_none() && d.app.live_stroke.is_none(), "UPD-10: no ink waits");
+    d.wait(d.app.pause_ms + 50);
+    d.erase(filled);
+    assert!(d.app.update.dialog_shown(), "UPD-10");
     assert_eq!(board(&d.app.game), before, "UPD-10");
+    assert_eq!((d.app.ui.refused, d.app.ui.question, d.app.ui.highlight), (None, None, None), "UPD-10");
 }
 
 #[test]
@@ -4505,15 +4521,13 @@ fn help_and_statistics_remove_the_highlight_and_it_does_not_come_back() {
 
 #[test]
 fn the_update_dialog_removes_the_highlight_and_it_does_not_come_back() {
-    // HLT-2 (item 7), UPD-10.
+    // HLT-2 (items 5 and 7), UPD-10, PER-2: the dialog shows only when the app starts. A start from
+    // the data saved during a highlight shows the dialog with no highlight, and the highlight does not
+    // come back after "Later".
     for_each_layout(|case| {
         let mut d = Driver::new(409);
-        d.app.update = reference::update_state(true);
-        d.app.update.tap();
-        d.app.update.request = None;
         highlight_a_number(&mut d);
-        let now = d.now;
-        d.app.update_installed(Ok(true), now);
+        let mut d = Driver::opened(app_with_launch(Launch::external(true), Some(d.app.game.clone()), Some(d.app.settings.clone()), 409));
         assert!(d.app.update.dialog_shown(), "{case}");
         assert_eq!(d.app.ui.highlight, None, "HLT-2 ({case})");
         let (x, y) = exact_center(layout::dialog_cancel());
@@ -5230,12 +5244,7 @@ fn a_hand_touch_operates_nothing_on_a_panel_a_dialog_or_a_page() {
         assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "INP-20: outside the panel ({case})");
 
         // The dialog.
-        let mut d = Driver::new(435);
-        d.app.update = reference::update_state(true);
-        d.app.update.tap();
-        d.app.update.request = None;
-        let now = d.now;
-        d.app.update_installed(Ok(true), now);
+        let mut d = Driver::opened(app_restart_needed(false, 435));
         let (x, y) = exact_center(layout::dialog_cancel());
         d.pen_tap(5.0, 5.0);
         assert!(d.app.update.dialog_shown(), "{case}");
@@ -5434,16 +5443,41 @@ fn the_pause_is_1_s_from_the_pen_lift_and_a_new_stroke_stops_it() {
 }
 
 #[test]
-fn the_pause_has_one_source_and_the_manifest_does_not_set_it() {
-    // INP-23: the manifest has no pause setting and no environment block. The source reads no
-    // environment variable for the pause.
+fn the_pause_has_one_source_and_no_manifest_sets_it() {
+    // INP-23: no AppLoad manifest of the app (`manifest.json` of the frontend mode and
+    // `external.manifest.json` of the external mode) has a pause setting or an environment block. The
+    // source, the frontend and the backend script read no environment variable for the pause.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let text = std::fs::read_to_string(root.join("appload/sudoku/external.manifest.json")).unwrap();
-    let manifest: serde_json::Value = serde_json::from_str(&text).unwrap();
-    let object = manifest.as_object().expect("the manifest is an object");
-    assert_eq!(object.get("application").and_then(|v| v.as_str()), Some("sudoku"), "INP-23: this is the manifest");
-    assert!(!object.contains_key("environment"), "INP-23: an environment block");
-    assert!(!text.to_uppercase().contains("PAUSE"), "INP-23: a pause in the manifest");
+    let mut manifests = Vec::new();
+    let mut dirs = vec![root.join("appload")];
+    while let Some(dir) = dirs.pop() {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = e.path();
+            if path.is_dir() {
+                dirs.push(path);
+            } else if path.file_name().is_some_and(|n| n.to_string_lossy().ends_with("manifest.json")) {
+                manifests.push(path);
+            }
+        }
+    }
+    manifests.sort();
+    let names: Vec<_> = manifests.iter().filter_map(|p| p.strip_prefix(root).ok()).map(|p| p.to_string_lossy().into_owned()).collect();
+    for want in ["appload/sudoku/manifest.json", "appload/sudoku/external.manifest.json"] {
+        assert!(names.iter().any(|n| n == want), "INP-23: {want} is missing ({names:?})");
+    }
+    for path in &manifests {
+        let text = std::fs::read_to_string(path).unwrap();
+        let manifest: serde_json::Value = serde_json::from_str(&text).unwrap();
+        let object = manifest.as_object().unwrap_or_else(|| panic!("{path:?}: the manifest is an object"));
+        assert!(!object.contains_key("environment"), "INP-23: {path:?}: an environment block");
+        assert!(!text.to_uppercase().contains("PAUSE"), "INP-23: {path:?}: a pause in the manifest");
+    }
+    let frontend = std::fs::read_to_string(root.join("appload/sudoku/manifest.json")).unwrap();
+    let frontend: serde_json::Value = serde_json::from_str(&frontend).unwrap();
+    assert_eq!(frontend.get("id").and_then(|v| v.as_str()), Some("sudoku"), "INP-23: this is the manifest of the frontend");
+    let external = std::fs::read_to_string(root.join("appload/sudoku/external.manifest.json")).unwrap();
+    let external: serde_json::Value = serde_json::from_str(&external).unwrap();
+    assert_eq!(external.get("application").and_then(|v| v.as_str()), Some("sudoku"), "INP-23: this is the external manifest");
 
     let name = concat!("SUDOKU_", "RECOGNITION_", "PAUSE");
     let mut files: Vec<std::path::PathBuf> = Vec::new();
@@ -5453,7 +5487,7 @@ fn the_pause_has_one_source_and_the_manifest_does_not_set_it() {
             let path = e.path();
             if path.is_dir() {
                 dirs.push(path);
-            } else if path.extension().is_some_and(|x| x == "rs" || x == "json" || x == "qmd") {
+            } else if path.extension().is_some_and(|x| x == "rs" || x == "json" || x == "qml" || x == "qrc" || x == "sh") || path.file_name().is_some_and(|n| n == "entry") {
                 files.push(path);
             }
         }
@@ -6514,4 +6548,370 @@ fn the_results_keep_the_symmetry_and_an_earlier_database_gets_false() {
     let again = ResultsDb::open(&path).unwrap().all().unwrap();
     assert_eq!(again.iter().filter(|r| r.symmetric).count(), 2, "CMP-5: the row is in the file");
     std::fs::remove_dir_all(&dir).ok();
+}
+
+// ---- UPD-3, UPD-10, UPD-12, UPD-13, UPD-14: the restart dialog and the update row (R§9.2, R§14.2).
+
+/// A `version.json` with the version `version` (R§9.2).
+fn release(version: &str) -> sudoku::update::Manifest {
+    sudoku::update::Manifest { version: version.to_string(), url: "https://example.com/a.tar.gz".to_string(), sha256: "0".repeat(64) }
+}
+
+/// The quantity of pixels with the color of the caution icon near the gear (UPD-3). The icon is
+/// 16 px to the right of and 16 px above the center of the gear (R§9.2).
+fn caution_pixels(app: &App, fonts: &sudoku::font::Fonts) -> usize {
+    let pm = draw_screen(app, fonts);
+    let (gx, gy) = button_center(Button::Settings);
+    let (gx, gy) = (gx as i32, gy as i32);
+    let mut n = 0;
+    for y in (gy - 45).max(0)..(gy + 45).min(layout::screen_h() as i32) {
+        for x in (gx - 45).max(0)..(gx + 45).min(layout::screen_w() as i32) {
+            n += usize::from(rgb_at(&pm, x, y) == sudoku::render::CAUTION_RED);
+        }
+    }
+    n
+}
+
+/// The parts of the state that a tap on "Later", "Restart" or "Restart interface" must not change.
+fn restart_state(d: &Driver) -> impl PartialEq + std::fmt::Debug {
+    (board(&d.app.game), d.app.settings.clone(), d.app.screen, d.app.ui.menu, d.app.update.state.clone(), d.app.update.request.clone())
+}
+
+#[test]
+fn the_restart_dialog_shows_only_at_the_first_start_while_the_update_is_not_complete() {
+    // UPD-10, UPD-13, PER-2, R§9.2, R§14.2: the dialog shows when the app starts in the external mode
+    // with the frontend files in the app folder, and only when the saved value `restart_dialog_shown`
+    // is false. Then the value becomes true. A start in the frontend mode sets it to false, thus the
+    // dialog can show again. A start in the external mode with no frontend files changes nothing.
+    // Each start reads the settings file that the start before it saved.
+    let dir = std::env::temp_dir().join(format!("sudoku-test-restart-dialog-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let sp = dir.join("settings.json");
+    let start = |launch: Launch, case: &str| -> App {
+        let a = app_with_launch(launch, None, sudoku::store::load_json(&sp), 451);
+        sudoku::invariants::check_app(&a).unwrap_or_else(|e| panic!("{e} ({case})"));
+        sudoku::store::save_json(&sp, &a.settings).unwrap();
+        a
+    };
+    let restart = Launch::external(true);
+    let old_release = Launch::external(false);
+
+    // The first start in this state, with no settings file.
+    let a = start(restart, "first start");
+    assert!(a.update.restart_needed(), "UPD-10");
+    assert!(a.update.dialog_shown(), "UPD-10: the first start");
+    assert!(a.settings.restart_dialog_shown && a.settings_dirty, "UPD-10: the app saves that the dialog showed");
+    assert_eq!((a.screen, a.ui.menu), (Screen::Game, Menu::Open(None)), "PER-2: the dialog shows over the game screen");
+    assert_eq!((a.ui.highlight, a.ui.question, a.ui.refused), (None, None, None), "PER-2, UPD-10");
+    assert!(a.ui.pending_ink.is_none() && a.live_stroke.is_none(), "UPD-10: no ink waits");
+    assert_eq!(Settings { restart_dialog_shown: false, ..a.settings.clone() }, Settings::default(), "UPD-10: only the saved value changes");
+
+    // The next starts in the same state: no dialog, the update is still not complete.
+    for case in ["second start", "third start"] {
+        let a = start(restart, case);
+        assert!(a.update.restart_needed(), "UPD-10 ({case})");
+        assert!(!a.update.dialog_shown(), "UPD-10: only at the first start ({case})");
+        assert!(a.settings.restart_dialog_shown, "UPD-10 ({case})");
+    }
+
+    // The external mode with no frontend files (a release before the frontend): no dialog, and the
+    // saved value does not change.
+    let a = start(old_release, "external mode, true");
+    assert!(!a.update.restart_needed() && !a.update.dialog_shown(), "UPD-10");
+    assert!(a.settings.restart_dialog_shown && !a.settings_dirty, "UPD-13: the external mode keeps true");
+
+    // The frontend mode: the value becomes false and is saved.
+    let a = start(Launch::Frontend, "frontend mode");
+    assert!(!a.update.restart_needed() && !a.update.dialog_shown(), "UPD-10");
+    assert!(!a.settings.restart_dialog_shown && a.settings_dirty, "UPD-13");
+
+    // The external mode with no frontend files keeps false.
+    let a = start(old_release, "external mode, false");
+    assert!(!a.update.dialog_shown() && !a.settings.restart_dialog_shown && !a.settings_dirty, "UPD-13: the external mode keeps false");
+
+    // The state comes back: the dialog shows again, one time.
+    let a = start(restart, "the state comes back");
+    assert!(a.update.dialog_shown() && a.settings.restart_dialog_shown, "UPD-13: the dialog can show again");
+    let a = start(restart, "the state comes back, second start");
+    assert!(!a.update.dialog_shown(), "UPD-10");
+
+    // A settings file of an earlier version has no `restart_dialog_shown`: the dialog did not show.
+    let mut old: serde_json::Value = serde_json::to_value(Settings { restart_dialog_shown: true, ..Settings::default() }).unwrap();
+    assert!(old.as_object_mut().unwrap().remove("restart_dialog_shown").is_some(), "R§14.2: the key");
+    std::fs::write(&sp, serde_json::to_string(&old).unwrap()).unwrap();
+    let a = start(restart, "a settings file of an earlier version");
+    assert!(a.update.dialog_shown() && a.settings.restart_dialog_shown, "R§14.2: no value means that the dialog did not show");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_restart_dialog_has_the_title_the_text_and_the_buttons_of_the_documents() {
+    // UPD-10, R§9.2: the title "Restart the interface?", the two lines of text and the buttons
+    // "Later" and "Restart". The text of the dialog for a new ink patch is gone. The dialog shows over
+    // the screen, at the position of the delete dialogs.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+    let render = std::fs::read_to_string(root.join("src/render.rs")).unwrap();
+    for text in ["\"Restart the interface?\"", "\"The update is not complete. To complete it,\"", "\"the reMarkable interface must start again.\"", "\"Later\"", "\"Restart\""] {
+        assert!(render.contains(text), "R§9.2: {text}");
+    }
+    let mut src = render.clone();
+    for f in ["src/app.rs", "src/update.rs", "src/reference.rs"] {
+        src.push_str(&std::fs::read_to_string(root.join(f)).unwrap());
+    }
+    assert!(!src.contains("The update has a new ink patch"), "R§9.2: the old text");
+
+    let fonts = fonts();
+    for_each_layout(|case| {
+        let with = Driver::opened(app_restart_needed(false, 452));
+        let without = Driver::opened(app_restart_needed(true, 452));
+        assert!(with.app.update.dialog_shown() && !without.app.update.dialog_shown(), "{case}");
+        assert_eq!(with.app.game, without.app.game, "{case}");
+        let (a, b) = (draw_screen(&with.app, &fonts), draw_screen(&without.app, &fonts));
+        let (x0, y0, x1, y1) = layout::dialog();
+        let r = layout::page_rect(x0, y0, x1, y1);
+        let mut inside = 0;
+        for y in 0..layout::screen_h() as i32 {
+            for x in 0..layout::screen_w() as i32 {
+                if rgb_at(&a, x, y) != rgb_at(&b, x, y) && r.contains(x as f32 + 0.5, y as f32 + 0.5) {
+                    inside += 1;
+                }
+            }
+        }
+        assert!(inside > 1000, "UPD-10: the dialog shows ({case}): {inside} pixels");
+        for button in [layout::dialog_cancel(), layout::dialog_delete()] {
+            assert!(r.contains(button.x0 as f32 + 0.5, button.y0 as f32 + 0.5) && r.contains(button.x1 as f32 - 0.5, button.y1 as f32 - 0.5), "R§9.2: the buttons are in the dialog ({case})");
+        }
+    });
+}
+
+#[test]
+fn later_closes_the_dialog_and_the_row_shows_restart_interface_for_the_full_run() {
+    // UPD-10, UPD-14, UPD-3, R§9.2: a stable build while the update is not complete. Under the dialog,
+    // a tap on the toolbar has no effect. "Later" closes the dialog and asks for nothing. The gear has
+    // the caution icon, and the update row shows only the button "Restart interface". A tap on it asks
+    // for xovi/start after the game is saved, and it changes nothing else. If xovi/start fails, the
+    // button stays.
+    let fonts = fonts();
+    for_each_layout(|case| {
+        let mut app = app_restart_needed(false, 453);
+        set_build(&mut app, "v0.1.0");
+        let mut d = Driver::opened(app);
+        assert!(d.app.update.dialog_shown(), "{case}");
+        // The dialog shows over a lighter screen (update-restart.png), thus only the state is examined here.
+        assert!(d.app.update.caution(), "UPD-3: the icon at the start ({case})");
+        let before = restart_state(&d);
+        d.button(Button::Settings);
+        d.button(Button::Menu);
+        assert!(d.app.update.dialog_shown() && !d.app.restart_ui, "UPD-10 ({case})");
+        assert_eq!(restart_state(&d), before, "UPD-10: only the buttons of the dialog operate ({case})");
+
+        let (lx, ly) = exact_center(layout::dialog_cancel());
+        d.finger_tap(lx, ly);
+        assert!(!d.app.update.dialog_shown() && !d.app.restart_ui, "UPD-10: Later ({case})");
+        assert_eq!(restart_state(&d), before, "UPD-10: Later ({case})");
+        assert!(caution_pixels(&d.app, &fonts) > 0, "UPD-3: the icon stays after Later ({case})");
+
+        d.button(Button::Settings);
+        assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{case}");
+        assert_eq!(d.app.update.row_text(), None, "UPD-14 ({case})");
+        assert_eq!(d.app.update.button().map(|b| b.text().to_string()).as_deref(), Some("Restart interface"), "UPD-10 ({case})");
+        let before = restart_state(&d);
+        d.app.game_dirty = false;
+        let (bx, by) = exact_center(layout::update_button_area());
+        d.finger_tap(bx, by);
+        assert!(d.app.restart_ui && d.app.game_dirty, "UPD-10: the game is saved, then xovi/start ({case})");
+        assert_eq!(restart_state(&d), before, "UPD-10: the button changes nothing else ({case})");
+        d.app.restart_failed();
+        assert!(!d.app.restart_ui && !d.app.update.dialog_shown(), "{case}");
+        assert_eq!(d.app.update.button().map(|b| b.text().to_string()).as_deref(), Some("Restart interface"), "UPD-10: the button stays ({case})");
+        // The panel closes and opens again: the button and the icon stay for the full run.
+        d.button(Button::Settings);
+        d.button(Button::Settings);
+        assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{case}");
+        assert_eq!(d.app.update.button().map(|b| b.text().to_string()).as_deref(), Some("Restart interface"), "UPD-10 ({case})");
+        assert!(caution_pixels(&d.app, &fonts) > 0, "UPD-3 ({case})");
+    });
+
+    // A later start in the same state: no dialog, but the button and the icon show again.
+    let mut app = app_restart_needed(true, 454);
+    set_build(&mut app, "pre-abcdef0");
+    let mut d = Driver::opened(app);
+    assert!(!d.app.update.dialog_shown(), "UPD-10");
+    assert!(caution_pixels(&d.app, &fonts) > 0, "UPD-3: at each start");
+    d.button(Button::Settings);
+    assert_eq!(d.app.update.button().map(|b| b.text().to_string()).as_deref(), Some("Restart interface"), "UPD-10: at each start");
+}
+
+#[test]
+fn restart_in_the_dialog_asks_for_xovi_start_after_the_game_is_saved() {
+    // UPD-10, R§9.2: "Restart" (with the finger or the pen) asks the platform to save the game and run
+    // xovi/start. It changes nothing else. If xovi/start fails, the dialog closes, and the row shows
+    // the button "Restart interface". A `dev` build also shows the dialog and operates "Restart", but it
+    // has no row (UPD-14).
+    for_each_layout(|case| {
+        for (version, pen) in [("v0.1.0", false), ("v0.1.0", true), ("dev", false)] {
+            let case = format!("{case}, {version}, pen: {pen}");
+            let mut app = app_restart_needed(false, 455);
+            set_build(&mut app, version);
+            let mut d = Driver::opened(app);
+            assert!(d.app.update.dialog_shown(), "UPD-10 ({case})");
+            let before = restart_state(&d);
+            d.app.game_dirty = false;
+            let (x, y) = exact_center(layout::dialog_delete());
+            if pen {
+                d.pen_tap(x, y);
+            } else {
+                d.finger_tap(x, y);
+            }
+            assert!(d.app.restart_ui && d.app.game_dirty, "UPD-10: the game is saved, then xovi/start ({case})");
+            assert_eq!(restart_state(&d), before, "UPD-10 ({case})");
+            d.app.restart_failed();
+            assert!(!d.app.restart_ui && !d.app.update.dialog_shown(), "UPD-10: the dialog closes ({case})");
+            let button = d.app.update.button().map(|b| b.text().to_string());
+            assert_eq!(button.as_deref(), (version != "dev").then_some("Restart interface"), "UPD-10, UPD-14 ({case})");
+            sudoku::invariants::check_app(&d.app).unwrap_or_else(|e| panic!("{e} ({case})"));
+        }
+    });
+}
+
+#[test]
+fn a_dev_build_shows_the_restart_dialog_but_no_button_and_no_caution_icon() {
+    // UPD-14, UPD-1, UPD-3, R§9.2: while the update is not complete, a `dev` build shows the dialog at
+    // the first start. The Settings panel has five rows (no update row), and the gear never has the
+    // caution icon.
+    let fonts = fonts();
+    for_each_layout(|case| {
+        for shown in [false, true] {
+            let case = format!("{case}, restart_dialog_shown: {shown}");
+            let mut app = app_restart_needed(shown, 456);
+            set_build(&mut app, "dev/update-icons");
+            let mut d = Driver::opened(app);
+            assert!(d.app.update.restart_needed(), "{case}");
+            assert_eq!(d.app.update.dialog_shown(), !shown, "UPD-10 ({case})");
+            assert!(!d.app.update.has_row() && d.app.update.button().is_none(), "UPD-14 ({case})");
+            assert!(!d.app.update.caution(), "UPD-3 ({case})");
+            if shown {
+                assert_eq!(caution_pixels(&d.app, &fonts), 0, "UPD-3 ({case})");
+            }
+            if !shown {
+                let (lx, ly) = exact_center(layout::dialog_cancel());
+                d.finger_tap(lx, ly);
+                assert!(!d.app.update.dialog_shown() && !d.app.restart_ui, "UPD-10: Later ({case})");
+            }
+            d.button(Button::Settings);
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{case}");
+            assert_eq!(layout::settings_panel(d.app.update.has_row()), layout::settings_panel(false), "UPD-1 ({case})");
+            assert_eq!(caution_pixels(&d.app, &fonts), 0, "UPD-3 ({case})");
+            // A tap where the sixth row would be closes the panel and asks for nothing.
+            let (x0, _) = documented_settings_x();
+            d.finger_tap((x0 + 10) as f32, (documented_settings_row_y(5) + 56) as f32);
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "UPD-1 ({case})");
+            assert!(!d.app.restart_ui, "UPD-14 ({case})");
+        }
+    });
+}
+
+#[test]
+fn while_the_update_is_not_complete_the_row_offers_no_update() {
+    // UPD-14, UPD-9, UPD-5, UPD-3, R§9.2: in each state that the requests give, the row shows only the
+    // button "Restart interface": no "Looking for updates...", no "Sudoku is up to date", no "Check for
+    // updates" and no "Update to v<version>". A tap on it never starts an installation or a request.
+    let fonts = fonts();
+    let mut app = app_restart_needed(true, 457);
+    set_build(&mut app, "v0.1.0");
+    let mut d = Driver::opened(app);
+    d.button(Button::Settings);
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings));
+    let results: [(&str, Result<sudoku::update::Manifest, String>); 5] = [
+        ("the first request", Err("no network".to_string())),
+        ("no update, the panel is open", Ok(release("v0.1.0"))),
+        ("an older release", Ok(release("v0.0.9"))),
+        ("an update", Ok(release("v0.2.0"))),
+        ("a failed request after an update", Err("no network".to_string())),
+    ];
+    let check = |d: &Driver, case: &str| {
+        assert_eq!(d.app.update.row_text(), None, "UPD-14 ({case})");
+        assert_eq!(d.app.update.button().map(|b| b.text().to_string()).as_deref(), Some("Restart interface"), "UPD-14 ({case})");
+        assert!(d.app.update.caution(), "UPD-3 ({case})");
+    };
+    check(&d, "the start");
+    for (case, result) in results {
+        d.app.update_checked(result);
+        check(&d, case);
+        assert!(caution_pixels(&d.app, &fonts) > 0, "UPD-3 ({case})");
+        let state = d.app.update.state.clone();
+        d.app.restart_ui = false;
+        let (bx, by) = exact_center(layout::update_button_area());
+        d.finger_tap(bx, by);
+        assert!(d.app.restart_ui, "UPD-10 ({case})");
+        assert_eq!(d.app.update.state, state, "UPD-14: no installation and no request ({case})");
+        assert_eq!(d.app.update.request, None, "UPD-14 ({case})");
+        assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{case}");
+        d.app.restart_failed();
+    }
+    // The panel closes and opens again after an update was found: the row still offers no update.
+    d.button(Button::Settings);
+    d.button(Button::Settings);
+    check(&d, "the panel again");
+    assert_eq!(d.app.update.request, None, "UPD-14");
+
+    // The states of an installation cannot come in this state. If one is there, the row still shows
+    // only the button, and a tap starts nothing (UPD-14 for each value of `state`).
+    use sudoku::update::UpdateState;
+    for state in [UpdateState::Installing(release("v0.2.0")), UpdateState::Failed(release("v0.2.0"), 0), UpdateState::Installed] {
+        let mut u = d.app.update.clone();
+        u.state = state.clone();
+        assert_eq!(u.row_text(), None, "UPD-14 ({state:?})");
+        assert_eq!(u.button().map(|b| b.text().to_string()).as_deref(), Some("Restart interface"), "UPD-14 ({state:?})");
+        assert!(u.caution(), "UPD-3 ({state:?})");
+        assert!(!u.tap() && u.request.is_none() && u.state == state, "UPD-14 ({state:?})");
+    }
+}
+
+#[test]
+fn an_installation_shows_restart_sudoku_to_update_and_never_the_dialog() {
+    // UPD-12, UPD-10, UPD-5, UPD-6, UPD-3, R§9.2: in the frontend mode and in the external mode with no
+    // frontend files, an installation shows "Restart Sudoku to update". It never shows the restart
+    // dialog or the button "Restart interface", and it does not change `restart_dialog_shown`.
+    let fonts = fonts();
+    for launch in [Launch::Frontend, Launch::external(false)] {
+        for shown in [false, true] {
+            for ok in [true, false] {
+                let case = format!("{launch:?}, restart_dialog_shown: {shown}, success: {ok}");
+                let settings = Settings { restart_dialog_shown: shown, ..Settings::default() };
+                let mut app = app_with_launch(launch, None, Some(settings), 458);
+                set_build(&mut app, "v0.1.0");
+                let mut d = Driver::opened(app);
+                let saved = d.app.settings.restart_dialog_shown;
+                assert_eq!(saved, shown && !launch.is_frontend(), "UPD-13 ({case})");
+                d.app.update_checked(Ok(release("v0.2.0")));
+                d.button(Button::Settings);
+                assert_eq!(d.app.update.button().map(|b| b.text().to_string()).as_deref(), Some("Update to v0.2.0"), "{case}");
+                let (bx, by) = exact_center(layout::update_button_area());
+                d.finger_tap(bx, by);
+                assert!(matches!(d.app.update.state, sudoku::update::UpdateState::Installing(_)), "UPD-5 ({case})");
+                assert!(matches!(d.app.update.request, Some(sudoku::update::UpdateRequest::Install(_))), "UPD-5 ({case})");
+                d.app.update.request = None;
+                let now = d.now;
+                d.app.install_finished(if ok { Ok(()) } else { Err("the checksum is not correct".to_string()) }, now);
+                assert!(!d.app.update.dialog_shown() && !d.app.restart_ui, "UPD-10: an installation never shows the dialog ({case})");
+                assert_ne!(d.app.update.button(), Some(sudoku::update::UpdateButton::Restart), "UPD-10 ({case})");
+                assert_eq!(d.app.settings.restart_dialog_shown, saved, "UPD-10 ({case})");
+                assert!(caution_pixels(&d.app, &fonts) > 0, "UPD-3 ({case})");
+                if ok {
+                    assert_eq!(d.app.update.state, sudoku::update::UpdateState::Installed, "UPD-12 ({case})");
+                    assert_eq!(d.app.update.row_text(), Some("Restart Sudoku to update"), "UPD-12 ({case})");
+                    assert_eq!(d.app.update.button(), None, "UPD-12 ({case})");
+                    d.finger_tap(bx, by);
+                    assert!(d.app.update.request.is_none() && !d.app.restart_ui, "UPD-5: no button ({case})");
+                    assert_eq!(d.app.update.row_text(), Some("Restart Sudoku to update"), "{case}");
+                } else {
+                    assert_eq!(d.app.update.row_text(), Some("Update failed"), "UPD-6 ({case})");
+                    d.wait(3000);
+                    assert_eq!(d.app.update.button().map(|b| b.text().to_string()).as_deref(), Some("Update to v0.2.0"), "UPD-6 ({case})");
+                }
+                assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{case}");
+            }
+        }
+    }
 }

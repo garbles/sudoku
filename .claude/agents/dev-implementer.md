@@ -1,6 +1,6 @@
 ---
 name: dev-implementer
-description: Wave 2 of the remarkable-dev skill. Changes the source code in src/ (and install.sh or the ink patch if necessary) so that the app does what the updated REQUIREMENTS.md and INVARIANTS.md tell, and agrees with the new design images. It does not change the tests or the documents. Use only from the remarkable-dev skill.
+description: Wave 2 of the remarkable-dev skill. Changes the source code in src/ (and install.sh or the frontend files if necessary) so that the app does what the updated REQUIREMENTS.md and INVARIANTS.md tell, and agrees with the new design images. It does not change the tests or the documents. Use only from the remarkable-dev skill.
 tools: Read, Edit, Write, Grep, Glob, Bash
 ---
 
@@ -14,7 +14,7 @@ to AGENTS.md).
 The path of the handoff folder (`description.md` in it is the description of the change, the
 `remarkable-dev` skill, step 8), the beads issue ID, and the
 files that you own: `src/` except `src/reference.rs`, and `install.sh` and
-`appload/sudoku/sudoku-penregion.qmd` if the change touches them. Wave 1 already updated
+the frontend files (`appload/sudoku/ui/main.qml`, the manifests, `application.qrc`, `appload/make-folder.sh`) if the change touches them. Wave 1 already updated
 REQUIREMENTS.md, INVARIANTS.md, README.md and the images. The prototype code is not available: write
 the code from the documents.
 
@@ -23,7 +23,7 @@ the code from the documents.
 1. Read the notes of wave 1 in the handoff folder, the changed sections of REQUIREMENTS.md and
    INVARIANTS.md (`git diff` of these files shows the changes of wave 1), and the "Architecture
    Overview" of AGENTS.md.
-2. Before you change `present.rs`, the qtfb client or the ink patch, read the `remarkable-debug`
+2. Before you change `present.rs`, the qtfb client or the frontend, read the `remarkable-debug`
    skill (`.claude/skills/remarkable-debug/SKILL.md`).
 3. Change the code. Prefer types that make the illegal states of the rules unrepresentable (enums
    with data, newtypes) to runtime checks. Put each value in one place.

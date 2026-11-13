@@ -36,7 +36,7 @@ last message. Do not commit. Report only.
 
 ## How to work
 
-Be thorough. Read the full text. Do not sample.
+Read the full text. Do not sample.
 
 1. Read REQUIREMENTS.md, INVARIANTS.md and AGENTS.md completely. Also read DECISIONS.md for the
    decisions of the owner.

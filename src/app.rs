@@ -6,19 +6,21 @@
 
 use crate::game::{Cell, Game, Outcome};
 use crate::generator::{generate_early, generate_with_symmetry, PuzzleKey};
+use crate::launch::Launch;
 use crate::layout::{self, Button, CheckpointControl, LevelButton, Rect};
 use crate::recognizer::{self, Stroke};
 use crate::settings::{Color, LineGray, Section, Settings, Switch};
 use crate::store::{NewResult, ResultRow, ResultsDb};
 use crate::update::{Manifest, Update};
 
-/// The recognition pause after the pen lifts (§5.1, INP-5). This is the only source of the value: the
-/// AppLoad manifest does not set it, and no environment variable changes it (INP-23).
+/// The recognition pause after the pen lifts (§5.1, INP-5). This is the only source of the value: no
+/// AppLoad manifest of the app (`manifest.json` and `external.manifest.json`) sets it, and no
+/// environment variable changes it (INP-23).
 pub const RECOGNITION_PAUSE_MS: u64 = 1000;
 /// The time that the "?" and the x of a refused tap show (§5.1, §6.1, QST-1, MRK-14).
 pub const OVERLAY_MS: u64 = 1000;
 /// The writing stops when the pen has written nothing on the board for this time after the last
-/// stroke (§5.1, §14.4, ink patch). Until then, a redraw waits, so that the redraw does not start while
+/// stroke (§5.1, §14.4, pen area). Until then, a redraw waits, so that the redraw does not start while
 /// the pen moves to the next cell. This time is equal to the recognition pause (INP-16).
 pub const WRITING_IDLE_MS: u64 = RECOGNITION_PAUSE_MS;
 /// A touch that starts less than this time after a pen lift is a hand touch: it has no effect (INP-20).
@@ -320,7 +322,8 @@ pub struct App {
     pub confirm_all: bool,
     pub settings: Settings,
     pub results: Vec<ResultRow>,
-    /// The update state (§9.2). The platform takes `update.request` and gives the results.
+    /// The update state (§9.2). The platform takes `update.request` and gives the results. It also
+    /// has the launch mode of the program and the restart dialog (`Update::launch`, LCH-9, UPD-10).
     pub update: Update,
     db: ResultsDb,
     env: Box<dyn Env>,
@@ -365,7 +368,8 @@ pub struct App {
     pub settings_dirty: bool,
     pub quit: bool,
     /// The user tapped "Restart" in the dialog "Restart the interface?" or the button "Restart
-    /// interface" (§9.2). The platform saves the game and runs xovi/start. If the start fails, it calls `restart_failed`.
+    /// interface" (§9.2), which show only while the update is not complete (UPD-10). The platform
+    /// saves the game and runs xovi/start. If the start fails, it calls `restart_failed`.
     pub restart_ui: bool,
     /// Saves the game immediately. The app calls it when a puzzle becomes complete, before it adds the
     /// result: thus a power loss can never record the same game two times (CMP-5).
@@ -383,8 +387,33 @@ impl App {
     /// not correct (PER-5), the app makes a new game of the last selected mode.
     /// `ng_stops` are the slider stops of the current layout: `render::ng_stops` with the fonts of
     /// the tablet, or `App::placeholder_ng_stops` when there is no font.
-    pub fn new(saved: Option<Game>, settings: Option<Settings>, db: ResultsDb, mut env: Box<dyn Env>, ng_stops: [f32; layout::STOPS as usize]) -> App {
-        let settings = settings.filter(Settings::is_valid).unwrap_or_default();
+    /// The app starts in the frontend mode (the usual mode): `with_launch` gives a different mode.
+    pub fn new(saved: Option<Game>, settings: Option<Settings>, db: ResultsDb, env: Box<dyn Env>, ng_stops: [f32; layout::STOPS as usize]) -> App {
+        App::with_launch(Launch::Frontend, saved, settings, db, env, ng_stops)
+    }
+
+    /// Makes the app as `new`, for a program that AppLoad started in the mode `launch` (LCH-9).
+    ///
+    /// - The frontend mode sets the saved value `restart_dialog_shown` to false (UPD-13).
+    /// - The external mode with the frontend files in the app folder (`Launch::external(true)`): the
+    ///   update is not complete. The dialog "Restart the interface?" shows exactly when the saved
+    ///   value is false, and the value becomes true (UPD-10). The app shows the game screen at each
+    ///   start, no ink waits, and the board has no highlight, no "?" and no x: the dialog shows over
+    ///   that screen. The `dialog` of `launch` has no effect.
+    ///
+    /// A change of the saved value sets `settings_dirty`, thus the platform saves it.
+    pub fn with_launch(
+        launch: Launch,
+        saved: Option<Game>,
+        settings: Option<Settings>,
+        db: ResultsDb,
+        mut env: Box<dyn Env>,
+        ng_stops: [f32; layout::STOPS as usize],
+    ) -> App {
+        let mut settings = settings.filter(Settings::is_valid).unwrap_or_default();
+        let (launch, dialog_shown) = launch.at_start(settings.restart_dialog_shown);
+        let settings_dirty = dialog_shown != settings.restart_dialog_shown;
+        settings.restart_dialog_shown = dialog_shown;
         // A game file of an earlier version can have more checkpoints than the maximum: keep the
         // newest (the list is newest first).
         let saved = saved.map(|mut g| {
@@ -409,7 +438,7 @@ impl App {
             confirm_all: false,
             settings,
             results,
-            update: Update::new(crate::VERSION),
+            update: Update { launch, ..Update::new(crate::VERSION) },
             db,
             env,
             pause_ms: RECOGNITION_PAUSE_MS,
@@ -425,7 +454,7 @@ impl App {
             next_seed: None,
             early_game: None,
             game_dirty: true,
-            settings_dirty: false,
+            settings_dirty,
             quit: false,
             restart_ui: false,
             redraw: true,
@@ -1593,7 +1622,7 @@ impl App {
         self.licenses.hash(&mut h);
         (self.settings.color_starting, self.settings.color_clash, self.settings.color_highlight, self.settings.color_completed).hash(&mut h);
         (self.settings.highlight_on, self.settings.auto_hide_on, self.settings.completed_color_on, self.settings.micro_line, self.confirm_all).hash(&mut h);
-        (&self.update.current, &self.update.state, self.update.row_text()).hash(&mut h);
+        (&self.update.current, &self.update.state, self.update.launch, self.update.row_text()).hash(&mut h);
         self.results.len().hash(&mut h);
         self.results.iter().for_each(|r| r.id.hash(&mut h));
         h.finish()
@@ -1605,27 +1634,21 @@ impl App {
         self.redraw = true;
     }
 
-    /// The result of an installation from the platform (§9.2). `Ok(true)`: the installation replaced
-    /// the ink patch. Then the dialog "Restart the interface?" shows over the screen (UPD-10): the app
-    /// reads the waiting ink first, and the touches that are on the screen have no more effect.
-    pub fn update_installed(&mut self, result: Result<bool, String>, now: u64) {
-        self.update.installed(result, now);
-        if self.update.dialog_shown() {
-            if self.ui.pending_ink.is_some() {
-                self.read_ink(now);
-            }
-            self.ui.highlight = None;
-            self.ui.question = None;
-            self.ui.refused = None;
-            self.live_stroke = None;
-            self.cancel_gestures();
-        }
+    /// The result of an installation from the platform (§9.2). An installation never shows the dialog
+    /// "Restart the interface?": that dialog shows only at the start of the app (`with_launch`,
+    /// UPD-10).
+    pub fn install_finished(&mut self, result: Result<(), String>, now: u64) {
+        self.update.install_finished(result, now);
         self.redraw = true;
     }
 
     /// "Restart" in the dialog or the button "Restart interface" (UPD-10): the platform saves the game
-    /// and runs xovi/start.
+    /// and runs xovi/start. The two controls show only while the update is not complete, thus the app
+    /// asks for xovi/start only in that state.
     fn request_restart(&mut self) {
+        if !self.update.restart_needed() {
+            return;
+        }
         eprintln!("sudoku: restart the interface (xovi/start)");
         self.game_dirty = true;
         self.restart_ui = true;
@@ -1687,4 +1710,70 @@ impl Comparison {
 pub fn average_seconds<'a>(rows: impl Iterator<Item = &'a ResultRow>) -> Option<u64> {
     let (n, sum) = rows.fold((0u64, 0u64), |(n, s), r| (n + 1, s + r.seconds));
     (n > 0).then(|| (sum as f64 / n as f64).round_ties_even() as u64)
+}
+
+#[cfg(test)]
+mod launch_tests {
+    use super::*;
+    use crate::launch::{Launch, Restart};
+
+    struct TestEnv;
+
+    impl Env for TestEnv {
+        fn unix_time(&mut self) -> i64 {
+            1_700_000_000
+        }
+        fn new_seed(&mut self) -> u64 {
+            7
+        }
+    }
+
+    fn app(launch: Launch, shown: bool) -> App {
+        let settings = Settings { restart_dialog_shown: shown, ..Settings::default() };
+        App::with_launch(launch, None, Some(settings), ResultsDb::in_memory(), Box::new(TestEnv), App::placeholder_ng_stops())
+    }
+
+    /// A finger tap at the center of `area`.
+    fn tap(app: &mut App, area: Rect, now: u64) {
+        let (x, y) = (((area.x0 + area.x1) / 2) as f32, ((area.y0 + area.y1) / 2) as f32);
+        app.handle(Input::TouchDown { id: 1, x, y }, now);
+        app.handle(Input::TouchUp { id: 1, x, y }, now + 50);
+        crate::invariants::check_app(app).unwrap();
+    }
+
+    #[test]
+    fn the_restart_dialog_shows_only_at_the_first_start_while_the_update_is_not_complete() {
+        // UPD-10: the first start in this state shows the dialog and saves that it showed.
+        let mut first = app(Launch::external(true), false);
+        assert!(first.update.dialog_shown() && first.settings.restart_dialog_shown && first.settings_dirty);
+        crate::invariants::check_app(&first).unwrap();
+        // "Later" closes the dialog. The update is still not complete.
+        tap(&mut first, layout::dialog_cancel(), 1000);
+        assert!(!first.update.dialog_shown() && first.update.restart_needed() && !first.restart_ui);
+        // A later start in this state: no dialog, and the saved value does not change.
+        let later = app(Launch::external(true), true);
+        assert!(!later.update.dialog_shown() && later.update.restart_needed() && !later.settings_dirty);
+        crate::invariants::check_app(&later).unwrap();
+        // "Restart" asks the platform for xovi/start after the game is saved. A failed start closes
+        // the dialog.
+        let mut restart = app(Launch::external(true), false);
+        restart.game_dirty = false;
+        tap(&mut restart, layout::dialog_delete(), 1000);
+        assert!(restart.restart_ui && restart.game_dirty);
+        restart.restart_failed();
+        assert!(!restart.restart_ui && !restart.update.dialog_shown());
+        // UPD-13: the frontend mode sets the saved value to false. The dialog can show again.
+        let frontend = app(Launch::Frontend, true);
+        assert!(!frontend.settings.restart_dialog_shown && frontend.settings_dirty && !frontend.update.dialog_shown());
+        crate::invariants::check_app(&frontend).unwrap();
+        // The external mode with no frontend files: a release before the frontend. Nothing changes.
+        for shown in [false, true] {
+            let old = app(Launch::external(false), shown);
+            assert_eq!((old.update.launch, old.settings.restart_dialog_shown, old.settings_dirty), (Launch::External(Restart::NotNeeded), shown, false));
+            assert!(!old.update.dialog_shown() && !old.update.restart_needed());
+        }
+        // `new` is the frontend mode.
+        let usual = App::new(None, None, ResultsDb::in_memory(), Box::new(TestEnv), App::placeholder_ng_stops());
+        assert_eq!(usual.update.launch, Launch::Frontend);
+    }
 }

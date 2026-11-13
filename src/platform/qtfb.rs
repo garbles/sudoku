@@ -1,8 +1,10 @@
 //! A client for the qtfb framebuffer of AppLoad (REQUIREMENTS.md §14.4).
 //!
-//! AppLoad starts the app with `QTFB_KEY` in the environment. The app connects to `/tmp/qtfb.sock`
-//! (a SEQPACKET socket), asks for a framebuffer, writes its pixels into shared memory and sends update
-//! messages. AppLoad sends the pen and touch input on the same socket.
+//! The app connects to `/tmp/qtfb.sock` (a SEQPACKET socket), asks for a framebuffer, writes its
+//! pixels into shared memory and sends update messages. AppLoad sends the pen and touch input and the
+//! rotation of the tablet on the same socket. The key of the framebuffer is the fixed framebuffer ID
+//! of the frontend (`launch::IDS`) in the frontend mode, and `QTFB_KEY` of the environment in the
+//! external mode (LCH-5, LCH-9).
 
 use std::io;
 use std::os::fd::RawFd;
@@ -35,9 +37,12 @@ pub const INPUT_PEN_PRESS: i32 = 0x20;
 pub const INPUT_PEN_RELEASE: i32 = 0x21;
 pub const INPUT_PEN_UPDATE: i32 = 0x22;
 
-/// The refresh modes of qtfb. AppLoad puts an `Epaper.ScreenModeItem` below the window. Its mode is
-/// `[Pen, Mono, Animation, Content, UI][mode]` (the AppLoad patch of xochitl). xochitl sends the
-/// pixels of each screen mode with a different waveform: Pen uses the fast waveform of the pen ink.
+/// The refresh modes of qtfb, for the window of an external app. AppLoad puts an
+/// `Epaper.ScreenModeItem` below that window. Its mode is `[Pen, Mono, Animation, Content, UI][mode]`
+/// (the AppLoad patch of xochitl). xochitl sends the pixels of each screen mode with a different
+/// waveform: Pen uses the fast waveform of the pen ink. In the frontend mode, the program sends no
+/// refresh mode: the frontend sets the modes with `DisplayMethodArea` (R§14.4), where the UI mode
+/// has the number 3.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(i32)]
 pub enum RefreshMode {

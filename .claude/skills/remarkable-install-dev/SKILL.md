@@ -64,19 +64,28 @@ skill). Do not put the SSH options in a shell variable: zsh does not split it. I
 
 4. **Install.** Send `dist/sudoku` as a tar stream and replace the old folder in one step, as
    `install.sh` does. This is safe also when the app runs. `COPYFILE_DISABLE=1` stops macOS `tar`
-   from adding `._*` files:
+   from adding `._*` files. The folder has the frontend files (`manifest.json`, `resources.rcc`,
+   `backend/entry`), and `backend/entry` must have mode 755 (`make install-dev` does this step and
+   tells when a manifest is new or changed):
 
    ```bash
-   COPYFILE_DISABLE=1 tar -C dist -czf - sudoku | scripts/tablet-ssh.sh HOST 'set -e; d=/home/root/xovi/exthome/appload; t=$d/.sudoku-install; rm -rf "$t"; mkdir -p "$t"; tar -xzf - -C "$t"; chmod 755 "$t/sudoku/sudoku"; rm -rf "$d/sudoku.old"; if [ -d "$d/sudoku" ]; then mv "$d/sudoku" "$d/sudoku.old"; fi; mv "$t/sudoku" "$d/sudoku"; rm -rf "$d/sudoku.old" "$t"'
+   COPYFILE_DISABLE=1 tar -C dist -czf - sudoku | scripts/tablet-ssh.sh HOST 'set -e; d=/home/root/xovi/exthome/appload; t=$d/.sudoku-install; rm -rf "$t"; mkdir -p "$t"; tar -xzf - -C "$t"; chmod 755 "$t/sudoku/sudoku" "$t/sudoku/backend/entry"; rm -rf "$d/sudoku.old"; if [ -d "$d/sudoku" ]; then mv "$d/sudoku" "$d/sudoku.old"; fi; mv "$t/sudoku" "$d/sudoku"; rm -rf "$d/sudoku.old" "$t"'
    ```
 
 5. **Examine the result.** Compare `sha256sum dist/sudoku/sudoku` (on the computer: `shasum -a 256`)
    with `sha256sum /home/root/xovi/exthome/appload/sudoku/sudoku` on the tablet. They must be
-   equal.
+   equal. Also examine that `backend/entry` is executable on the tablet.
 
 6. **Report.** Give the address (Wi-Fi or USB), the version name, the commit (`git rev-parse --short HEAD`, and
    "with local changes" if `git status --porcelain` is not empty) and the checksum. Tell the user:
    if Sudoku is open, close it and open it again from AppLoad. The open app continues with the old
    program.
+
+   AppLoad reads the manifests only when the interface starts and at "Reload" in the AppLoad menu.
+   After the first install, or after a change of the manifest type, tell the user to tap "Reload" in
+   the AppLoad menu (or offer `/home/root/xovi/start`; ask first, the interface restarts). Then
+   examine that the frontend mode runs: the log (`journalctl -u xochitl --since "-2min"`) must have
+   "Starting binary backend/entry" and `sudoku: launch Frontend`. "Starting external binary" means
+   that the old manifest is in use (the external mode).
 
 Do not commit or push. This skill changes only `dist/` and the tablet.

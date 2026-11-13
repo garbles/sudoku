@@ -56,30 +56,24 @@ The script can occasionally fail; however, the steps are idempotent so running i
 
 If you would rather install this application manually:
 
-1. Install the AppLoad launcher with Vellum:
+1. Install the AppLoad launcher with Vellum. Sudoku needs AppLoad 0.6.0 or newer. If your AppLoad
+   is older, update it with `vellum update && vellum add -u appload`:
 
    ```bash
      vellum add appload
      /home/root/xovi/rebuild_hashtable
    ```
 
-2. Download `sudoku-<version>.tar.gz` and the ink patch `sudoku-penregion.qmd` from the
+2. Download `sudoku-<version>.tar.gz` from the
    [Releases](https://github.com/garbles/sudoku/releases) page. Extract the archive to `dist/`
    (`mkdir -p dist && tar -xzf sudoku-<version>.tar.gz -C dist`). Alternatively, you can [build it yourself](#build).
 
-3. Copy the ink patch, write its stamp file (the version and the SHA-256 checksum of the patch),
-   start xovi and install the power-button starter. The user interface of the tablet starts again:
+3. Start xovi and install the power-button starter. The user interface of the tablet starts again:
 
    ```bash
-     scp sudoku-penregion.qmd root@10.11.99.1:/home/root/xovi/exthome/qt-resource-rebuilder/
-     ssh root@10.11.99.1 'cd /home/root/xovi/exthome/qt-resource-rebuilder && printf "{\"version\": \"%s\", \"sha256\": \"%s\"}\n" <version> "$(sha256sum sudoku-penregion.qmd | cut -d " " -f 1)" > sudoku-penregion.json'
      ssh root@10.11.99.1 /home/root/xovi/start
      ssh root@10.11.99.1 '/home/root/.vellum/bin/vellum update && /home/root/.vellum/bin/vellum add tripletap'
    ```
-
-   An update in the app replaces the ink patch only when its checksum is different from the
-   checksum in `sudoku-penregion.json`, or when this file is missing or not correct. Then the app
-   asks you to start the interface again.
 
    After a restart of the tablet, press the power button 3 times to start xovi.
 
@@ -87,17 +81,27 @@ If you would rather install this application manually:
    `/home/root/.vellum/bin/vellum reenable`, `/home/root/xovi/rebuild_hashtable` and
    `/home/root/xovi/start`.
 
-4. Copy the `dist/sudoku` folder to the tablet and make the program executable:
+4. If you have an older version of Sudoku that used an ink patch, delete the patch and its stamp
+   file from the tablet. Sudoku does not use them now:
+
+   ```bash
+     ssh root@10.11.99.1 "rm -f /home/root/xovi/exthome/qt-resource-rebuilder/sudoku-penregion.qmd /home/root/xovi/exthome/qt-resource-rebuilder/sudoku-penregion.json"
+   ```
+
+5. Copy the `dist/sudoku` folder to the tablet and make the program executable:
 
    ```bash
      scp -r dist/sudoku root@10.11.99.1:/home/root/xovi/exthome/appload/
-     ssh root@10.11.99.1 "chmod 755 /home/root/xovi/exthome/appload/sudoku/sudoku"
+     ssh root@10.11.99.1 "chmod 755 /home/root/xovi/exthome/appload/sudoku/sudoku /home/root/xovi/exthome/appload/sudoku/backend/entry"
    ```
 
    `10.11.99.1` is the address of the tablet on a USB connection. On Wi-Fi, use the IP address of
    the tablet.
 
-5. Open AppLoad on the tablet and tap **Sudoku**.
+6. AppLoad reads the list of apps only when the interface starts. Thus, when the folder `sudoku`
+   was not on the tablet before, or the installed Sudoku was a release from before the frontend,
+   start the interface again with `ssh root@10.11.99.1 /home/root/xovi/start`. (A tap on
+   **Reload** in the AppLoad menu is an alternative.) Then open AppLoad and tap **Sudoku**.
 
 ## Build
 
@@ -117,8 +121,8 @@ You need:
 | Build for the tablet (no tests) | `docker build --platform linux/arm64 --output type=local,dest=dist .` |
 
 The Docker build makes the folder `dist/sudoku/`. It contains the program `sudoku`, the AppLoad
-manifest `external.manifest.json`, the launcher icon `icon.png` and the ink patch
-`sudoku-penregion.qmd`.
+manifests `manifest.json` and `external.manifest.json`, the interface file `resources.rcc`,
+the starter `backend/entry` and the launcher icon `icon.png`.
 
 You can push development builds over SSH after running `rm-ssh-over-wlan on` on the tablet. Store the address at `REMARKABLE_HOST` in `.env`
 and `make install-dev` will use it to push over wifi. To keep the address of your tablet, copy `.env.sample` to `.env` and set `REMARKABLE_HOST` (git ignores `.env`).

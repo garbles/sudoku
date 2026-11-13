@@ -20,8 +20,10 @@ const INK_UPDATE_INTERVAL_MS: u64 = 30;
 /// that overlaps an update in progress waits until this time is over (refer to `Scheduler`).
 pub const INK_WAVE_MS: u64 = 400;
 
-/// The time that the QML patch of AppLoad needs to apply a new pen region (it reads the region each
-/// 15 ms). Ink waits this time after the region starts, and a redraw after the region stops.
+/// The area wait (R§14.4): the time that the program waits after it gives a new pen region or a stop,
+/// so that the frontend can apply it (in the external mode: the ink patch, which reads the region
+/// each 15 ms). Ink waits this time after the region starts, and a redraw after the region stops.
+/// The value comes from the ink patch: the owner approved the ink with it in the frontend mode.
 const PEN_REGION_SETTLE_MS: u64 = 45;
 
 /// A physical rectangle to send to the screen (x, y, width, height). The platform gives it to qtfb.
@@ -113,7 +115,7 @@ impl PhysicalRect {
 
     /// The same pixels in the coordinates of the window of AppLoad (x, y, width, height): the
     /// coordinates of the screen as the player sees it. AppLoad turns the framebuffer when it draws
-    /// it (`fbRotation`), but the items of its window, also the pen area of the ink patch, use the
+    /// it (`fbRotation`), but the items of its window, also the pen area of the frontend, use the
     /// coordinates of the turned window. In portrait (rotation 0) they are the physical coordinates.
     fn to_window(self) -> Update {
         crate::layout::screen_rect(self.to_update())
@@ -177,7 +179,8 @@ pub struct Presenter {
     last_ink_draw: u64,
     /// The cells in progress on the panel, and the ink that is not sent yet.
     scheduler: Scheduler,
-    /// True if the QML patch of AppLoad shows a pen region (refer to `pen_cell`).
+    /// True if the pen region shows on the screen (refer to `pen_cell`): always in the frontend mode;
+    /// in the external mode, only when the ink patch of an earlier release is active (LCH-9).
     pub use_pen_region: bool,
     /// The cell of the pen region: xochitl sends the updates inside the cell with the fast pen
     /// waveform (R§14.4). None: no region.
@@ -187,7 +190,7 @@ pub struct Presenter {
     /// The time of the last change of `pen_cell`, and true if the platform must send the region.
     region_since: u64,
     region_changed: bool,
-    /// A redraw that waits: while the player writes, and until the patch applied the last change of
+    /// A redraw that waits: while the player writes, and until the frontend applied the last change of
     /// the pen region. A redraw that needs the UI waveform in the region (a number, a "?", a panel)
     /// stops the region first: else xochitl sends it with the pen waveform, which leaves ghosts.
     deferred_blit: bool,
@@ -268,8 +271,8 @@ impl Presenter {
     }
 
     /// The new pen region (x, y, width, height in the coordinates of the window of AppLoad; None: no
-    /// region), if it changed since the last call. The platform gives it to the QML patch of AppLoad.
-    /// The patch puts the area in the window, thus a physical rectangle is at the wrong place when
+    /// region), if it changed since the last call. The platform gives it to the frontend (LCH-3).
+    /// The frontend puts the area in the window, thus a physical rectangle is at the wrong place when
     /// the tablet is turned (landscape, or portrait at 180°): the ink then gets the UI waveform.
     pub fn take_region_change(&mut self) -> Option<Option<Update>> {
         std::mem::take(&mut self.region_changed).then(|| self.pen_region().map(PhysicalRect::to_window))
@@ -281,7 +284,7 @@ impl Presenter {
     }
 
     /// Puts the pen region on `cell` (None: no region) at the time `now`, if it is not there already.
-    /// Ink after a change waits until the patch has applied it (PEN_REGION_SETTLE_MS), so that it gets
+    /// Ink after a change waits until the frontend has applied it (PEN_REGION_SETTLE_MS), so that it gets
     /// the pen waveform. A redraw also waits for it.
     fn set_region(&mut self, cell: Option<Cell>, now: u64) {
         if cell == self.pen_cell {
@@ -294,7 +297,7 @@ impl Presenter {
         self.scheduler.fast = self.pen_region().map(PhysicalRect::pixel_cells);
     }
 
-    /// True if the patch has applied the last change of the pen region.
+    /// True if the frontend has applied the last change of the pen region.
     fn region_settled(&self, now: u64) -> bool {
         now.saturating_sub(self.region_since) >= PEN_REGION_SETTLE_MS
     }
@@ -361,14 +364,14 @@ impl Presenter {
             self.ink_drawn = (app.live_stroke_count, s.len());
             self.last_ink_draw = now;
         }
-        // A redraw goes when the player stopped writing and the patch has applied the last change of
+        // A redraw goes when the player stopped writing and the frontend has applied the last change of
         // the pen region.
         if self.deferred_blit && !writing {
             // The pen waveform shows the marks, the x and the ink of the cell of the region: they are
             // crisp drawings, exactly black or gray15 on white (R§14.4, MRK-19, INP-25), thus the
             // pixel conversion of the pen waveform does not dither them. A redraw with any other
             // change in that cell (a number, a "?", a panel over it) stops the region first, and
-            // goes when the patch applied the stop: else xochitl sends it with the pen waveform,
+            // goes when the frontend applied the stop: else xochitl sends it with the pen waveform,
             // which leaves ghosts on gray and colored pixels.
             // The pen waveform also cannot remove a mark that the UI waveform drew: a ghost stays.
             let pen_drawn = self.pen_cell.and_then(|cell| self.record.pen_change(cell, self.pen_drawn));
@@ -391,7 +394,7 @@ impl Presenter {
                 }
             }
         }
-        // Ink in a new pen region waits until the patch has applied it.
+        // Ink in a new pen region waits until the frontend has applied it.
         let region_ready = self.pen_cell.is_none() || self.region_settled(now);
         let due = now.saturating_sub(self.last_ink_update) >= INK_UPDATE_INTERVAL_MS && region_ready && (writing || !self.deferred_blit);
         if due && (self.ink_box.is_some() || self.scheduler.has_dirty()) {
@@ -1394,7 +1397,7 @@ mod tests {
 
     /// INP-5, INP-16, INP-21: the player writes a number (pen region on). The pause and the idle time
     /// are equal (1 s from the pen lift): at that time the app reads the ink, and the redraw goes when
-    /// the patch stopped the region. A stroke in a different cell before that time reads the first
+    /// the frontend stopped the region. A stroke in a different cell before that time reads the first
     /// ink, and the redraw waits for the idle time of the new stroke. A finger press does not stop the
     /// writing. A pen press that does not write stops it at once.
     #[test]
@@ -1429,7 +1432,7 @@ mod tests {
         }
         assert_eq!(r.app.next_deadline(), Some(lift + WRITING_IDLE_MS));
         // The idle time is over: the deadline of the app wakes the loop, the app reads the ink at that
-        // time and the region stops. The redraw goes after the patch applied that change.
+        // time and the region stops. The redraw goes after the frontend applied that change.
         r.now = lift + WRITING_IDLE_MS;
         r.step(None);
         assert!(r.app.ui.pending_ink.is_none(), "the ink is not read at the end of the pause");
@@ -1524,7 +1527,7 @@ mod tests {
     /// INP-24, MRK-5: a tap that adds a mark. The region starts at the pen down and stays at the lift.
     /// The mark goes to the screen at the pen lift, with the region on (the pen waveform), in one
     /// update inside the micro-cell, and the ink of the tap goes away with it. A tap that is shorter
-    /// than the time that the patch needs to apply the region: the mark waits for that time.
+    /// than the time that the frontend needs to apply the region: the mark waits for that time.
     #[test]
     fn a_mark_goes_to_the_screen_at_the_pen_lift_inside_the_pen_region() {
         in_each_layout(|layout| {
@@ -1560,7 +1563,7 @@ mod tests {
             assert_eq!(r.regions, vec![(press, Some(region_of(cell)))], "{layout}: the region changes");
 
             // A short tap in a different cell: the region moves at the pen down, and the mark waits
-            // until the patch applied the region.
+            // until the frontend applied the region.
             let (other, d2) = r.empty_cells().into_iter().filter(|&c| c != cell).find_map(|c| (1..=9u8).find(|&d| r.app.game.peer_digits(c) & crate::game::mark_bit(d) == 0).map(|d| (c, d))).unwrap();
             let q2 = micro_point(other, d2);
             r.regions.clear();
@@ -1568,7 +1571,7 @@ mod tests {
             let press = r.now;
             assert_eq!(r.regions, vec![(press, Some(region_of(other)))], "{layout}: the region moves at the pen down");
             let at_lift = r.up(q2);
-            assert_eq!(at_lift, vec![], "{layout}: the mark goes before the patch applied the region");
+            assert_eq!(at_lift, vec![], "{layout}: the mark goes before the frontend applied the region");
             let mark = r.wait(PEN_REGION_SETTLE_MS);
             assert_eq!(mark.len(), 1, "{layout}: the mark: {mark:?}");
             assert!(mark[0].0 >= press + PEN_REGION_SETTLE_MS && inside_micro(mark[0].1, other, d2), "{layout}: {mark:?}");
@@ -1821,7 +1824,7 @@ mod tests {
             let q = (ox as f32 + m * (((d - 1) % 3) as f32 + 0.5), oy as f32 + m * (((d - 1) / 3) as f32 + 0.5));
             r.down(q);
             r.to((q.0 + 1.0, q.1));
-            // The region starts at the pen down: the mark waits until the patch applied it.
+            // The region starts at the pen down: the mark waits until the frontend applied it.
             r.wait(PEN_REGION_SETTLE_MS + 30);
             r.assert_highlight(v, true);
             let at_lift = r.up((q.0 + 1.0, q.1));
@@ -2063,7 +2066,7 @@ mod tests {
 
     /// INP-2, INP-24: the first stroke of a session starts the region at the pen down, also while the
     /// pen is still in the micro-cell. At the end of the pause the app reads the number: the region
-    /// stops before the redraw of the number, and the redraw goes when the patch applied the stop.
+    /// stops before the redraw of the number, and the redraw goes when the frontend applied the stop.
     #[test]
     fn the_first_stroke_of_a_session_starts_the_region_at_the_pen_down() {
         in_each_layout(|layout| {
@@ -2101,7 +2104,7 @@ mod tests {
     /// R§14.4: after a tap, the region stays on its cell. A redraw that changes only pixels out of
     /// the cell (a panel that does not cover it) goes with the region on. A redraw that covers the
     /// cell with a panel needs the UI waveform in the cell: the region stops first, and the redraw
-    /// goes when the patch applied the stop.
+    /// goes when the frontend applied the stop.
     #[test]
     fn the_region_stops_only_before_a_redraw_that_needs_the_ui_waveform_in_its_cell() {
         in_each_layout(|layout| {

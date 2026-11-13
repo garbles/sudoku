@@ -9,6 +9,7 @@ pub mod early;
 pub mod game;
 pub mod generator;
 pub mod invariants;
+pub mod launch;
 pub mod layout;
 pub mod licenses;
 pub mod recognizer;

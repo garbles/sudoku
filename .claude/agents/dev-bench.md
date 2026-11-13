@@ -47,7 +47,8 @@ Use a timeout of 600000 ms.
 
 ## Report
 
-Give at most 20 lines.
+Keep the report short: the agent that started you reads it in a session with a small context.
+Do not omit a bug, a failure or a changed hash to make it shorter.
 
 The hashes that changed and their causes, the baselines that you saved, the times that increased,
 and the result of `make test-linux`.

@@ -7,6 +7,7 @@ use tiny_skia::{Color as SkColor, Pixmap};
 use crate::app::{App, Menu, Panel, PendingInk, Screen};
 use crate::font::{Anchor, Fonts, Weight};
 use crate::game::{peers, Checkpoint, Game};
+use crate::launch::{Launch, Restart};
 use crate::render::{self, decode_png, gray, Canvas, Icon, Units, BLACK};
 use crate::script::FixedEnv;
 use crate::store::{NewResult, ResultsDb};
@@ -57,17 +58,19 @@ pub fn update_state(available: bool) -> Update {
     u
 }
 
-/// The update v0.2.0 is installed and replaced the ink patch (§9.2, UPD-10). `dialog`: the dialog
-/// "Restart the interface?" shows (else the user tapped "Later").
-fn restart_state(dialog: bool) -> Update {
-    let mut u = update_state(true);
-    u.tap();
+/// The update is not complete (§9.2, UPD-10): the stable build v0.1.0 runs as an external app, and
+/// its app folder has the frontend files (AppLoad still has the old manifest). The request at the
+/// start found no update (the row shows only the button "Restart interface", UPD-14). The dialog
+/// "Restart the interface?" showed at the first start in this state, thus the saved value
+/// `restart_dialog_shown` is true (UPD-10). `dialog`: the dialog shows (else the user tapped "Later").
+fn restart_state(a: &mut App, dialog: bool) {
+    let mut u = Update::new("v0.1.0");
     u.request = None;
-    u.installed(Ok(true), 0);
-    if !dialog {
-        u.close_dialog();
-    }
-    u
+    let m = Manifest { version: "v0.1.0".to_string(), url: String::new(), sha256: String::new(), ..Manifest::default() };
+    u.checked(Ok(m), false);
+    u.launch = Launch::External(Restart::Needed { dialog });
+    a.update = u;
+    a.settings.restart_dialog_shown = true;
 }
 
 /// The game in progress of board-state.py, made with the same operations as a player.
@@ -303,15 +306,17 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             a.ui.menu = Menu::Open(Some(Panel::Settings))
         }),
         ("settings-restart.png", |a| {
-            // UPD-10: the update replaced the ink patch, and the user tapped "Later" in the dialog.
+            // UPD-3, UPD-10, UPD-14: the update is not complete, and the user tapped "Later" in the
+            // dialog. The row shows the button "Restart interface", and the gear has the caution icon.
             a.game = sample_game_with_redo();
-            a.update = restart_state(false);
+            restart_state(a, false);
             a.ui.menu = Menu::Open(Some(Panel::Settings))
         }),
         ("update-restart.png", |a| {
-            // UPD-10: the installation is complete and replaced the ink patch.
+            // UPD-10: the first start while the update is not complete shows the dialog over the
+            // Settings panel.
             a.game = sample_game_with_redo();
-            a.update = restart_state(true);
+            restart_state(a, true);
             a.ui.menu = Menu::Open(Some(Panel::Settings))
         }),
         ("analytics.png", |a| a.screen = Screen::Statistics),

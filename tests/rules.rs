@@ -1095,7 +1095,7 @@ fn the_update_button_starts_only_the_installation() {
     assert_eq!((d.app.ui.menu.panel(), d.app.screen), (Some(Panel::Settings), Screen::Game));
     assert_eq!(board(&d), before);
     let now = d.now;
-    d.app.update_installed(Err("no network".into()), now);
+    d.app.install_finished(Err("no network".into()), now);
     assert!(matches!(d.app.update.state, UpdateState::Failed(..)));
     assert_eq!(d.app.next_deadline(), Some(now + 3000), "UPD-6: the main loop wakes at the end of the 3 seconds");
     d.wait(3000);
@@ -1143,82 +1143,516 @@ fn the_check_button_sends_a_request() {
     assert_eq!((d.app.update.row_text(), d.app.update.button().is_some()), (None, true));
 }
 
+
+/// An app that starts in the mode `launch`, with the saved settings `settings` (None: no settings
+/// file).
+fn started(launch: sudoku::launch::Launch, settings: Option<sudoku::settings::Settings>, seed: u64) -> sudoku::app::App {
+    sudoku::app::App::with_launch(launch, None, settings, sudoku::store::ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed }), sudoku::app::App::placeholder_ng_stops())
+}
+
+/// The default settings with the saved value `restart_dialog_shown`.
+fn saved_settings(shown: bool) -> sudoku::settings::Settings {
+    sudoku::settings::Settings { restart_dialog_shown: shown, ..Default::default() }
+}
+
+/// Gives `app` the update state of the stable build v0.1.0 (the Settings panel has the update row,
+/// UPD-1), with the launch of the start.
+fn with_update_row(app: &mut sudoku::app::App) {
+    let launch = app.update.launch;
+    app.update = sudoku::update::Update { launch, ..reference::update_state(false) };
+}
+
+#[test]
+fn the_restart_dialog_shows_only_at_the_first_start_while_the_update_is_not_complete() {
+    // UPD-10: the dialog becomes true only at the start, exactly when restart_needed (the external
+    // mode, and the app folder has the frontend files) and restart_dialog_shown is false. Then the app
+    // sets the saved value to true and saves it. UPD-13: a start in the frontend mode sets it to false;
+    // in the external mode it changes only from false to true. R§14.2: a settings file with no value
+    // means that the dialog did not show.
+    use sudoku::launch::Launch;
+    let needed = Launch::external(true);
+    for (launch, saved, dialog, after) in [
+        (needed, None, true, true),
+        (needed, Some(false), true, true),
+        (needed, Some(true), false, true),
+        (Launch::external(false), None, false, false),
+        (Launch::external(false), Some(false), false, false),
+        (Launch::external(false), Some(true), false, true),
+        (Launch::Frontend, None, false, false),
+        (Launch::Frontend, Some(false), false, false),
+        (Launch::Frontend, Some(true), false, false),
+    ] {
+        let case = format!("{launch:?}, saved {saved:?}");
+        let app = started(launch, saved.map(saved_settings), 60);
+        assert_eq!(app.update.dialog_shown(), dialog, "UPD-10: {case}");
+        assert_eq!(app.update.restart_needed(), launch == needed, "restart_needed: {case}");
+        assert!(!app.update.dialog_shown() || app.update.restart_needed(), "UPD-10: dialog ⇒ restart_needed: {case}");
+        assert_eq!(app.settings.restart_dialog_shown, after, "UPD-10, UPD-13: {case}");
+        if saved.unwrap_or(false) != after {
+            assert!(app.settings_dirty, "the app saves the new value: {case}");
+        }
+        if dialog {
+            // R§9.2: the dialog shows over the game screen, with no ink, no highlight, no "?" and no x.
+            assert_eq!(app.screen, Screen::Game, "{case}");
+            assert_eq!((app.ui.highlight, app.ui.question, app.ui.refused), (None, None, None), "{case}");
+        }
+    }
+
+    // The settings file has the key restart_dialog_shown. A file of an earlier version has no key: the
+    // dialog did not show.
+    let first = started(needed, None, 61);
+    let json = serde_json::to_value(&first.settings).unwrap();
+    assert_eq!(json["restart_dialog_shown"], serde_json::json!(true), "R§14.2: {json}");
+    let mut old = json.clone();
+    old.as_object_mut().unwrap().remove("restart_dialog_shown");
+    let old: sudoku::settings::Settings = serde_json::from_value(old).unwrap();
+    assert!(!old.restart_dialog_shown);
+    assert!(started(needed, Some(old), 62).update.dialog_shown(), "R§14.2: a file with no value");
+
+    // A series of starts: the first start in the state shows the dialog, the next does not. A start in
+    // the frontend mode resets the value, thus the dialog can show again when the state comes back.
+    let saved = first.settings.clone();
+    let second = started(needed, Some(saved), 63);
+    assert!(!second.update.dialog_shown() && second.update.restart_needed(), "UPD-10: only the first start");
+    let frontend = started(Launch::Frontend, Some(second.settings.clone()), 64);
+    assert!(!frontend.settings.restart_dialog_shown && frontend.settings_dirty, "UPD-13");
+    let again = started(needed, Some(frontend.settings.clone()), 65);
+    assert!(again.update.dialog_shown(), "UPD-13: the dialog shows again");
+}
+
 #[test]
 fn the_restart_dialog_accepts_only_its_buttons() {
-    // UPD-10: after an update that replaced the ink patch, the dialog "Restart the interface?" shows
-    // over the screen. Only "Later" and "Restart" operate. "Later" closes it, and "Restart" asks the
-    // platform to run xovi/start.
-    use sudoku::update::{PatchChange, UpdateState};
-    let mut d = Driver::new(58);
-    d.app.update = reference::update_state(true);
-    open_settings(&mut d);
-    d.app.update.tap();
-    d.app.update.request = None;
-    let now = d.now;
-    d.app.update_installed(Ok(true), now);
-    assert!(d.app.update.dialog_shown());
-    assert_eq!(d.app.update.state, UpdateState::Installed(PatchChange::Replaced { dialog: true }));
+    // UPD-10: while the dialog "Restart the interface?" shows, only "Later" and "Restart" have an
+    // effect. "Later" closes it, and the row shows the button "Restart interface" (also after "Later").
+    // "Restart" and the button ask the platform to run xovi/start after the game is saved, and they
+    // change nothing else.
+    use sudoku::launch::Launch;
     let board = |d: &Driver| (d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len(), d.app.settings.clone());
+    let mut app = started(Launch::external(true), Some(saved_settings(false)), 58);
+    with_update_row(&mut app);
+    // The app opens with the menu open (PER-2), and the dialog shows over it.
+    let mut d = Driver::opened(app);
+    assert!(d.app.update.dialog_shown());
     let before = board(&d);
-    // A tap on a switch of the Settings panel (under the dialog) and on the menu button: no effect.
-    let (sx, sy) = switch_point(Switch::HighlightNumbers);
-    d.finger_tap(sx, sy);
+    let menu = d.app.ui.menu;
+    // Taps under the dialog: a pen tap on a micro-cell, a finger on a cell, the toolbar buttons.
+    let cell = empty_cell(&d.app.game);
+    d.tap_micro(cell, 5);
+    d.finger_tap(micro_center(cell, 5).0, micro_center(cell, 5).1);
+    d.button(Button::Settings);
+    d.button(Button::Colors);
     d.button(Button::Menu);
-    assert_eq!(board(&d), before);
-    assert_eq!(d.app.ui.menu, Menu::Open(Some(Panel::Settings)));
+    assert_eq!(board(&d), before, "no effect under the dialog");
+    assert_eq!(d.app.ui.menu, menu);
     assert!(d.app.update.dialog_shown() && !d.app.restart_ui);
-    // "Later": the dialog closes, the row shows the button "Restart interface".
+
+    // "Later": the dialog closes. The saved value stays true, and the update is still not complete.
     let (lx, ly) = exact_center(layout::dialog_cancel());
     d.finger_tap(lx, ly);
     assert!(!d.app.update.dialog_shown() && !d.app.restart_ui);
+    assert!(d.app.settings.restart_dialog_shown && d.app.update.restart_needed());
+    assert_eq!(d.app.update.request, None);
+    // The row shows the button "Restart interface".
+    open_settings(&mut d);
     assert_eq!(d.app.update.row_text(), None);
     assert_eq!(d.app.update.button().map(|b| b.text().to_string()).as_deref(), Some("Restart interface"));
     // A tap on the button asks for the restart. The game, the settings and the panel do not change.
+    let before = board(&d);
     d.app.game_dirty = false;
     let (bx, by) = exact_center(layout::update_button_area());
     d.finger_tap(bx, by);
     assert!(d.app.restart_ui && d.app.game_dirty, "the game is saved before the restart");
     assert_eq!(board(&d), before);
     assert_eq!(d.app.ui.menu, Menu::Open(Some(Panel::Settings)));
-    assert_eq!(d.app.update.request, None);
+    assert_eq!(d.app.update.request, None, "no installation and no request");
     d.app.restart_failed();
     assert!(!d.app.restart_ui);
     assert!(d.app.update.button().is_some(), "after a failed start, the button stays");
-    // "Restart" in the dialog.
-    d.app.update.state = UpdateState::Installed(PatchChange::Replaced { dialog: true });
+
+    // The next start with the saved settings: no dialog, the row shows the button at once.
+    let mut app = started(Launch::external(true), Some(d.app.settings.clone()), 59);
+    with_update_row(&mut app);
+    assert!(!app.update.dialog_shown());
+    assert_eq!(app.update.button().map(|b| b.text().to_string()).as_deref(), Some("Restart interface"));
+
+    // "Restart" in the dialog, with the pen.
+    let mut app = started(Launch::external(true), None, 60);
+    with_update_row(&mut app);
+    let mut d = Driver::from(app);
+    let before = board(&d);
+    d.app.game_dirty = false;
     let (rx, ry) = exact_center(layout::dialog_delete());
     d.pen_tap(rx, ry);
     assert!(d.app.restart_ui, "the pen also operates the buttons");
     assert!(d.app.game_dirty, "the game is saved before the restart");
+    assert_eq!(board(&d), before);
+    // R§9.2: if the app cannot start the script, the dialog closes, and the row shows the button.
     d.app.restart_failed();
     assert!(!d.app.update.dialog_shown() && !d.app.restart_ui);
-    // An update with no patch change: no dialog.
-    let mut d = Driver::new(59);
-    d.app.update = reference::update_state(true);
-    d.app.update.tap();
-    let now = d.now;
-    d.app.update_installed(Ok(false), now);
-    assert!(!d.app.update.dialog_shown());
-    assert_eq!(d.app.update.row_text(), Some("Restart Sudoku to update"));
+    assert_eq!(d.app.update.button().map(|b| b.text().to_string()).as_deref(), Some("Restart interface"));
+}
+
+#[test]
+fn the_update_row_shows_only_the_restart_button_while_the_update_is_not_complete() {
+    // UPD-14: while restart_needed and state ≠ Off, the row shows only "Restart interface" for each
+    // value of state, it offers no update, and no installation starts. UPD-3: the gear has the caution
+    // icon. UPD-10: the button shows only when restart_needed. With state = Off, there is no row, no
+    // button and no icon.
+    use sudoku::launch::Launch;
+    use sudoku::update::{Manifest, UpToDateRow, Update, UpdateButton, UpdateRequest, UpdateState};
+    let m = |v: &str| Manifest { version: v.to_string(), url: "https://example.com/a.tar.gz".to_string(), sha256: "0".repeat(64) };
+    let states = [
+        UpdateState::Unknown,
+        UpdateState::CheckFailed { checking: false },
+        UpdateState::CheckFailed { checking: true },
+        UpdateState::UpToDate(UpToDateRow::CheckButton),
+        UpdateState::UpToDate(UpToDateRow::Checking),
+        UpdateState::UpToDate(UpToDateRow::UpToDateText),
+        UpdateState::Available(m("v0.2.0")),
+        UpdateState::Installing(m("v0.2.0")),
+        UpdateState::Failed(m("v0.2.0"), 0),
+        UpdateState::Installed,
+    ];
+    for state in states {
+        for (launch, needed) in [(Launch::external(true), true), (Launch::external(true).at_start(false).0, true), (Launch::external(false), false), (Launch::Frontend, false)] {
+            let mut u = Update { state: state.clone(), launch, request: None, ..Update::new("v0.1.0") };
+            let case = format!("{state:?}, {launch:?}");
+            assert_eq!(u.restart_needed(), needed, "{case}");
+            if needed {
+                assert_eq!((u.row_text(), u.button()), (None, Some(UpdateButton::Restart)), "UPD-14: {case}");
+                assert!(u.caution(), "UPD-3: {case}");
+                assert!(!u.tap(), "UPD-14: {case}");
+                assert_eq!((&u.state, &u.request), (&state, &None), "UPD-14: no installation, no request: {case}");
+            } else {
+                assert_ne!(u.button(), Some(UpdateButton::Restart), "UPD-10: {case}");
+            }
+        }
+    }
+    // A dev build: no row, no button, no icon. The dialog shows at the first start (UPD-10).
+    let u = Update { launch: Launch::external(true).at_start(false).0, ..Update::new("dev") };
+    assert_eq!(u.state, UpdateState::Off);
+    assert!(u.dialog_shown() && !u.has_row() && u.button().is_none() && !u.caution(), "UPD-14");
+
+    // With the panel open: a result with a newer version offers no update, and a tap on the row asks
+    // only for the restart.
+    let mut app = started(Launch::external(true), Some(saved_settings(true)), 66);
+    with_update_row(&mut app);
+    let mut d = Driver::from(app);
+    open_settings(&mut d);
+    for (version, what) in [("v0.2.0", "a newer version"), ("v0.1.0", "no newer version")] {
+        d.app.update_checked(Ok(m(version)));
+        assert_eq!((d.app.update.row_text(), d.app.update.button()), (None, Some(UpdateButton::Restart)), "UPD-14: {what}");
+        d.app.update.request = None;
+        let (bx, by) = exact_center(layout::update_button_area());
+        d.finger_tap(bx, by);
+        assert!(d.app.restart_ui, "UPD-10: {what}");
+        assert!(!matches!(d.app.update.request, Some(UpdateRequest::Install(_))), "UPD-14: no installation: {what}");
+        assert!(!matches!(d.app.update.state, UpdateState::Installing(_)), "UPD-14: {what}");
+        d.app.restart_failed();
+    }
+}
+
+#[test]
+fn an_installation_never_shows_the_restart_dialog() {
+    // UPD-10: an installation never makes dialog true, and the app asks for xovi/start only when
+    // restart_needed. UPD-12: after an installation, state = Installed, and the row shows "Restart
+    // Sudoku to update" when restart_needed is false. UPD-3: the caution icon stays.
+    use sudoku::launch::Launch;
+    use sudoku::update::{Update, UpdateRequest, UpdateState};
+    for launch in [Launch::Frontend, Launch::external(false)] {
+        let mut app = started(launch, Some(saved_settings(false)), 67);
+        app.update = Update { launch: app.update.launch, ..reference::update_state(true) };
+        let mut d = Driver::from(app);
+        open_settings(&mut d);
+        let (bx, by) = exact_center(layout::update_button_area());
+        d.finger_tap(bx, by);
+        assert!(matches!(d.app.update.request.take(), Some(UpdateRequest::Install(_))), "{launch:?}");
+        let now = d.now;
+        d.app.install_finished(Ok(()), now);
+        assert_eq!(d.app.update.state, UpdateState::Installed, "{launch:?}");
+        assert!(!d.app.update.dialog_shown(), "UPD-10: {launch:?}");
+        assert_eq!(d.app.update.row_text(), Some("Restart Sudoku to update"), "UPD-12: {launch:?}");
+        assert_eq!(d.app.update.button(), None, "{launch:?}");
+        assert!(d.app.update.caution(), "UPD-3: {launch:?}");
+        assert!(!d.app.settings.restart_dialog_shown, "{launch:?}");
+        d.finger_tap(bx, by);
+        assert!(!d.app.restart_ui && d.app.update.request.is_none(), "UPD-10: no xovi/start: {launch:?}");
+    }
 }
 
 #[test]
 fn the_caution_icon_follows_the_update_state() {
-    // UPD-3: the red icon on the gear shows only when an update is available, installs or is installed.
-    use sudoku::update::{PatchChange, Update, UpdateState};
+    // UPD-3: the red icon on the gear shows exactly when an update is available, installs, failed or is
+    // installed, or when restart_needed and state ≠ Off.
+    use sudoku::launch::{Launch, Restart};
+    use sudoku::update::{Update, UpdateState};
     let fonts = fonts();
     let (x, y) = ((layout::tb_cx() + 16.0 - 5.0) as i32, (layout::tb_cy(2) - 16.0) as i32);
     let available = reference::update_state(true);
     let mut installed = available.clone();
-    installed.state = UpdateState::Installed(PatchChange::Unchanged);
-    for (update, want) in [(available, true), (installed, true), (reference::update_state(false), false), (Update::new("dev"), false)] {
-        let state = update.state.clone();
+    installed.state = UpdateState::Installed;
+    let needed = |u: Update| Update { launch: Launch::External(Restart::Needed { dialog: false }), ..u };
+    let cases = [
+        ("available", available.clone(), true),
+        ("installed", installed, true),
+        ("up to date", reference::update_state(false), false),
+        ("dev", Update::new("dev"), false),
+        ("up to date, the update is not complete", needed(reference::update_state(false)), true),
+        ("available, the update is not complete", needed(available), true),
+        ("dev, the update is not complete", needed(Update::new("dev")), false),
+        ("up to date, the external mode with no frontend files", Update { launch: Launch::external(false), ..reference::update_state(false) }, false),
+    ];
+    for (what, update, want) in cases {
         sudoku::layout::set_right_handed(false);
         let mut a = reference::app(&fonts);
         a.update = update;
         a.ui.menu = Menu::Open(None);
+        assert_eq!(a.update.caution(), want, "{what}");
         let mut pm = tiny_skia::Pixmap::new(layout::screen_w(), layout::screen_h()).unwrap();
         sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &a);
-        assert_eq!(rgb_at(&pm, x, y) == sudoku::render::CAUTION_RED, want, "{state:?}");
+        assert_eq!(rgb_at(&pm, x, y) == sudoku::render::CAUTION_RED, want, "{what}");
     }
+}
+
+#[test]
+fn version_json_needs_no_patch_fields_and_the_app_does_not_use_them() {
+    // UPD-4: the app uses a version.json only with a correct signature. The version.json of a new
+    // release has only version, url and sha256. The patch fields of an earlier release have no effect:
+    // the app examines no patch checksum.
+    use ed25519_dalek::{Signer, SigningKey};
+    use sudoku::update::{read_manifest, Manifest};
+    let key = SigningKey::from_bytes(&[7; 32]);
+    let public = key.verifying_key().to_bytes();
+    let sum = "ab".repeat(32);
+    let url = "https://github.com/garbles/sudoku/releases/download/v0.7.0/sudoku-v0.7.0.tar.gz";
+    let new = format!(r#"{{"version": "v0.7.0", "url": "{url}", "sha256": "{sum}"}}"#);
+    let patch = "https://github.com/garbles/sudoku/releases/download/v0.7.0/sudoku-penregion.qmd";
+    let old = format!(r#"{{"version": "v0.7.0", "url": "{url}", "sha256": "{sum}", "patch_url": "{patch}", "patch_sha256": "{}"}}"#, "cd".repeat(32));
+    let bad_patch = format!(r#"{{"version": "v0.7.0", "url": "{url}", "sha256": "{sum}", "patch_url": "not a URL", "patch_sha256": "not a checksum"}}"#);
+    let want = Manifest { version: "v0.7.0".to_string(), url: url.to_string(), sha256: sum.clone() };
+    for (json, what) in [(&new, "no patch fields"), (&old, "the patch fields of an earlier release"), (&bad_patch, "patch fields that are not correct")] {
+        let signature = key.sign(json.as_bytes()).to_bytes();
+        assert_eq!(read_manifest(json.as_bytes(), &signature, &public), Ok(want.clone()), "{what}");
+    }
+    // A signature of other bytes or of a different key: no manifest.
+    let signature = key.sign(new.as_bytes()).to_bytes();
+    assert!(read_manifest(old.as_bytes(), &signature, &public).is_err());
+    let other = SigningKey::from_bytes(&[8; 32]).verifying_key().to_bytes();
+    assert!(read_manifest(new.as_bytes(), &signature, &other).is_err());
+    assert!(read_manifest(new.as_bytes(), &signature[..63], &public).is_err());
+}
+
+/// A gzip tar archive with the folder `sudoku/` and the files `files` (the path in `sudoku/` and the
+/// mode), as `tar -C dist -czf ARCHIVE sudoku` makes it: with the entries of the folders.
+fn release_archive(files: &[(&str, u32)]) -> Vec<u8> {
+    let mut tar = tar::Builder::new(flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default()));
+    let mut folders = vec!["sudoku/".to_string()];
+    for (path, _) in files {
+        if let Some((dir, _)) = path.rsplit_once('/') {
+            let dir = format!("sudoku/{dir}/");
+            if !folders.contains(&dir) {
+                folders.push(dir);
+            }
+        }
+    }
+    for dir in &folders {
+        let mut h = tar::Header::new_gnu();
+        h.set_entry_type(tar::EntryType::Directory);
+        h.set_mode(0o755);
+        h.set_size(0);
+        h.set_cksum();
+        tar.append_data(&mut h, dir, std::io::empty()).unwrap();
+    }
+    for (path, mode) in files {
+        let body = file_body(path);
+        let mut h = tar::Header::new_gnu();
+        h.set_size(body.len() as u64);
+        h.set_mode(*mode);
+        h.set_cksum();
+        tar.append_data(&mut h, format!("sudoku/{path}"), body.as_bytes()).unwrap();
+    }
+    tar.into_inner().unwrap().finish().unwrap()
+}
+
+/// The contents of the file `path` of a test archive.
+fn file_body(path: &str) -> String {
+    format!("the new {path}\n")
+}
+
+/// The manifest of the archive `archive`: its checksum is correct.
+fn archive_manifest(archive: &[u8]) -> sudoku::update::Manifest {
+    use sha2::Digest;
+    let sum = sha2::Sha256::digest(archive).iter().map(|b| format!("{b:02x}")).collect();
+    sudoku::update::Manifest { version: "v0.7.0".to_string(), url: "https://example.com/sudoku-v0.7.0.tar.gz".to_string(), sha256: sum }
+}
+
+/// The files of the folder `dir` and of its subfolders: the path, the contents and the mode.
+fn folder_files(dir: &Path) -> Vec<(String, Vec<u8>, u32)> {
+    use std::os::unix::fs::PermissionsExt;
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<(String, Vec<u8>, u32)>) {
+        for entry in std::fs::read_dir(dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else {
+                let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+                out.push((path.strip_prefix(root).unwrap().to_string_lossy().into_owned(), std::fs::read(&path).unwrap(), mode));
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out);
+    out.sort();
+    out
+}
+
+/// A new empty folder for one test case.
+fn scratch(name: &str) -> std::path::PathBuf {
+    let dir = std::env::temp_dir().join(format!("sudoku-rules-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    dir
+}
+
+/// An app folder `root/apps/sudoku` of the frontend release that operates now. Returns its path.
+fn installed_app(root: &Path) -> std::path::PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let app = root.join("apps/sudoku");
+    std::fs::create_dir_all(app.join("backend")).unwrap();
+    for f in sudoku::launch::APP_FOLDER_FILES {
+        std::fs::write(app.join(f), format!("the old {f}\n")).unwrap();
+    }
+    for f in ["sudoku", "backend/entry"] {
+        std::fs::set_permissions(app.join(f), std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    app
+}
+
+#[test]
+fn an_installation_examines_the_files_of_the_archive() {
+    // UPD-12: the archive must have sudoku/ with sudoku and external.manifest.json. With manifest.json,
+    // it must also have resources.rcc and backend/entry. An archive with no manifest.json (a release
+    // before the frontend) is correct with the two files only. UPD-6: when a step fails, the app folder
+    // does not change. UPD-4: the checksum of the archive must be correct. After the installation,
+    // sudoku and backend/entry are executable, also when the archive did not give them the mode.
+    const FILE: u32 = 0o644;
+    const EXE: u32 = 0o755;
+    let frontend = [("sudoku", EXE), ("manifest.json", FILE), ("resources.rcc", FILE), ("backend/entry", EXE), ("external.manifest.json", FILE), ("icon.png", FILE)];
+    let without = |names: &[&str]| frontend.iter().copied().filter(|(f, _)| !names.contains(f)).collect::<Vec<_>>();
+    let cases: Vec<(&str, Vec<(&str, u32)>, bool)> = vec![
+        ("a release with the frontend", frontend.to_vec(), true),
+        ("a release with the frontend, no executable modes in the archive", frontend.iter().map(|&(f, _)| (f, FILE)).collect(), true),
+        ("a release before the frontend", vec![("sudoku", EXE), ("external.manifest.json", FILE), ("icon.png", FILE)], true),
+        ("only the two necessary files", vec![("sudoku", EXE), ("external.manifest.json", FILE)], true),
+        ("no manifest.json, a part of the other frontend files", without(&["manifest.json", "backend/entry"]), true),
+        ("manifest.json with no resources.rcc", without(&["resources.rcc"]), false),
+        ("manifest.json with no backend/entry", without(&["backend/entry"]), false),
+        ("manifest.json with no other frontend file", without(&["resources.rcc", "backend/entry"]), false),
+        ("no external.manifest.json", without(&["external.manifest.json"]), false),
+        ("no program", without(&["sudoku"]), false),
+        ("an empty folder", vec![], false),
+    ];
+    for (i, (what, files, accepted)) in cases.into_iter().enumerate() {
+        let root = scratch(&format!("archive-{i}"));
+        let app = installed_app(&root);
+        let staging = root.join("data/update");
+        let before = folder_files(&app);
+        let archive = release_archive(&files);
+        let result = sudoku::update::install(&archive, &archive_manifest(&archive), &staging, &app);
+        if !accepted {
+            assert!(result.is_err(), "UPD-12: {what}: {result:?}");
+            assert_eq!(folder_files(&app), before, "UPD-6: {what}: the app folder does not change");
+            let _ = std::fs::remove_dir_all(&root);
+            continue;
+        }
+        assert_eq!(result, Ok(()), "UPD-12: {what}");
+        let after = folder_files(&app);
+        let names: Vec<&str> = after.iter().map(|(f, _, _)| f.as_str()).collect();
+        let mut want: Vec<&str> = files.iter().map(|(f, _)| *f).collect();
+        want.sort();
+        assert_eq!(names, want, "{what}: the app folder is the folder of the archive");
+        for (f, body, mode) in &after {
+            assert_eq!(String::from_utf8_lossy(body), file_body(f), "{what}: {f}");
+            if *f == "sudoku" || *f == "backend/entry" {
+                assert_eq!(mode & 0o111, 0o111, "UPD-12: {what}: {f} is executable ({mode:o})");
+            }
+        }
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    // UPD-4: an archive whose checksum is not the checksum of version.json changes no file.
+    let root = scratch("archive-checksum");
+    let app = installed_app(&root);
+    let before = folder_files(&app);
+    let archive = release_archive(&frontend);
+    let mut m = archive_manifest(&archive);
+    m.sha256 = "0".repeat(64);
+    assert!(sudoku::update::install(&archive, &m, &root.join("data/update"), &app).is_err());
+    assert_eq!(folder_files(&app), before, "UPD-4, UPD-6");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+#[test]
+fn an_installation_across_file_systems_copies_the_backend_folder() {
+    // UPD-12: the app folder has the subfolder backend/ of the archive, also when the app copied the
+    // new folder across file systems (R§9.2, step 4). The test needs two writable folders on
+    // different file systems: on Linux /dev/shm (tmpfs) is one of them.
+    use std::os::unix::fs::MetadataExt;
+    let mut candidates = vec![std::path::PathBuf::from("/dev/shm"), std::env::temp_dir(), std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR"))];
+    candidates.retain(|d| d.is_dir() && std::fs::metadata(d).map(|m| !m.permissions().readonly()).unwrap_or(false));
+    let pair = candidates.iter().enumerate().find_map(|(i, a)| {
+        candidates[i + 1..].iter().find(|b| std::fs::metadata(a).unwrap().dev() != std::fs::metadata(b).unwrap().dev()).map(|b| (a.clone(), b.clone()))
+    });
+    let Some((data_fs, app_fs)) = pair else {
+        eprintln!("SKIPPED: no two file systems among {candidates:?}; the Linux tests examine the copy");
+        return;
+    };
+    let tag = format!("sudoku-rules-copy-{}", std::process::id());
+    let (data_root, app_root) = (data_fs.join(&tag), app_fs.join(&tag));
+    for d in [&data_root, &app_root] {
+        let _ = std::fs::remove_dir_all(d);
+        std::fs::create_dir_all(d).unwrap();
+    }
+    let app = installed_app(&app_root);
+    let files = [("sudoku", 0o644), ("manifest.json", 0o644), ("resources.rcc", 0o644), ("backend/entry", 0o644), ("external.manifest.json", 0o644), ("icon.png", 0o644)];
+    let archive = release_archive(&files);
+    let result = sudoku::update::install(&archive, &archive_manifest(&archive), &data_root.join("update"), &app);
+    assert_eq!(result, Ok(()), "UPD-12: {data_fs:?} and {app_fs:?}");
+    let after = folder_files(&app);
+    let names: Vec<&str> = after.iter().map(|(f, _, _)| f.as_str()).collect();
+    assert_eq!(names, ["backend/entry", "external.manifest.json", "icon.png", "manifest.json", "resources.rcc", "sudoku"]);
+    for (f, body, mode) in &after {
+        assert_eq!(String::from_utf8_lossy(body), file_body(f), "{f}");
+        if *f == "sudoku" || *f == "backend/entry" {
+            assert_eq!(mode & 0o111, 0o111, "UPD-12: {f} is executable after the copy ({mode:o})");
+        }
+    }
+    assert!(sudoku::launch::has_frontend_files(&app));
+    let _ = std::fs::remove_dir_all(&data_root);
+    let _ = std::fs::remove_dir_all(&app_root);
+}
+
+#[test]
+fn the_frontend_mode_deletes_the_old_ink_patch() {
+    // UPD-11: the app deletes the ink patch sudoku-penregion.qmd, its stamp file sudoku-penregion.json
+    // and the pen area file, if they are there. It deletes no other file. R§14.4 gives the folder.
+    use sudoku::update::{remove_ink_patch, PATCH_DIR, PATCH_NAME, PATCH_STAMP};
+    assert_eq!(PATCH_DIR, "/home/root/xovi/exthome/qt-resource-rebuilder");
+    assert_eq!((PATCH_NAME, PATCH_STAMP), ("sudoku-penregion.qmd", "sudoku-penregion.json"));
+    let root = scratch("patch");
+    let patches = root.join("qt-resource-rebuilder");
+    std::fs::create_dir_all(&patches).unwrap();
+    let area = root.join("sudoku-pen-region");
+    for f in [patches.join(PATCH_NAME), patches.join(PATCH_STAMP), patches.join("other-app.qmd"), area.clone()] {
+        std::fs::write(f, "x").unwrap();
+    }
+    remove_ink_patch(&patches, &area);
+    assert!(!patches.join(PATCH_NAME).exists() && !patches.join(PATCH_STAMP).exists() && !area.exists());
+    assert!(patches.join("other-app.qmd").exists(), "the patch of a different app stays");
+    // No file: no change and no failure. Only one of the files: it goes.
+    remove_ink_patch(&patches, &area);
+    std::fs::write(patches.join(PATCH_STAMP), "x").unwrap();
+    remove_ink_patch(&patches, &area);
+    assert!(!patches.join(PATCH_STAMP).exists());
+    let _ = std::fs::remove_dir_all(&root);
 }

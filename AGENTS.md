@@ -20,9 +20,9 @@ All tests run on the computer. `Dockerfile.test` runs them again on aarch64 Linu
 
 | File                   | Task                                                                    |
 | ---------------------- | ----------------------------------------------------------------------- |
-| `Dockerfile`           | The static aarch64 build `dist/sudoku/`. No tests.                      |
-| `Dockerfile.dev`       | The fast development build of `dist/sudoku/`. No tests. Not for release |
-| `Dockerfile.corpus`    | The fast corpus build of `dist/sudoku-corpus/`. No tests. Not for release |
+| `Dockerfile`           | The static aarch64 build `dist/sudoku/`, with `resources.rcc`. No tests. |
+| `Dockerfile.dev`       | The fast development build of `dist/sudoku/`, with `resources.rcc`. No tests. Not for release |
+| `Dockerfile.corpus`    | The fast corpus build of `dist/sudoku-corpus/`, with `resources.rcc`. No tests. Not for release |
 | `Dockerfile.colors`    | The fast build of the color picker `dist/sudoku-colors/`. No tests. Not for release |
 | `Dockerfile.test`      | All tests on aarch64 Linux: the stages `release` and `debug` (parallel) |
 | `Dockerfile.images`    | The design images of the Paper Pro `images/pro/*.png`, the icon and the icon sheet `images/pro/icons.png` |
@@ -46,6 +46,12 @@ docker build --platform linux/arm64 -f Dockerfile.images --output type=local,des
 docker build --platform linux/arm64 -f Dockerfile.installer --output type=local,dest=. .   # images/install-*.png (commit these)
 docker build --platform linux/arm64 -f Dockerfile.video --output type=local,dest=. .       # video/ (commit these)
 ```
+
+The three builds `Dockerfile`, `Dockerfile.dev` and `Dockerfile.corpus` have a stage `frontend` that
+runs `appload/make-folder.sh` (`corpus` argument for the corpus app): the Qt tool `rcc` (Alpine package
+`qt6-qtbase-dev`) makes `resources.rcc` from `appload/sudoku/ui/main.qml`, and the script also writes
+the manifests, `backend/entry` and `icon.png`. The first build of this stage is slow (large package).
+The Makefile deletes `dist/sudoku` before it builds, because a build does not delete old files.
 
 The `Makefile` gives a target for each of these commands, and more (`make help` shows them). If
 `docker` is not on `PATH`, it uses the docker of OrbStack. `make test-linux` runs `Dockerfile.test`.
@@ -158,19 +164,20 @@ builds in parallel).
   makes `appload/sudoku/icon.png` from the SVG. Do not edit the PNG. `Dockerfile.images` makes it,
   and the GitHub workflow compares it with the file in git.
 - Each release has `install.sh` (REQUIREMENTS.md §14.6). release.yml replaces `@SUDOKU_VERSION@`,
-  `@SUDOKU_SHA256@` and `@SUDOKU_PATCH_SHA256@` with the version, the checksum of the archive and
-  the checksum of the ink patch. Thus the installer of a release installs that release. `tests/install/run.sh SCENARIO` runs the installer with fake `ssh`,
+  `@SUDOKU_SHA256@` with the version and the checksum of the archive. Thus the installer of a release installs that release. `tests/install/run.sh SCENARIO` runs the installer with fake `ssh`,
   `ssh-keygen` and `curl` (`tests/install/fake/`). The fake ssh finds each remote command from its
   first word (`: name;`). When you add or change a remote command in `install.sh`, change the fake
   ssh also.
-- Each release has the ink patch `sudoku-penregion.qmd` as a separate file. release.yml moves it
-  out of `dist/sudoku/`, thus the archive does not contain it. The installer and the update of the
-  app download it, examine its checksum and write the stamp file `sudoku-penregion.json` next to
-  it (REQUIREMENTS.md §14.4).
+- A release has no ink patch file (the QML frontend replaced it). The archive has `sudoku`,
+  `manifest.json`, `external.manifest.json`, `resources.rcc`, `backend/entry` and `icon.png`.
+  `install.sh` has no patch checksum placeholder. For an older release whose `version.json` has
+  `patch_sha256`, the installer still installs that ink patch; for a release with no patch field, it
+  deletes the old ink patch and its stamp file from the tablet (REQUIREMENTS.md §14.4, §14.6). The
+  installer needs AppLoad 0.6.0 or newer and updates an older AppLoad with Vellum.
 - Each release has `version.json`, with the version, the download URL of the archive and its
-  SHA-256 checksum, and the download URL of the ink patch and its SHA-256 checksum:
-  `{"version": "<version>", "url": "<url>", "sha256": "<checksum>", "patch_url": "<url>",
-  "patch_sha256": "<checksum>"}` (the patch fields: owner approval 2026-11-01). Do not change
+  SHA-256 checksum:
+  `{"version": "<version>", "url": "<url>", "sha256": "<checksum>"}` (the patch fields went away:
+  owner approval 2026-11-12). Do not change
   this format without approval from the owner. The version is the name of the release (`v0.1.0`
   or `pre-<sha>`), and the archive is `sudoku-<version>.tar.gz`, for example
   `sudoku-v0.1.0.tar.gz`.
@@ -207,14 +214,14 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   (the reading of the ink at each pen lift, the puzzle of the next game, also while the result card shows). The result is a function
   of the key only, thus it is the same as a calculation at the time of need.
 - `corpus.rs`: only in the corpus build (Cargo feature `corpus`, a development build). It is the
-  separate app `Sudoku (corpus)` on the tablet (`Dockerfile.corpus` gives the name and the folder, and installs `appload/sudoku-corpus/sudoku-corpus-penregion.qmd`, a copy of the ink patch for that name. When you change the ink patch, change the copy also. Only `make install-corpus` installs the copy: a release and `install.sh` do not use it). A blank
+  separate app `Sudoku (corpus)` on the tablet (`Dockerfile.corpus` gives the name and the folder, and makes the folder with `appload/make-folder.sh ... corpus`: its own app ID `sudoku-corpus` and framebuffer ID 0x53554443, so it has no patch copy; a release and `install.sh` do not use it). A blank
   board and a log of each stroke and erasure with its cell (`app::StrokeLog`), in a separate data
   folder. `examples/corpus.rs` makes a
   review image and adds the approved examples to `assets/owner-handwriting.jsonl`. The
   `remarkable-corpus` skill gives the procedure.
 - `colors.rs`, `platform/colors.rs`, `bin/sudoku-colors.rs`: the color picker, a separate program for
   development (not a Cargo feature). It is the separate app `Sudoku (colors)` on the tablet
-  (`Dockerfile.colors` gives the name and the folder, with no ink patch and no rotation). It shows
+  (`Dockerfile.colors` gives the name and the folder; it is an external app with no frontend, no pen area and no rotation). It shows
   the palette colors at the same time, and sliders change them on the real display. A change
   refreshes only the preview cells of that color (black, white, then the color). The colors stay
   between starts in `~/.local/share/rm-sudoku-colors/colors.json`: `palette` is in the order of
@@ -230,7 +237,7 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   damaged rows. Each drawing on the frame must use `Canvas::retained` with the same record (debug
   builds examine it after each copy). In portrait, a large copy goes in bands of rows on up to 4
   threads. The rotation is a value of each thread: the code of a band must not use it. The pen area
-  of the ink patch (R§14.4) follows `App::pen_cell` and stays on its cell after a pen lift; it stops
+  (R§14.4; in the frontend mode a message to the frontend, in the external mode the file `/tmp/sudoku-pen-region`) follows `App::pen_cell` and stays on its cell after a pen lift; it stops
   only before a redraw that needs the UI waveform in its cell (`FrameRecord::pen_change`: also the removal of a mark that the pen waveform did not draw),
   when its cell becomes filled, or at a turn.
 - `licenses.rs`: the Licenses screens (REQUIREMENTS.md §9.4). It reads `assets/licenses.json`
@@ -287,9 +294,21 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   and the icon sheet `images/pro/icons.png`. The sheet draws each `render::Icon` with the same code as
   the app. When you add an icon, add it to `Icon` and to `Icon::ALL`. When you change an icon, run
   `make media-images` and commit the result.
-- `appload/sudoku/sudoku-penregion.qmd` (not in `src/`): the ink patch, a QML patch of AppLoad that
-  gives the cell of the ink the fast pen waveform (REQUIREMENTS.md §14.4). It uses names of xochitl
-  and AppLoad: examine it after an update of the tablet software or of AppLoad (`remarkable-debug` skill).
+- `launch.rs`: the launch mode and its rules, with no input or output (the unit tests run on the
+  computer): `Launch::{Frontend, External}`, the app IDs (`SUDOKU`, `CORPUS`), the messages between the
+  program and the frontend (`MSG_PEN_AREA`, `MSG_STOP`, `MSG_FRONTEND_CONNECTED`, ...), the stop rules
+  (`Frontends`, `Stop`) and the conversion of the pen area (`Picture`).
+- `platform/appload.rs`: the AppLoad socket of the frontend mode (the pen area and stop messages).
+  `platform::run` selects the mode: with the socket argument of AppLoad it is the frontend mode (the
+  program waits for the first "frontend connected" message, then connects to qtfb, and sends no qtfb
+  refresh mode); without it, the external mode (as before: the qtfb refresh mode and the file
+  `/tmp/sudoku-pen-region`).
+- `appload/sudoku/` (not in `src/`): the QML frontend (AppLoad 0.6.0 or newer; REQUIREMENTS.md
+  §14.4). `ui/main.qml` shows the framebuffer in an AppLoad `DisplayMethodArea` and a second one for
+  the pen area (the Pen mode); `manifest.json` has the type that starts `backend/entry` (the
+  frontend mode), `external.manifest.json` the external type, and `application.qrc` lists the QML
+  for `resources.rcc`. `main.qml` uses internal names of AppLoad: examine them after an update of
+  AppLoad (`remarkable-debug` skill). The ink patch `sudoku-penregion.qmd` went away.
 - `install.sh` (not in `src/`): the installer for the tablet. It runs on the computer of the user.
   `scripts/terminal.py` draws its output (`images/install-*.png`).
 - `script.rs`: the event scripts (`video/*.txt`) for the video tool and the bench.
@@ -329,7 +348,7 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - The `remarkable-debug` skill (`.claude/skills/remarkable-debug/`) tells how to examine the app on
   the tablet: the procedure, the lessons about screen updates, and the techniques in `techniques/`
   (the test settings of the app, the screen update log of xochitl, the pen area, tests that show a
-  screen problem). Read it before you change `present.rs`, the qtfb client or the ink patch. Add new
+  screen problem). Read it before you change `present.rs`, the qtfb client or the frontend. Add new
   lessons to `SKILL.md` and new techniques to `techniques/`.
 - When the user asks you to debug something that does not operate correctly, first read the
   `remarkable-debug` skill and its `techniques/`, and use the procedures that are there. When the

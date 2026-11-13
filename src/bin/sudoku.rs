@@ -1,4 +1,4 @@
-//! The app for the reMarkable Paper Pro. AppLoad starts it (refer to `appload/`).
+//! The app for the reMarkable Paper Pro. AppLoad starts it (refer to `appload/` and `src/launch.rs`).
 
 #[cfg(target_os = "linux")]
 fn main() {
@@ -23,7 +23,10 @@ fn main() {
         let out = args.get(2).map(String::as_str).unwrap_or("/tmp/sudoku-self-test.png");
         sudoku::platform::self_test(out, args.get(3).and_then(|s| s.parse().ok()).unwrap_or(0))
     } else {
-        sudoku::platform::run()
+        // AppLoad starts `backend/entry` with the path of its socket, and that file starts this
+        // program with the same argument: the frontend mode. With no argument, the program runs as an
+        // external app (LCH-9).
+        sudoku::platform::run(args.get(1).cloned())
     };
     if let Err(e) = result {
         eprintln!("sudoku: {e}");

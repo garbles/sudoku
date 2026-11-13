@@ -4,9 +4,19 @@
 #
 #   docker build --platform linux/arm64 --output type=local,dest=dist .
 #
-# The result is dist/sudoku/: the AppLoad folder (external.manifest.json, icon.png, the ink patch and
-# the static executable `sudoku`). Copy it to /home/root/xovi/exthome/appload/ on the tablet.
+# The result is dist/sudoku/: the AppLoad folder (manifest.json, resources.rcc, backend/entry,
+# external.manifest.json, icon.png and the static executable `sudoku`; REQUIREMENTS.md §14.4). Copy it
+# to /home/root/xovi/exthome/appload/ on the tablet.
 # To set the version in the Settings panel (default "dev"), add --build-arg SUDOKU_VERSION=<version>.
+
+# The files of the AppLoad folder with the QML frontend (REQUIREMENTS.md §14.4): the Qt tool `rcc`
+# makes resources.rcc from the QML (appload/make-folder.sh). Alpine 3.22 gives a fixed version of Qt.
+# This stage keeps the Qt packages out of the Rust stage.
+FROM --platform=linux/arm64 alpine:3.22 AS frontend
+RUN apk add --no-cache qt6-qtbase-dev
+COPY appload /appload
+RUN sh /appload/make-folder.sh /out/sudoku
+
 FROM --platform=linux/arm64 rust:1.97-alpine AS build
 RUN apk add --no-cache musl-dev
 WORKDIR /src
@@ -25,8 +35,8 @@ RUN touch src/lib.rs src/bin/*.rs
 ARG SUDOKU_VERSION=dev
 RUN SUDOKU_VERSION="$SUDOKU_VERSION" cargo build --release --locked --bin sudoku \
  && file_info="$(head -c 4 target/release/sudoku | od -An -c)" && echo "built: $file_info"
-COPY appload/sudoku /out/sudoku
-RUN cp target/release/sudoku /out/sudoku/sudoku && chmod 755 /out/sudoku/sudoku
+COPY --from=frontend /out/sudoku /out/sudoku
+RUN cp target/release/sudoku /out/sudoku/sudoku && chmod 755 /out/sudoku/sudoku /out/sudoku/backend/entry
 
 FROM scratch AS export
 COPY --from=build /out /

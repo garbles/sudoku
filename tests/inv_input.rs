@@ -1,7 +1,8 @@
 //! Tests of the rules of INVARIANTS.md about input on the board: BRD-3, BRD-4, MRK-3, MRK-5, INP-4,
 //! INP-10 (the state), INP-14, QST-3, NAV-2 and CLK-6 (the 5000 ms limit), the highlight (HLT-2 to HLT-9),
 //! the hand touches and the ink (INP-2, INP-5, INP-7, INP-12, INP-15, INP-16, INP-20 to INP-24, QST-4,
-//! MRK-15, NAV-11, CMP-3). Each test puts the app in the state where the rule can break and then examines
+//! MRK-15, NAV-11, CMP-3), the restart dialog at the start (UPD-10, UPD-13) and the modes of the program
+//! for these rules (LCH-9). Each test puts the app in the state where the rule can break and then examines
 //! the rule itself. The release build does not run `invariants::check_app` after each input, thus the
 //! tests examine the rules directly.
 
@@ -10,9 +11,10 @@ mod common;
 use common::*;
 use sudoku::app::{new_game, App, Input, Menu, Panel, Screen, Tool, HAND_TOUCH_MS, MAX_CLOCK_GAP_MS, OVERLAY_MS, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
 use sudoku::game::{cells, mark_bit, Cell, Change, Game, Marks};
+use sudoku::launch::Launch;
 use sudoku::layout::{self, Button};
-use sudoku::reference;
-use sudoku::settings::{Color, Section, Switch};
+use sudoku::settings::{Color, Section, Settings, Switch};
+use sudoku::store::ResultsDb;
 
 /// The board state that input can change: values, marks and the lengths of the two histories.
 type BoardState = ([[u8; 9]; 9], [[Marks; 9]; 9], usize, usize);
@@ -743,7 +745,7 @@ fn the_eraser_on_waiting_ink_removes_the_ink() {
     check(&d);
 }
 
-// ---- HLT-2 to HLT-9, INP-20 to INP-24: in all layouts.
+// ---- HLT-2 to HLT-9, INP-20 to INP-24: in all layouts. The tests of HLT-9 also run in each mode (LCH-9).
 
 const LAYOUTS: [(layout::Orientation, bool); 4] = [
     (layout::Orientation::Portrait, false),
@@ -770,6 +772,15 @@ impl Drop for InLayout {
     }
 }
 
+/// Each layout in each mode of the program (LCH-9). The rules of HLT-9 about the pen area are the same
+/// in the frontend mode and in the external mode, thus the tests of HLT-9 run in the three modes of
+/// `MODES` (the saved value `restart_dialog_shown` is true: no dialog). The last sentence of HLT-9 (the
+/// ink patch is not active: two screen updates) applies only to the external mode. It is a rule of the
+/// screen updates, not of the app state, thus these tests do not examine it.
+fn layouts_and_modes() -> Vec<(layout::Orientation, bool, &'static str, Launch)> {
+    LAYOUTS.iter().flat_map(|&(o, right_handed)| MODES.iter().map(move |&(mode, launch)| (o, right_handed, mode, launch))).collect()
+}
+
 /// Two filled cells with different digits.
 fn two_numbers(g: &Game) -> ((Cell, u8), (Cell, u8)) {
     let a = cells().find(|&c| g.is_given(c)).unwrap();
@@ -794,15 +805,45 @@ fn off_board_on_no_control() -> (f32, f32) {
         .expect("a point off the board")
 }
 
-/// The update dialog shows (UPD-10).
-fn show_update_dialog(d: &mut Driver) {
-    let mut u = reference::update_state(true);
-    u.tap();
-    u.request = None;
-    d.app.update = u;
+/// The three starts of the program (LCH-9): the frontend mode, the external mode of a release before
+/// the frontend (no frontend files), and the external mode while the update is not complete (the
+/// frontend files, `restart_needed`, UPD-10).
+const MODES: [(&str, Launch); 3] =
+    [("the frontend mode", Launch::Frontend), ("the external mode", Launch::External(sudoku::launch::Restart::NotNeeded)), ("the external mode, update not complete", Launch::External(sudoku::launch::Restart::Needed { dialog: false }))];
+
+/// A driver for a new app that the program starts in the mode `launch`, with the saved value
+/// `restart_dialog_shown = shown` (UPD-10, UPD-13). The menu is closed, as `Driver::new`.
+fn driver_in(launch: Launch, shown: bool, seed: u64) -> Driver {
+    let settings = Settings { restart_dialog_shown: shown, ..Settings::default() };
+    Driver::from(App::with_launch(launch, None, Some(settings), ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed }), App::placeholder_ng_stops()))
+}
+
+/// The program stops and starts again in the mode `launch`: the new app opens the saved game and the
+/// saved settings of `d` (PER-2), with the menu open. The time of the driver continues.
+fn restart_in(d: &mut Driver, launch: Launch) {
+    let seed = d.app.game.seed;
+    let app = App::with_launch(
+        launch,
+        Some(d.app.game.clone()),
+        Some(d.app.settings.clone()),
+        ResultsDb::in_memory(),
+        Box::new(TestEnv { time: START_TIME + 3600, seed }),
+        App::placeholder_ng_stops(),
+    );
     let now = d.now;
-    d.app.update_installed(Ok(true), now);
-    assert!(d.app.update.dialog_shown(), "the fixture has the dialog");
+    *d = Driver::opened(app);
+    d.now = now;
+}
+
+/// The update dialog shows (UPD-10): the program starts again in the external mode with the frontend
+/// files in the app folder, and the saved value `restart_dialog_shown` is false. An installation does
+/// not show the dialog.
+fn show_update_dialog(d: &mut Driver) {
+    d.app.settings.restart_dialog_shown = false;
+    restart_in(d, Launch::external(true));
+    assert!(d.app.update.dialog_shown(), "UPD-10: the fixture has the dialog");
+    assert!(d.app.settings.restart_dialog_shown && d.app.settings_dirty, "UPD-10: the app saves that the dialog showed");
+    check(d);
 }
 
 /// An empty cell and a mark that a pen tap adds to it.
@@ -816,10 +857,10 @@ fn a_tap_removes_or_moves_a_highlight_only_at_the_pen_lift() {
     // HLT-2 items 1 and 2, HLT-3, HLT-9, MRK-10: all layouts. The press changes nothing. The tap on the
     // same number removes it, on a different number moves it, on an empty cell removes it with the mark
     // or with the x.
-    for (o, right_handed) in LAYOUTS {
+    for (o, right_handed, mode, launch) in layouts_and_modes() {
         let _layout = InLayout::set(o, right_handed);
-        let what = format!("{o:?}, right-handed {right_handed}");
-        let mut d = Driver::new(601);
+        let what = format!("{o:?}, right-handed {right_handed}, {mode}");
+        let mut d = driver_in(launch, true, 601);
         let ((a, v), (b, w)) = two_numbers(&d.app.game);
 
         // No highlight: the lift makes it, the press does not.
@@ -871,10 +912,10 @@ fn a_stroke_from_a_filled_cell_removes_a_highlight_at_the_pen_lift() {
     // HLT-2 item 3, INP-7, INP-22, HLT-9: the press and the movement change nothing. The lift removes the
     // highlight. The board, the marks and the stacks do not change, and no ink waits. The writing timer
     // starts (INP-16).
-    for (o, right_handed) in LAYOUTS {
+    for (o, right_handed, mode, launch) in layouts_and_modes() {
         let _layout = InLayout::set(o, right_handed);
-        let what = format!("{o:?}, right-handed {right_handed}");
-        let mut d = Driver::new(602);
+        let what = format!("{o:?}, right-handed {right_handed}, {mode}");
+        let mut d = driver_in(launch, true, 602);
         let e = empty_cells(&d);
         d.write(e[0], solution_at(&d.app.game, e[0]));
         assert!(d.app.game.is_entry(e[0]), "the fixture has an entry");
@@ -904,9 +945,9 @@ fn a_read_of_waiting_ink_removes_a_highlight_by_any_cause() {
     // HLT-2 item 4, HLT-9, INP-5, INP-12, INP-21: a highlight stays while ink waits. The read removes it:
     // at the end of the pause, at a pen press in a different cell, off the board on no control, on a
     // control, and at the release of a control that a finger operates. It is a number and a "?".
-    for (o, right_handed) in LAYOUTS {
+    for (o, right_handed, mode, launch) in layouts_and_modes() {
         let _layout = InLayout::set(o, right_handed);
-        let what = format!("{o:?}, right-handed {right_handed}");
+        let what = format!("{o:?}, right-handed {right_handed}, {mode}");
         for number in [true, false] {
             let what = format!("{what}, number {number}");
             let ink_of = |d: &Driver, cell: Cell| if number { digit_ink(cell, solution_at(&d.app.game, cell)) } else { scribble_ink(cell) };
@@ -917,7 +958,7 @@ fn a_read_of_waiting_ink_removes_a_highlight_by_any_cause() {
                 assert_eq!(d.app.ui.question.is_some_and(|q| q.0 == cell), !number, "QST-1: {what}: {why}: the \"?\"");
                 check(d);
             };
-            let mut d = Driver::new(603);
+            let mut d = driver_in(launch, true, 603);
             let given = given_cell(&d.app.game);
             d.button(Button::Menu);
 
@@ -990,10 +1031,10 @@ fn a_read_of_waiting_ink_removes_a_highlight_by_any_cause() {
 fn a_tap_on_a_number_with_ink_in_a_different_cell_uses_the_highlight_at_the_press() {
     // HLT-3, HLT-9, INP-12, HLT-6: the press reads the ink, and the read removes the highlight v. At the
     // lift, a tap on v gives no highlight and a tap on w gives w. A "?" from that read shows with w.
-    for (o, right_handed) in LAYOUTS {
+    for (o, right_handed, mode, launch) in layouts_and_modes() {
         let _layout = InLayout::set(o, right_handed);
-        let what = format!("{o:?}, right-handed {right_handed}");
-        let mut d = Driver::new(604);
+        let what = format!("{o:?}, right-handed {right_handed}, {mode}");
+        let mut d = driver_in(launch, true, 604);
         let ((a, v), (b, w)) = two_numbers(&d.app.game);
         let e = empty_cells(&d);
 
@@ -1022,7 +1063,8 @@ fn a_tap_on_a_number_with_ink_in_a_different_cell_uses_the_highlight_at_the_pres
 
 #[test]
 fn a_new_game_a_completed_puzzle_and_the_update_dialog_remove_a_highlight() {
-    // HLT-1, HLT-2 items 5 and 7, CMP-3, UPD-10: a new game and a completed puzzle. The dialog removes the
+    // HLT-1, HLT-2 items 5 and 7, CMP-3, UPD-10: a new game and a completed puzzle. The dialog shows only
+    // at a start of the program (the external mode, update not complete): that restart removes the
     // highlight, and it does not come back after "Later". While the dialog shows, a tap on a number makes
     // no highlight.
     for (o, right_handed) in LAYOUTS {
@@ -1069,7 +1111,7 @@ fn a_new_game_a_completed_puzzle_and_the_update_dialog_remove_a_highlight() {
         let given = given_cell(&d.app.game);
         let v = highlight_number(&mut d, given);
         show_update_dialog(&mut d);
-        assert_eq!(d.app.ui.highlight, None, "HLT-2: {what}: the dialog");
+        assert_eq!(d.app.ui.highlight, None, "HLT-2 items 5 and 7: {what}: the restart with the dialog");
         d.tap_micro(given, 5);
         assert_eq!(d.app.ui.highlight, None, "UPD-10: {what}: a tap under the dialog");
         let (x, y) = pixel_center(layout::dialog_cancel());
@@ -1079,6 +1121,71 @@ fn a_new_game_a_completed_puzzle_and_the_update_dialog_remove_a_highlight() {
         // After the dialog, a tap makes a highlight again.
         d.tap_micro(given, 5);
         assert_eq!(d.app.ui.highlight, Some(v), "HLT-3: {what}");
+    }
+}
+
+#[test]
+fn the_restart_dialog_shows_only_at_the_first_start_while_the_update_is_not_complete() {
+    // UPD-10, UPD-13, HLT-2 item 5, MRK-12, MRK-15: all layouts, the three modes (LCH-9) and the two
+    // saved values. The program starts again with a highlight or an x on the board. The dialog shows
+    // exactly in the external mode with the frontend files and the saved value false. Under the dialog,
+    // the pen writes no ink and makes no x. After "Later", the next start in the same state shows no
+    // dialog. A start in the frontend mode sets the saved value to false, thus the dialog shows again.
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        for (mode, launch) in MODES {
+            for shown in [false, true] {
+                let what = format!("{o:?}, right-handed {right_handed}, {mode}, saved value {shown}");
+                let mut d = Driver::new(609);
+                // A highlight or an x (MRK-12: not the two at the same time) before the restart.
+                let (cell, digit) = refused_pair(&d.app.game);
+                if shown {
+                    let given = given_cell(&d.app.game);
+                    highlight_number(&mut d, given);
+                } else {
+                    d.tap_micro(cell, digit);
+                    assert!(d.app.ui.refused.is_some(), "{what}: the fixture has the x");
+                }
+                d.app.settings.restart_dialog_shown = shown;
+                restart_in(&mut d, launch);
+                check(&d);
+                let dialog = launch.restart_needed() && !shown;
+                assert_eq!(d.app.update.dialog_shown(), dialog, "UPD-10: {what}: the dialog");
+                let saved = match launch {
+                    Launch::Frontend => false,
+                    Launch::External(_) => shown || launch.restart_needed(),
+                };
+                assert_eq!(d.app.settings.restart_dialog_shown, saved, "UPD-10, UPD-13: {what}: the saved value");
+                assert_eq!(d.app.settings_dirty, saved != shown, "UPD-10, UPD-13: {what}: the app saves only a change");
+                assert_eq!(d.app.update.restart_needed(), launch.restart_needed(), "UPD-10: {what}: restart_needed");
+                assert_eq!((d.app.ui.highlight, d.app.ui.refused, d.app.ui.question), (None, None, None), "HLT-2 item 5, MRK-15: {what}");
+                if !dialog {
+                    continue;
+                }
+                // Under the dialog: no ink, no x, no change of the board.
+                let before = state(&d);
+                let empty = empty_cells(&d)[0];
+                d.write_strokes(&digit_ink(empty, solution_at(&d.app.game, empty)));
+                assert!(d.app.live_stroke.is_none() && d.app.ui.pending_ink.is_none(), "UPD-10: {what}: ink under the dialog");
+                d.tap_micro(cell, digit);
+                assert_eq!(d.app.ui.refused, None, "MRK-12: {what}: an x under the dialog");
+                d.wait(d.app.pause_ms);
+                assert_eq!(state(&d), before, "UPD-10: {what}: the board under the dialog");
+                check(&d);
+                let (x, y) = pixel_center(layout::dialog_cancel());
+                d.finger_tap(x, y);
+                assert!(!d.app.update.dialog_shown() && d.app.update.restart_needed() && !d.app.restart_ui, "UPD-10: {what}: Later");
+                // The next start in this state: no dialog.
+                restart_in(&mut d, launch);
+                assert!(!d.app.update.dialog_shown() && !d.app.settings_dirty, "UPD-10: {what}: the second start");
+                // UPD-13: the frontend mode sets the saved value to false. Then the dialog shows again.
+                restart_in(&mut d, Launch::Frontend);
+                assert!(!d.app.settings.restart_dialog_shown && !d.app.update.dialog_shown(), "UPD-13: {what}");
+                restart_in(&mut d, launch);
+                assert!(d.app.update.dialog_shown(), "UPD-10, UPD-13: {what}: the dialog shows again");
+                check(&d);
+            }
+        }
     }
 }
 
@@ -1609,10 +1716,10 @@ fn a_finger_press_does_not_read_the_ink_or_stop_the_writing() {
 fn a_pen_touch_from_a_filled_cell_shows_no_ink_and_starts_no_pen_area() {
     // INP-22, INP-2, INP-7, HLT-9: a tap and a stroke from a starting number and from an entry, also while
     // the player writes. A stroke from an empty cell across a filled cell shows ink. All layouts.
-    for (o, right_handed) in LAYOUTS {
+    for (o, right_handed, mode, launch) in layouts_and_modes() {
         let _layout = InLayout::set(o, right_handed);
-        let what = format!("{o:?}, right-handed {right_handed}");
-        let mut d = Driver::new(618);
+        let what = format!("{o:?}, right-handed {right_handed}, {mode}");
+        let mut d = driver_in(launch, true, 618);
         let e = empty_cells(&d);
         d.write(e[0], solution_at(&d.app.game, e[0]));
         d.wait(WRITING_IDLE_MS);
@@ -1876,13 +1983,38 @@ fn the_recognition_pause_is_1_s_and_it_starts_at_the_pen_lift() {
 
 #[test]
 fn the_pause_has_one_source_and_the_manifest_does_not_set_it() {
-    // INP-23: the AppLoad manifest has no environment and does not give the pause. No source file reads an
-    // environment variable for the pause.
+    // INP-23: no AppLoad manifest of the app sets the pause, in the frontend mode (`manifest.json`) and in
+    // the external mode (`external.manifest.json`): each manifest in `appload/` has no environment and
+    // does not give the pause. No other file of the AppLoad folders (also `backend/entry`, which starts
+    // the program in the frontend mode, and `make-folder.sh`, which makes the manifests of the corpus
+    // app) and no Dockerfile (they make the folders of the corpus app and of the color picker) gives the
+    // pause. No source file reads an environment variable for the pause.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let manifest = std::fs::read_to_string(root.join("appload/sudoku/external.manifest.json")).unwrap();
-    let json: serde_json::Value = serde_json::from_str(&manifest).unwrap();
-    assert!(json.get("environment").is_none(), "INP-23: the manifest has an environment");
-    assert!(!manifest.contains("PAUSE"), "INP-23: the manifest gives the pause");
+    let mut files = vec![root.join("appload")];
+    let mut manifests = Vec::new();
+    while let Some(path) = files.pop() {
+        if path.is_dir() {
+            files.extend(std::fs::read_dir(&path).unwrap().map(|e| e.unwrap().path()));
+            continue;
+        }
+        let bytes = std::fs::read(&path).unwrap();
+        assert!(!bytes.windows(5).any(|w| w == b"PAUSE"), "INP-23: {path:?} gives the pause");
+        let name = path.file_name().unwrap().to_str().unwrap();
+        if name.ends_with("manifest.json") {
+            let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert!(json.get("environment").is_none(), "INP-23: {path:?} has an environment");
+            manifests.push(path.strip_prefix(root).unwrap().to_path_buf());
+        }
+    }
+    for name in ["appload/sudoku/manifest.json", "appload/sudoku/external.manifest.json"] {
+        assert!(manifests.iter().any(|m| m == std::path::Path::new(name)), "INP-23: the test did not read {name}");
+    }
+    for entry in std::fs::read_dir(root).unwrap() {
+        let path = entry.unwrap().path();
+        if path.file_name().unwrap().to_str().unwrap().starts_with("Dockerfile") {
+            assert!(!std::fs::read_to_string(&path).unwrap().contains("PAUSE"), "INP-23: {path:?} gives the pause");
+        }
+    }
     let mut files = vec![root.join("src")];
     let mut sources = 0;
     while let Some(path) = files.pop() {

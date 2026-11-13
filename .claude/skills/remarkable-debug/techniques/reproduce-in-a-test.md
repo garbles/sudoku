@@ -26,5 +26,4 @@ the update log of the tablet shows the wrong updates, make a test that gets the 
   the same problem as the log of the tablet (for example the same wide update). Then put the fix
   back.
 - At the end, examine that the framebuffer shows the frame: no change is lost.
-- `layout::physical_rect` gives (x, y, width, height), not two corners. Use `to_prect` to get the
-  corners.
+- `layout::physical_rect` gives (x, y, width, height), not two corners.

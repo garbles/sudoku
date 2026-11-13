@@ -3,7 +3,8 @@
 //! the procedure.
 //!
 //! - It is a separate app on the tablet, `Sudoku (corpus)` in the AppLoad folder `sudoku-corpus`
-//!   (`make install-corpus`). Thus its installation does not change the usual Sudoku app.
+//!   (`make install-corpus`). Thus its installation does not change the usual Sudoku app. It has the
+//!   same QML frontend, with its own app ID and framebuffer ID (`launch::CORPUS`, LCH-5).
 //! - The board is blank: no starting numbers, no numbers of the player, no pencil marks.
 //! - The data folder is `rm-sudoku-corpus` (`store::data_dir`), thus the build never changes the
 //!   game, the settings or the results of the player.

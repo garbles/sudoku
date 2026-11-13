@@ -2,9 +2,13 @@
 //! executable, reads its framebuffer, sends pen and touch input and closes it. Then the test reads the
 //! saved data (PER-1, NAV-6). The main loop is only on Linux, thus the clock ticks and the clock saves
 //! of the platform (CLK-6, PER-7) are also examined here.
+//!
+//! The program runs in the two modes of LCH-9. With no argument, it is an external app (`QTFB_KEY`).
+//! With the path of a socket as argument 1, it is the backend of the QML frontend: a fake AppLoad sends
+//! the messages of R§14.4 on that socket (LCH-1, LCH-2, LCH-5).
 #![cfg(target_os = "linux")]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -53,6 +57,27 @@ impl Server {
 
     /// Accepts the client and answers its init message with a framebuffer.
     fn accept(&mut self) {
+        self.accept_key(KEY);
+    }
+
+    /// True if a client tries to connect now.
+    fn pending(&self) -> bool {
+        let mut pfd = libc::pollfd { fd: self.listen, events: libc::POLLIN, revents: 0 };
+        unsafe { libc::poll(&mut pfd, 1, 0) > 0 }
+    }
+
+    /// Reads the client messages that are here, with no wait.
+    fn drain(&self) {
+        if self.conn < 0 {
+            return;
+        }
+        let mut buf = [0u8; 64];
+        while unsafe { libc::recv(self.conn, buf.as_mut_ptr() as *mut _, 64, libc::MSG_DONTWAIT) } > 0 {}
+    }
+
+    /// Accepts the client and answers its init message with a framebuffer. The client must ask for
+    /// the framebuffer `key`.
+    fn accept_key(&mut self, key: i32) {
         unsafe {
             self.conn = libc::accept(self.listen, std::ptr::null_mut(), std::ptr::null_mut());
             assert!(self.conn >= 0);
@@ -62,10 +87,10 @@ impl Server {
             let n = libc::recv(self.conn, buf.as_mut_ptr() as *mut _, 64, 0);
             assert_eq!(n, 24, "init message size");
             assert_eq!(buf[0], 0, "MESSAGE_INITIALIZE");
-            assert_eq!(i32::from_ne_bytes(buf[4..8].try_into().unwrap()), KEY);
+            assert_eq!(i32::from_ne_bytes(buf[4..8].try_into().unwrap()), key, "the framebuffer ID");
             assert_eq!(buf[8], 1, "FBFMT_RMPP_RGB888");
             let size = W * H * 3;
-            let name = std::ffi::CString::new(format!("/qtfb_{KEY}")).unwrap();
+            let name = std::ffi::CString::new(format!("/qtfb_{key}")).unwrap();
             libc::shm_unlink(name.as_ptr());
             let shm_fd = libc::shm_open(name.as_ptr(), libc::O_RDWR | libc::O_CREAT, 0o666);
             assert!(shm_fd >= 0);
@@ -76,7 +101,7 @@ impl Server {
             self.shm = p as *mut u8;
             // InitMessageResponseContents: int shmKeyDefined, then size_t shmSize at offset 8.
             let mut body = [0u8; 16];
-            body[0..4].copy_from_slice(&KEY.to_ne_bytes());
+            body[0..4].copy_from_slice(&key.to_ne_bytes());
             body[8..16].copy_from_slice(&size.to_ne_bytes());
             let resp = server_message(0, &body);
             libc::send(self.conn, resp.as_ptr() as *const _, 32, 0);
@@ -293,5 +318,281 @@ fn the_clock_ticks_and_is_saved_with_no_input() {
     let g2 = read_game(&game_path);
     assert_eq!((g2.seed, g2.value, g2.marks), (g.seed, g.value, g.marks));
     assert!(g2.elapsed_ms >= g.elapsed_ms + 1000, "SIGHUP saves the clock: {} ms after {} ms", g2.elapsed_ms, g.elapsed_ms);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+// ---------------------------------------------------------------------------------------------
+// The frontend mode (LCH-9): a fake AppLoad starts the program as the backend of the QML frontend.
+
+/// The framebuffer ID of Sudoku (LCH-5). In the frontend mode, the program uses only this ID.
+const FRONTEND_KEY: i32 = 0x5355444F;
+
+/// The pen area file of the external mode (LCH-9). The frontend mode deletes it (UPD-11).
+const PEN_AREA_FILE: &str = "/tmp/sudoku-pen-region";
+
+/// The fake AppLoad: the UNIX socket (SOCK_SEQPACKET) of the backend messages (R§14.4). Each message
+/// is two packets: a header (the type and the length of the text, two `int`) and the text.
+struct Appload {
+    listen: i32,
+    conn: i32,
+    path: PathBuf,
+}
+
+impl Appload {
+    fn new(name: &str) -> Appload {
+        let path = std::env::temp_dir().join(format!("sudoku-e2e-appload-{name}-{}.sock", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        unsafe {
+            let fd = libc::socket(libc::AF_UNIX, libc::SOCK_SEQPACKET | libc::SOCK_CLOEXEC, 0);
+            assert!(fd >= 0);
+            let mut addr: libc::sockaddr_un = std::mem::zeroed();
+            addr.sun_family = libc::AF_UNIX as _;
+            for (i, b) in path.to_str().unwrap().bytes().enumerate() {
+                addr.sun_path[i] = b as _;
+            }
+            assert_eq!(libc::bind(fd, &addr as *const _ as *const _, std::mem::size_of::<libc::sockaddr_un>() as _), 0);
+            assert_eq!(libc::listen(fd, 1), 0);
+            Appload { listen: fd, conn: -1, path }
+        }
+    }
+
+    /// Waits up to 10 s for the program to connect.
+    fn accept(&mut self) {
+        unsafe {
+            let mut pfd = libc::pollfd { fd: self.listen, events: libc::POLLIN, revents: 0 };
+            assert_eq!(libc::poll(&mut pfd, 1, 10_000), 1, "the program connects to AppLoad");
+            // CLOEXEC: a program that a different test starts must not keep the connection open.
+            self.conn = libc::accept4(self.listen, std::ptr::null_mut(), std::ptr::null_mut(), libc::SOCK_CLOEXEC);
+            assert!(self.conn >= 0);
+            let tv = libc::timeval { tv_sec: 0, tv_usec: 200_000 };
+            libc::setsockopt(self.conn, libc::SOL_SOCKET, libc::SO_RCVTIMEO, &tv as *const _ as *const _, std::mem::size_of::<libc::timeval>() as _);
+        }
+    }
+
+    fn send(&self, kind: i32, text: &str) {
+        assert!(!text.is_empty(), "AppLoad sends no empty text");
+        let header: Vec<u8> = [kind, text.len() as i32].iter().flat_map(|v| v.to_ne_bytes()).collect();
+        unsafe {
+            assert_eq!(libc::send(self.conn, header.as_ptr() as *const _, header.len(), libc::MSG_NOSIGNAL), 8);
+            assert_eq!(libc::send(self.conn, text.as_ptr() as *const _, text.len(), libc::MSG_NOSIGNAL), text.len() as isize);
+        }
+    }
+
+    /// The next message of the program, in a maximum of 200 ms. None: no message.
+    fn recv(&self) -> Option<(i32, String)> {
+        let mut buf = [0u8; 256];
+        let n = unsafe { libc::recv(self.conn, buf.as_mut_ptr() as *mut _, buf.len(), 0) };
+        if n <= 0 {
+            return None;
+        }
+        assert_eq!(n, 8, "a header packet: {:?}", &buf[..n as usize]);
+        let kind = i32::from_ne_bytes(buf[0..4].try_into().unwrap());
+        let len = i32::from_ne_bytes(buf[4..8].try_into().unwrap());
+        let n = unsafe { libc::recv(self.conn, buf.as_mut_ptr() as *mut _, buf.len(), 0) };
+        assert!(n > 0, "R§14.4: the text of a message is never empty");
+        assert_eq!(n, len as isize, "the length of the header");
+        Some((kind, String::from_utf8(buf[..n as usize].to_vec()).unwrap()))
+    }
+
+    /// Reads the messages of the program for a maximum of `ms`, until `want` accepts one.
+    fn recv_until(&self, ms: u64, mut want: impl FnMut(i32, &str) -> bool) -> Option<(i32, String)> {
+        let end = Instant::now() + Duration::from_millis(ms);
+        while Instant::now() < end {
+            if let Some((kind, text)) = self.recv() {
+                if want(kind, &text) {
+                    return Some((kind, text));
+                }
+            }
+        }
+        None
+    }
+
+    /// Closes the connection: the end of the connection for the program.
+    fn close_connection(&mut self) {
+        unsafe { libc::close(self.conn) };
+        self.conn = -1;
+    }
+}
+
+impl Drop for Appload {
+    fn drop(&mut self) {
+        unsafe {
+            if self.conn >= 0 {
+                libc::close(self.conn);
+            }
+            libc::close(self.listen);
+        }
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// The program, stopped at the end of the test also when an assertion fails.
+struct Running(Child);
+
+impl Drop for Running {
+    fn drop(&mut self) {
+        if self.0.try_wait().ok().flatten().is_none() {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
+impl Running {
+    /// Waits until the program stops, for a maximum of `limit`. It reads the framebuffer messages,
+    /// so that the program does not wait for the fake server.
+    fn wait_stop(&mut self, server: &Server, limit: Duration) -> std::process::ExitStatus {
+        let end = Instant::now() + limit;
+        loop {
+            if let Some(status) = self.0.try_wait().unwrap() {
+                return status;
+            }
+            assert!(Instant::now() < end, "the program does not stop in {limit:?}");
+            server.drain();
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    fn running(&mut self) -> bool {
+        self.0.try_wait().unwrap().is_none()
+    }
+}
+
+/// The command that starts the program as `backend/entry` does: with the socket path of AppLoad as
+/// argument 1. `QTFB_KEY` has a different value: the program must not use it (LCH-5).
+fn frontend_command(data: &Path, socket: &Path) -> Command {
+    let mut command = app_command(data);
+    command.arg(socket).stderr(Stdio::inherit());
+    command
+}
+
+/// A data folder with the settings `restart_dialog_shown = true`: UPD-13 sets the value to false at a
+/// start in the frontend mode.
+fn frontend_data(name: &str) -> PathBuf {
+    let data = std::env::temp_dir().join(format!("sudoku-e2e-{name}-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&data);
+    std::fs::create_dir_all(&data).unwrap();
+    let settings = sudoku::settings::Settings { restart_dialog_shown: true, ..Default::default() };
+    std::fs::write(data.join("settings.json"), serde_json::to_string(&settings).unwrap()).unwrap();
+    data
+}
+
+fn read_settings(data: &Path) -> sudoku::settings::Settings {
+    serde_json::from_slice(&std::fs::read(data.join("settings.json")).unwrap()).unwrap()
+}
+
+#[test]
+fn the_frontend_mode_saves_and_stops_when_the_window_closes() {
+    // LCH-1: in the frontend mode, the program saves the game and stops for the stop message, for a
+    // "frontend closed" message with the count 0 and for the end of the connection. A count that is
+    // not 0 does not stop it. LCH-5: it connects to qtfb only with its framebuffer ID, after the first
+    // "frontend connected" message (R§14.4). LCH-9: it gives the pen area as a message of type 1
+    // ("none" or "x y width height"), and it does not write /tmp/sudoku-pen-region. UPD-11: it deletes
+    // that file. UPD-13: it sets restart_dialog_shown to false.
+    let _lock = SERVER.lock().unwrap_or_else(|e| e.into_inner());
+    for cause in ["the stop message", "the last frontend closed", "the end of the connection"] {
+        let data = frontend_data("frontend");
+        std::fs::write(PEN_AREA_FILE, "1 2 3 4").unwrap();
+        let mut appload = Appload::new("close");
+        let mut server = Server::new();
+        let mut child = Running(frontend_command(&data, &appload.path).spawn().expect("start the app"));
+        appload.accept();
+        // No framebuffer before a frontend connects.
+        std::thread::sleep(Duration::from_millis(300));
+        assert!(!server.pending(), "{cause}: R§14.4: the program connects to qtfb after the first frontend");
+        appload.send(-2, "1");
+        server.accept_key(FRONTEND_KEY);
+        assert!(server.wait_update(), "{cause}: first frame");
+        let (bx, by) = (sudoku::layout::board_x() as usize, sudoku::layout::board_y() as usize);
+        assert_eq!(server.pixel(bx, by + 600), [0, 0, 0], "{cause}: the board shows");
+        assert_eq!(appload.recv_until(3000, |kind, _| kind == 1), Some((1, "none".to_string())), "{cause}: LCH-9: no area at the start");
+        assert!(!Path::new(PEN_AREA_FILE).exists(), "{cause}: UPD-11: the pen area file is deleted");
+
+        // A pencil mark with the pen. The press in the cell gives the pen area of that cell.
+        let game_path = data.join("game.json");
+        assert!(wait_until(|| game_path.exists()));
+        let g = read_game(&game_path);
+        let cell = cells().find(|&c| !g.is_filled(c) && g.peer_digits(c) & mark_bit(5) == 0).unwrap();
+        let (x, y) = sudoku::layout::cell_origin(cell);
+        let (px, py) = (x + 73, y + 73);
+        server.send(0x20, px, py);
+        let area = appload.recv_until(3000, |kind, text| kind == 1 && text != "none");
+        server.send(0x21, px, py);
+        let (_, text) = area.unwrap_or_else(|| panic!("{cause}: LCH-9: a pen press in a cell gives a pen area"));
+        let r: Vec<i32> = text.split(' ').map(|v| v.parse().unwrap()).collect();
+        assert_eq!(r.len(), 4, "{cause}: \"x y width height\": {text}");
+        assert!(r[0] <= px && px < r[0] + r[2] && r[1] <= py && py < r[1] + r[3], "{cause}: LCH-3: the area {text} has the pen at ({px}, {py})");
+        assert!(!Path::new(PEN_AREA_FILE).exists(), "{cause}: LCH-9: no pen area file in the frontend mode");
+        std::thread::sleep(Duration::from_millis(300));
+        server.drain();
+
+        match cause {
+            "the stop message" => appload.send(-1, "stop"),
+            "the last frontend closed" => {
+                appload.send(-2, "2");
+                appload.send(-3, "1");
+                std::thread::sleep(Duration::from_millis(500));
+                server.drain();
+                assert!(child.running(), "LCH-1: one frontend stays");
+                appload.send(-3, "0");
+            }
+            _ => appload.close_connection(),
+        }
+        let status = child.wait_stop(&server, Duration::from_secs(10));
+        assert!(status.success(), "{cause}: {status}");
+        let saved = read_game(&game_path);
+        assert_eq!(saved.seed, g.seed, "{cause}");
+        assert_eq!(saved.marks_at(cell), mark_bit(5), "{cause}: LCH-1: the game is saved");
+        assert!(!read_settings(&data).restart_dialog_shown, "{cause}: UPD-13");
+        let _ = std::fs::remove_dir_all(&data);
+    }
+}
+
+#[test]
+fn the_frontend_mode_stops_before_a_frontend_connects() {
+    // LCH-1: the stop message and the end of the connection also stop a program whose frontend did
+    // not connect yet. The program saves the game, and it does not connect to qtfb.
+    let _lock = SERVER.lock().unwrap_or_else(|e| e.into_inner());
+    for cause in ["the stop message", "the end of the connection"] {
+        let data = frontend_data("early");
+        let mut appload = Appload::new("early");
+        let server = Server::new();
+        let mut child = Running(frontend_command(&data, &appload.path).spawn().expect("start the app"));
+        appload.accept();
+        std::thread::sleep(Duration::from_millis(300));
+        let start = Instant::now();
+        if cause == "the stop message" {
+            appload.send(-1, "stop");
+        } else {
+            appload.close_connection();
+        }
+        let status = child.wait_stop(&server, Duration::from_secs(5));
+        assert!(status.success(), "{cause}: {status}");
+        assert!(start.elapsed() < Duration::from_secs(3), "{cause}: the program stops at once: {:?}", start.elapsed());
+        assert!(!server.pending(), "{cause}: no framebuffer");
+        assert!(data.join("game.json").exists(), "{cause}: the game is saved");
+        let _ = std::fs::remove_dir_all(&data);
+    }
+}
+
+#[test]
+fn the_frontend_mode_stops_when_no_frontend_connects_in_10_s() {
+    // LCH-2, LCH-10: no frontend in 10 s after the start: the program saves the game and stops. It
+    // does not connect to qtfb: no window shows.
+    let _lock = SERVER.lock().unwrap_or_else(|e| e.into_inner());
+    let data = frontend_data("late");
+    let mut appload = Appload::new("late");
+    let server = Server::new();
+    let start = Instant::now();
+    let mut child = Running(frontend_command(&data, &appload.path).spawn().expect("start the app"));
+    appload.accept();
+    std::thread::sleep(Duration::from_millis(9_000));
+    assert!(child.running(), "LCH-10: the program waits 10 s");
+    let status = child.wait_stop(&server, Duration::from_secs(5));
+    let after = start.elapsed();
+    assert!(status.success(), "{status}");
+    assert!(after >= Duration::from_millis(9_900) && after < Duration::from_secs(13), "LCH-10: the program stopped after {after:?}");
+    assert!(!server.pending(), "no framebuffer");
+    assert!(data.join("game.json").exists(), "LCH-2: the game is saved");
     let _ = std::fs::remove_dir_all(&data);
 }

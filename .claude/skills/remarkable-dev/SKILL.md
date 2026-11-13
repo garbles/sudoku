@@ -66,7 +66,7 @@ app shows.
 
 Examples of the full track: a new screen, panel, dialog, button, setting or input; a new state,
 saved value or game rule; a change to the puzzles, the recognizer, the update, the installer or
-the ink patch; a change that needs a new image or more than one image group; a different sequence
+the frontend; a change that needs a new image or more than one image group; a different sequence
 in the demo video.
 
 If the user asks for the fast track, examine the same items. If one item is not true, tell the
@@ -170,8 +170,8 @@ step 8.
 
 4. **Change the code.** Change only what the request needs (for example `layout.rs`, `render.rs`
    and `app.rs` for the UI, `game.rs` for the rules, `generator.rs` and `solver.rs` for the puzzles,
-   `install.sh` for the installer). Before you change `present.rs`, the qtfb client or the ink
-   patch, read the `remarkable-debug` skill. A change of the generator changes the puzzles of old
+   `install.sh` for the installer). Before you change `present.rs`, the qtfb client or the
+   frontend, read the `remarkable-debug` skill. A change of the generator changes the puzzles of old
    saves: read PUZ-5 first.
 
    Go directly to step 5: the user must see the change on the tablet as fast as possible. Do not
@@ -278,7 +278,7 @@ step 8.
    write the same file. The agents of wave 1 do not read each other's notes.
 
    Keep the context of this session small: each turn reads all of it again. The reports of the
-   agents have at most 20 lines. Do not read a note, a full diff or a full image here unless a
+   agents are short. Do not read a note, a full diff or a full image here unless a
    report shows a problem. Use `git diff --stat`.
 
    The team works in three waves. In a wave, the agents run in parallel (send all the Agent calls
@@ -320,8 +320,9 @@ step 8.
 
    **Wave 2: the implementation (1 agent, `dev-implementer`).** It changes the source in `src/` so
    that the code does what the updated REQUIREMENTS.md and INVARIANTS.md tell. It also changes
-   `invariants.rs` for the changed rules, and it owns `install.sh` and the ink patch
-   (`appload/sudoku/sudoku-penregion.qmd`) if the change touches them. `install.sh` must give the
+   `invariants.rs` for the changed rules, and it owns `install.sh` and the frontend files
+   (`appload/sudoku/ui/main.qml`, the manifests, `application.qrc`, `appload/make-folder.sh`) if
+   the change touches them. `install.sh` must give the
    same instructions as the new README.md and `site/`. It does not change `tests/`, `images/`,
    `reference.rs` or the documents. The wave is done when `cargo build --release --bins` passes with no warnings
    and the dev build (step 5, with the version name of the change) passes. The tests can still fail now.
@@ -385,7 +386,7 @@ The fast track does not start an agent. The agents below belong to the full trac
 | `dev-invariants-writer`   | Wave 1            | INVARIANTS.md                                                |
 | `dev-readme-writer`       | Wave 1            | README.md, `site/`                                           |
 | `dev-image-scripts`       | Wave 1            | The design image scripts, or the manual scripts (one group)  |
-| `dev-implementer`         | Wave 2            | `src/` (not `reference.rs`), `install.sh`, the ink patch     |
+| `dev-implementer`         | Wave 2            | `src/` (not `reference.rs`), `install.sh`, the frontend files |
 | `dev-test-writer`         | Wave 3            | One group of tests (also `reference.rs`, `tests/install/`)   |
 | `dev-media`               | Wave 3            | `video/`, `images/install-*.png`                             |
 | `dev-agent-docs`          | Wave 3            | AGENTS.md, `.claude/skills/` (not this skill), `.claude/agents/` |
@@ -413,7 +414,7 @@ are more, stop and use the full track.
 | Design image scripts, `icon.svg`, `images/INDEX.md`       | A screen, a panel, a dialog or the icon looks different  | Design images (1)   |
 | `scripts/manual-*.sh` (the in-app manual)                 | A manual page tells about or shows the changed behavior  | Manual (1)          |
 | Comments in `src/`                                        | The code that they tell about changes                    | Implementation (2)  |
-| `install.sh`, the ink patch                               | The installation or the ink patch changes                | Implementation (2)  |
+| `install.sh`, the frontend files                          | The installation or the frontend changes                 | Implementation (2)  |
 | `tests/install/`, `scripts/terminal.py`, `install-*.png`  | `install.sh` changes                                     | Installer (3)       |
 | `video/demo.txt`, `video/demo-full.txt`                   | The demo shows the change, or its events miss a button   | Videos (3)          |
 | AGENTS.md, `.claude/skills/`, `.claude/agents/`           | The architecture, a command or a debug lesson changes    | Agent documents (3) |

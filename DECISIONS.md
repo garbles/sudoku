@@ -1318,3 +1318,131 @@ take their crops of the board from the geometry (the Helpers crop was a fixed Pa
 `cargo test` (the pixel model of the board in `tests/inv_render.rs`, the black pixels of the lines in
 `tests/render.rs`), the snapshot tool against the new images. Device test on the Paper Pro: pending.
 
+## Owner request: the QML frontend replaces the ink patch, 2026-11-12
+
+Request: "someone told me that my QMD patch is something that i 'absolutely should not be doing'. instead
+they told me to use `DisplayMethodArea`." Then: "lets prototype it on with the existing app first before we
+write tests etc". Beads issue remarkable-sudoku-01v. REQUIREMENTS.md §9.2, §14.2, §14.4, §14.6.
+
+Facts (the AppLoad source and the tablet): `DisplayMethodArea` (`net.asivery.ApploadUtils`, AppLoad v0.5.1 and
+later) is the public AppLoad QML item that sets the refresh mode of a part of the screen. Only an app with a QML
+frontend can use it (`manifest.json`, `resources.rcc`, `backend/entry`); an external app cannot. AppLoad starts
+`backend/entry` with the path of a UNIX socket (SOCK_SEQPACKET). AppLoad reads the manifests only when the
+interface starts and at a tap on "Reload" in its menu, and `manifest.json` has priority over
+`external.manifest.json`. On the tablet, `grep -q ApploadUtils /home/root/xovi/extensions.d/appload.so` is true
+for an AppLoad that has the item (AppLoad 0.6.0).
+
+**The mode names are reversed.** AppLoad gives the values of `DisplayMethodArea` to the tablet by their
+position: 0 pen mode (`UFast`), 1 mono, 2 animation, 3 the UI mode, 4 the content mode. The names of the item,
+`Content` (3) and `UI` (4), are in the opposite order, and the AppLoad author keeps this order. Thus the frontend
+uses the number 3 for the UI mode, not a name.
+
+**Tablet tests, 2026-11-12.** Paper Pro, AppLoad 0.6.0, tablet software 20261028104944, build
+`dev/qml-frontend`. The pen area goes to the frontend as a message on the AppLoad socket (the same rectangle
+as before); no file `/tmp/sudoku-pen-region`, no poll and no patch of the AppLoad window.
+
+| Examined by the owner | Result |
+|---|---|
+| First test | Not valid. AppLoad still had the external manifest in memory and started the program as an external app (the log: "Starting external binary"). Lesson: examine the log before you trust a test of the frontend. |
+| Numbers and pencil marks | The ink is as good as with the ink patch: no gaps, no ghosts, no flash. The waits of the program did not change (45 ms after the area starts or stops). |
+| Turn to landscape and back | Correct (the log: rotation 2 and 0). |
+| Close with the close button of the app, then open again | Correct. |
+| Drag from the top edge | The top bar of AppLoad shows. |
+| Start with the tablet in landscape | The landscape screen shows at once (the log: rotation 2 at the start). |
+| After a restart of the interface (xovi) between the tests | The app operated. |
+| After the installation of the prototype | A tap on "Reload" in the AppLoad menu was sufficient; no restart of xovi was necessary. |
+
+Owner answer each time: "Correct". Nothing that the player sees changed: the screens, the ink, the marks, the
+times and the pen area rules (INP-2, INP-22, INP-24, HLT-9) are the same as with the ink patch.
+
+**Not examined on the tablet** (examine these with the final build): the X of the AppLoad top bar (the log
+showed only the close button of the app); the window mode (a long press on the icon); the rotation values 1 and
+3; a crash of the program; a second tap on the icon while the app is open; the update of the app, and that
+AppLoad reads a replaced `resources.rcc` and starts `backend/entry` at each open ("Restart Sudoku to update");
+the installer on a tablet with the old patch; the restart dialog and the restart of the interface from the app;
+the corpus app; one run with the old patch deleted; the black line of 2 px around a frontend window; the screen
+update log of xochitl (only the eyes of the owner confirm the pen waveform in the cell). The area wait of 45 ms
+included the 15 ms poll of the patch: it is not proved that 45 ms is still the correct value, but the owner
+approved the ink with it. The Paper Pro Move: no device test is possible; the pen area is correct by calculation
+(the scale and the offset of the framebuffer picture). After each update of AppLoad, examine the internal names
+`globalRotation`, `swipeFromTheTop`, `fullscreen` and `minimized`.
+
+**Owner decisions, 2026-11-12:**
+
+1. After an update of the app from an old release, the new program first runs as an external app with the old
+   ink patch, because AppLoad keeps the old manifest. In this state (external mode, and the app folder has the
+   frontend files) the dialog "Restart the interface?" shows, and the update row shows the button **Restart
+   interface** at each start. **Restart** and the button do the same as before (save the game, `xovi/start`).
+2. Remove the ink patch file and the patch fields now. New releases have no `sudoku-penregion.qmd`, and
+   `version.json` is `{"version": "<version>", "url": "<url>", "sha256": "<checksum>"}`. The installer deletes the
+   old patch and its stamp file. The app deletes the old patch, its stamp file and `/tmp/sudoku-pen-region` only
+   when it runs with the frontend; as an external app it keeps them and uses the patch. The app installs no
+   patch, and the restart dialog for a new ink patch goes away.
+3. Back path: accepted, no rule. A preview build with the frontend still offers an older stable release. After
+   that update the app does not open until Reload. The first release with the frontend must be a stable release
+   soon.
+4. The minimum AppLoad version is examined by the installer only (it updates AppLoad with Vellum). The
+   update of the app does not examine it. First the version was 0.5.1; decision 12 replaces it with 0.6.0.
+5. Window mode: in a window that is not the full screen, the app operates with a scaled picture, and the
+   frontend shows no pen area (the ink is slower there).
+6. The corpus app gets the same frontend with its own app ID and its own framebuffer ID. No ink patch file stays
+   in the repository. The colors app stays an external app with no pen area and no frontend files.
+7. The Paper Pro Move uses the frontend, as the Paper Pro, with no device test.
+
+**The restart dialog.** Text, selected by the owner: "The update is not complete. To complete it," and "the
+reMarkable interface must start again.". Not selected: "The update has smoother ink. To use it," and "Sudoku
+starts in a new way. To use it,". Time, selected: only at the first start in this state (the app saves that it
+showed the dialog). Not selected: "each start". The owner gave no reasons for the values that were not selected.
+No value was rejected on the tablet. The Overlay screen mode stays rejected (2026-11-07).
+
+**Owner decisions after the documents of wave 1, 2026-11-12** (answers to the open points):
+
+8. The gear has the caution icon at each start while the update is not complete, when the Settings panel has
+   the update row (as before with the button **Restart interface**).
+9. An old release in the new installer: when the user selects a release whose `version.json` has
+   `patch_sha256`, the installer does as before for that release (it downloads the ink patch, compares its
+   checksum, installs it with its stamp file, does not delete it, and starts the interface again when the patch
+   changed). Only for a release with no patch fields, step 8 deletes the old ink patch and its stamp file.
+10. The 10 s limit is approved: the program saves the game and stops when no frontend connects in 10 s after
+    the start (LCH-2, REQUIREMENTS.md §14.4). First a proposal of the review, not a value of the owner.
+11. The saved value of the restart dialog is approved: it goes away when the app starts in the frontend mode,
+    thus the dialog can show again if the state comes back (§9.2, §14.2). First a proposal.
+12. After wave 2: the installer requires AppLoad 0.6.0 or newer (this replaces the version 0.5.1 of decision 4).
+    Fact (AppLoad source): 0.5.1 to 0.5.3 have `DisplayMethodArea`, but the rotation of the framebuffer, the
+    aspect fit and the size of the framebuffer came with 0.6.0. The installer updates each AppLoad that is older
+    than 0.6.0 (`vellum update && vellum add -u appload`). On 0.5.1 to 0.5.3 (possible only after an update of
+    the app), the frontend still loads: the app stays in portrait, and the pen area shows only on the full
+    screen. The check: `appload.so` has the text `fbRotation` (0.6.0). Not examined on the tablet yet.
+
+Conclusions from the decisions and the facts (not owner decisions):
+
+- The archive check. The description first said that the new program accepts an archive only with all files of
+  the app folder. This was wrong (decision 3): the archive must have `sudoku` and `external.manifest.json`, and
+  an archive with `manifest.json` must also have `resources.rcc` and `backend/entry`.
+- While the update is not complete, the update row shows only the button **Restart interface** for the full
+  run: no update is offered or installed. A `dev` build has no update row: it shows the dialog at the first
+  start, with no button and no caution icon.
+- Vellum is a wrapper of apk, and `vellum add appload` does not update an installed AppLoad. The installer uses
+  `vellum update && vellum add -u appload`. Not run on the tablet: its AppLoad was the latest.
+- AppLoad reads the manifests only when the interface starts and at Reload (AppLoad source). Thus the installer
+  starts the interface again after step 11 when the type of the manifest changed, and also when the app folder
+  was not on the tablet before.
+- Values: the "no area" message has the text `none`; the corpus app has the app ID `sudoku-corpus` and the
+  framebuffer ID 0x53554443; the saved value is the key `restart_dialog_shown` of the settings file; the
+  rotation gets to the program as before (the frontend gives the rotation of the AppLoad window to the
+  framebuffer item, and AppLoad sends it on the qtfb connection).
+- A new AppLoad loads only when the interface starts. Thus, when step 6 of the installer updated AppLoad, the
+  interface starts again before the end of the installation (a third cause in step 11).
+- The frontend reads four internal names of the AppLoad window: `globalRotation`, `swipeFromTheTop()`,
+  `fullscreen` and `minimized`. Without the window, the full screen is known only from the picture (scale 1,
+  offset 0). Examine the four names after each update of AppLoad.
+- In the frontend mode, the program connects to the framebuffer after the first "frontend connected" message
+  (thus the framebuffer item has the rotation before the first frame), and it sends no qtfb refresh mode: the
+  test setting `refresh-mode` has an effect only in the external mode.
+
+**Open points** (not answered):
+
+- The texts of the new installer output (the AppLoad update, the deleted patch, the start of the interface
+  after step 11). The limits of 66 and 90 columns apply.
+- The review found that the fallback copy of an old program (the update across two file systems) has no
+  subfolders: with `backend/` it gives "Update failed", and the folder does not change. Not examined.

@@ -307,9 +307,9 @@ compose screen-in-progress.png settings-up-to-date.png
 settings_panel v0.1.0 $SET_BOTTOM_STABLE; update_button "Check for updates" check
 toolbar black settings
 compose screen-in-progress.png settings-check-updates.png
-# The update v0.2.0 is installed and replaced the ink patch. The user tapped "Later" in the dialog
-# "Restart the interface?", and the row has the button "Restart interface" (analytics.py draws the
-# dialog on this image: update-restart.png).
+# After an update, the program runs as an external app and its folder has the frontend files. The
+# user tapped "Later" in the dialog "Restart the interface?", and the row has the button "Restart
+# interface" (analytics.py draws the dialog on this image: update-restart.png).
 settings_panel v0.1.0 $SET_BOTTOM_STABLE; update_button "Restart interface" restart
 toolbar black settings; caution
 compose screen-in-progress.png settings-restart.png

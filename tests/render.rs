@@ -141,6 +141,29 @@ fn without_mark_stem_shifts(
 }
 
 #[test]
+fn the_restart_images_show_an_update_that_is_not_complete() {
+    // UPD-3, UPD-10, UPD-13, UPD-14 (images/INDEX.md): settings-restart.png and update-restart.png
+    // show the external mode with the frontend files in the app folder, not an installation result.
+    // The row has only the button "Restart interface", the gear has the caution icon, and the dialog
+    // shows only in update-restart.png, after the app saved `restart_dialog_shown`.
+    use sudoku::update::{UpdateButton, UpdateState};
+    let fonts = fonts();
+    for (name, dialog) in [("settings-restart.png", false), ("update-restart.png", true)] {
+        let (_, setup) = reference::states().into_iter().find(|(n, _)| *n == name).expect(name);
+        let mut app = reference::app(&fonts);
+        setup(&mut app);
+        let u = &app.update;
+        assert!(u.restart_needed() && !u.launch.is_frontend(), "{name}: launch {:?}", u.launch);
+        assert_eq!(u.dialog_shown(), dialog, "{name}: the dialog");
+        assert!(app.settings.restart_dialog_shown, "{name}: the saved value");
+        assert!(u.has_row() && u.caution(), "{name}: the caution icon of the gear");
+        assert_eq!((u.button(), u.row_text()), (Some(UpdateButton::Restart), None), "{name}: the update row");
+        assert!(!matches!(u.state, UpdateState::Installing(_) | UpdateState::Failed(..) | UpdateState::Installed), "{name}: {:?}", u.state);
+        sudoku::invariants::check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
+    }
+}
+
+#[test]
 fn the_icon_sheet_shows_each_icon() {
     // Each tile (all looks of all icons, then the AppLoad icon) has pixels of an icon around its
     // center. The corner of the area is the background of the tile: white, or the black slot.

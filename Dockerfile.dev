@@ -15,6 +15,15 @@
 #   with the name of the change, for example `dev/update-icons` (make install-dev DEV_NAME=update-icons).
 #
 # The result is dist/sudoku/, as from the Dockerfile.
+
+# The files of the AppLoad folder with the QML frontend (REQUIREMENTS.md §14.4): the Qt tool `rcc`
+# makes resources.rcc from the QML (appload/make-folder.sh). Alpine 3.22 gives a fixed version of Qt.
+# This stage keeps the Qt packages out of the Rust stage.
+FROM --platform=linux/arm64 alpine:3.22 AS frontend
+RUN apk add --no-cache qt6-qtbase-dev
+COPY appload /appload
+RUN sh /appload/make-folder.sh /out/sudoku
+
 FROM --platform=linux/arm64 rust:1.97-alpine AS build
 RUN apk add --no-cache musl-dev mold
 WORKDIR /src
@@ -26,13 +35,12 @@ COPY assets assets
 COPY images images
 COPY tests/fixtures tests/fixtures
 COPY video/demo-full.txt video/demo-full.txt
-COPY appload/sudoku appload/sudoku
+COPY --from=frontend /out/sudoku /out/sudoku
 ARG SUDOKU_VERSION=dev
 RUN --mount=type=cache,id=sudoku-dev-registry,target=/usr/local/cargo/registry \
     --mount=type=cache,id=sudoku-dev-target,target=/src/target \
     SUDOKU_VERSION="$SUDOKU_VERSION" cargo build --profile tablet-dev --locked --bin sudoku \
- && mkdir -p /out && cp -R appload/sudoku /out/sudoku \
- && cp target/tablet-dev/sudoku /out/sudoku/sudoku && chmod 755 /out/sudoku/sudoku
+ && cp target/tablet-dev/sudoku /out/sudoku/sudoku && chmod 755 /out/sudoku/sudoku /out/sudoku/backend/entry
 
 FROM scratch AS export
 COPY --from=build /out /

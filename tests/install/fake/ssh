@@ -11,7 +11,7 @@
 #   authorized                      The public keys in authorized_keys.
 #   default-key                     A different key of the computer opens the tablet.
 #   model, os                       The device model and the software version.
-#   vellum, appload, hashtab, xovi  The parts that are installed or on.
+#   vellum, hashtab, xovi           The parts that are installed or on.
 #   vellum-stale                    Vellum says "reenable has not been run" (the tablet software
 #                                   changed).
 #   vellum-sync-fails               sync-vellum fails.
@@ -22,9 +22,16 @@
 #   tripletap-enable-sh             The file /home/root/xovi-tripletap/enable.sh is present.
 #   tripletap-install-fails         Vellum cannot install the power-button starter.
 #   tripletap-repair-fails          The repair does not enable and start the unit.
-#   app                             The SHA-256 checksum of the installed executable.
-#   patch                           The SHA-256 checksum of the installed ink patch.
-#   stamp                           The SHA-256 checksum in the stamp file of the ink patch.
+#   appload-update-fails            `vellum add -u appload` fails.
+#   appload-update-noop             `vellum add -u appload` succeeds, but AppLoad stays old.
+#   patch-delete-fails              The deletion of the old ink patch does nothing.
+#
+# The files of the tablet are in $SIM/tablet: $SIM/tablet/home/root is /home/root of the tablet.
+# These are the AppLoad extension (xovi/extensions.d/appload.so: AppLoad 0.6.0 or newer has the text
+# fbRotation), the AppLoad folder of Sudoku (xovi/exthome/appload/sudoku) and the old ink patch with
+# its stamp file (xovi/exthome/qt-resource-rebuilder). The remote commands that read or change these
+# files run as real commands in $SIM/tablet (refer to `tablet` below). Thus the simulation also
+# examines these commands of install.sh.
 #
 # install.sh starts each remote command with ": name;". This file finds the command from the name.
 S="$SIM/state"
@@ -112,6 +119,24 @@ fi
 
 yes_no() { if [ -e "$S/$1" ]; then echo yes; else echo no; fi; }
 
+# Runs the remote command on the files of the simulated tablet: /home/root/ becomes
+# $SIM/tablet/home/root/. The tablet has sha256sum (BusyBox). macOS has only shasum.
+T="$SIM/tablet"
+tablet() {
+  local c="${cmd//\/home\/root\//$T/home/root/}"
+  if command -v sha256sum >/dev/null; then
+    bash -c "$c"
+  else
+    bash -c 'sha256sum() { shasum -a 256 "$@"; }; '"$c"
+  fi
+}
+
+# Writes the AppLoad extension of a new AppLoad (0.6.0 or newer).
+new_appload() {
+  mkdir -p "$T/home/root/xovi/extensions.d"
+  printf 'appload 0.6.0 ApploadUtils fbRotation\n' >"$T/home/root/xovi/extensions.d/appload.so"
+}
+
 name="$(printf '%s' "$cmd" | sed -n '1s/^: \([a-z-]*\);.*/\1/p')"
 case "$name" in
   probe) ;;
@@ -119,7 +144,6 @@ case "$name" in
   info) cat "$S/model" "$S/os" ;;
   has-vellum) yes_no vellum ;;
   has-vellum-stale) yes_no vellum-stale ;;
-  has-appload) yes_no appload ;;
   has-hashtab) yes_no hashtab ;;
   has-xovi) yes_no xovi ;;
   has-tripletap) yes_no tripletap ;;
@@ -179,7 +203,25 @@ OK: 112 distinct packages available
 (5/5) Installing remarkable-os (3.29.0.153-r0)
 OK: 5 MiB in 9 packages
 EOF
-    touch "$S/appload"
+    new_appload
+    ;;
+  update-appload)
+    # A7: Vellum is a wrapper of apk. `vellum add appload` does not update an installed AppLoad.
+    case "$cmd" in
+      *"/vellum update && "*"/vellum add -u appload"*) ;;
+      *) echo "fake ssh: this command does not update AppLoad: $cmd" >&2; exit 1 ;;
+    esac
+    echo "fetch https://packages.vellum.delivery/aarch64/APKINDEX.tar.gz"
+    echo "OK: 112 distinct packages available"
+    if [ -e "$S/appload-update-fails" ]; then
+      echo "ERROR: unable to upgrade appload: the download failed."
+      exit 1
+    fi
+    if [ ! -e "$S/appload-update-noop" ]; then
+      echo "(1/1) Upgrading appload (0.5.3-r0 -> 0.6.0-r1)"
+      new_appload
+    fi
+    echo "OK: 5 MiB in 9 packages"
     ;;
   make-hashtab) touch "$S/hashtab"; rm -f "$S/xovi" ;; # rebuild_hashtable stops the user interface
   start-xovi) touch "$S/xovi" ;;
@@ -210,27 +252,17 @@ EOF
     rm -f "$S/tripletap-off"
     touch "$S/tripletap"
     ;;
-  app-hash) cat "$S/app" 2>/dev/null; true ;;
-  patch-hash)
-    echo "patch=$(cat "$S/patch" 2>/dev/null)"
-    echo "stamp=$(cat "$S/stamp" 2>/dev/null)"
-    ;;
-  install-patch)
-    # The real command examines the checksum on the tablet: it is the word after '" = ' in the command.
-    if command -v sha256sum >/dev/null; then sum=(sha256sum); else sum=(shasum -a 256); fi
-    got="$("${sum[@]}" | cut -d ' ' -f 1)"
-    want="$(printf '%s' "$cmd" | sed -n 's/.*" = \([0-9a-f]\{64\}\) ].*/\1/p')"
-    [ "$got" = "$want" ] || exit 1
-    printf '%s\n' "$got" >"$S/patch"
-    printf '%s\n' "$got" >"$S/stamp"
-    ;;
+  # The commands that read or change the files of the tablet: real commands in $SIM/tablet.
+  has-appload | has-appload-rotation | has-old-patch | patch-hash | install-patch | app-files) tablet ;;
+  delete-patch) [ -e "$S/patch-delete-fails" ] || tablet ;;
   install-app)
-    t="$(mktemp -d)"
-    cat >"$t/a.tar.gz"
-    tar -xzf "$t/a.tar.gz" -C "$t"
-    if command -v sha256sum >/dev/null; then sum=(sha256sum); else sum=(shasum -a 256); fi
-    "${sum[@]}" "$t/sudoku/sudoku" | cut -d ' ' -f 1 >"$S/app"
-    rm -rf "$t"
+    tablet || exit
+    # LCH-6, R§14.6 step 11: the program and the start file of the frontend must be executable.
+    a="$T/home/root/xovi/exthome/appload/sudoku"
+    if [ ! -x "$a/sudoku" ] || { [ -e "$a/backend/entry" ] && [ ! -x "$a/backend/entry" ]; }; then
+      echo "fake ssh: install-app did not set the executable mode" >&2
+      exit 1
+    fi
     ;;
   *)
     echo "fake ssh: unknown remote command: $cmd" >&2

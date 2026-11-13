@@ -8,10 +8,19 @@ use crate::game::{cells, mark_bit, Board, Change, Game, Group, MAX_CHECKPOINTS};
 use crate::generator::{count_solutions, is_valid_solution, partner, MODES, V1_MODES, VERSION};
 use crate::layout::{self, LevelButton, Rect};
 use crate::settings::Color;
-use crate::update::{has_updates, is_update, PatchChange, UpToDateRow, UpdateState};
+use crate::update::{has_updates, is_update, UpToDateRow, UpdateButton, UpdateRequest, UpdateState};
 
 // The fixed times of the writing rules. A wrong value does not compile.
 const _: () = assert!(RECOGNITION_PAUSE_MS == 1000, "INP-23");
+// LCH-5: the values that the program and the frontend share. LCH-10: the connect time. The tests
+// compare the text of the frontend and of the manifests with these values.
+const _: () = {
+    use crate::launch::{CORPUS, MSG_FRONTEND_CLOSED, MSG_FRONTEND_CONNECTED, MSG_PEN_AREA, MSG_STOP, SUDOKU};
+    assert!(SUDOKU.framebuffer_id == 0x5355444F && CORPUS.framebuffer_id == 0x53554443, "LCH-5");
+    assert!(SUDOKU.app_id.len() == 6 && CORPUS.app_id.len() == 13, "LCH-5");
+    assert!(MSG_PEN_AREA == 1 && MSG_STOP == -1 && MSG_FRONTEND_CONNECTED == -2 && MSG_FRONTEND_CLOSED == -3, "LCH-5");
+    assert!(crate::launch::CONNECT_TIME_MS == 10_000, "LCH-10");
+};
 const _: () = assert!(WRITING_IDLE_MS == RECOGNITION_PAUSE_MS, "INP-16");
 const _: () = assert!(HAND_TOUCH_MS == 150, "INP-20");
 // NAV-19, QST-5: the secondary text and marks are gray25 (#404040).
@@ -521,7 +530,7 @@ pub fn check_app(app: &App) -> Result<(), String> {
         ensure!(lic.text_page >= 1 && lic.text_page <= pages, "LIC-3", "text page {} of {}", lic.text_page, pages);
     }
 
-    // Updates (UPD-1, UPD-2, UPD-7, UPD-8, UPD-9, UPD-10).
+    // Updates (UPD-1, UPD-2, UPD-3, UPD-7, UPD-8, UPD-9, UPD-10, UPD-13, UPD-14).
     let u = &app.update;
     ensure!((u.state == UpdateState::Off) == !has_updates(&u.current), "UPD-1", "state {:?} for version {}", u.state, u.current);
     if let UpdateState::Available(m) | UpdateState::Installing(m) | UpdateState::Failed(m, _) = &u.state {
@@ -535,12 +544,31 @@ pub fn check_app(app: &App) -> Result<(), String> {
     if u.state == UpdateState::UpToDate(UpToDateRow::UpToDateText) {
         ensure!(app.ui.menu.panel() == Some(Panel::Settings) && app.screen == Screen::Game, "UPD-9", "\"up to date\" kept after the panel closed");
     }
-    // UPD-10: the type `PatchChange` keeps the restart dialog in `Installed { patch: true }`.
+    // UPD-10: the type `launch::Launch` keeps the restart dialog in the external mode with the
+    // frontend files (`dialog ⇒ restart_needed`). The app asks for xovi/start only in that state, and
+    // the button "Restart interface" shows only in that state.
+    let needed = u.restart_needed();
     if app.restart_ui {
-        ensure!(matches!(u.state, UpdateState::Installed(PatchChange::Replaced { .. })), "UPD-10", "a restart in state {:?}", u.state);
+        ensure!(needed, "UPD-10", "a restart with the launch {:?}", u.launch);
     }
+    ensure!((u.button() == Some(UpdateButton::Restart)) == (needed && u.has_row()), "UPD-10", "the button {:?} with the launch {:?}", u.button(), u.launch);
     if u.dialog_shown() {
         ensure!(app.ui.pending_ink.is_none() && app.live_stroke.is_none(), "UPD-10", "ink under the restart dialog");
+        ensure!(app.settings.restart_dialog_shown, "UPD-10", "the dialog shows, and the saved value is false");
+    }
+    // UPD-13: the frontend mode sets the saved value to false at the start, and only a start while
+    // the update is not complete sets it to true.
+    if u.launch.is_frontend() {
+        ensure!(!app.settings.restart_dialog_shown, "UPD-13", "the saved value is true in the frontend mode");
+    }
+    // UPD-3: the caution icon also shows while the update is not complete, in a build with the row.
+    let update_ready = matches!(u.state, UpdateState::Available(_) | UpdateState::Installing(_) | UpdateState::Failed(..) | UpdateState::Installed);
+    ensure!(u.caution() == (update_ready || (needed && u.has_row())), "UPD-3", "caution {} in state {:?} with the launch {:?}", u.caution(), u.state, u.launch);
+    // UPD-14: while the update is not complete, the row has no text, and no installation starts.
+    if needed {
+        ensure!(u.row_text().is_none(), "UPD-14", "the row shows {:?} while the update is not complete", u.row_text());
+        ensure!(!matches!(u.state, UpdateState::Installing(_) | UpdateState::Failed(..) | UpdateState::Installed), "UPD-14", "state {:?} while the update is not complete", u.state);
+        ensure!(!matches!(u.request, Some(UpdateRequest::Install(_))), "UPD-14", "an installation starts while the update is not complete");
     }
     Ok(())
 }

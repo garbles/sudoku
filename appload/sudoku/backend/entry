@@ -1,0 +1,6 @@
+#!/bin/sh
+# AppLoad starts this file as the backend of the QML frontend of Sudoku, with the path of its socket
+# as argument 1 (REQUIREMENTS.md section 14.4). It starts the program `sudoku` of the app folder with
+# the same argument. The program stays in the app folder, because the update of the app expects it
+# there. Keep the mode 755 of this file: the update of an earlier release does not set it.
+exec "$(dirname "$0")/../sudoku" "$@"

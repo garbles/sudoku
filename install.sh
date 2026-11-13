@@ -9,18 +9,24 @@
 #
 #   1. Examine the programs on this computer (ssh, ssh-keygen, curl, tar).
 #   2. Select the version (the latest version, or a version from a list of all releases). Download
-#      the release archive and the ink patch of the release, and examine their SHA-256 checksums.
+#      the release archive and examine its SHA-256 checksum. A release has no ink patch file. Only
+#      for an older release that has an ink patch: download the patch also.
 #   3. Find the tablet (USB cable, developer mode).
 #   4. Make an SSH key and add it to the tablet, with a different SSH key of this computer or with
 #      the root password (the user types it one time).
 #   5. Install Vellum, the package manager.
-#   6. Install AppLoad (with xovi) with Vellum.
+#   6. Install AppLoad (with xovi) with Vellum. Sudoku needs AppLoad 0.6.0 or newer: if the AppLoad
+#      on the tablet is older, update it with Vellum.
 #   7. Make the hashtable of xovi.
-#   8. Install the ink patch (a QML patch that xovi applies when it starts) and its stamp file (the
-#      version that installed the patch and the checksum of the patch).
-#   9. Start xovi (again, if the ink patch changed).
+#   8. Delete the ink patch and the stamp file of an older version of Sudoku, if they are on the
+#      tablet. Sudoku does not use them now. Only for an older release that has an ink patch:
+#      install the patch (a QML patch that xovi applies when it starts) and its stamp file.
+#   9. Start xovi (again, if the ink patch of an older release changed).
 #  10. Install the power-button starter. A triple press of the power button starts xovi.
-#  11. Install the Sudoku folder in AppLoad.
+#  11. Install the Sudoku folder in AppLoad (the program and the files of its interface). AppLoad
+#      reads the list of apps only when the interface starts. Thus, when the folder was not on the
+#      tablet before, or the installed Sudoku was a release from before the frontend, start the
+#      interface again.
 #
 # Environment variables:
 #   REMARKABLE_HOST     The address of the tablet on Wi-Fi, for example 192.168.1.20. Default (not
@@ -47,11 +53,14 @@ set -u
 REPO="https://github.com/garbles/sudoku"
 # The version that the user selects (SUDOKU_VERSION). Empty: the installer asks.
 WANT_VERSION="${SUDOKU_VERSION:-}"
-# release.yml replaces these three values with the version, the checksum of its archive and the
-# checksum of its ink patch. A copy from git installs the latest stable release.
+# release.yml replaces these two values with the version and the checksum of its archive. A copy
+# from git installs the latest stable release.
 SUDOKU_VERSION="@SUDOKU_VERSION@"
 SUDOKU_SHA256="@SUDOKU_SHA256@"
-PATCH_SHA256="@SUDOKU_PATCH_SHA256@"
+# The checksum of the ink patch. A release has no ink patch file, thus this value is empty. Only
+# version.json of an older release gives it (`patch_sha256`): then the installer does as before for
+# that release (steps 2, 8 and 9).
+PATCH_SHA256=""
 # The bootstrap script of Vellum. Each Vellum release changes it, thus the installer does not keep a
 # checksum. curl on the computer examines the TLS certificate of GitHub (the tablet does not), and the
 # script examines the checksums of its own downloads.
@@ -65,9 +74,11 @@ WIDTH=66 # the width of the text in a box. All box text is ASCII.
 UI_WARNED=0
 PATCH_CHANGED=0
 XOVI_RESTART=0 # 1 while xovi must start again after an update of the tablet software
-# The ink patch: AppLoad shows the ink of Sudoku with the fast pen waveform (no gaps). Each release
-# has the patch as a separate file. The stamp file next to it gives the version that installed the
-# patch and the checksum of the patch (the same file as src/update.rs writes).
+APPLOAD_UPDATED=0 # 1 while xovi must start again to load an AppLoad that step 6 updated
+# The ink patch of the releases before the frontend: with it, AppLoad showed the ink of Sudoku with
+# the fast pen waveform. Such a release has the patch as a separate file. The stamp file next to it
+# gives the version that installed the patch and the checksum of the patch. A release with the
+# frontend does not use the two files: step 8 deletes them.
 PATCH_DIR=/home/root/xovi/exthome/qt-resource-rebuilder
 PATCH_NAME=sudoku-penregion.qmd
 PATCH_STAMP=sudoku-penregion.json
@@ -196,7 +207,7 @@ select_version() {
   esac
   if [ -n "$WANT_VERSION" ] && [ "$WANT_VERSION" != "$SUDOKU_VERSION" ]; then
     SUDOKU_VERSION="$WANT_VERSION"
-    SUDOKU_SHA256="" # step_download reads the two checksums from version.json of the release.
+    SUDOKU_SHA256="" # step_download reads the checksums from version.json of the release.
     PATCH_SHA256=""
   fi
 }
@@ -413,6 +424,36 @@ stream() { # command, input file (default: no input)
 
 sha_of() { "${SHA[@]}" "$1" | cut -d ' ' -f 1; }
 
+# The files of the app folder in the downloaded archive, one line for each file: the SHA-256 checksum,
+# two spaces and the path (./sudoku, ./backend/entry). APP_FILES_CMD gives the same lines for the
+# app folder on the tablet, after one line with the type of its manifest: kind=none (no folder),
+# kind=frontend (the folder has manifest.json) or kind=external.
+archive_files() {
+  (cd "$WORK/app/sudoku" && find . -type f | LC_ALL=C sort | while IFS= read -r f; do "${SHA[@]}" "$f"; done)
+}
+APP_DIR=/home/root/xovi/exthome/appload/sudoku # the AppLoad folder of Sudoku on the tablet
+APP_FILES_CMD=': app-files; d='"$APP_DIR"'; if [ ! -d "$d" ]; then echo kind=none; elif [ -f "$d/manifest.json" ]; then echo kind=frontend; else echo kind=external; fi; cd "$d" 2>/dev/null && find . -type f | LC_ALL=C sort | while IFS= read -r f; do sha256sum "$f"; done; true'
+
+# Sets HAVE_KIND to the type of the manifest of the app folder on the tablet, and HAVE_APP to 1 if
+# the folder has all files of the archive with the same checksums (else 0).
+app_state() {
+  local out line
+  out="$(remote "$APP_FILES_CMD")" || lost
+  HAVE_KIND="$(printf '%s\n' "$out" | sed -n '1s/^kind=//p')"
+  [ -n "$HAVE_KIND" ] || lost
+  HAVE_APP=1
+  # A match on the text, not a pipe into `grep -q`: grep stops at the first match and closes the
+  # pipe, and the writer then gets a "Broken pipe" error when the environment ignores SIGPIPE.
+  while IFS= read -r line; do
+    case $'\n'"$out"$'\n' in
+      *$'\n'"$line"$'\n'*) ;;
+      *) HAVE_APP=0 ;;
+    esac
+  done <<EOF
+$APP_FILES
+EOF
+}
+
 # --- Steps ----------------------------------------------------------------------------------------
 
 step_tools() {
@@ -564,7 +605,8 @@ step_download() {
   act "Downloading Sudoku $SUDOKU_VERSION from GitHub..."
   fetch "$REPO/releases/download/$SUDOKU_VERSION/sudoku-$SUDOKU_VERSION.tar.gz" "$WORK/sudoku.tar.gz"
   [ "$(sha_of "$WORK/sudoku.tar.gz")" = "$SUDOKU_SHA256" ] || bad_checksum
-  # A release before the ink patch was a separate file has no patch_sha256. Then step 8 does nothing.
+  # A release has no ink patch file, and its version.json has no patch_sha256: the installer
+  # downloads no patch. Only a release before the frontend has the patch as a separate file.
   if [ -n "$PATCH_SHA256" ]; then
     act "Downloading the ink patch..."
     fetch "$REPO/releases/download/$SUDOKU_VERSION/$PATCH_NAME" "$WORK/$PATCH_NAME"
@@ -575,7 +617,17 @@ step_download() {
     bad "The archive does not contain the app."
     exit 1
   fi
-  APP_HASH="$(sha_of "$WORK/app/sudoku/sudoku")"
+  # The type of the manifest in the archive. A release with the frontend has manifest.json,
+  # resources.rcc and backend/entry: all of them or none of them.
+  APP_KIND=external
+  if [ -f "$WORK/app/sudoku/manifest.json" ]; then
+    APP_KIND=frontend
+    if [ ! -f "$WORK/app/sudoku/resources.rcc" ] || [ ! -f "$WORK/app/sudoku/backend/entry" ]; then
+      bad "The archive does not contain the app."
+      exit 1
+    fi
+  fi
+  APP_FILES="$(archive_files)"
   if [ -n "$PATCH_SHA256" ]; then
     ok "Downloaded Sudoku $SUDOKU_VERSION and the ink patch. The checksums are correct."
   else
@@ -814,10 +866,30 @@ step_vellum() {
   ok "Vellum is installed."
 }
 
+# Sudoku needs AppLoad 0.6.0 or newer: that AppLoad can turn the picture of the app with the tablet
+# and keep its shape (the value fbRotation of its framebuffer item). AppLoad 0.5.1 to 0.5.3 have the
+# item that sets the refresh mode of a part of the screen, but not this value.
+appload_new() {
+  check has-appload-rotation 'grep -q fbRotation /home/root/xovi/extensions.d/appload.so'
+}
+
 step_appload() {
   step 6 "AppLoad (app launcher)"
   if check has-appload '[ -f /home/root/xovi/extensions.d/appload.so ]'; then
-    skip "AppLoad is installed."
+    if appload_new; then
+      skip "AppLoad is installed."
+      return
+    fi
+    # `vellum add appload` does not update an installed AppLoad.
+    info "The AppLoad on the tablet is too old. Sudoku needs AppLoad 0.6.0 or newer."
+    need_internet
+    act "Updating AppLoad with Vellum..."
+    stream ': update-appload; /home/root/.vellum/bin/vellum update && /home/root/.vellum/bin/vellum add -u appload' ||
+      failed "Vellum did not update AppLoad."
+    appload_new || failed "Vellum did not update AppLoad."
+    # xochitl loads the new AppLoad only when xovi starts again (step 9 or step 11).
+    APPLOAD_UPDATED=1
+    ok "AppLoad is updated."
     return
   fi
   info "AppLoad starts apps like Sudoku. It needs xovi. Vellum installs the two."
@@ -880,13 +952,30 @@ patch_state() {
   HAVE_STAMP="$(printf '%s\n' "$out" | sed -n 's/^stamp=//p')"
 }
 
+# True if the ink patch or its stamp file is on the tablet.
+old_patch() {
+  check has-old-patch '[ -e '"$PATCH_DIR/$PATCH_NAME"' ] || [ -e '"$PATCH_DIR/$PATCH_STAMP"' ]'
+}
+
 step_patch() {
   step 8 "Ink patch"
   local file="$WORK/$PATCH_NAME" want="$PATCH_SHA256"
   if [ -z "$want" ]; then
-    info "This version of Sudoku has no ink patch."
+    # A release with no patch fields: Sudoku does not use an ink patch. Delete the patch and the
+    # stamp file that an older version put on the tablet. This is not a cause to start xovi again:
+    # the old patch does nothing in the window of the new Sudoku.
+    if ! old_patch; then
+      skip "The tablet has no old ink patch."
+      return
+    fi
+    info "An older version of Sudoku used an ink patch. Sudoku does not use it now."
+    act "Deleting the old ink patch from the tablet..."
+    remote ': delete-patch; rm -f '"$PATCH_DIR/$PATCH_NAME $PATCH_DIR/$PATCH_STAMP" || failed "The installer could not delete the old ink patch."
+    old_patch && failed "The installer could not delete the old ink patch."
+    ok "The old ink patch is deleted."
     return
   fi
+  # A release before the frontend (version.json has patch_sha256): as before for that release.
   patch_state
   if [ "$HAVE_PATCH" = "$want" ] && [ "$HAVE_STAMP" = "$want" ]; then
     skip "The ink patch is installed."
@@ -908,9 +997,34 @@ step_patch() {
   ok "The ink patch is installed."
 }
 
+# Tells the user that the user interface of the tablet starts again. The user gets one warning in
+# each run of the installer.
+warn_ui() {
+  if [ "$UI_WARNED" = 0 ]; then
+    box "$YELLOW" "Before you continue" \
+      "The user interface of the tablet starts again. This takes some" \
+      "seconds. Close all notebooks on the tablet."
+    pause "Ready?"
+    UI_WARNED=1
+  fi
+}
+
+# Starts xovi: the user interface of the tablet starts again. xochitl then loads AppLoad, and AppLoad
+# reads the list of apps.
+start_xovi() {
+  warn_ui
+  act "Starting xovi..."
+  stream ': start-xovi; /home/root/xovi/start > /tmp/sudoku-xovi.log 2>&1; i=0; while [ $i -lt 30 ]; do p=$(pidof xochitl) && grep -q xovi.so /proc/${p%% *}/maps 2>/dev/null && exit 0; sleep 1; i=$((i + 1)); done; tail -n 20 /tmp/sudoku-xovi.log; exit 1' ||
+    failed "xovi did not start."
+  # This start also loads an AppLoad that step 6 updated.
+  APPLOAD_UPDATED=0
+  ok "xovi is on."
+}
+
 step_xovi() {
   step 9 "Start xovi"
   if check has-xovi 'p=$(pidof xochitl) && grep -q xovi.so /proc/${p%% *}/maps 2>/dev/null'; then
+    # A deleted ink patch (step 8) is not a cause to start xovi again.
     if [ "$PATCH_CHANGED" = 0 ] && [ "$XOVI_RESTART" = 0 ]; then
       skip "xovi is on."
       return
@@ -920,16 +1034,7 @@ step_xovi() {
     info "xovi adds AppLoad to the tablet. Each restart of the tablet stops xovi."
   fi
   [ "$XOVI_RESTART" = 1 ] && info "xovi must start again after the tablet software change."
-  if [ "$UI_WARNED" = 0 ]; then
-    box "$YELLOW" "Before you continue" \
-      "The user interface of the tablet starts again. This takes some" \
-      "seconds. Close all notebooks on the tablet."
-    pause "Ready?"
-  fi
-  act "Starting xovi..."
-  stream ': start-xovi; /home/root/xovi/start > /tmp/sudoku-xovi.log 2>&1; i=0; while [ $i -lt 30 ]; do p=$(pidof xochitl) && grep -q xovi.so /proc/${p%% *}/maps 2>/dev/null && exit 0; sleep 1; i=$((i + 1)); done; tail -n 20 /tmp/sudoku-xovi.log; exit 1' ||
-    failed "xovi did not start."
-  ok "xovi is on."
+  start_xovi
 }
 
 # The power-button starter starts xovi on a triple press of the power button. It does not start xovi
@@ -962,25 +1067,45 @@ step_tripletap() {
 
 step_sudoku() {
   step 11 "Sudoku $SUDOKU_VERSION"
-  local installed
-  installed="$(remote ': app-hash; sha256sum /home/root/xovi/exthome/appload/sudoku/sudoku 2>/dev/null | cut -d " " -f 1')" || lost
-  if [ "$installed" = "$APP_HASH" ]; then
+  local before
+  app_state
+  before="$HAVE_KIND"
+  if [ "$HAVE_APP" = 1 ]; then
     skip "Sudoku $SUDOKU_VERSION is installed."
-    return
+  else
+    if [ "$before" != none ]; then
+      info "A different version of Sudoku is on the tablet. The installer replaces it."
+      info "Your games, settings and statistics stay on the tablet."
+    fi
+    # AppLoad reads the manifests of the apps only when the interface starts. Thus the interface
+    # starts again when the app folder is new, or the type of its manifest changed (a release before
+    # the frontend has only external.manifest.json). Then a tap on Sudoku opens the new app. The
+    # user gets the warning before the copy: after a stop at the question, the tablet did not change.
+    if [ "$before" != "$APP_KIND" ]; then
+      info "AppLoad reads the list of apps only when the interface starts."
+      info "After the copy, xovi must start again, so that AppLoad shows this Sudoku."
+      warn_ui
+    fi
+    act "Copying Sudoku to the tablet..."
+    # The new folder replaces the old folder only after all checks. backend/entry starts the program
+    # in a release with the frontend: the two files must be executable.
+    if ! ssh_key ': install-app; set -e; d=/home/root/xovi/exthome/appload; t=$d/.sudoku-install; rm -rf "$t"; mkdir -p "$t"; cat > "$t/sudoku.tar.gz"; [ "$(sha256sum "$t/sudoku.tar.gz" | cut -d " " -f 1)" = '"$SUDOKU_SHA256"' ]; tar -xzf "$t/sudoku.tar.gz" -C "$t"; chmod 755 "$t/sudoku/sudoku"; if [ -f "$t/sudoku/backend/entry" ]; then chmod 755 "$t/sudoku/backend/entry"; fi; rm -rf "$d/sudoku.old"; if [ -d "$d/sudoku" ]; then mv "$d/sudoku" "$d/sudoku.old"; fi; mv "$t/sudoku" "$d/sudoku"; rm -rf "$d/sudoku.old" "$t"' \
+      <"$WORK/sudoku.tar.gz"; then
+      failed "The installer could not copy Sudoku to the tablet."
+    fi
+    app_state
+    [ "$HAVE_APP" = 1 ] || failed "The installed copy of Sudoku is not correct."
+    ok "Sudoku $SUDOKU_VERSION is installed."
+    if [ "$before" != "$APP_KIND" ]; then
+      start_xovi
+      return
+    fi
   fi
-  if [ -n "$installed" ]; then
-    info "A different version of Sudoku is on the tablet. The installer replaces it."
-    info "Your games, settings and statistics stay on the tablet."
+  # No start of xovi after step 6 updated AppLoad: the tablet still uses the old AppLoad.
+  if [ "$APPLOAD_UPDATED" = 1 ]; then
+    info "xovi must start again to load the new AppLoad."
+    start_xovi
   fi
-  act "Copying Sudoku to the tablet..."
-  # The new folder replaces the old folder only after all checks.
-  if ! ssh_key ': install-app; set -e; d=/home/root/xovi/exthome/appload; t=$d/.sudoku-install; rm -rf "$t"; mkdir -p "$t"; cat > "$t/sudoku.tar.gz"; [ "$(sha256sum "$t/sudoku.tar.gz" | cut -d " " -f 1)" = '"$SUDOKU_SHA256"' ]; tar -xzf "$t/sudoku.tar.gz" -C "$t"; chmod 755 "$t/sudoku/sudoku"; rm -rf "$d/sudoku.old"; if [ -d "$d/sudoku" ]; then mv "$d/sudoku" "$d/sudoku.old"; fi; mv "$t/sudoku" "$d/sudoku"; rm -rf "$d/sudoku.old" "$t"' \
-    <"$WORK/sudoku.tar.gz"; then
-    failed "The installer could not copy Sudoku to the tablet."
-  fi
-  installed="$(remote ': app-hash; sha256sum /home/root/xovi/exthome/appload/sudoku/sudoku 2>/dev/null | cut -d " " -f 1')" || lost
-  [ "$installed" = "$APP_HASH" ] || failed "The installed copy of Sudoku is not correct."
-  ok "Sudoku $SUDOKU_VERSION is installed."
 }
 
 finish() {

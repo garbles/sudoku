@@ -207,6 +207,10 @@ pub struct Settings {
     pub completed_color_on: bool,
     /// The gray of the micro-cell lines (§10).
     pub micro_line: LineGray,
+    /// The app showed the dialog "Restart the interface?" at a start while the update was not
+    /// complete (§9.2, §14.2, UPD-10). A start in the frontend mode sets it to false (UPD-13). It has
+    /// no switch in the Settings panel.
+    pub restart_dialog_shown: bool,
 }
 
 /// A settings file, also of an earlier version. An earlier version has no value for some fields:
@@ -231,6 +235,9 @@ struct SavedSettings {
     completed_color_on: bool,
     #[serde(default)]
     micro_line: LineGray,
+    /// A file of an earlier version does not have it: the dialog did not show (UPD-10).
+    #[serde(default)]
+    restart_dialog_shown: bool,
 }
 
 fn on() -> bool {
@@ -284,6 +291,7 @@ impl From<SavedSettings> for Settings {
             auto_hide_on: s.auto_hide_on,
             completed_color_on,
             micro_line: s.micro_line,
+            restart_dialog_shown: s.restart_dialog_shown,
         }
     }
 }
@@ -301,6 +309,7 @@ impl Default for Settings {
             auto_hide_on: true,
             completed_color_on: true,
             micro_line: LineGray::default(),
+            restart_dialog_shown: false,
         }
     }
 }
@@ -417,6 +426,18 @@ mod tests {
         .unwrap();
         assert!(s.highlight_on && !s.auto_hide_on);
         assert!(serde_json::to_string(&s).unwrap().contains("\"auto_hide_on\":false"));
+    }
+
+    #[test]
+    fn the_restart_dialog_value_is_saved() {
+        // UPD-10: a settings file of an earlier version has no `restart_dialog_shown`: false.
+        let s: Settings =
+            serde_json::from_str(r#"{"color_starting":"Gray","color_clash":"Red","color_highlight":"Green","last_mode":3}"#).unwrap();
+        assert!(!s.restart_dialog_shown && !Settings::default().restart_dialog_shown);
+        let s = Settings { restart_dialog_shown: true, ..s };
+        let text = serde_json::to_string(&s).unwrap();
+        assert!(text.contains(r#""restart_dialog_shown":true"#), "{text}");
+        assert_eq!(serde_json::from_str::<Settings>(&text).unwrap(), s);
     }
 
     #[test]

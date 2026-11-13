@@ -5,8 +5,9 @@
 #   analytics-delete-all.png the summary after a tap on "Delete all games": a confirmation dialog
 #   licenses.png         the first page of the Licenses list (REQUIREMENTS.md §9.4)
 #   licenses-text.png    the first page of the license text of the UJI data
-#   update-restart.png   settings-restart.png (toolbar.sh) with the dialog "Restart the interface?" of
-#                        an update that replaced the ink patch (REQUIREMENTS.md §9.2)
+#   update-restart.png   settings-restart.png (toolbar.sh) with the dialog "Restart the interface?": after
+#                        an update, the program runs as an external app and its folder has the
+#                        frontend files (REQUIREMENTS.md §9.2)
 # and the same four screens for landscape (analytics-landscape.png, analytics-games-landscape.png,
 # analytics-delete-landscape.png, analytics-delete-all-landscape.png): the page turns (1872x1404 units on the Paper
 # Pro), with the same scale. The positions are the same as in src/layout.rs.
@@ -305,8 +306,9 @@ screens(Page(True))
 licenses(Page(False))
 licenses(Page(True))
 
-# --- the dialog of an update that replaced the ink patch, over the Settings panel (src/render.rs)
+# --- the dialog "Restart the interface?" over the Settings panel (src/render.rs): after an update, the
+# program runs as an external app and its folder has the frontend files
 out = []
-dialog(out, Page(False), "Restart the interface?", "The update has a new ink patch. To use it,",
+dialog(out, Page(False), "Restart the interface?", "The update is not complete. To complete it,",
        "the reMarkable interface must start again.", ("Later", "Restart"))
 render(out, Page(False), "update-restart.png", base="settings-restart.png")

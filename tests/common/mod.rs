@@ -5,8 +5,10 @@ use sudoku::app::{App, Env, Input, Menu, Panel, Tool, HAND_TOUCH_MS};
 use sudoku::font::Fonts;
 use sudoku::game::{cells, Cell, Game};
 use sudoku::layout::{self, cell_origin, cell_size, Rect};
-use sudoku::settings::{Color, Section, Switch};
+use sudoku::launch::Launch;
+use sudoku::settings::{Color, Section, Settings, Switch};
 use sudoku::store::{NewResult, ResultsDb};
+use sudoku::update::Update;
 
 /// The wall clock of `TestEnv` at the start of most tests (a Unix time).
 pub const START_TIME: i64 = 1_790_000_000;
@@ -44,6 +46,29 @@ pub fn app_with_results(n: usize) -> App {
             .unwrap();
     }
     App::new(None, None, db, Box::new(TestEnv { time: START_TIME, seed: 1 }), App::placeholder_ng_stops())
+}
+
+/// An app that starts as a program in the mode `launch` (LCH-9), with the saved game `saved`, the
+/// saved settings `settings` and no results. Refer to `App::with_launch`.
+pub fn app_with_launch(launch: Launch, saved: Option<Game>, settings: Option<Settings>, seed: u64) -> App {
+    App::with_launch(launch, saved, settings, ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed }), App::placeholder_ng_stops())
+}
+
+/// An app that starts while the update is not complete (UPD-10): the external mode, and the app
+/// folder has the frontend files. `shown` is the saved value `restart_dialog_shown` (R§14.2). With
+/// `shown = false`, the dialog "Restart the interface?" shows.
+pub fn app_restart_needed(shown: bool, seed: u64) -> App {
+    let settings = Settings { restart_dialog_shown: shown, ..Settings::default() };
+    app_with_launch(Launch::external(true), None, Some(settings), seed)
+}
+
+/// Makes `app` a build with the version `version` (UPD-1), as at the start: for example "dev" (no
+/// update row) or "v0.1.0" (a stable build). The launch and the dialog of the start do not change.
+/// The platform took the first request.
+pub fn set_build(app: &mut App, version: &str) {
+    let launch = app.update.launch;
+    app.update = Update { launch, ..Update::new(version) };
+    app.update.request = None;
 }
 
 /// The fonts of the tablet, from `scripts/fonts/`.

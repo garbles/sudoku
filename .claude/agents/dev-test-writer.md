@@ -55,7 +55,8 @@ files that you own. The agent that starts you gives you one group, for example:
 
 ## Report
 
-Give at most 20 lines.
+Keep the report short: the agent that started you reads it in a session with a small context.
+Do not omit a bug, a failure or a changed hash to make it shorter.
 
 The tests that you changed and added, with their rule IDs, the test results, and the bugs in `src/`
 with a proof for each.

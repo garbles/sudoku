@@ -3,6 +3,8 @@
 //!
 //! This module does not use the network. The platform gets the files from GitHub and gives them to
 //! `read_manifest` and `install` (platform/mod.rs). `Update` keeps the state for the app (app.rs).
+//! The app installs no ink patch (owner decision 2026-11-12): in the frontend mode it deletes the
+//! ink patch of an earlier release (`remove_ink_patch`, UPD-11).
 
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
@@ -10,6 +12,8 @@ use std::path::{Component, Path, PathBuf};
 use ed25519_dalek::{Signature, VerifyingKey};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
+
+use crate::launch::{Launch, FRONTEND_FILES};
 
 /// `version.json` of the latest stable release.
 pub const VERSION_URL: &str = "https://github.com/garbles/sudoku/releases/latest/download/version.json";
@@ -30,8 +34,15 @@ pub const MAX_ARCHIVE_BYTES: u64 = 64 << 20;
 
 /// The folder in the release archive. It is also the name of the AppLoad folder of the app.
 const ARCHIVE_DIR: &str = "sudoku";
-/// The files that the folder in the archive must have.
-const REQUIRED_FILES: [&str; 2] = ["sudoku", "external.manifest.json"];
+/// The program in the folder of the archive.
+const PROGRAM: &str = "sudoku";
+/// The files that the folder in the archive must have (UPD-12). The update of a release before the
+/// frontend also refuses an archive without them.
+const REQUIRED_FILES: [&str; 2] = [PROGRAM, "external.manifest.json"];
+/// The manifest of an app with a QML frontend. An archive that has it must have all frontend files.
+const FRONTEND_MANIFEST: &str = FRONTEND_FILES[0];
+/// AppLoad starts this file. It starts the program (`appload/sudoku/backend/entry`).
+const BACKEND_ENTRY: &str = FRONTEND_FILES[2];
 
 /// The file name of the release archive in `update/`.
 const ARCHIVE_NAME: &str = "sudoku.tar.gz";
@@ -85,29 +96,16 @@ pub struct Manifest {
     pub version: String,
     pub url: String,
     pub sha256: String,
-    /// The ink patch `sudoku-penregion.qmd` of the release (owner decision 2026-11-01). Older releases
-    /// do not have it.
-    pub patch: Option<PatchRef>,
 }
 
-/// The download URL and the SHA-256 checksum of the ink patch of a release.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct PatchRef {
-    pub url: String,
-    pub sha256: String,
-}
-
-/// The JSON format of `version.json` (AGENTS.md, owner approval): the patch fields are optional,
-/// but a release gives the two or none of them. `read_manifest` makes a `Manifest` from it.
+/// The JSON format of `version.json` (REQUIREMENTS.md §9.2, owner approval 2026-11-12). The
+/// `version.json` of a release from 2026-11-01 to that date also has `patch_url` and `patch_sha256`:
+/// the app does not read them (UPD-4). `read_manifest` makes a `Manifest` from it.
 #[derive(Deserialize)]
 struct VersionJson {
     version: String,
     url: String,
     sha256: String,
-    #[serde(default)]
-    patch_url: Option<String>,
-    #[serde(default)]
-    patch_sha256: Option<String>,
 }
 
 fn is_sha256(s: &str) -> bool {
@@ -129,20 +127,7 @@ pub fn read_manifest(json: &[u8], signature: &[u8], key: &[u8; 32]) -> Result<Ma
     if !is_sha256(&raw.sha256) {
         return Err(format!("version.json: {:?} is not a SHA-256 checksum", raw.sha256));
     }
-    let patch = match (raw.patch_url, raw.patch_sha256) {
-        (None, None) => None,
-        (Some(url), Some(sha256)) => {
-            if !url.starts_with("https://") {
-                return Err(format!("version.json: the patch URL {url:?} is not HTTPS"));
-            }
-            if !is_sha256(&sha256) {
-                return Err(format!("version.json: {sha256:?} is not a SHA-256 checksum"));
-            }
-            Some(PatchRef { url, sha256 })
-        }
-        _ => return Err("version.json: patch_url and patch_sha256 must be together".to_string()),
-    };
-    Ok(Manifest { version: raw.version, url: raw.url, sha256: raw.sha256, patch })
+    Ok(Manifest { version: raw.version, url: raw.url, sha256: raw.sha256 })
 }
 
 /// The SHA-256 checksum of `bytes` in lowercase hexadecimal.
@@ -168,6 +153,44 @@ pub fn clean(staging: &Path, app_dir: &Path) {
     }
 }
 
+/// What the folder of a release archive has (UPD-12).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ArchiveKind {
+    /// The program and `external.manifest.json`, and no `manifest.json`: a release before the
+    /// frontend.
+    External,
+    /// Also all frontend files (`launch::FRONTEND_FILES`).
+    Frontend,
+}
+
+/// Examines the extracted folder `sudoku/` of a release archive (UPD-12). The folder must have the
+/// program and `external.manifest.json`. A folder that has `manifest.json` must also have the other
+/// frontend files: thus an installation never makes an app folder with only a part of them.
+pub fn check_folder(folder: &Path) -> Result<ArchiveKind, String> {
+    let missing = |f: &str| format!("the archive has no {ARCHIVE_DIR}/{f}");
+    if let Some(f) = REQUIRED_FILES.iter().find(|f| !folder.join(f).is_file()) {
+        return Err(missing(f));
+    }
+    if !folder.join(FRONTEND_MANIFEST).is_file() {
+        return Ok(ArchiveKind::External);
+    }
+    match FRONTEND_FILES.iter().find(|f| !folder.join(f).is_file()) {
+        Some(f) => Err(missing(f)),
+        None => Ok(ArchiveKind::Frontend),
+    }
+}
+
+/// Sets the executable mode of the program in the app folder `folder`, and of `backend/entry` if the
+/// folder has it (UPD-12).
+fn set_executables(folder: &Path) -> Result<(), String> {
+    set_executable(&folder.join(PROGRAM))?;
+    let entry = folder.join(BACKEND_ENTRY);
+    if entry.is_file() {
+        set_executable(&entry)?;
+    }
+    Ok(())
+}
+
 /// Installs the release archive `archive` of the manifest `m` in place of the AppLoad folder
 /// `app_dir` (REQUIREMENTS.md §9.2). `staging` is an empty folder for the download (on /home). If
 /// this fails, `app_dir` does not change (UPD-6).
@@ -189,17 +212,14 @@ pub fn install(archive: &[u8], m: &Manifest, staging: &Path, app_dir: &Path) -> 
     let file = std::fs::File::open(&archive_file).map_err(|e| format!("cannot read {}: {e}", archive_file.display()))?;
     unpack(file, &extract)?;
     let folder = extract.join(ARCHIVE_DIR);
-    for f in REQUIRED_FILES {
-        if !folder.join(f).is_file() {
-            return Err(format!("the archive has no {ARCHIVE_DIR}/{f}"));
-        }
-    }
-    set_executable(&folder.join("sudoku"))?;
+    check_folder(&folder)?;
+    set_executables(&folder)?;
 
     // The new folder goes next to the app folder. A rename is not possible across file systems: then
-    // copy the files.
+    // copy the files and the subfolders (`backend/`).
     if std::fs::rename(&folder, &new).is_err() {
-        copy_files(&folder, &new)?;
+        copy_folder(&folder, &new)?;
+        set_executables(&new)?;
     }
     // Two renames: the program that operates keeps its files (it is not possible to write over a
     // program that operates).
@@ -212,66 +232,28 @@ pub fn install(archive: &[u8], m: &Manifest, staging: &Path, app_dir: &Path) -> 
     Ok(())
 }
 
-/// The folder of the ink patch (REQUIREMENTS.md §14.4). qt-resource-rebuilder reads the patches here
-/// when xochitl starts.
+/// The folder of the ink patch of the releases before the frontend (REQUIREMENTS.md §14.4).
+/// qt-resource-rebuilder reads the patches here when xochitl starts.
 pub const PATCH_DIR: &str = "/home/root/xovi/exthome/qt-resource-rebuilder";
-/// The file name of the ink patch in `PATCH_DIR` and in the release.
-pub const PATCH_NAME: &str = "sudoku-penregion.qmd";
-/// The stamp file next to the patch: the version that installed the patch and the SHA-256 checksum
-/// of the patch, `{"version": "v<version>", "sha256": "<checksum>"}`. install.sh writes the same file.
-const PATCH_STAMP: &str = "sudoku-penregion.json";
+/// The file name of the ink patch in `PATCH_DIR`. The corpus app had its own copy of the patch: it
+/// does not use and does not delete the patch of Sudoku.
+pub const PATCH_NAME: &str = if cfg!(feature = "corpus") { "sudoku-corpus-penregion.qmd" } else { "sudoku-penregion.qmd" };
+/// The stamp file next to the patch: an earlier release and the installer wrote the version and the
+/// checksum of the patch in it. The app does not read it and does not write it (UPD-11). The corpus
+/// app had no stamp file.
+pub const PATCH_STAMP: &str = if cfg!(feature = "corpus") { "sudoku-corpus-penregion.json" } else { "sudoku-penregion.json" };
 
-#[derive(Deserialize)]
-struct Stamp {
-    sha256: String,
-}
-
-/// The checksum in the stamp file of `dir`, or `None` if the file is missing or not correct. Then
-/// the patch must be replaced (owner decision 2026-11-01).
-fn stamp_sha256(dir: &Path) -> Option<String> {
-    let bytes = std::fs::read(dir.join(PATCH_STAMP)).ok()?;
-    serde_json::from_slice::<Stamp>(&bytes).ok().map(|s| s.sha256).filter(|s| is_sha256(s))
-}
-
-/// The text of the stamp file.
-fn stamp_text(version: &str, sha256: &str) -> String {
-    format!("{{\"version\": \"{version}\", \"sha256\": \"{sha256}\"}}\n")
-}
-
-/// Writes `bytes` to `dir/name` with one rename, so that a reader never gets a part of the file.
-fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> Result<(), String> {
-    let tmp = dir.join(format!("{name}.new"));
-    std::fs::write(&tmp, bytes).map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
-    std::fs::rename(&tmp, dir.join(name)).map_err(|e| format!("cannot rename {}: {e}", tmp.display()))
-}
-
-/// Installs the release of the manifest `m` (REQUIREMENTS.md §9.2): the archive in place of the
-/// AppLoad folder `app_dir` (`install`), then the downloaded ink patch `patch_bytes` in `patch_dir`.
-/// The app examines the checksums of the two downloads before it changes a file. It replaces the
-/// patch only when the checksum is different from the checksum in the stamp file, or when the stamp
-/// file is missing. Returns true if it replaced the patch: then the interface must start again
-/// (xovi/start).
-pub fn install_release(archive: &[u8], patch_bytes: Option<&[u8]>, m: &Manifest, staging: &Path, app_dir: &Path, patch_dir: &Path) -> Result<bool, String> {
-    let patch = match (patch_bytes, &m.patch) {
-        (_, None) => None,
-        (None, Some(_)) => return Err("the patch was not downloaded".to_string()),
-        (Some(bytes), Some(PatchRef { sha256: want, .. })) => {
-            let sum = sha256_hex(bytes);
-            if &sum != want {
-                return Err(format!("the checksum of the patch is {sum}, not {want}"));
-            }
-            Some((bytes, want))
+/// Deletes the ink patch and its stamp file in `patch_dir`, and the pen area file `pen_area_file`
+/// of the external mode, if they are there (UPD-11). Only the frontend mode calls it: the external
+/// mode uses the patch and the file.
+pub fn remove_ink_patch(patch_dir: &Path, pen_area_file: &Path) {
+    for file in [patch_dir.join(PATCH_NAME), patch_dir.join(PATCH_STAMP), pen_area_file.to_path_buf()] {
+        match std::fs::remove_file(&file) {
+            Ok(()) => eprintln!("sudoku: deleted {}", file.display()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+            Err(e) => eprintln!("sudoku: cannot delete {}: {e}", file.display()),
         }
-    };
-    install(archive, m, staging, app_dir)?;
-    let Some((bytes, want)) = patch else { return Ok(false) };
-    if stamp_sha256(patch_dir).as_ref() == Some(want) {
-        return Ok(false);
     }
-    std::fs::create_dir_all(patch_dir).map_err(|e| format!("cannot make {}: {e}", patch_dir.display()))?;
-    write_atomic(patch_dir, PATCH_NAME, bytes)?;
-    write_atomic(patch_dir, PATCH_STAMP, stamp_text(&m.version, want).as_bytes())?;
-    Ok(true)
 }
 
 /// Extracts the gzip tar archive `archive` in `dest`. Each entry must be a file or a folder in `sudoku/`.
@@ -313,23 +295,30 @@ fn set_executable(path: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Copies the files of the folder `from` (no subfolders) to the new folder `to`.
-fn copy_files(from: &Path, to: &Path) -> Result<(), String> {
+/// Copies the files and the subfolders of the folder `from` to the new folder `to` (UPD-12: also
+/// `backend/`). `unpack` makes only files and folders, thus `from` has no links.
+fn copy_folder(from: &Path, to: &Path) -> Result<(), String> {
     std::fs::create_dir(to).map_err(|e| format!("cannot make {}: {e}", to.display()))?;
     for entry in std::fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
         let entry = entry.map_err(|e| format!("{}: {e}", from.display()))?;
         let dest = to.join(entry.file_name());
-        std::fs::copy(entry.path(), &dest).map_err(|e| format!("cannot copy to {}: {e}", dest.display()))?;
+        let kind = entry.file_type().map_err(|e| format!("{}: {e}", entry.path().display()))?;
+        if kind.is_dir() {
+            copy_folder(&entry.path(), &dest)?;
+        } else {
+            std::fs::copy(entry.path(), &dest).map_err(|e| format!("cannot copy to {}: {e}", dest.display()))?;
+        }
     }
-    set_executable(&to.join("sudoku"))
+    Ok(())
 }
 
 /// The update state (INVARIANTS.md §16). The fields `checking` and `up_to_date_shown` of INVARIANTS.md
 /// are in the variants, thus only their correct combinations can occur: a request is in progress only
 /// in `Unknown`, `CheckFailed` and `UpToDate` (UPD-7, UPD-9), `Unknown` always has its request in
 /// progress (UPD-8), and "Sudoku is up to date" shows only in `UpToDate` with no request (UPD-9).
-/// The field `dialog` of INVARIANTS.md is in `PatchChange::Replaced`, thus the dialog "Restart the
-/// interface?" can show only in `Installed { patch: true }` of INVARIANTS.md (UPD-10).
+/// The field `dialog` of INVARIANTS.md does not depend on this state: it is in `Update::launch`
+/// (`launch::Restart::Needed`), thus the dialog "Restart the interface?" can show only while the
+/// update is not complete (UPD-10).
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub enum UpdateState {
     /// A `dev` build (not a stable build and not a preview build): no requests and no update row (UPD-1).
@@ -345,18 +334,7 @@ pub enum UpdateState {
     /// The installation failed at this time (ms). After `FAILED_MS`, the button shows again.
     Failed(Manifest, u64),
     /// The new version operates after the next start of the app.
-    Installed(PatchChange),
-}
-
-/// What an installation did to the ink patch (UPD-10). `Unchanged` is `Installed { patch: false }`
-/// of INVARIANTS.md, and `Replaced` is `Installed { patch: true }`.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub enum PatchChange {
-    /// The installation did not replace the ink patch: only Sudoku must start again.
-    Unchanged,
-    /// The installation replaced the ink patch, thus the interface must start again (xovi/start).
-    /// `dialog`: the dialog "Restart the interface?" shows.
-    Replaced { dialog: bool },
+    Installed,
 }
 
 /// The update row in the state `UpToDate` (UPD-9).
@@ -378,7 +356,7 @@ pub enum UpdateButton {
     Install(String),
     /// "Check for updates": sends a request for `version.json`.
     Check,
-    /// "Restart interface": runs xovi/start after an update that replaced the ink patch (UPD-10).
+    /// "Restart interface": runs xovi/start while the update is not complete (UPD-10).
     Restart,
 }
 
@@ -397,7 +375,7 @@ impl UpdateButton {
 pub enum UpdateRequest {
     /// Get and examine `version.json` (`Update::checked`).
     Check,
-    /// Download and install the archive (`Update::installed`).
+    /// Download and install the archive (`Update::install_finished`).
     Install(Manifest),
 }
 
@@ -410,31 +388,43 @@ pub struct Update {
     pub state: UpdateState,
     /// Work that the platform must start.
     pub request: Option<UpdateRequest>,
+    /// How AppLoad started the program (LCH-9), with the restart state of the external mode
+    /// (UPD-10): `restart_needed` and `dialog` of INVARIANTS.md. Only `App::with_launch` sets it, at
+    /// the start, and "Later" closes the dialog.
+    pub launch: Launch,
 }
 
 impl Update {
     /// The state when the app opens (UPD-8): a stable or a preview build sends a request immediately. This is the
     /// only automatic request. After it, only the button "Check for updates" sends a request.
+    /// The launch is the frontend mode (the usual mode): `App::with_launch` gives the mode of the
+    /// program.
     pub fn new(current: &str) -> Update {
         let on = has_updates(current);
         Update {
             current: current.to_string(),
             state: if on { UpdateState::Unknown } else { UpdateState::Off },
             request: on.then_some(UpdateRequest::Check),
+            launch: Launch::Frontend,
         }
+    }
+
+    /// The update is not complete (`restart_needed` of INVARIANTS.md, UPD-10): the program runs in
+    /// the external mode, and its app folder has the frontend files. AppLoad uses the new manifest
+    /// only after the reMarkable interface starts again.
+    pub fn restart_needed(&self) -> bool {
+        self.launch.restart_needed()
     }
 
     /// The dialog "Restart the interface?" shows (UPD-10).
     pub fn dialog_shown(&self) -> bool {
-        self.state == UpdateState::Installed(PatchChange::Replaced { dialog: true })
+        self.launch.dialog_shown()
     }
 
     /// Closes the dialog "Restart the interface?" ("Later", or xovi/start failed). The row continues to
     /// show the button "Restart interface" (UPD-10).
     pub fn close_dialog(&mut self) {
-        if let UpdateState::Installed(PatchChange::Replaced { dialog }) = &mut self.state {
-            *dialog = false;
-        }
+        self.launch.close_dialog();
     }
 
     /// The Settings panel has the update row (UPD-1).
@@ -442,32 +432,40 @@ impl Update {
         self.state != UpdateState::Off
     }
 
-    /// The gear has the caution icon (UPD-3).
+    /// The gear has the caution icon (UPD-3): an update is available or installed, or the update is
+    /// not complete in a build that has the update row.
     pub fn caution(&self) -> bool {
-        matches!(self.state, UpdateState::Available(_) | UpdateState::Installing(_) | UpdateState::Failed(..) | UpdateState::Installed(_))
+        matches!(self.state, UpdateState::Available(_) | UpdateState::Installing(_) | UpdateState::Failed(..) | UpdateState::Installed)
+            || (self.restart_needed() && self.has_row())
     }
 
-    /// The text of the update row, or `None` for a button (REQUIREMENTS.md §9.2).
+    /// The text of the update row, or `None` for a button (REQUIREMENTS.md §9.2). While the update is
+    /// not complete, the row shows only the button "Restart interface" (UPD-14).
     pub fn row_text(&self) -> Option<&'static str> {
+        if self.restart_needed() {
+            return None;
+        }
         Some(match self.state {
-            UpdateState::Off
-            | UpdateState::CheckFailed { checking: false }
-            | UpdateState::UpToDate(UpToDateRow::CheckButton)
-            | UpdateState::Available(_)
-            | UpdateState::Installed(PatchChange::Replaced { .. }) => return None,
+            UpdateState::Off | UpdateState::CheckFailed { checking: false } | UpdateState::UpToDate(UpToDateRow::CheckButton) | UpdateState::Available(_) => {
+                return None
+            }
             UpdateState::Unknown | UpdateState::CheckFailed { checking: true } | UpdateState::UpToDate(UpToDateRow::Checking) => "Looking for updates...",
             UpdateState::UpToDate(UpToDateRow::UpToDateText) => "Sudoku is up to date",
             UpdateState::Installing(_) => "Installing update...",
             UpdateState::Failed(..) => "Update failed",
-            UpdateState::Installed(PatchChange::Unchanged) => "Restart Sudoku to update",
+            UpdateState::Installed => "Restart Sudoku to update",
         })
     }
 
-    /// The button of the update row, or `None` for a text (REQUIREMENTS.md §9.2).
+    /// The button of the update row, or `None` for a text (REQUIREMENTS.md §9.2). While the update is
+    /// not complete, a build with the update row shows "Restart interface" for each state (UPD-10,
+    /// UPD-14).
     pub fn button(&self) -> Option<UpdateButton> {
+        if self.restart_needed() {
+            return self.has_row().then_some(UpdateButton::Restart);
+        }
         match &self.state {
             UpdateState::Available(m) => Some(UpdateButton::Install(format!("Update to {}", m.version))),
-            UpdateState::Installed(PatchChange::Replaced { .. }) => Some(UpdateButton::Restart),
             UpdateState::CheckFailed { checking: false } | UpdateState::UpToDate(UpToDateRow::CheckButton) => Some(UpdateButton::Check),
             UpdateState::Off
             | UpdateState::Unknown
@@ -475,7 +473,7 @@ impl Update {
             | UpdateState::UpToDate(UpToDateRow::Checking | UpToDateRow::UpToDateText)
             | UpdateState::Installing(_)
             | UpdateState::Failed(..)
-            | UpdateState::Installed(PatchChange::Unchanged) => None,
+            | UpdateState::Installed => None,
         }
     }
 
@@ -507,8 +505,11 @@ impl Update {
     }
 
     /// The result of a request (UPD-2, UPD-7). `panel_open`: the Settings panel shows now. Then a
-    /// result with no update shows "Sudoku is up to date" until the panel closes (UPD-9).
+    /// result with no update shows "Sudoku is up to date" until the panel closes (UPD-9). While the
+    /// update is not complete, the row does not show this text (UPD-14), thus the state does not
+    /// keep it.
     pub fn checked(&mut self, result: Result<Manifest, String>, panel_open: bool) {
+        let panel_open = panel_open && !self.restart_needed();
         let can_change = matches!(self.state, UpdateState::Unknown | UpdateState::CheckFailed { .. } | UpdateState::UpToDate(_) | UpdateState::Available(_));
         match result {
             Ok(m) => {
@@ -533,7 +534,7 @@ impl Update {
                     | UpdateState::Available(_)
                     | UpdateState::Installing(_)
                     | UpdateState::Failed(..)
-                    | UpdateState::Installed(_) => {}
+                    | UpdateState::Installed => {}
                 }
             }
         }
@@ -541,14 +542,16 @@ impl Update {
 
     /// A tap on the button (UPD-5, UPD-9, UPD-10). "Update to v<version>" starts an installation, and
     /// "Check for updates" sends a request. "Restart interface" changes nothing here: the app asks the
-    /// platform to run xovi/start (`App::restart_ui`). True if the row changed.
+    /// platform to run xovi/start (`App::restart_ui`). While the update is not complete, the row has
+    /// only that button, thus no installation and no request starts (UPD-14). True if the row changed.
     pub fn tap(&mut self) -> bool {
+        if self.restart_needed() {
+            return false;
+        }
         let (state, request) = match &self.state {
             UpdateState::Available(m) => (UpdateState::Installing(m.clone()), UpdateRequest::Install(m.clone())),
             UpdateState::CheckFailed { checking: false } => (UpdateState::CheckFailed { checking: true }, UpdateRequest::Check),
             UpdateState::UpToDate(UpToDateRow::CheckButton) => (UpdateState::UpToDate(UpToDateRow::Checking), UpdateRequest::Check),
-            // "Restart interface": the app asks the platform for the restart.
-            UpdateState::Installed(PatchChange::Replaced { .. }) => return false,
             // No button.
             UpdateState::Off
             | UpdateState::Unknown
@@ -556,20 +559,19 @@ impl Update {
             | UpdateState::UpToDate(UpToDateRow::Checking | UpToDateRow::UpToDateText)
             | UpdateState::Installing(_)
             | UpdateState::Failed(..)
-            | UpdateState::Installed(PatchChange::Unchanged) => return false,
+            | UpdateState::Installed => return false,
         };
         self.state = state;
         self.request = Some(request);
         true
     }
 
-    /// The result of an installation (UPD-6, UPD-10). `Ok(true)`: the installation replaced the ink
-    /// patch. Then the dialog "Restart the interface?" shows.
-    pub fn installed(&mut self, result: Result<bool, String>, now: u64) {
+    /// The result of an installation (UPD-6, UPD-12). An installation never shows the dialog "Restart
+    /// the interface?" (UPD-10).
+    pub fn install_finished(&mut self, result: Result<(), String>, now: u64) {
         if let UpdateState::Installing(m) = &self.state {
             self.state = match result {
-                Ok(true) => UpdateState::Installed(PatchChange::Replaced { dialog: true }),
-                Ok(false) => UpdateState::Installed(PatchChange::Unchanged),
+                Ok(()) => UpdateState::Installed,
                 Err(e) => {
                     eprintln!("sudoku: the update failed: {e}");
                     UpdateState::Failed(m.clone(), now)
@@ -616,18 +618,16 @@ mod tests {
         assert!(read_manifest(json, &sig, &other).is_err());
         let bad = br#"{"version": "pre-abc", "url": "https://x", "sha256": "00"}"#;
         assert!(read_manifest(bad, &key.sign(bad).to_bytes(), &public).is_err());
-        assert_eq!(m.patch, None, "a release with no patch");
+        // UPD-4: the patch fields of an earlier release have no effect, with each value.
         let z = "0".repeat(64);
-        let with_patch = format!(r#"{{"version": "v0.2.0", "url": "https://x/y.tar.gz", "sha256": "{z}", "patch_url": "https://x/p.qmd", "patch_sha256": "{z}"}}"#);
-        let m = read_manifest(with_patch.as_bytes(), &key.sign(with_patch.as_bytes()).to_bytes(), &public).unwrap();
-        assert_eq!(m.patch, Some(PatchRef { url: "https://x/p.qmd".to_string(), sha256: z.clone() }));
-        for bad in [
-            format!(r#"{{"version": "v0.2.0", "url": "https://x/y.tar.gz", "sha256": "{z}", "patch_url": "https://x/p.qmd"}}"#),
-            format!(r#"{{"version": "v0.2.0", "url": "https://x/y.tar.gz", "sha256": "{z}", "patch_sha256": "{z}"}}"#),
-            format!(r#"{{"version": "v0.2.0", "url": "https://x/y.tar.gz", "sha256": "{z}", "patch_url": "http://x/p.qmd", "patch_sha256": "{z}"}}"#),
-            format!(r#"{{"version": "v0.2.0", "url": "https://x/y.tar.gz", "sha256": "{z}", "patch_url": "https://x/p.qmd", "patch_sha256": "00"}}"#),
+        for patch in [
+            format!(r#""patch_url": "https://x/p.qmd", "patch_sha256": "{z}""#),
+            r#""patch_url": "http://x/p.qmd""#.to_string(),
+            r#""patch_sha256": "00""#.to_string(),
         ] {
-            assert!(read_manifest(bad.as_bytes(), &key.sign(bad.as_bytes()).to_bytes(), &public).is_err(), "{bad}");
+            let json = format!(r#"{{"version": "v0.2.0", "url": "https://x/y.tar.gz", "sha256": "{z}", {patch}}}"#);
+            let with_patch = read_manifest(json.as_bytes(), &key.sign(json.as_bytes()).to_bytes(), &public).unwrap();
+            assert_eq!(with_patch, m, "{patch}");
         }
     }
 
@@ -732,15 +732,15 @@ mod tests {
         assert_eq!(u.row_text(), Some("Installing update..."));
         u.checked(Ok(manifest("v0.3.0", b"x")), true);
         assert!(matches!(u.state, UpdateState::Installing(_)), "a request does not change an installation");
-        u.installed(Err("checksum".into()), 100);
+        u.install_finished(Err("checksum".into()), 100);
         assert_eq!(u.row_text(), Some("Update failed"));
         assert!(!u.tick(100 + FAILED_MS - 1));
         assert!(u.tick(100 + FAILED_MS));
         assert!(u.tap());
         assert!(matches!(u.request.take(), Some(UpdateRequest::Install(_))));
-        u.installed(Ok(false), 200);
-        assert_eq!(u.row_text(), Some("Restart Sudoku to update"));
-        assert!(!u.dialog_shown(), "no dialog when the patch did not change (UPD-10)");
+        u.install_finished(Ok(()), 200);
+        assert_eq!((u.state.clone(), u.row_text()), (UpdateState::Installed, Some("Restart Sudoku to update")));
+        assert!(!u.dialog_shown(), "an installation never shows the dialog (UPD-10)");
         assert!(u.caution());
         u.tick(u64::MAX / 2);
         assert_eq!(u.request, None, "no requests after the installation");
@@ -790,68 +790,131 @@ mod tests {
         std::fs::remove_dir_all(&d).unwrap();
     }
 
+    /// The files of a release archive with the frontend (LCH-6).
+    const FRONTEND_ARCHIVE: [(&str, &[u8]); 6] = [
+        ("sudoku/sudoku", b"new"),
+        ("sudoku/external.manifest.json", b"{}"),
+        ("sudoku/manifest.json", b"{\"id\": \"sudoku\"}"),
+        ("sudoku/resources.rcc", b"qres"),
+        ("sudoku/backend/entry", b"#!/bin/sh"),
+        ("sudoku/icon.png", b"png"),
+    ];
+
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
     #[test]
-    fn a_changed_patch_replaces_the_patch_and_the_stamp() {
-        // UPD-4, UPD-10
+    fn install_keeps_the_frontend_files_and_makes_the_two_programs_executable() {
+        // UPD-12
+        let d = temp_dir("frontend");
+        let app = d.join("appload/sudoku");
+        let a = archive(&FRONTEND_ARCHIVE);
+        install(&a, &manifest("v0.7.0", &a), &d.join("update"), &app).unwrap();
+        for (path, data) in FRONTEND_ARCHIVE {
+            assert_eq!(std::fs::read(d.join("appload").join(path)).unwrap(), data, "{path}");
+        }
+        assert!(crate::launch::has_frontend_files(&app));
+        #[cfg(unix)]
+        assert_eq!((mode(&app.join("sudoku")), mode(&app.join("backend/entry")), mode(&app.join("icon.png"))), (0o755, 0o755, 0o644));
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn an_archive_has_all_frontend_files_or_none() {
+        // UPD-12, UPD-6
+        let d = temp_dir("part");
+        let app = d.join("appload/sudoku");
+        for missing in ["sudoku/resources.rcc", "sudoku/backend/entry"] {
+            let files: Vec<_> = FRONTEND_ARCHIVE.into_iter().filter(|(path, _)| *path != missing).collect();
+            let a = archive(&files);
+            let e = install(&a, &manifest("v0.7.0", &a), &d.join("update"), &app).unwrap_err();
+            assert!(e.contains(missing), "{missing}: {e}");
+            assert_eq!(std::fs::read(app.join("sudoku")).unwrap(), b"old", "{missing}");
+            assert!(!app.join("manifest.json").exists(), "{missing}");
+        }
+        // No manifest.json: a release before the frontend. The other frontend files are not examined.
+        let files: Vec<_> = FRONTEND_ARCHIVE.into_iter().filter(|(path, _)| *path != "sudoku/manifest.json").collect();
+        let folder = d.join("folder");
+        std::fs::create_dir_all(&folder).unwrap();
+        unpack(&archive(&files)[..], &folder).unwrap();
+        assert_eq!(check_folder(&folder.join(ARCHIVE_DIR)), Ok(ArchiveKind::External));
+        std::fs::write(folder.join(ARCHIVE_DIR).join("manifest.json"), b"{}").unwrap();
+        assert_eq!(check_folder(&folder.join(ARCHIVE_DIR)), Ok(ArchiveKind::Frontend));
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn the_copy_of_a_folder_includes_the_subfolder() {
+        // UPD-12: the move across file systems.
+        let d = temp_dir("copy");
+        let from = d.join("from");
+        std::fs::create_dir_all(&from).unwrap();
+        unpack(&archive(&FRONTEND_ARCHIVE)[..], &from).unwrap();
+        let (from, to) = (from.join(ARCHIVE_DIR), d.join("to"));
+        copy_folder(&from, &to).unwrap();
+        assert_eq!(check_folder(&to), Ok(ArchiveKind::Frontend));
+        set_executables(&to).unwrap();
+        for (path, data) in FRONTEND_ARCHIVE {
+            assert_eq!(std::fs::read(to.join(path.strip_prefix("sudoku/").unwrap())).unwrap(), data, "{path}");
+        }
+        #[cfg(unix)]
+        assert_eq!((mode(&to.join("sudoku")), mode(&to.join("backend/entry"))), (0o755, 0o755));
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn the_ink_patch_and_its_files_are_deleted() {
+        // UPD-11
         let d = temp_dir("patch");
-        let (app, patches) = (d.join("appload/sudoku"), d.join("patches"));
-        let a = archive(&[("sudoku/sudoku", b"new"), ("sudoku/external.manifest.json", b"{}")]);
-        let mut m = manifest("v0.2.0", &a);
-        m.patch = Some(PatchRef { url: "https://example.com/p.qmd".to_string(), sha256: sha256_hex(b"patch 2") });
-        // No stamp file: the patch is replaced, also when the file has the same contents.
+        let (patches, area) = (d.join("patches"), d.join("sudoku-pen-region"));
         std::fs::create_dir_all(&patches).unwrap();
-        std::fs::write(patches.join(PATCH_NAME), b"patch 2").unwrap();
-        assert_eq!(install_release(&a, Some(b"patch 2"), &m, &d.join("update"), &app, &patches), Ok(true));
-        assert_eq!(std::fs::read(patches.join(PATCH_NAME)).unwrap(), b"patch 2");
-        assert_eq!(std::fs::read_to_string(patches.join(PATCH_STAMP)).unwrap(), stamp_text("v0.2.0", &sha256_hex(b"patch 2")));
-        assert_eq!(stamp_sha256(&patches), m.patch.as_ref().map(|p| p.sha256.clone()));
-        // The same checksum as in the stamp: the patch does not change.
-        std::fs::write(patches.join(PATCH_NAME), b"changed by hand").unwrap();
-        assert_eq!(install_release(&a, Some(b"patch 2"), &m, &d.join("update"), &app, &patches), Ok(false));
-        assert_eq!(std::fs::read(patches.join(PATCH_NAME)).unwrap(), b"changed by hand", "the stamp decides");
-        // A different checksum: the patch is replaced.
-        m.patch = Some(PatchRef { url: "https://example.com/p.qmd".to_string(), sha256: sha256_hex(b"patch 3") });
-        assert_eq!(install_release(&a, Some(b"patch 3"), &m, &d.join("update"), &app, &patches), Ok(true));
-        assert_eq!(std::fs::read(patches.join(PATCH_NAME)).unwrap(), b"patch 3");
-        // A release with no patch does not change the patch.
-        let plain = manifest("v0.3.0", &a);
-        assert_eq!(install_release(&a, None, &plain, &d.join("update"), &app, &patches), Ok(false));
-        assert_eq!(std::fs::read(patches.join(PATCH_NAME)).unwrap(), b"patch 3");
-        let mut left: Vec<_> = std::fs::read_dir(&patches).unwrap().map(|e| e.unwrap().file_name()).collect();
-        left.sort();
-        assert_eq!(left, [PATCH_STAMP, PATCH_NAME], "no .new files");
+        for file in [patches.join(PATCH_NAME), patches.join(PATCH_STAMP), patches.join("other.qmd"), area.clone()] {
+            std::fs::write(file, b"x").unwrap();
+        }
+        remove_ink_patch(&patches, &area);
+        let left: Vec<_> = std::fs::read_dir(&patches).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(left, ["other.qmd"]);
+        assert!(!area.exists());
+        // The files are not there: no effect.
+        remove_ink_patch(&patches, &area);
         std::fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]
-    fn a_bad_patch_changes_nothing() {
-        // UPD-4, UPD-6
-        let d = temp_dir("bad-patch");
-        let (app, patches) = (d.join("appload/sudoku"), d.join("patches"));
-        let a = archive(&[("sudoku/sudoku", b"new"), ("sudoku/external.manifest.json", b"{}")]);
-        let mut m = manifest("v0.2.0", &a);
-        m.patch = Some(PatchRef { url: "https://example.com/p.qmd".to_string(), sha256: sha256_hex(b"patch") });
-        assert!(install_release(&a, Some(b"other"), &m, &d.join("update"), &app, &patches).is_err());
-        assert!(install_release(&a, None, &m, &d.join("update"), &app, &patches).is_err());
-        assert_eq!(std::fs::read(app.join("sudoku")).unwrap(), b"old");
-        assert!(!patches.exists());
-        std::fs::remove_dir_all(&d).unwrap();
-    }
-
-    #[test]
-    fn the_patch_dialog_shows_only_after_a_patch_change() {
-        // UPD-10
-        let mut u = Update::new("v0.1.0");
-        u.checked(Ok(manifest("v0.2.0", b"x")), true);
-        assert!(u.tap());
-        u.request = None;
-        u.installed(Ok(true), 100);
-        assert_eq!(u.state, UpdateState::Installed(PatchChange::Replaced { dialog: true }));
-        assert_eq!((u.row_text(), u.button()), (None, Some(UpdateButton::Restart)));
+    fn the_row_shows_only_the_restart_button_while_the_update_is_not_complete() {
+        // UPD-3, UPD-10, UPD-14
+        use crate::launch::Restart;
         assert_eq!(UpdateButton::Restart.text(), "Restart interface");
-        assert!(u.dialog_shown());
-        assert!(!u.tap(), "the restart is work of the app, not of the update state");
-        assert_eq!(u.request, None);
+        let needed = Launch::External(Restart::Needed { dialog: true });
+        let mut u = Update::new("v0.1.0");
+        assert_eq!((u.launch, u.restart_needed(), u.dialog_shown(), u.caution()), (Launch::Frontend, false, false, false));
+        u.launch = needed;
+        assert!(u.dialog_shown() && u.caution(), "the caution icon from the start");
+        assert_eq!((u.row_text(), u.button()), (None, Some(UpdateButton::Restart)));
+        u.close_dialog();
+        assert!(!u.dialog_shown() && u.restart_needed());
+        // Each result of a request keeps the button, and a tap starts no installation and no request.
+        for result in [Err("no network".to_string()), Ok(manifest("v0.1.0", b"x")), Ok(manifest("v0.2.0", b"x"))] {
+            u.checked(result, true);
+            assert_eq!((u.row_text(), u.button()), (None, Some(UpdateButton::Restart)), "{:?}", u.state);
+            u.request = None;
+            assert!(!u.tap());
+            assert_eq!(u.request, None, "{:?}", u.state);
+        }
+        assert!(matches!(u.state, UpdateState::Available(_)));
+        // A `dev` build has no update row: no button and no caution icon, but the dialog can show.
+        let mut dev = Update::new("dev");
+        dev.launch = needed;
+        assert_eq!((dev.dialog_shown(), dev.caution(), dev.button(), dev.row_text()), (true, false, None, None));
+        // The external mode with no frontend files is as the frontend mode.
+        let mut old = Update::new("v0.1.0");
+        old.launch = Launch::External(Restart::NotNeeded);
+        old.checked(Ok(manifest("v0.2.0", b"x")), true);
+        assert!(!old.restart_needed() && !old.dialog_shown());
+        assert_eq!(old.button(), Some(UpdateButton::Install("Update to v0.2.0".to_string())));
     }
 
     #[test]

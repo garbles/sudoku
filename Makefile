@@ -19,9 +19,6 @@ SSH_KEY ?= $(or $(SUDOKU_SSH_KEY),$(HOME)/.ssh/id_ed25519_remarkable)
 SSH := ssh -o ConnectTimeout=5 -o BatchMode=yes -o IdentitiesOnly=yes \
 	-o StrictHostKeyChecking=accept-new -o LogLevel=ERROR -i "$(SSH_KEY)" root@$(HOST)
 APPLOAD := /home/root/xovi/exthome/appload
-PATCH_DIR := /home/root/xovi/exthome/qt-resource-rebuilder
-PATCH_NAME := sudoku-penregion.qmd
-PATCH_STAMP := sudoku-penregion.json
 
 SNAPSHOT_DIR ?= target/snapshots
 # The name of the change in a development build, for example DEV_NAME=update-icons. The Settings
@@ -36,31 +33,23 @@ NOTE ?=
 SCENARIO ?= first
 
 # Installs the AppLoad folder dist/$(1) on the tablet and examines its checksum. $(2) is the name of
-# the app in AppLoad.
+# the app in AppLoad. AppLoad reads the manifests of the apps only when the interface starts and at
+# Reload (REQUIREMENTS.md §14.4): when a manifest of the app is new or changed, the recipe tells this.
+# A folder with the frontend files has backend/entry, which must be executable.
 define install_app
 	@echo "Install on $(HOST)"
 	COPYFILE_DISABLE=1 tar -C dist -czf - $(1) | $(SSH) 'set -e; d=$(APPLOAD); a=$(1); t=$$d/.$$a-install; \
 		rm -rf "$$t"; mkdir -p "$$t"; tar -xzf - -C "$$t"; chmod 755 "$$t/$$a/sudoku"; \
+		if [ -f "$$t/$$a/backend/entry" ]; then chmod 755 "$$t/$$a/backend/entry"; fi; \
+		reload=no; for m in manifest.json external.manifest.json; do \
+			[ "$$(cat "$$t/$$a/$$m" 2>/dev/null)" = "$$(cat "$$d/$$a/$$m" 2>/dev/null)" ] || reload=yes; done; \
 		rm -rf "$$d/$$a.old"; if [ -d "$$d/$$a" ]; then mv "$$d/$$a" "$$d/$$a.old"; fi; \
-		mv "$$t/$$a" "$$d/$$a"; rm -rf "$$d/$$a.old" "$$t"'
+		mv "$$t/$$a" "$$d/$$a"; rm -rf "$$d/$$a.old" "$$t"; \
+		if [ "$$reload" = yes ]; then echo "A manifest of $(2) is new or changed. AppLoad reads it only when the interface starts: tap Reload in the AppLoad menu, or run make xovi-restart."; fi'
 	@local=$$(shasum -a 256 dist/$(1)/sudoku | cut -d' ' -f1); \
 		remote=$$($(SSH) 'sha256sum $(APPLOAD)/$(1)/sudoku' | cut -d' ' -f1); \
 		if [ "$$local" = "$$remote" ]; then echo "Installed: $$local. Close $(2) and open it again."; \
 		else echo "The checksums are not equal: $$local $$remote" >&2; exit 1; fi
-endef
-
-# The stamp file of the usual ink patch. A shell command on the tablet for install_patch.
-PATCH_STAMP_CMD = printf "{\"version\": \"$(DEV_VERSION)\", \"sha256\": \"%s\"}\n" '"$$want"' > "$$d/$(PATCH_STAMP)"
-
-# Installs the ink patch dist/$(1)/$(2) on the tablet if it changed. $(3) is a shell command on the
-# tablet after the copy ($$d is the folder of the patches, $$want is the checksum of the patch).
-define install_patch
-	@want=$$(shasum -a 256 dist/$(1)/$(2) | cut -d' ' -f1); \
-		have=$$($(SSH) 'sha256sum $(PATCH_DIR)/$(2) 2>/dev/null' | cut -d' ' -f1); \
-		if [ "$$want" = "$$have" ]; then echo "The ink patch $(2) is installed."; else \
-		$(SSH) 'set -e; d=$(PATCH_DIR); mkdir -p "$$d"; cat > "$$d/$(2).new"; mv "$$d/$(2).new" "$$d/$(2)"; $(3)' \
-			< dist/$(1)/$(2); \
-		echo "The ink patch $(2) changed. xovi applies it when it starts: run make xovi-restart."; fi
 endef
 
 .DEFAULT_GOAL := help
@@ -141,7 +130,10 @@ fonts-check:
 test-linux: fonts-check ## Run all tests on aarch64 Linux, release and debug in parallel (Dockerfile.test)
 	$(DOCKER) build --platform linux/arm64 -f Dockerfile.test .
 
+# The build does not delete a file that an earlier build put in dist/sudoku (for example the ink
+# patch of an earlier version), and the install targets copy the full folder. Thus delete it first.
 tablet-build: ## Build dist/sudoku/ with no tests (Dockerfile)
+	rm -rf dist/sudoku
 	$(DOCKER) build --platform linux/arm64 --output type=local,dest=dist .
 
 # The limit of 14 characters keeps the version clear of the name "Version" in the Settings panel.
@@ -150,13 +142,13 @@ tablet-build-dev: ## Build dist/sudoku/ fast, for development only: no LTO, incr
 		|| { echo "DEV_NAME must have 1 to 14 lowercase letters, digits or hyphens, and start with a letter or a digit: $(DEV_NAME)" >&2; exit 1; }
 	@[ -n "$(strip $(DEV_NAME))" ] \
 		|| echo "No DEV_NAME: the version is dev. Give a name that tells the change, for example DEV_NAME=update-icons." >&2
+	rm -rf dist/sudoku
 	$(DOCKER) build --platform linux/arm64 -f Dockerfile.dev --build-arg SUDOKU_VERSION="$(DEV_VERSION)" --output type=local,dest=dist .
 
 dist: test-linux tablet-build ## Run all tests on aarch64 Linux, then build dist/sudoku/ (Docker)
 
 install-dev: tablet-build-dev ## Build fast (Dockerfile.dev, no tests: run make test first) and install dist/sudoku/ on the tablet (REMARKABLE_HOST in .env, or USB). Give DEV_NAME=<name of the change>
 	$(call install_app,sudoku,Sudoku)
-	$(call install_patch,sudoku,$(PATCH_NAME),$(PATCH_STAMP_CMD))
 
 ## The corpus build: examples of handwriting for the recognizer (the skill remarkable-corpus). It is
 ## the separate app Sudoku (corpus), with its own AppLoad folder and data folder.
@@ -167,10 +159,10 @@ tablet-build-corpus: ## Build dist/sudoku-corpus/ fast, for development only (Do
 
 install-corpus: tablet-build-corpus ## Build and install the separate app Sudoku (corpus): a blank board, a log of each ink. The usual Sudoku app does not change
 	$(call install_app,sudoku-corpus,Sudoku (corpus))
-	$(call install_patch,sudoku-corpus,sudoku-corpus-penregion.qmd,true)
 
 ## The color picker: select the colors of the palette on the display. It is the separate app
-## Sudoku (colors), with its own AppLoad folder and data folder. It has no ink patch.
+## Sudoku (colors), with its own AppLoad folder and data folder. It is an external app with no pen
+## area and no frontend files.
 
 tablet-build-colors: ## Build dist/sudoku-colors/ fast, for development only (Dockerfile.colors)
 	rm -rf dist/sudoku-colors
