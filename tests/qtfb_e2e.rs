@@ -35,6 +35,36 @@ struct Server {
     listen: i32,
     conn: i32,
     shm: *mut u8,
+    /// The framebuffer ID of the shared memory, after `accept_key`.
+    key: Option<i32>,
+}
+
+/// The size of the shared memory of the framebuffer (FBFMT_RMPP_RGB888).
+const SHM_SIZE: usize = W * H * 3;
+
+fn shm_name(key: i32) -> std::ffi::CString {
+    std::ffi::CString::new(format!("/qtfb_{key}")).unwrap()
+}
+
+/// Releases the shared memory when the server goes away. A mapping keeps its memory in `/dev/shm`
+/// also after `shm_unlink`. In a Docker container, `/dev/shm` has only 64 MB, thus the mappings of
+/// approximately 6 servers fill it, and the next write gives SIGBUS. Each test that uses a server holds
+/// the lock `SERVER`, thus the removal of the name does not affect a different test.
+impl Drop for Server {
+    fn drop(&mut self) {
+        unsafe {
+            if !self.shm.is_null() {
+                libc::munmap(self.shm as *mut _, SHM_SIZE);
+            }
+            if let Some(key) = self.key {
+                libc::shm_unlink(shm_name(key).as_ptr());
+            }
+            if self.conn >= 0 {
+                libc::close(self.conn);
+            }
+            libc::close(self.listen);
+        }
+    }
 }
 
 impl Server {
@@ -51,7 +81,7 @@ impl Server {
             }
             assert_eq!(libc::bind(fd, &addr as *const _ as *const _, std::mem::size_of::<libc::sockaddr_un>() as _), 0);
             assert_eq!(libc::listen(fd, 1), 0);
-            Server { listen: fd, conn: -1, shm: std::ptr::null_mut() }
+            Server { listen: fd, conn: -1, shm: std::ptr::null_mut(), key: None }
         }
     }
 
@@ -89,13 +119,15 @@ impl Server {
             assert_eq!(buf[0], 0, "MESSAGE_INITIALIZE");
             assert_eq!(i32::from_ne_bytes(buf[4..8].try_into().unwrap()), key, "the framebuffer ID");
             assert_eq!(buf[8], 1, "FBFMT_RMPP_RGB888");
-            let size = W * H * 3;
-            let name = std::ffi::CString::new(format!("/qtfb_{key}")).unwrap();
+            let size = SHM_SIZE;
+            let name = shm_name(key);
             libc::shm_unlink(name.as_ptr());
             let shm_fd = libc::shm_open(name.as_ptr(), libc::O_RDWR | libc::O_CREAT, 0o666);
             assert!(shm_fd >= 0);
+            self.key = Some(key);
             assert_eq!(libc::ftruncate(shm_fd, size as _), 0);
             let p = libc::mmap(std::ptr::null_mut(), size, libc::PROT_READ | libc::PROT_WRITE, libc::MAP_SHARED, shm_fd, 0);
+            libc::close(shm_fd);
             assert_ne!(p, libc::MAP_FAILED);
             std::ptr::write_bytes(p as *mut u8, 0xFF, size);
             self.shm = p as *mut u8;
@@ -207,6 +239,7 @@ fn the_executable_operates_through_qtfb() {
     assert!(data.join("results.sqlite").exists());
 
     // The app opens again with the same game, and SIGTERM (AppLoad closes the app) saves it.
+    drop(server);
     let mut server2 = Server::new();
     let mut child = app_command(&data).spawn().unwrap();
     server2.accept();
