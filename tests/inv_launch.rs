@@ -405,12 +405,9 @@ fn without_the_rotation_or_the_top_bar_the_frontend_stays_in_portrait() {
 #[test]
 fn the_frontend_and_the_program_have_the_same_ids_and_message_types() {
     // LCH-5: one value for each ID and each message type. Sudoku: the app ID `sudoku`, the framebuffer
-    // ID 0x5355444F, the message type 1. The corpus app: `sudoku-corpus`, 0x53554443.
+    // ID 0x5355444F, the message type 1.
     assert_eq!((launch::SUDOKU.app_id, launch::SUDOKU.framebuffer_id), ("sudoku", 0x5355444F));
-    assert_eq!((launch::CORPUS.app_id, launch::CORPUS.framebuffer_id), ("sudoku-corpus", 0x53554443));
-    assert_ne!(launch::SUDOKU.app_id, launch::CORPUS.app_id);
-    assert_ne!(launch::SUDOKU.framebuffer_id, launch::CORPUS.framebuffer_id);
-    assert_eq!(launch::IDS, launch::SUDOKU, "the usual build");
+    assert_eq!(launch::IDS, launch::SUDOKU);
     let q = qml();
     assert_eq!(qml_property(&q, "appId"), format!("\"{}\"", launch::SUDOKU.app_id));
     assert_eq!(qml_property(&q, "framebufferId"), format!("0x{:08X}", launch::SUDOKU.framebuffer_id));
@@ -459,19 +456,16 @@ fn fake_rcc(dir: &Path) -> (PathBuf, PathBuf) {
     (rcc, args)
 }
 
-/// Runs `appload/make-folder.sh OUT [variant]` with the fake `rcc`. Returns the folder and the
+/// Runs `appload/make-folder.sh OUT` with the fake `rcc`. Returns the folder and the
 /// arguments of rcc.
-fn make_folder(name: &str, variant: Option<&str>) -> (PathBuf, String) {
+fn make_folder(name: &str) -> (PathBuf, String) {
     let dir = scratch(name);
     let (rcc, args) = fake_rcc(&dir);
     let out = dir.join("out");
     let mut command = Command::new("sh");
     command.arg(root().join("appload/make-folder.sh")).arg(&out).env("RCC", &rcc);
-    if let Some(v) = variant {
-        command.arg(v);
-    }
     let output = command.output().unwrap();
-    assert!(output.status.success(), "make-folder.sh {variant:?}: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(output.status.success(), "make-folder.sh: {}", String::from_utf8_lossy(&output.stderr));
     (out, std::fs::read_to_string(args).unwrap())
 }
 
@@ -511,7 +505,7 @@ fn the_build_script_makes_the_files_of_the_app_folder() {
     names.sort();
     assert_eq!(names, ["backend/entry", "external.manifest.json", "icon.png", "manifest.json", "resources.rcc", "sudoku"], "LCH-6");
     assert_eq!(launch::FRONTEND_FILES, ["manifest.json", "resources.rcc", "backend/entry"]);
-    let (out, args) = make_folder("folder", None);
+    let (out, args) = make_folder("folder");
     assert_eq!(files_of(&out), folder_without_program(), "LCH-6");
     let args: Vec<&str> = args.split_whitespace().collect();
     assert!(args.contains(&"--binary") && args.contains(&"--no-compress"), "R§14.4: rcc {args:?}");
@@ -520,26 +514,6 @@ fn the_build_script_makes_the_files_of_the_app_folder() {
     let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(out.join("manifest.json")).unwrap()).unwrap();
     assert_eq!(manifest["id"], serde_json::json!(launch::SUDOKU.app_id));
     assert_eq!(std::fs::read(out.join("icon.png")).unwrap(), std::fs::read(root().join("appload/sudoku/icon.png")).unwrap());
-    let _ = std::fs::remove_dir_all(out.parent().unwrap());
-}
-
-/// The corpus variant uses `sed -i` of GNU sed (the Linux image of the build). The Linux tests run it.
-#[cfg(target_os = "linux")]
-#[test]
-fn the_corpus_app_has_its_own_ids() {
-    // LCH-5: the corpus app has the app ID `sudoku-corpus` and the framebuffer ID 0x53554443, in its
-    // manifest and in its frontend. LCH-6: its folder has all frontend files.
-    let (out, _) = make_folder("corpus", Some("corpus"));
-    assert_eq!(files_of(&out), folder_without_program(), "LCH-6");
-    let q = std::fs::read_to_string(out.join("resources.rcc")).unwrap();
-    assert_eq!(qml_property(&q, "appId"), format!("\"{}\"", launch::CORPUS.app_id));
-    assert_eq!(qml_property(&q, "framebufferId"), format!("0x{:08X}", launch::CORPUS.framebuffer_id));
-    assert_eq!(qml_property(&q, "penAreaMessage"), launch::MSG_PEN_AREA.to_string());
-    let manifest: serde_json::Value = serde_json::from_slice(&std::fs::read(out.join("manifest.json")).unwrap()).unwrap();
-    assert_eq!(manifest["id"], serde_json::json!(launch::CORPUS.app_id));
-    assert_eq!(manifest["name"], serde_json::json!("Sudoku (corpus)"));
-    let external: serde_json::Value = serde_json::from_slice(&std::fs::read(out.join("external.manifest.json")).unwrap()).unwrap();
-    assert_eq!(external["name"], serde_json::json!("Sudoku (corpus)"));
     let _ = std::fs::remove_dir_all(out.parent().unwrap());
 }
 
@@ -586,12 +560,13 @@ fn chmod_paths(text: &str) -> Vec<String> {
 
 #[test]
 fn each_build_makes_the_app_folder_of_lch_6() {
-    // LCH-6: the Dockerfile, Dockerfile.dev and Dockerfile.corpus make the folder with all frontend
-    // files (appload/make-folder.sh) and give `sudoku` and `backend/entry` the mode 755. The folder of
-    // the colors app has no frontend file. No build copies an ink patch.
-    for (file, out, variant) in [("Dockerfile", "/out/sudoku", ""), ("Dockerfile.dev", "/out/sudoku", ""), ("Dockerfile.corpus", "/out/sudoku-corpus", " corpus")] {
+    // LCH-6: the Dockerfile and Dockerfile.dev make the folder with all frontend files
+    // (appload/make-folder.sh) and give `sudoku` and `backend/entry` the mode 755. No build copies an
+    // ink patch.
+    let out = "/out/sudoku";
+    for file in ["Dockerfile", "Dockerfile.dev"] {
         let code = code_lines(&read(file));
-        let make = format!("make-folder.sh {out}{variant}");
+        let make = format!("make-folder.sh {out}");
         assert!(code.lines().any(|l| l.trim_end() == format!("RUN sh /appload/{make}")), "LCH-6: {file} must run {make}");
         let chmod = chmod_paths(&code);
         for program in ["sudoku", "backend/entry"] {
@@ -599,13 +574,7 @@ fn each_build_makes_the_app_folder_of_lch_6() {
         }
         assert!(code.contains("cp target/") && code.contains(&format!("{out}/sudoku")), "{file}: the program goes into the folder");
     }
-    let colors = code_lines(&read("Dockerfile.colors"));
-    assert!(!colors.contains("make-folder.sh"), "LCH-6: the colors app has no frontend");
-    for name in ["resources.rcc", "backend", "application.qrc", "ui/main.qml"] {
-        assert!(!colors.contains(name), "LCH-6: Dockerfile.colors has {name}");
-    }
-    assert!(!colors.replace("external.manifest.json", "").contains("manifest.json"), "LCH-6: Dockerfile.colors has manifest.json");
-    for file in ["Dockerfile", "Dockerfile.dev", "Dockerfile.corpus", "Dockerfile.colors", "appload/make-folder.sh"] {
+    for file in ["Dockerfile", "Dockerfile.dev", "appload/make-folder.sh"] {
         let code = code_lines(&read(file));
         assert!(!code.contains(".qmd") && !code.contains("penregion"), "LCH-6: {file} names an ink patch");
     }
@@ -635,8 +604,7 @@ fn the_release_has_the_files_of_lch_6_and_no_ink_patch() {
 
 #[test]
 fn the_repository_has_no_ink_patch_file() {
-    // LCH-6 (owner decision 2026-11-12): no ink patch file stays in the repository, also not the copy
-    // of the corpus app.
+    // LCH-6 (owner decision 2026-11-12): no ink patch file stays in the repository.
     fn walk(dir: &Path, found: &mut Vec<PathBuf>) {
         for entry in std::fs::read_dir(dir).unwrap().flatten() {
             let path = entry.path();
@@ -654,7 +622,6 @@ fn the_repository_has_no_ink_patch_file() {
     let mut found = Vec::new();
     walk(root(), &mut found);
     assert_eq!(found, Vec::<PathBuf>::new(), "LCH-6");
-    assert!(!root().join("appload/sudoku-corpus").exists(), "LCH-6: the corpus copy of the patch is gone");
 }
 
 #[test]

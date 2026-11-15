@@ -32,9 +32,7 @@ u8 y for each point.
 ## owner-handwriting.jsonl
 
 Examples of the handwriting of the owner on the reMarkable Paper Pro. The recognizer uses them with
-the examples of `handwriting.bin` (the writer is 0). The corpus build collects them
-(`src/corpus.rs`, `examples/corpus.rs`, the skill `remarkable-corpus`). Do not edit the file by
-hand.
+the examples of `handwriting.bin` (the writer is 0). Do not edit the file by hand.
 
 Format: one JSON line for each example: `{"class": D, "strokes": [[[x, y], ...], ...]}`. The class
 is the digit (1 to 9). The strokes are scaled to a box of 0 to 255 (the larger side is 255), with

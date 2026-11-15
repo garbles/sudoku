@@ -618,34 +618,14 @@ Rejected values, 2026-11-05:
 
 ---
 
-Owner decision, 2026-11-05: the color picker `Sudoku (colors)` is a separate development app, to select
-the palette colors on the real display. The owner examined it on the tablet and approved it.
-
-- All 9 palette colors stay visible, each with an empty cell, a cell with a number of the player and a
-  cell with a starting number. One set of R, G and B sliders changes the selected color.
-- A change refreshes only the cells of that color when the pen or the finger lifts: black, white, then
-  the color, with 500 ms for the black step and for the white step.
-- The colors stay between starts. A reset button sets the colors of the code again.
-
-Rejected, 2026-11-05:
-
-- A Cargo feature that selects the app in `src/bin/sudoku.rs`. Reason: the owner did not find the source
-  clear, and asked for a separate `bin`.
-- A refresh of all preview cells for each change. Reason: only the color that changes must refresh.
-- A new start with the colors of the code and a file `history.jsonl` with a line for each change. Reason:
-  the owner selected saved colors with a reset button in place of this.
-
----
-
 Owner decision, 2026-11-05: Red changes from `#FF8C8C` to `#FF8E8E`, and the numbers of the player change
-from `gray18` (`#2E2E2E`) to `#1E1E1E`. The owner selected the values in `Sudoku (colors)` on the tablet,
-and examined them in a game on the tablet (dev build `dev/colors`). The other palette colors do not
+from `gray18` (`#2E2E2E`) to `#1E1E1E`. The owner selected the values on the tablet,
+and examined them in a game on the tablet. The other palette colors do not
 change.
 
 Rejected, 2026-11-05:
 
-- The number color `#001E1E`. The owner changed it on the tablet before the approval. This value was in
-  the first pull of `colors.json`.
+- The number color `#001E1E`. The owner changed it on the tablet before the approval.
 
 ### Owner request: a Checkpoints panel, 2026-11-06
 
@@ -782,13 +762,13 @@ Review results. These are not results of a device test:
   the change.
 - A reading that comes before the end of the start calculation waits for it, and this time is now longer. The
   behavior is the same.
-- The accuracy test also uses the owner examples, thus a corpus addition can change its result.
+- The accuracy test also uses the owner examples, thus an addition to the owner examples can change its result.
 
 Rejected values and alternatives, 2026-11-06:
 
 | Item | Value | Reason |
 |---|---|---|
-| Test limit for other characters rejected | 90.5 % | The measured value is 90.5 %, thus there is no margin for a corpus addition. |
+| Test limit for other characters rejected | 90.5 % | The measured value is 90.5 %, thus there is no margin for an addition to the owner examples. |
 | Direction of the ink | Reverse the ink of the player at write time, and keep only forward examples | Considered, not selected. The owner kept the approved build. |
 | Size of the examples | Remove near-duplicate examples | Measured, not selected. The owner does not want a follow-up issue. |
 | Size of the examples | Remove the reversed copies as "duplicates" | A backward example is typically 5 to 30 times farther from its nearest forward example than two forward examples are from each other. |
@@ -898,7 +878,6 @@ Details that follow from the existing rules, not examined one by one on the tabl
 
 - The eraser end is a part of the pen, thus it also closes the app.
 - A finger press on the close button removes the "?" and the x, as each press does (QST-4, MRK-15).
-- The close button of the color picker (`Sudoku (colors)`) does not change. It is a separate development tool.
 
 The owner then asked: "yes please update the manual. include a note that states that you can only close it with
 the pen so that resting your hand on the device doesn't close it by accident". Page 1 of the manual now has the
@@ -1360,7 +1339,7 @@ showed only the close button of the app); the window mode (a long press on the i
 3; a crash of the program; a second tap on the icon while the app is open; the update of the app, and that
 AppLoad reads a replaced `resources.rcc` and starts `backend/entry` at each open ("Restart Sudoku to update");
 the installer on a tablet with the old patch; the restart dialog and the restart of the interface from the app;
-the corpus app; one run with the old patch deleted; the black line of 2 px around a frontend window; the screen
+one run with the old patch deleted; the black line of 2 px around a frontend window; the screen
 update log of xochitl (only the eyes of the owner confirm the pen waveform in the cell). The area wait of 45 ms
 included the 15 ms poll of the patch: it is not proved that 45 ms is still the correct value, but the owner
 approved the ink with it. The Paper Pro Move: no device test is possible; the pen area is correct by calculation
@@ -1385,8 +1364,7 @@ approved the ink with it. The Paper Pro Move: no device test is possible; the pe
    update of the app does not examine it. First the version was 0.5.1; decision 12 replaces it with 0.6.0.
 5. Window mode: in a window that is not the full screen, the app operates with a scaled picture, and the
    frontend shows no pen area (the ink is slower there).
-6. The corpus app gets the same frontend with its own app ID and its own framebuffer ID. No ink patch file stays
-   in the repository. The colors app stays an external app with no pen area and no frontend files.
+6. No ink patch file stays in the repository.
 7. The Paper Pro Move uses the frontend, as the Paper Pro, with no device test.
 
 **The restart dialog.** Text, selected by the owner: "The update is not complete. To complete it," and "the
@@ -1427,8 +1405,7 @@ Conclusions from the decisions and the facts (not owner decisions):
 - AppLoad reads the manifests only when the interface starts and at Reload (AppLoad source). Thus the installer
   starts the interface again after step 11 when the type of the manifest changed, and also when the app folder
   was not on the tablet before.
-- Values: the "no area" message has the text `none`; the corpus app has the app ID `sudoku-corpus` and the
-  framebuffer ID 0x53554443; the saved value is the key `restart_dialog_shown` of the settings file; the
+- Values: the "no area" message has the text `none`; the saved value is the key `restart_dialog_shown` of the settings file; the
   rotation gets to the program as before (the frontend gives the rotation of the AppLoad window to the
   framebuffer item, and AppLoad sends it on the qtfb connection).
 - A new AppLoad loads only when the interface starts. Thus, when step 6 of the installer updated AppLoad, the

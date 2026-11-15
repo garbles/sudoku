@@ -25,9 +25,6 @@ SNAPSHOT_DIR ?= target/snapshots
 # panel then shows the version dev/update-icons. Empty: the version dev.
 DEV_NAME ?=
 DEV_VERSION = dev$(if $(strip $(DEV_NAME)),/$(strip $(DEV_NAME)))
-CORPUS_DIR := /home/root/.local/share/rm-sudoku-corpus
-CORPUS_LOG := corpus-ink.jsonl
-CORPUS_OUT ?= target/corpus
 DIGIT ?=
 NOTE ?=
 SCENARIO ?= first
@@ -54,7 +51,7 @@ endef
 
 .DEFAULT_GOAL := help
 .PHONY: help test build snapshot check invariants video video-full media bench bench-save bench-linux \
-	bench-linux-save media-images media-installer media-video fonts-check test-linux tablet-build tablet-build-dev tablet-build-corpus tablet-build-colors dist install-dev install-sim install-corpus install-colors colors-pull corpus-start corpus-pull fonts xovi-restart fmt clippy bump-patch bump-minor \
+	bench-linux-save media-images media-installer media-video fonts-check test-linux tablet-build tablet-build-dev dist install-dev install-sim fonts xovi-restart fmt clippy bump-patch bump-minor \
 	bump-major clean
 
 help: ## Show all targets
@@ -149,53 +146,6 @@ dist: test-linux tablet-build ## Run all tests on aarch64 Linux, then build dist
 
 install-dev: tablet-build-dev ## Build fast (Dockerfile.dev, no tests: run make test first) and install dist/sudoku/ on the tablet (REMARKABLE_HOST in .env, or USB). Give DEV_NAME=<name of the change>
 	$(call install_app,sudoku,Sudoku)
-
-## The corpus build: examples of handwriting for the recognizer (the skill remarkable-corpus). It is
-## the separate app Sudoku (corpus), with its own AppLoad folder and data folder.
-
-tablet-build-corpus: ## Build dist/sudoku-corpus/ fast, for development only (Dockerfile.corpus)
-	rm -rf dist/sudoku-corpus
-	$(DOCKER) build --platform linux/arm64 -f Dockerfile.corpus --output type=local,dest=dist .
-
-install-corpus: tablet-build-corpus ## Build and install the separate app Sudoku (corpus): a blank board, a log of each ink. The usual Sudoku app does not change
-	$(call install_app,sudoku-corpus,Sudoku (corpus))
-
-## The color picker: select the colors of the palette on the display. It is the separate app
-## Sudoku (colors), with its own AppLoad folder and data folder. It is an external app with no pen
-## area and no frontend files.
-
-tablet-build-colors: ## Build dist/sudoku-colors/ fast, for development only (Dockerfile.colors)
-	rm -rf dist/sudoku-colors
-	$(DOCKER) build --platform linux/arm64 -f Dockerfile.colors --output type=local,dest=dist .
-
-install-colors: tablet-build-colors ## Build and install the separate app Sudoku (colors): a color picker. The usual Sudoku app does not change
-	$(call install_app,sudoku-colors,Sudoku (colors))
-
-colors-pull: ## Copy the colors of Sudoku (colors) from the tablet to target/colors/colors.json (the skill remarkable-colors)
-	@mkdir -p target/colors
-	@$(SSH) 'cat /home/root/.local/share/rm-sudoku-colors/colors.json' > target/colors/colors.json.tmp \
-		|| { rm -f target/colors/colors.json.tmp; echo "Cannot read colors.json on the tablet. Change a color in Sudoku (colors) first." >&2; exit 1; }
-	@mv target/colors/colors.json.tmp target/colors/colors.json
-	@echo "Wrote target/colors/colors.json"
-
-corpus-start: ## Start a new corpus session: delete the corpus board and the corpus log on the tablet, move old sets to target/corpus/old/ (close Sudoku (corpus) first)
-	$(SSH) 'rm -f $(CORPUS_DIR)/game.json $(CORPUS_DIR)/$(CORPUS_LOG)'
-	@old=$(CORPUS_OUT)/old/$$(date +%Y%m%d-%H%M%S); for f in $(CORPUS_OUT)/corpus-ink-*.jsonl $(CORPUS_OUT)/sheet-*.png; do \
-		[ -e "$$f" ] || continue; mkdir -p "$$old"; mv "$$f" "$$old/"; done; \
-		if [ -d "$$old" ]; then echo "Old sets moved to $$old (not used)."; fi
-	@echo "The corpus board and the corpus log are deleted. Open Sudoku (corpus) on the tablet."
-
-corpus-pull: ## Copy the corpus log of DIGIT=n to target/corpus/corpus-ink-n.jsonl, then clear the log and the board on the tablet (close Sudoku (corpus) first)
-	@test -n "$(DIGIT)" || { echo "Give the digit: make corpus-pull DIGIT=4" >&2; exit 1; }
-	@mkdir -p $(CORPUS_OUT)
-	@out=$(CORPUS_OUT)/corpus-ink-$(DIGIT).jsonl; \
-		if [ -s "$$out" ]; then echo "$$out exists: add it or move it first" >&2; exit 1; fi; \
-		$(SSH) 'f=$(CORPUS_DIR)/$(CORPUS_LOG); [ ! -f "$$f" ] || cat "$$f"' > "$$out.tmp" \
-			|| { rm -f "$$out.tmp"; echo "Cannot read the corpus log on the tablet" >&2; exit 1; }; \
-		if [ ! -s "$$out.tmp" ]; then rm -f "$$out.tmp"; echo "The corpus log on the tablet is empty" >&2; exit 1; fi; \
-		mv "$$out.tmp" "$$out"; \
-		$(SSH) 'rm -f $(CORPUS_DIR)/$(CORPUS_LOG) $(CORPUS_DIR)/game.json'; \
-		echo "$$(grep -c '"stroke"' "$$out") strokes of $(DIGIT) in $$out. The log on the tablet is clear."
 
 xovi-restart: ## Start xovi again on the tablet (the UI starts again: close all notebooks first)
 	$(SSH) '/home/root/xovi/start > /tmp/sudoku-xovi.log 2>&1; i=0; while [ $$i -lt 30 ]; do \

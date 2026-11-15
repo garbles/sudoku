@@ -50,8 +50,7 @@ Choose the track before you change the code. Use the fast track only when all th
    rule or state transition. An existing value can change: the text, a color, a position, a size,
    a time, a limit or a default. §0 of INVARIANTS.md stays the same.
 3. **Small code.** At most two files in `src/` change. You add no file in `src/`. You do not touch
-   `generator.rs`, `solver.rs`, `recognizer.rs`, `update.rs`, `install.sh`, `appload/` or the
-   corpus feature. `src/reference.rs` (the reference states of the snapshot tool) does not count
+   `generator.rs`, `solver.rs`, `recognizer.rs`, `update.rs`, `install.sh` or `appload/`. `src/reference.rs` (the reference states of the snapshot tool) does not count
    as one of the two files. You can examine the diff in one pass.
 4. **Small work.** Besides REQUIREMENTS.md, DECISIONS.md, the comments in `src/` and `bench/`,
    the change touches at most one document group (for example the design images, or README.md),

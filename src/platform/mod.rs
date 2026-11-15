@@ -2,7 +2,6 @@
 //! and the main loop.
 
 pub mod appload;
-pub mod colors;
 pub mod evdev;
 pub mod qtfb;
 
@@ -431,9 +430,6 @@ pub fn run(socket: Option<String>) -> Result<(), String> {
             false
         }
     }));
-    // The corpus build: a blank board, and each ink goes to the corpus log (corpus.rs).
-    #[cfg(feature = "corpus")]
-    crate::corpus::setup(&mut app, &data_dir);
     save(&mut app, &paths, &saver);
 
     let now_ms = || start.elapsed().as_millis() as u64;

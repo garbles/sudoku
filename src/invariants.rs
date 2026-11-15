@@ -15,9 +15,9 @@ const _: () = assert!(RECOGNITION_PAUSE_MS == 1000, "INP-23");
 // LCH-5: the values that the program and the frontend share. LCH-10: the connect time. The tests
 // compare the text of the frontend and of the manifests with these values.
 const _: () = {
-    use crate::launch::{CORPUS, MSG_FRONTEND_CLOSED, MSG_FRONTEND_CONNECTED, MSG_PEN_AREA, MSG_STOP, SUDOKU};
-    assert!(SUDOKU.framebuffer_id == 0x5355444F && CORPUS.framebuffer_id == 0x53554443, "LCH-5");
-    assert!(SUDOKU.app_id.len() == 6 && CORPUS.app_id.len() == 13, "LCH-5");
+    use crate::launch::{MSG_FRONTEND_CLOSED, MSG_FRONTEND_CONNECTED, MSG_PEN_AREA, MSG_STOP, SUDOKU};
+    assert!(SUDOKU.framebuffer_id == 0x5355444F, "LCH-5");
+    assert!(SUDOKU.app_id.len() == 6, "LCH-5");
     assert!(MSG_PEN_AREA == 1 && MSG_STOP == -1 && MSG_FRONTEND_CONNECTED == -2 && MSG_FRONTEND_CLOSED == -3, "LCH-5");
     assert!(crate::launch::CONNECT_TIME_MS == 10_000, "LCH-10");
 };

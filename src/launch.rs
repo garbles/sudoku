@@ -105,10 +105,8 @@ pub struct AppIds {
 
 /// The values of Sudoku.
 pub const SUDOKU: AppIds = AppIds { app_id: "sudoku", framebuffer_id: 0x5355_444F };
-/// The values of the corpus app `Sudoku (corpus)`. `appload/make-folder.sh` puts them in its frontend.
-pub const CORPUS: AppIds = AppIds { app_id: "sudoku-corpus", framebuffer_id: 0x5355_4443 };
 /// The values of this build.
-pub const IDS: AppIds = if cfg!(feature = "corpus") { CORPUS } else { SUDOKU };
+pub const IDS: AppIds = SUDOKU;
 
 /// The message of the program with the pen area: "x y width height", or `NO_AREA`.
 pub const MSG_PEN_AREA: i32 = 1;
@@ -307,11 +305,9 @@ mod tests {
     }
 
     #[test]
-    fn the_ids_of_the_two_apps_are_different() {
+    fn the_ids_of_the_app_are_correct() {
         // LCH-5
         assert_eq!((SUDOKU.app_id, SUDOKU.framebuffer_id), ("sudoku", 0x5355444F));
-        assert_eq!((CORPUS.app_id, CORPUS.framebuffer_id), ("sudoku-corpus", 0x53554443));
-        assert!(SUDOKU.app_id != CORPUS.app_id && SUDOKU.framebuffer_id != CORPUS.framebuffer_id);
     }
 
     #[test]

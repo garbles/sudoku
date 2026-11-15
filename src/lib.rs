@@ -2,9 +2,6 @@
 
 pub mod app;
 pub mod bench;
-pub mod colors;
-#[cfg(feature = "corpus")]
-pub mod corpus;
 pub mod early;
 pub mod game;
 pub mod generator;

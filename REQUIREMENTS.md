@@ -406,12 +406,12 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
 - A pen touch that starts on an **empty cell** shows ink from the pen down, also for a tap. The ink is
   a black line of 5 px with round ends and joins; the ink of a tap is a dot with a radius of 2.5 px.
   The ink has **no anti-aliasing**: each pixel of a stroke or of the dot is black or the pixel that
-  was under it, also where a stroke crosses a filled cell, also in the corpus build. The pen waveform
+  was under it, also where a stroke crosses a filled cell. The pen waveform
   of the pen area gives crisp pixels a smoother stroke ([§14.4](#144-launcher),
   [§15](#15-visual-specification); owner approval 2026-11-07). A pen touch
   that starts on a **filled cell** shows no ink and starts no pen area ([§14.4](#144-launcher)). This
   includes a tap on a number and a stroke that starts on a number. A stroke that starts on an empty cell
-  and crosses a filled cell still shows ink. The corpus build still logs the strokes that do not show
+  and crosses a filled cell still shows ink
   (owner approval 2026-11-07). The ink of a tap goes away when its mark or its x shows, at the pen
   lift (owner request 2026-11-07). If §6.1 refuses the tap, the x shows at the pen lift, not at the pen
   down (owner approval 2026-11-04).
@@ -2064,11 +2064,7 @@ area. The ink is slower there. The frontend knows the full screen, and a minimiz
 values `fullscreen` and `minimized` of the AppLoad window (internal names, above). If it cannot find
 the window, it knows the full screen only from the picture: the scale is 1 and the offset is 0.
 
-**Other apps of the project** (owner decision 2026-11-12). The corpus app `Sudoku (corpus)` has the
-same frontend, with its own app ID (`sudoku-corpus`) and its own framebuffer ID (0x53554443): no two
-installed apps have the same app ID or the same framebuffer ID. The color picker `Sudoku (colors)` stays an external app with no
-pen area, and its folder has no frontend files. The Paper Pro Move uses the frontend, as the Paper
-Pro.
+The Paper Pro Move uses the frontend, as the Paper Pro.
 
 **External mode.** Without the socket argument, the program runs as an external app, as the releases
 before 2026-11-12: it connects to qtfb with `QTFB_KEY`, and it gives the pen area in the file

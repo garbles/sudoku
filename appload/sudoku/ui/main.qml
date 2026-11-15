@@ -30,8 +30,7 @@ Item {
     // button of the app stops the program, and AppLoad then closes the window.
     signal close
 
-    // LCH-5: the app ID of manifest.json and the framebuffer ID of the program. The corpus app
-    // gets its own values (appload/make-folder.sh).
+    // LCH-5: the app ID of manifest.json and the framebuffer ID of the program.
     readonly property string appId: "sudoku"
     readonly property int framebufferId: 0x5355444F
     // The message of the program with the pen area: "x y width height" in the coordinates of the

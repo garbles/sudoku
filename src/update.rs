@@ -235,13 +235,11 @@ pub fn install(archive: &[u8], m: &Manifest, staging: &Path, app_dir: &Path) -> 
 /// The folder of the ink patch of the releases before the frontend (REQUIREMENTS.md §14.4).
 /// qt-resource-rebuilder reads the patches here when xochitl starts.
 pub const PATCH_DIR: &str = "/home/root/xovi/exthome/qt-resource-rebuilder";
-/// The file name of the ink patch in `PATCH_DIR`. The corpus app had its own copy of the patch: it
-/// does not use and does not delete the patch of Sudoku.
-pub const PATCH_NAME: &str = if cfg!(feature = "corpus") { "sudoku-corpus-penregion.qmd" } else { "sudoku-penregion.qmd" };
+/// The file name of the ink patch in `PATCH_DIR`.
+pub const PATCH_NAME: &str = "sudoku-penregion.qmd";
 /// The stamp file next to the patch: an earlier release and the installer wrote the version and the
-/// checksum of the patch in it. The app does not read it and does not write it (UPD-11). The corpus
-/// app had no stamp file.
-pub const PATCH_STAMP: &str = if cfg!(feature = "corpus") { "sudoku-corpus-penregion.json" } else { "sudoku-penregion.json" };
+/// checksum of the patch in it. The app does not read it and does not write it (UPD-11).
+pub const PATCH_STAMP: &str = "sudoku-penregion.json";
 
 /// Deletes the ink patch and its stamp file in `patch_dir`, and the pen area file `pen_area_file`
 /// of the external mode, if they are there (UPD-11). Only the frontend mode calls it: the external

@@ -1986,8 +1986,7 @@ fn the_pause_has_one_source_and_the_manifest_does_not_set_it() {
     // INP-23: no AppLoad manifest of the app sets the pause, in the frontend mode (`manifest.json`) and in
     // the external mode (`external.manifest.json`): each manifest in `appload/` has no environment and
     // does not give the pause. No other file of the AppLoad folders (also `backend/entry`, which starts
-    // the program in the frontend mode, and `make-folder.sh`, which makes the manifests of the corpus
-    // app) and no Dockerfile (they make the folders of the corpus app and of the color picker) gives the
+    // the program in the frontend mode, and `make-folder.sh`, which copies the manifests) and no Dockerfile gives the
     // pause. No source file reads an environment variable for the pause.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut files = vec![root.join("appload")];

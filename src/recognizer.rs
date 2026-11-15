@@ -99,8 +99,7 @@ fn default() -> &'static Recognizer {
 
 static OWNER_DATA: &str = include_str!("../assets/owner-handwriting.jsonl");
 
-/// The examples of assets/owner-handwriting.jsonl: handwriting of the owner on the device. The
-/// corpus build collects them (src/corpus.rs, examples/corpus.rs, the skill `remarkable-corpus`).
+/// The examples of assets/owner-handwriting.jsonl: handwriting of the owner on the device.
 /// Each line has the class and the strokes, in a box of 0..255 (as the database). The writer is 0.
 pub fn owner_examples() -> &'static [Sample] {
     static S: OnceLock<Vec<Sample>> = OnceLock::new();
@@ -1091,7 +1090,7 @@ mod tests {
 
     #[test]
     fn owner_examples_are_correct() {
-        // assets/owner-handwriting.jsonl: each example is a digit 1 to 9 (the corpus build collects
+        // assets/owner-handwriting.jsonl: each example is a digit 1 to 9 (the file has
         // only digits), in the box 0..255, and the recognizer can read its features.
         for (i, s) in owner_examples().iter().enumerate() {
             assert!((1..=9).contains(&s.class), "example {i}: class {}", s.class);

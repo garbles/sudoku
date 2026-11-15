@@ -199,23 +199,8 @@ impl LicensesUi {
 type SaveGame = Box<dyn FnMut(&Game) -> bool>;
 
 /// Receives each reading of ink: the cell, the strokes and the result. Only an examination of the
-/// recognizer on a device uses it (`platform`: the file `log-ink` in the data folder, or the corpus
-/// build, `corpus.rs`).
+/// recognizer on a device uses it (`platform`: the file `log-ink` in the data folder).
 pub type InkLog = Box<dyn FnMut(Cell, &[Stroke], Option<u8>)>;
-
-/// An input on the board for `StrokeLog`.
-pub enum BoardInput<'a> {
-    /// A pen stroke that starts in this cell: also a tap, and a stroke that the app discards (a
-    /// stroke on a filled cell).
-    Stroke(Cell, &'a [recognizer::Point]),
-    /// The eraser touched this cell.
-    Erase(Cell),
-}
-
-/// Receives each pen stroke and each erasure on the board, with its cell. Only the corpus build
-/// (`corpus.rs`) uses it: it keeps all strokes of a cell together, also when the app reads the ink
-/// between two strokes.
-pub type StrokeLog = Box<dyn FnMut(BoardInput)>;
 
 /// Things that the platform gives to the app: the wall clock and new seeds.
 pub trait Env {
@@ -239,14 +224,12 @@ enum Gesture {
     Writing,
     /// The touch started on an empty cell, and a finger Redo filled that cell before the pen left the
     /// micro-cell. The touch has no effect. The app removes its ink on the release.
-    DiscardInk { cell: Cell },
+    DiscardInk,
     /// A pen press on a filled cell. It is a tap while it stays in the micro-cell. It shows no ink and
-    /// starts no pen area (INP-22). `stroke` is only for `StrokeLog`. `highlight_at_press`: refer to
-    /// `App::board_tap`.
-    FilledTap { cell: Cell, digit: u8, stroke: Stroke, highlight_at_press: Option<u8> },
+    /// starts no pen area (INP-22). `highlight_at_press`: refer to `App::board_tap`.
+    FilledTap { cell: Cell, digit: u8, highlight_at_press: Option<u8> },
     /// A stroke that started on a filled cell. It shows no ink and starts no pen area (INP-22).
-    /// `stroke` is only for `StrokeLog`.
-    FilledStroke { cell: Cell, stroke: Stroke },
+    FilledStroke,
     Eraser,
     /// The finger or pen moves the slider of the New game panel.
     Slider,
@@ -375,7 +358,6 @@ pub struct App {
     /// result: thus a power loss can never record the same game two times (CMP-5).
     pub save_game_now: Option<SaveGame>,
     pub ink_log: Option<InkLog>,
-    pub stroke_log: Option<StrokeLog>,
     /// The screen can be different from the last full drawing. False if the only change is new points
     /// of `live_stroke`: then the platform draws only the new part of the ink, so that the ink follows
     /// the pen.
@@ -460,7 +442,6 @@ impl App {
             redraw: true,
             save_game_now: None,
             ink_log: None,
-            stroke_log: None,
         };
         // PUZ-7: a completed game from the save shows the result card, thus the puzzle of Same
         // starts now.
@@ -536,7 +517,7 @@ impl App {
 
     /// True while a pen touch that started on a filled cell is on the board (INP-22).
     pub(crate) fn pen_on_filled_cell(&self) -> bool {
-        matches!(self.pen, Some(Gesture::FilledTap { .. } | Gesture::FilledStroke { .. }))
+        matches!(self.pen, Some(Gesture::FilledTap { .. } | Gesture::FilledStroke))
     }
 
     /// The cell that the pen area must cover now (R§14.4, `present::Presenter`): the cell of the
@@ -621,7 +602,7 @@ impl App {
         let ink_only = matches!(input, Input::PenMove { .. })
             && matches!(
                 self.pen,
-                Some(Gesture::Writing | Gesture::DiscardInk { .. } | Gesture::BoardTap { .. } | Gesture::FilledTap { .. } | Gesture::FilledStroke { .. })
+                Some(Gesture::Writing | Gesture::DiscardInk | Gesture::BoardTap { .. } | Gesture::FilledTap { .. } | Gesture::FilledStroke)
             );
         let before = (!ink_only).then(|| self.view_key());
         match input {
@@ -877,7 +858,7 @@ impl App {
                 Gesture::Eraser
             }
             // INP-22: no ink and no pen area on a filled cell.
-            Tool::Pen if self.game.is_filled(cell) => Gesture::FilledTap { cell, digit, stroke: vec![(x, y)], highlight_at_press },
+            Tool::Pen if self.game.is_filled(cell) => Gesture::FilledTap { cell, digit, highlight_at_press },
             Tool::Pen => {
                 self.start_live_stroke(x, y);
                 Gesture::BoardTap { cell, digit, highlight_at_press }
@@ -901,30 +882,25 @@ impl App {
                 }
                 // The pen left the micro-cell: this touch is writing (INP-2).
                 if self.game.is_filled(cell) {
-                    Gesture::DiscardInk { cell }
+                    Gesture::DiscardInk
                 } else {
                     self.ui.pending_ink = Some(PendingInk { cell, strokes: Vec::new(), last_lift_at: None });
                     Gesture::Writing
                 }
             }
-            Gesture::Writing | Gesture::DiscardInk { .. } => {
+            Gesture::Writing | Gesture::DiscardInk => {
                 if let Some(s) = self.live_stroke.as_mut() {
                     s.push((x, y));
                 }
                 g
             }
-            Gesture::FilledTap { cell, digit, mut stroke, highlight_at_press } => {
-                stroke.push((x, y));
+            Gesture::FilledTap { cell, digit, .. } => {
                 // The pen left the micro-cell: this touch is a stroke (INP-2).
                 if layout::board_micro(x, y) == Some((cell, digit)) {
-                    Gesture::FilledTap { cell, digit, stroke, highlight_at_press }
+                    g
                 } else {
-                    Gesture::FilledStroke { cell, stroke }
+                    Gesture::FilledStroke
                 }
-            }
-            Gesture::FilledStroke { cell, mut stroke } => {
-                stroke.push((x, y));
-                Gesture::FilledStroke { cell, stroke }
             }
             Gesture::Eraser => {
                 self.erase_at(x, y);
@@ -935,27 +911,22 @@ impl App {
                 g
             }
             // The pen motion has no effect: a control acts on the release, and a swipe is a finger gesture.
-            Gesture::Ignored | Gesture::Control(_) | Gesture::Swipe { .. } => g,
+            Gesture::Ignored | Gesture::FilledStroke | Gesture::Control(_) | Gesture::Swipe { .. } => g,
         }
     }
 
     fn pen_up(&mut self, g: Gesture, x: f32, y: f32, now: u64) {
         match g {
             Gesture::BoardTap { cell, digit, highlight_at_press, .. } => {
-                let stroke = self.live_stroke.take().unwrap_or_default();
-                self.log_stroke(cell, &stroke);
+                self.live_stroke = None;
                 self.board_tap(cell, digit, highlight_at_press, now);
             }
-            Gesture::FilledTap { cell, digit, stroke, highlight_at_press } => {
-                self.log_stroke(cell, &stroke);
+            Gesture::FilledTap { cell, digit, highlight_at_press } => {
                 self.board_tap(cell, digit, highlight_at_press, now);
             }
             Gesture::Writing => {
                 let stroke = self.live_stroke.take().unwrap_or_default();
                 if let Some(ink) = self.ui.pending_ink.as_mut() {
-                    if let Some(log) = self.stroke_log.as_mut() {
-                        log(BoardInput::Stroke(ink.cell, &stroke));
-                    }
                     ink.strokes.push(stroke);
                     ink.last_lift_at = Some(now);
                     // The pause gives the time to read the ink (INP-5): read_ink then gets the result.
@@ -963,28 +934,19 @@ impl App {
                 }
                 self.start_writing_timer(now);
             }
-            Gesture::DiscardInk { cell } => {
-                let stroke = self.live_stroke.take().unwrap_or_default();
-                self.log_stroke(cell, &stroke);
+            Gesture::DiscardInk => {
+                self.live_stroke = None;
                 self.start_writing_timer(now);
             }
             // INP-7: a stroke from a filled cell changes only the highlight (HLT-2). If no highlight
             // shows, nothing changes on the screen, thus no redraw occurs.
-            Gesture::FilledStroke { cell, stroke } => {
-                self.log_stroke(cell, &stroke);
+            Gesture::FilledStroke => {
                 self.ui.highlight = None;
                 self.start_writing_timer(now);
             }
             Gesture::Control(t) => self.release_control(t, x, y, now),
             // The erasure and the slider move occur during the motion. The release has no effect.
             Gesture::Ignored | Gesture::Eraser | Gesture::Slider | Gesture::Swipe { .. } => {}
-        }
-    }
-
-    /// Gives a stroke to `StrokeLog`. A stroke is empty if a completed game removed the live stroke.
-    fn log_stroke(&mut self, cell: Cell, stroke: &[recognizer::Point]) {
-        if let Some(log) = self.stroke_log.as_mut().filter(|_| !stroke.is_empty()) {
-            log(BoardInput::Stroke(cell, stroke));
         }
     }
 
@@ -1019,9 +981,9 @@ impl App {
             | Gesture::Slider
             | Gesture::BoardTap { .. }
             | Gesture::Writing
-            | Gesture::DiscardInk { .. }
+            | Gesture::DiscardInk
             | Gesture::FilledTap { .. }
-            | Gesture::FilledStroke { .. }
+            | Gesture::FilledStroke
             | Gesture::Eraser => {}
         }
     }
@@ -1057,9 +1019,6 @@ impl App {
 
     fn erase_at(&mut self, x: f32, y: f32) {
         if let Some(cell) = layout::board_cell(x, y) {
-            if let Some(log) = self.stroke_log.as_mut() {
-                log(BoardInput::Erase(cell));
-            }
             let o = self.game.erase(cell);
             self.after_game_change(o);
         }

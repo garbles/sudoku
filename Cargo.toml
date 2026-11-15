@@ -13,11 +13,6 @@ path = "src/lib.rs"
 name = "sudoku"
 path = "src/bin/sudoku.rs"
 
-# The separate app Sudoku (colors), for development only: a color picker (src/colors.rs).
-[[bin]]
-name = "sudoku-colors"
-path = "src/bin/sudoku-colors.rs"
-
 [[bin]]
 name = "snapshot"
 path = "src/bin/snapshot.rs"
@@ -29,12 +24,6 @@ path = "src/bin/video.rs"
 [[bin]]
 name = "bench"
 path = "src/bin/bench.rs"
-
-[features]
-# The corpus build (a development build only): a blank board, and each ink goes to a log with its
-# cell. It collects handwriting examples for the recognizer (src/corpus.rs, the skill
-# `remarkable-corpus`). Do not use it for a release.
-corpus = []
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
