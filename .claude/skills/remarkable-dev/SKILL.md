@@ -39,6 +39,18 @@ Use a different skill for these tasks:
 - A refactor with no change of behavior: `improve-architecture`.
 - An audit of the documents: `audit-doc-claims`.
 
+## Ask the user first
+
+Do not start this skill on your own. Before you change the code, ask the user if they want
+the `remarkable-dev` process (the prototype, the install on the tablet and the approval). Use
+the AskUserQuestion tool. Give these two options:
+
+- **Start the process (Recommended)**: use this skill, from "Choose the track".
+- **Do not start the process**: do the work in the usual way, with no prototype and no track.
+
+Start the process only after the user says yes. If the user says no, do not use the rest of this
+skill. If the user typed `/remarkable-dev`, the request is already a yes: do not ask again.
+
 ## Choose the track
 
 Choose the track before you change the code. Use the fast track only when all these items are true:
