@@ -393,10 +393,27 @@ fn without_the_rotation_or_the_top_bar_the_frontend_stays_in_portrait() {
     assert_eq!(q.matches("fb.fbRotation = ").count(), 1, "LCH-8: only turn() sets the rotation");
     let completed = q.split("Component.onCompleted:").nth(1).unwrap().split("\n    }").next().unwrap();
     assert!(completed.contains("if (!root.canTurn)\n            console.log("), "LCH-8: one log line: {completed}");
-    assert_eq!(q.matches("console.log(").count(), 1, "LCH-8: the log gets one line");
+    // The log line of the full refresh (LCH-11) is in refreshScreen(), and it does not count here.
+    let without_refresh = q.replace(q.split("function refreshScreen()").nth(1).unwrap().split("\n    }\n").next().unwrap(), "");
+    assert_eq!(without_refresh.matches("console.log(").count(), 1, "LCH-8: the log gets one line");
     assert!(completed.contains("fb.fillMode = FBController.PreserveAspectFit"), "LCH-8: no cut screen");
     // A drag from the top edge uses the top bar function only when it is there.
     assert!(q.contains("if (root.win !== null && typeof root.win.swipeFromTheTop === \"function\")\n                root.win.swipeFromTheTop()"));
+}
+
+#[test]
+fn the_frontend_asks_for_one_full_refresh_before_the_program_connects() {
+    // LCH-11: one full refresh of xochitl when the frontend loads, before the program connects. A
+    // failure writes one log line and the load continues.
+    let q = qml();
+    let refresh = q.split("function refreshScreen()").nth(1).unwrap().split("\n    }\n").next().unwrap();
+    assert!(refresh.contains("Epaper.EPFramebuffer.clearGhosting()"), "LCH-11: {refresh}");
+    assert!(refresh.contains("try {") && refresh.contains("catch (e)") && refresh.contains("console.log("), "LCH-11: {refresh}");
+    assert_eq!(q.matches("root.refreshScreen()").count(), 1, "LCH-11: one call");
+    let completed = q.split("Component.onCompleted:").nth(1).unwrap();
+    let call = completed.find("root.refreshScreen()").expect("LCH-11: the call is in onCompleted");
+    let connect = completed.find("backend.applicationID = root.appId").unwrap();
+    assert!(call < connect, "LCH-11: the refresh comes before the connection of the program");
 }
 
 // ---------------------------------------------------------------------------------------------
