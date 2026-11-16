@@ -1941,6 +1941,11 @@ In the frontend mode:
   message, thus the framebuffer item has the rotation before the first frame. The program sends no
   qtfb refresh mode in this mode: the test setting `refresh-mode` has an effect only in the external
   mode.
+- When the frontend loads, before it connects the program, it asks xochitl for a full refresh of the
+  screen (`EPFramebuffer.clearGhosting()`), which removes the ghosts of the earlier screen. The
+  frontend loads the module of xochitl at run time. If the call is not possible, the frontend
+  writes one line to the log and continues: the app operates fully with no full refresh. The
+  program does not refresh the screen on its own at the start (no black or white flash).
 - The frontend puts the UI mode on the full window and the pen mode on the pen area. AppLoad gives
   the values of `DisplayMethodArea` to the tablet by their position: 0 is the pen mode (`UFast`), 1
   mono, 2 animation, 3 the UI mode, 4 the content mode. The names `Content` (3) and `UI` (4) of the

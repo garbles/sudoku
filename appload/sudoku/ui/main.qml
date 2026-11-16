@@ -118,7 +118,23 @@ Item {
         return v.length === 4 && v.every(n => isFinite(n)) && v[2] > 0 && v[3] > 0 ? v : null
     }
 
+    // Asks xochitl for a full refresh of the screen (ghost removal), before the program draws its
+    // first frame. EPFramebuffer is a singleton of xochitl: the module is loaded at run time, so that
+    // a tablet without it (or with another name) still loads this file.
+    function refreshScreen() {
+        try {
+            const fbs = Qt.createQmlObject(
+                'import QtQuick 2.5\nimport xofm.libs.epaper as Epaper\nQtObject { function run() { Epaper.EPFramebuffer.clearGhosting() } }',
+                root, "sudokuRefresh")
+            fbs.run()
+            fbs.destroy()
+        } catch (e) {
+            console.log("sudoku: no full screen refresh: " + e)
+        }
+    }
+
     Component.onCompleted: {
+        root.refreshScreen()
         root.win = root.findWindow()
         if (!root.canTurn)
             console.log("sudoku: no rotation value or no top bar function in the AppLoad window: the app stays in portrait")

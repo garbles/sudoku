@@ -1423,3 +1423,14 @@ Conclusions from the decisions and the facts (not owner decisions):
   after step 11). The limits of 66 and 90 columns apply.
 - The review found that the fallback copy of an old program (the update across two file systems) has no
   subfolders: with `backend/` it gives "Update failed", and the folder does not change. Not examined.
+
+## Owner request: a full refresh at the start, 2026-11-15
+
+The owner asked for a full screen refresh when the app starts. The first idea was a black frame then
+a white frame from the program (about 1.2 s at the start). The owner chose to use the refresh of
+xochitl first (`FINDINGS.md` of the xochitl review, §1.5): the frontend calls
+`EPFramebuffer.clearGhosting()` when it loads, before the program draws its first frame.
+
+| Examined | Result |
+| -------- | ------ |
+| Dev build on the tablet with the call in `main.qml` | The owner: it works as expected. The black and white flash of the program was not used. |
