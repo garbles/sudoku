@@ -183,8 +183,9 @@ The game screen has three independent parts:
 
 Overlays occur only when the puzzle is in progress. A completed puzzle does not show overlays.
 A highlight can show while the menu or a panel is open. Only the items in [§6.2](#62-highlights) remove
-a highlight. A finger or a hand on the screen does not remove it (owner approval 2026-11-07). A "?" can
-show with a highlight in a different cell: a pen tap on a number while ink waits in a different cell reads
+a highlight. A highlight stays through a pencil mark, an x, a "?", a number from ink and a stroke on a
+filled cell (owner approval 2026-11-17). A finger or a hand on the screen does not remove it (owner approval 2026-11-07). A "?" or an x can
+show with a highlight in any cell (owner approval 2026-11-17). Example: a pen tap on a number while ink waits in a different cell reads
 the ink at the press and makes the highlight at the lift (approved prototype 2026-11-07).
 
 The "?" and the x can show at the same time in different cells, each with its own time. Example: a
@@ -196,7 +197,7 @@ These rules for the x are true at all times (they follow from the owner approval
 - At most one x shows.
 - An x implies all of these: the game screen shows, no panel is open, the game is not complete, the
   update dialog (§9.2) does not show, its cell is empty, "Hide pencil marks automatically" is on, a
-  peer has its digit, no highlight shows and no ink waits. The x is never on the same cell as a "?".
+  peer has its digit and no ink waits. A highlight can show (owner approval 2026-11-17). The x is never on the same cell as a "?".
 - These remove the x: the end of its time, a press of the pen or of a finger (§5.1; not a touch that
   starts less than 150 ms after a pen lift, owner approval 2026-11-07), the release of a control that does an action (§9), completion, a change of screen, a new game and the update
   dialog (§9.2). The release of a control removes only the x, not a "?" in a different cell.
@@ -211,19 +212,19 @@ stateDiagram-v2
         state "? shown" as Question
         state "x shown" as Refused
         state "? and x shown (different cells)" as Both
-        state "? and highlight shown (different cells)" as QuestionHighlight
+        state "? and highlight shown" as QuestionHighlight
+        state "x and highlight shown" as RefusedHighlight
         Plain --> Highlighted: pen tap on a number, at the pen lift
         Highlighted --> Highlighted: pen tap on a different number, at the pen lift
-        Highlighted --> Highlighted: finger, hand, menu, panel, undo, redo, Restore, eraser, pen press off the board on no control with no waiting ink
+        Highlighted --> Highlighted: finger, hand, menu, panel, undo, redo, Restore, eraser, pen press off the board on no control with no waiting ink, pen tap on an empty cell that changes a mark, pen stroke that starts on a filled cell, read of waiting ink that gives a number
         Highlighted --> Plain: pen tap on the same number, at the pen lift
-        Highlighted --> Plain: pen tap on an empty cell that changes a mark, at the pen lift
-        Highlighted --> Plain: pen stroke that starts on a filled cell, at the pen lift
-        Highlighted --> Plain: read of waiting ink that gives a number
         Highlighted --> Plain: new game, restart or completion
         Highlighted --> Plain: Help, Statistics, Licenses or update dialog
         Highlighted --> Plain: the switch Highlight numbers goes off
-        Highlighted --> Question: read of waiting ink that is not 1 to 9
-        Highlighted --> Refused: refused pen tap, at the pen lift
+        Highlighted --> QuestionHighlight: read of waiting ink that is not 1 to 9
+        Highlighted --> RefusedHighlight: refused pen tap, at the pen lift
+        RefusedHighlight --> Highlighted: after approximately one second, a press of the pen or of a finger, or release of a control that does an action
+        RefusedHighlight --> Plain: new game, restart, completion, change of screen, update dialog or the switch Highlight numbers goes off
         Plain --> Question: writing that is not 1 to 9
         Question --> Plain: after approximately one second
         Question --> Plain: a press of the pen or of a finger (not a touch less than 150 ms after a pen lift)
@@ -493,7 +494,7 @@ The player selects the four colors in the Cell colors panel ([§10](#10-cell-col
   the x or of the "?" can stay on the screen, under the ink of the player, until the writing stops:
   approximately one second after the last stroke (owner decision 2026-11-04).
 - Writing on a **starting number** or on **your number** changes no number and no mark, and it shows
-  no ink. It only removes a highlight ([§6.2](#62-highlights); owner approval 2026-11-07). To change your number, erase it
+  no ink. It changes no highlight ([§6.2](#62-highlights); owner approval 2026-11-17). To change your number, erase it
   first.
 - The **eraser** is the other end of the pen. When you rub it on your number, the app removes the
   number. The micro-cells and the pencil marks of that cell show again.
@@ -536,21 +537,20 @@ flowchart TD
     G0 -- yes --> G3[Remove the highlight]
     G0 -- no --> G1[Highlight all cells with that digit]
     G -- no --> GR{Is Hide pencil marks automatically on, and does a peer have that digit?}
-    GR -- yes --> GX[No change to the game; at the pen lift, remove the highlight and show the x in that micro-cell for approximately one second]
-    GR -- no --> G2[At the pen lift, add or remove the pencil mark of that micro-cell and remove the highlight]
+    GR -- yes --> GX[No change to the game; at the pen lift, show the x in that micro-cell for approximately one second; the highlight stays]
+    GR -- no --> G2[At the pen lift, add or remove the pencil mark of that micro-cell; the highlight stays]
     F -- no, writing --> H{Does the cell have a number?}
-    H -- yes, the touch started on the filled cell --> X4[No ink; at the pen lift, remove the highlight; no other effect]
-    H -- no --> I[Collect the strokes until the pause of 1 s after the pen lifts, then read them and remove the highlight]
+    H -- yes, the touch started on the filled cell --> X4[No ink; no change to the game and the highlight; only the writing timer starts]
+    H -- no --> I[Collect the strokes until the pause of 1 s after the pen lifts, then read them; the highlight stays]
     I --> J{Is it a number from 1 to 9?}
     J -- yes --> K[Add the number, hide the marks of the cell, if Hide pencil marks automatically is on, hide the digit in the marks of the peer cells, find clashes and complete groups, find completion]
     J -- no --> L[Show ? for approximately one second, then show the cell as before]
 ```
 
-The highlight does not change at the pen press, unless that press reads waiting ink
-([§6.2](#62-highlights)). Its removal or move goes to the screen in one redraw
-with the result of the action: a tap at the pen lift, and writing when the app reads the ink. Two updates
+A pen press never changes the highlight ([§6.2](#62-highlights); owner approval 2026-11-17). Its removal or move goes
+to the screen in one redraw with the result of the action: a tap on a number at the pen lift. Two updates
 remain in these known cases, which the owner accepts: a pen press on a control while ink waits (the
-number at the press, the action at the release), and a press on a control that removes an x or a "?"
+read at the press, the action at the release), and a press on a control that removes an x or a "?"
 (the removal at the press, the action at the release) (owner approval 2026-11-07). A pen tap on a number
 while ink waits in a different cell is not a third case: the pen touch keeps the writing state until the
 lift, thus the redraw waits, and the read and the highlight go in one redraw (approved prototype 2026-11-07).
@@ -616,21 +616,24 @@ Tap a number with the pen (a starting number or your number). The app then gives
 complete group that has that digit shows the highlight color, not the completed color
 ([§4.2](#42-cell-background-color); owner approval 2026-11-04 and 2026-11-05).
 
-**Only these remove a highlight** (owner approval 2026-11-07):
+**Only these remove a highlight** (owner approval 2026-11-07 and 2026-11-17):
 
 - A pen tap on the same number (it toggles), or a tap on a different number (it moves), at the pen lift.
-- A pen tap on an empty cell, at the pen lift, in the same redraw as the mark or the x.
-- A pen stroke that starts on a filled cell, at the pen lift. The redraw can wait up to the 1 s idle time
-  ([§14.4](#144-launcher)).
-- A read of waiting ink, by any cause, in the same redraw as the number or the "?".
 - A new game, a restart of the app (the app does not save the highlight, approved prototype 2026-11-07) and a completed puzzle. A completed puzzle does not show highlights.
 - Leaving the board for Help, Statistics or the Licenses list ([§9.4](#94-third-party-licenses)). The highlight does not come back on return.
 - The update dialog ([§9.2](#92-updates)). The highlight does not come back after **Later**.
 - Turning off the switch "Highlight numbers" ([§9.1](#91-settings-panel)). The highlight goes in that
   redraw. While the switch is off, a tap on a number does not make a highlight.
 
-**These do not remove a highlight** (owner approval 2026-11-07):
+The highlight stays until the player taps the same number again or taps a different number (owner
+decision 2026-11-17).
 
+**These do not remove a highlight** (owner approval 2026-11-07 and 2026-11-17):
+
+- A pen tap on an empty cell: a pencil mark that is added or removed, or the x of a refused tap.
+- A pen stroke that starts on a filled cell. It changes no state; only the writing timer starts.
+- A read of waiting ink, for any cause: a number, or the "?". A number that the ink writes with the
+  highlighted digit shows highlighted (the highlight is by digit).
 - A finger or a hand on the board or anywhere else, and a second finger.
 - The menu, the panels and their options. The exceptions are the options in the list above: Start new
   game, Help, Statistics, Third-party licenses and turning off "Highlight numbers". A highlight can show
@@ -638,28 +641,24 @@ complete group that has that digit shows the highlight color, not the completed 
 - Undo, Redo and Restore. If they remove the last number with that digit, the highlight stays, and it
   shows again when that digit comes back. A tap on that digit then removes the highlight.
 - The eraser.
-- A pen press off the board on no control, if no ink waits (approved prototype 2026-11-07).
+- A pen press, on the board or off it, on a control or on no control.
 
-Consequences (owner approval 2026-11-07):
+Consequences (owner approval 2026-11-07 and 2026-11-17):
 
-- A pen press on a control while ink waits reads the ink, and that read removes the highlight.
-- A pen press off the board on no control while ink waits reads the ink, and that read removes the
-  highlight (approved prototype 2026-11-07).
+- A highlight can show with an x or a "?" in any cell. The pencil marks, the clash colors and the "?" look
+  as before under a highlight.
+- A pen press on a control, or off the board on no control, while ink waits reads the ink. The highlight stays.
 - A pen tap on a number while ink waits in a different cell reads the ink at the press and makes the
   highlight at the lift, in one redraw when the pen area is in use. In the external mode ([§14.4](#144-launcher)), when the ink patch is not active, the
   tap gives two updates ([§5.2](#52-input-decisions); review of the change, 2026-11-07). A "?" of that read can show with that highlight (approved prototype 2026-11-07).
 - A tap on a number compares with the highlight as it was at the press, not with the highlight after
   the read. With highlight v and ink waiting in a different cell, a tap on v reads the ink at the press
   and gives no highlight at the lift. A tap on a different digit w gives highlight w (approved prototype 2026-11-07).
-- A control that a finger operates reads waiting ink at its release, and that read removes the highlight.
+- A control that a finger operates reads waiting ink at its release. The highlight stays.
 - The eraser on waiting ink in its own cell, a turn of the tablet and a suspension remove the ink but keep
   the highlight.
 
 A highlight occurs only on the game screen. The redraw rules are in [§5.2](#52-input-decisions).
-
-A stroke on a filled cell removes the highlight in the state, but its pixels can stay up to 1 s. A tap on
-that number in this time makes a highlight. The player can see this as a failed removal. The owner did not
-ask for a change (review of the change, 2026-11-07).
 
 Images: [`screen-highlight.png`](images/pro/screen-highlight.png),
 [`manual-helpers.png`](images/pro/manual-helpers.png) (bottom).
@@ -1380,7 +1379,7 @@ visible change (review finding 2026-11-06).
 undo and redo history and the clock do not change. The app saves the game file.
 
 **Guard after a delete** (owner decision 2026-11-06). For 0.5 s after a delete, with this panel open, a
-press in the area of the panel at its maximum size changes nothing (portrait: x 908–1507, y 560–1392; in
+press in the area of the panel at its maximum size changes nothing, except that it removes the "?" and the x (QST-4, MRK-15) (portrait: x 908–1507, y 560–1392; in
 the other layouts, the x range of the table above and the same y range). Thus the second tap of a fast
 double tap does not delete the row that moved up, and it does not close the panel. A press out of that
 area and on the toolbar operates as usual.
@@ -2067,7 +2066,7 @@ app in a small window: the manifest of an app with a QML frontend cannot turn th
 that is not the full screen, the app operates with a scaled picture, and the frontend shows no pen
 area. The ink is slower there. The frontend knows the full screen, and a minimized window, from the
 values `fullscreen` and `minimized` of the AppLoad window (internal names, above). If it cannot find
-the window, it knows the full screen only from the picture: the scale is 1 and the offset is 0.
+the window, it knows the full screen only from the picture: the scale is 1 and the offset is 0, and only when the frontend also knows the size of the framebuffer (AppLoad 0.6.0 or newer). Without that size, the pen area does not show.
 
 The Paper Pro Move uses the frontend, as the Paper Pro.
 
@@ -2298,7 +2297,7 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | Checkpoint row | Small board of 155 px with cells of 17 px, digits Regular 14, mark dots of 2×2 px `gray25`; text Regular 25 `gray25`; button 141×71 px, text Medium 25; bin icon of the games list (§9.3; owner approval 2026-11-06) |
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
 | Difficulty meter | "Easy" to "Hard" across 440 px; 7 stops; the current stop is a knob with a radius of 13 px |
-| New game panel | 506 px wide, three rows of 112 px with 2 px black dividers: the slider, Symmetrical, Start new game. Top at the top of the bottom toolbar slot − 226 px (portrait: y 1822; before: y 1936). Label "Symmetrical" Medium 25 px, black, x at panel left + 33, baseline at the row center + 9; the switch of the Settings panel, 33 px from the right edge (§11; owner approval 2026-11-07) |
+| New game panel | 506 px wide, two rows of 112 px and a last row of 110 px, with 2 px black dividers: the slider, Symmetrical, Start new game. Top at the top of the bottom toolbar slot − 226 px (portrait: y 1822; before: y 1936). Label "Symmetrical" Medium 25 px, black, x at panel left + 33, baseline at the row center + 9; the switch of the Settings panel, 33 px from the right edge (§11; owner approval 2026-11-07) |
 | Switch (Settings panel, New game panel) | Track 72×36 px, 3 px border; knob of 28 px; 33 px from the right edge of the panel |
 | Caution icon (gear) | Circle `#D62D20`, radius 10 px, 3 px white border, white "!"; center 16 px right of and 16 px above the gear center |
 

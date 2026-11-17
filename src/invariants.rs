@@ -446,7 +446,6 @@ pub fn check_app(app: &App) -> Result<(), String> {
         ensure!(!g.is_filled(cell), "MRK-12", "x on the filled cell {cell:?}");
         ensure!(app.settings.auto_hide_on, "MRK-12", "x while automatic hiding is off");
         ensure!(g.peer_digits(cell) & mark_bit(d) != 0, "MRK-12", "x of {d} at {cell:?}, and no peer has the number {d}");
-        ensure!(ui.highlight.is_none(), "MRK-12", "x with a highlight");
         ensure!(ui.pending_ink.is_none(), "MRK-12", "x with waiting ink");
         ensure!(ui.question.is_none_or(|(q, _)| q != cell), "MRK-12", "x and ? on the cell {cell:?}");
     }

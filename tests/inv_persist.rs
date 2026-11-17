@@ -1382,11 +1382,11 @@ fn the_saved_files_have_no_x_and_the_app_opens_with_no_x() {
     std::fs::remove_dir_all(&dir).ok();
 }
 
-// ---- HLT-2 item 5, PER-2: a restart.
+// ---- HLT-2 item 2, PER-2: a restart.
 
 #[test]
 fn a_restart_of_the_app_removes_a_highlight() {
-    // HLT-2 item 5, PER-2 (owner decision 2026-11-07): the app does not save the highlight, thus it does not
+    // HLT-2 item 2, PER-2 (owner decision 2026-11-07): the app does not save the highlight, thus it does not
     // come back at the next start. The game itself comes back.
     let mut d = Driver::new(701);
     let given = given_cell(&d.app.game);

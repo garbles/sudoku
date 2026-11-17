@@ -701,18 +701,18 @@ impl App {
         if toolbar_ignored && self.screen == Screen::Game && layout::game_button(x, y, self.ui.menu.is_open()).is_some() {
             return Gesture::Ignored;
         }
+        // Each press removes the "?" and the x before the app does the action (QST-4, MRK-15). The press that the delete guard ignores (CKP-8) also removes them. A press
+        // never changes the highlight (HLT-9).
+        self.ui.question = None;
+        self.ui.refused = None;
+
         // CKP-8: shortly after a delete, a press in the area of the Checkpoints panel at its maximum
-        // size changes nothing. It is often the second tap of a fast double tap on a bin, and a
+        // size changes nothing except the "?" and the x. It is often the second tap of a fast double tap on a bin, and a
         // different row is at that position now. The dialog "Restart the interface?" covers the panel.
         let guarded = self.ui.delete_guard_until.is_some_and(|t| now < t);
         if guarded && !self.update.dialog_shown() && layout::ckp_guard_area().contains(x, y) {
             return Gesture::Ignored;
         }
-        // Each press removes the "?" and the x before the app does the action (QST-4, MRK-15). A press
-        // does not change the highlight, unless it reads waiting ink (HLT-9).
-        self.ui.question = None;
-        self.ui.refused = None;
-
         // The dialog "Restart the interface?" accepts only its two buttons (UPD-10). It covers all
         // screens, thus a pen or a finger has no other effect.
         if self.update.dialog_shown() {
@@ -938,12 +938,9 @@ impl App {
                 self.live_stroke = None;
                 self.start_writing_timer(now);
             }
-            // INP-7: a stroke from a filled cell changes only the highlight (HLT-2). If no highlight
-            // shows, nothing changes on the screen, thus no redraw occurs.
-            Gesture::FilledStroke => {
-                self.ui.highlight = None;
-                self.start_writing_timer(now);
-            }
+            // INP-7: a stroke from a filled cell keeps the highlight (HLT-2). It changes nothing on
+            // the screen, thus no redraw occurs.
+            Gesture::FilledStroke => self.start_writing_timer(now),
             Gesture::Control(t) => self.release_control(t, x, y, now),
             // The erasure and the slider move occur during the motion. The release has no effect.
             Gesture::Ignored | Gesture::Eraser | Gesture::Slider | Gesture::Swipe { .. } => {}
@@ -993,8 +990,9 @@ impl App {
     /// sets the x only in the states of MRK-10 and MRK-12.
     ///
     /// A tap on a number compares with the highlight at the press. The press can read waiting ink, and
-    /// that read removes the highlight: with highlight v, a tap on v then gives no highlight at the
-    /// lift, and a tap on a different digit gives that digit.
+    /// that read can put a number: the highlight is by digit and stays. With highlight v at the
+    /// press, a tap on v removes the highlight at the lift, and a tap on a different digit gives
+    /// that digit.
     fn board_tap(&mut self, cell: Cell, digit: u8, highlight_at_press: Option<u8>, now: u64) {
         if self.game.completed {
             return;
@@ -1006,8 +1004,7 @@ impl App {
             self.ui.highlight = if !self.settings.highlight_on || highlight_at_press == Some(v) { None } else { Some(v) };
             return;
         }
-        // HLT-2: a tap on an empty cell removes the highlight, in the same redraw as the mark or the x.
-        self.ui.highlight = None;
+        // HLT-2: a tap on an empty cell keeps the highlight (the mark or the x shows with it).
         if self.game.refuses_mark(cell, digit, self.settings.auto_hide_on) {
             // MRK-7, MRK-11: the game, the redo history, the clock and the saved data do not change.
             self.ui.refused = Some((cell, digit, now));
@@ -1024,11 +1021,10 @@ impl App {
         }
     }
 
-    /// Reads the pending ink (INP-5, INP-6). A read removes the highlight, in the same redraw as the
-    /// number or the "?" (HLT-2).
+    /// Reads the pending ink (INP-5, INP-6). A read keeps the highlight (HLT-2): the number or the
+    /// "?" shows with it.
     fn read_ink(&mut self, now: u64) {
         let Some(ink) = self.ui.pending_ink.take() else { return };
-        self.ui.highlight = None;
         self.live_stroke = None;
         if self.pen == Some(Gesture::Writing) {
             self.pen = Some(Gesture::Ignored);
@@ -1217,7 +1213,7 @@ impl App {
         // ink. Thus the release removes the x (MRK-15), reads the waiting ink (INP-12) and stops the
         // writing before the action. Then an undo or a redo cannot put a number under the ink (INP-5),
         // an undo cannot leave an x with no number in a peer, and a panel does not open over the ink or
-        // the x (NAV-11, MRK-12). The highlight stays, unless the read removes it (HLT-7). The release
+        // the x (NAV-11, MRK-12). The highlight stays (HLT-7). The release
         // does not remove a "?" in a different cell.
         self.ui.refused = None;
         self.read_ink(now);

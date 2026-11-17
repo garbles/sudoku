@@ -425,8 +425,9 @@ fn undo_and_redo_do_not_put_a_number_under_the_question_mark() {
 
 #[test]
 fn a_second_finger_keeps_the_highlight_and_removes_the_question_mark() {
-    // HLT-7, INP-15, QST-4: a different finger (for example a palm) is already on the screen. A second
-    // finger does not remove the highlight, but it removes the "?". It operates no item.
+    // HLT-7, INP-15, QST-4, HLT-2: a different finger (for example a palm) is already on the screen. A
+    // second finger does not remove the highlight, but it removes the "?". It operates no item. The "?"
+    // shows with the highlight (HLT-2).
     let mut d = Driver::new(41);
     let palm = empty_cell(&d.app.game);
     let (px, py) = micro_center(palm, 5);
@@ -446,10 +447,11 @@ fn a_second_finger_keeps_the_highlight_and_removes_the_question_mark() {
     d.write_strokes(&scribble_ink(cell));
     d.wait(d.app.pause_ms + 10);
     assert!(d.app.ui.question.is_some());
-    assert_eq!(d.app.ui.highlight, None, "HLT-2: the read of the ink");
+    assert_eq!(d.app.ui.highlight, Some(v), "HLT-2: the read of the ink keeps the highlight");
     d.send(Input::TouchMove { id: 5, x: px, y: py });
     d.finger_tap(5.0, 1000.0);
     assert_eq!(d.app.ui.question, None, "QST-4");
+    assert_eq!(d.app.ui.highlight, Some(v), "HLT-7: the second finger");
     d.send(Input::TouchUp { id: 5, x: px, y: py });
 }
 

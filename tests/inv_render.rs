@@ -2145,10 +2145,11 @@ fn cell_same(fb: &[u8], want: &[u8], cell: Cell) -> bool {
 }
 
 #[test]
-fn the_removal_of_a_highlight_goes_in_one_redraw_with_the_result_of_the_action() {
-    // HLT-9, HLT-2, INP-5, INP-16: the real output (`present.rs`) in all layouts. While the pen writes or
-    // taps, the pixels of the highlight do not change. The first framebuffer without the highlight already
-    // has the result: a tap on a different number, a mark, and a number that the app reads.
+fn the_move_of_a_highlight_and_a_read_under_a_highlight_go_in_one_redraw() {
+    // HLT-9, HLT-2, HLT-3, INP-5, INP-16: the real output (`present.rs`) in all layouts. A pen press does
+    // not change the pixels of the highlight. A tap on a different number moves the highlight in one
+    // redraw. The highlight stays during the ink, the pause and the read, and the number of the read
+    // comes in one redraw.
     use sudoku::present::Presenter;
     let fonts = fonts();
     let (w, h) = (layout::physical_w() as usize, layout::physical_h() as usize);
@@ -2194,8 +2195,8 @@ fn the_removal_of_a_highlight_goes_in_one_redraw_with_the_result_of_the_action()
         assert!(!cell_same(&fb, &highlighted, given), "HLT-3: {what}: the old cell does not change");
         assert!(!cell_same(&fb, &highlighted, other), "HLT-3: {what}: the new cell does not change");
 
-        // Writing. The highlight stays on the screen during the ink and the pause. The read removes it in
-        // the redraw that shows the number.
+        // Writing. The highlight stays on the screen during the ink, the pause and the read (HLT-2). The read
+        // shows the number in one redraw.
         let cell = empty_cell(&d.app.game);
         let highlighted = fb.clone();
         let digit = d.app.game.solution[cell.0 as usize][cell.1 as usize];
@@ -2217,22 +2218,156 @@ fn the_removal_of_a_highlight_goes_in_one_redraw_with_the_result_of_the_action()
         d.app.tick(d.now);
         p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
         assert!(d.app.ui.highlight.is_some() && cell_same(&fb, &highlighted, other), "HLT-9: {what}: the highlight must stay until the read");
-        // After the read, the first framebuffer without the highlight has the number.
+        // After the read, the first framebuffer with a change of the cell has the number.
+        let inked = fb.clone();
         let mut with_number = None;
         for _ in 0..60 {
             d.now += 10;
             d.app.tick(d.now);
             p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
-            if !cell_same(&fb, &highlighted, other) {
+            if !cell_same(&fb, &inked, cell) {
                 with_number = Some(fb.clone());
                 break;
             }
         }
-        let with_number = with_number.expect("HLT-2: the highlight does not go from the framebuffer");
+        let with_number = with_number.expect("INP-5: the number does not come to the framebuffer");
         assert_eq!(d.app.game.value_at(cell), digit, "{what}");
+        assert_eq!(d.app.ui.highlight, Some(w_digit), "HLT-2, HLT-7: {what}: the read changed the highlight");
+        assert!(cell_same(&with_number, &highlighted, other), "HLT-2: {what}: the read changed the highlight on the screen");
         settle(&mut d, &mut p, &mut fb);
         assert!(cell_same(&with_number, &fb, cell), "HLT-9: {what}: the number comes in a second redraw");
-        assert!(cell_same(&with_number, &fb, other), "HLT-9: {what}: the highlight goes in a second redraw");
+        assert!(cell_same(&with_number, &fb, other), "HLT-2: {what}: the highlight changes in a second redraw");
+    }
+}
+
+#[test]
+fn a_highlight_stays_through_a_mark_an_x_a_question_mark_a_number_and_a_stroke_on_a_filled_cell() {
+    // HLT-2, HLT-7, HLT-9, INP-7, MRK-12, BRD-7, owner decision 2026-11-17: the real output (`present.rs`) in
+    // all layouts. With a highlight of the digit w: a stroke that starts on a cell of w changes no pixel,
+    // also after the writing timer. A pen tap on an empty cell shows a mark or an x, and ink shows a "?" or
+    // the number w. Each result comes in one redraw, and the cells of w keep the highlight on the screen.
+    // The new number w also shows the highlight color (the highlight is by digit).
+    use sudoku::present::Presenter;
+    let fonts = fonts();
+    let (w, h) = (layout::physical_w() as usize, layout::physical_h() as usize);
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let what = format!("{o:?}, right-handed {right_handed}");
+        let mut d = Driver::new(143);
+        d.app.settings.color_highlight = Color::Orange;
+        d.app.settings.auto_hide_on = true;
+        let mut p = Presenter::new();
+        p.use_pen_region = true;
+        p.set_wave_ms(0);
+        let mut fb = vec![0u8; w * h * 3];
+        let settle = |d: &mut Driver, p: &mut Presenter, fb: &mut Vec<u8>| {
+            for _ in 0..60 {
+                d.now += 30;
+                d.app.tick(d.now);
+                p.present(&mut d.app, &fonts, fb, d.now, |_| {});
+            }
+        };
+        settle(&mut d, &mut p, &mut fb);
+        let (number, v) = first_number(&d.app.game);
+        d.tap_micro(number, 5);
+        settle(&mut d, &mut p, &mut fb);
+        assert_eq!(d.app.ui.highlight, Some(v), "HLT-3: {what}");
+        let highlighted_cells: Vec<Cell> = cells().filter(|&c| d.app.game.value_at(c) == v).collect();
+        // The cells of v keep their pixels, and the highlight stays in the state.
+        let assert_kept = |d: &Driver, fb: &[u8], before: &[u8], why: &str| {
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-2, HLT-7: {what}: {why} changed the highlight");
+            for &c in &highlighted_cells {
+                assert!(cell_same(fb, before, c), "HLT-2: {what}: {why} changed the highlight of {c:?} on the screen");
+            }
+        };
+        // The first framebuffer with a change of `cell` already has the full result: a second redraw does
+        // not change the cell.
+        let one_redraw = |d: &mut Driver, p: &mut Presenter, fb: &mut Vec<u8>, before: &[u8], cell: Cell, why: &str| {
+            let mut first = None;
+            for _ in 0..80 {
+                d.now += 10;
+                d.app.tick(d.now);
+                p.present(&mut d.app, &fonts, fb, d.now, |_| {});
+                if !cell_same(fb, before, cell) {
+                    first = Some(fb.clone());
+                    break;
+                }
+            }
+            let first = first.unwrap_or_else(|| panic!("{what}: {why} does not come to the framebuffer"));
+            for _ in 0..10 {
+                d.now += 10;
+                d.app.tick(d.now);
+                p.present(&mut d.app, &fonts, fb, d.now, |_| {});
+            }
+            assert!(cell_same(&first, fb, cell), "HLT-9: {what}: {why} comes in a second redraw");
+        };
+
+        // INP-7: a stroke that starts on a cell of v. No pixel changes, also after the writing timer.
+        let before = fb.clone();
+        let (x, y) = micro_center(number, 5);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+        for k in 1..5 {
+            d.send(Input::PenMove { x: x + 40.0 * k as f32, y: y + 40.0 * k as f32 });
+            p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+        }
+        d.send(Input::PenUp { x: x + 160.0, y: y + 160.0 });
+        p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+        assert!(fb == before, "INP-7, HLT-2: {what}: the stroke from a filled cell changed the framebuffer");
+        d.wait(WRITING_IDLE_MS + 100);
+        settle(&mut d, &mut p, &mut fb);
+        assert!(fb == before, "INP-7, HLT-9: {what}: the framebuffer changed after the writing timer");
+        assert_kept(&d, &fb, &before, "the stroke from a filled cell");
+
+        // A pen tap on an empty cell adds a mark.
+        let digit = (1..=9u8).find(|&m| m != v && cells().any(|c| !d.app.game.is_filled(c) && !peer_has(&d.app.game, c, m))).unwrap();
+        let cell = free_cell(&d.app, &[digit]);
+        let before = fb.clone();
+        d.tap_micro(cell, digit);
+        assert!(d.app.game.marks[cell.0 as usize][cell.1 as usize] & mark_bit(digit) != 0, "MRK-1: {what}: no mark");
+        one_redraw(&mut d, &mut p, &mut fb, &before, cell, "the mark");
+        assert_kept(&d, &fb, &before, "a tap on an empty cell");
+
+        // MRK-12: a refused tap shows the x with the highlight.
+        let (cell, digit) = refused_pair(&d.app.game);
+        let before = fb.clone();
+        d.tap_micro(cell, digit);
+        assert!(d.app.ui.refused.is_some(), "MRK-7: {what}: no x");
+        one_redraw(&mut d, &mut p, &mut fb, &before, cell, "the x");
+        assert!(d.app.ui.refused.is_some(), "MRK-14: {what}: the x went before its time");
+        assert_kept(&d, &fb, &before, "a refused tap");
+        d.wait(OVERLAY_MS);
+        settle(&mut d, &mut p, &mut fb);
+        assert!(d.app.ui.refused.is_none(), "MRK-14: {what}");
+
+        // Ink that the app does not read as a number shows a "?" with the highlight.
+        let cell = empty_cell(&d.app.game);
+        let before = fb.clone();
+        d.write_strokes(&scribble_ink(cell));
+        d.wait(d.app.pause_ms + 10);
+        assert!(d.app.ui.question.is_some_and(|(q, _)| q == cell), "QST-1: {what}: no \"?\"");
+        p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+        assert!(!cell_same(&fb, &before, cell), "QST-1: {what}: the \"?\" does not show");
+        assert_kept(&d, &fb, &before, "a \"?\"");
+        d.wait(OVERLAY_MS);
+        settle(&mut d, &mut p, &mut fb);
+
+        // Ink of v in an empty cell where v is correct: the number shows in one redraw with the highlight
+        // color, and the other cells of v keep it.
+        let cell = cells().find(|&c| !d.app.game.is_filled(c) && d.app.game.solution[c.0 as usize][c.1 as usize] == v).unwrap();
+        let before = fb.clone();
+        d.write_strokes(&digit_ink(cell, v));
+        // The time goes until 1 ms before the read.
+        d.wait(d.app.pause_ms - 1);
+        p.present(&mut d.app, &fonts, &mut fb, d.now, |_| {});
+        assert!(d.app.ui.pending_ink.is_some(), "INP-5: {what}: the read came before the end of the pause");
+        assert_kept(&d, &fb, &before, "the ink");
+        let inked = fb.clone();
+        one_redraw(&mut d, &mut p, &mut fb, &inked, cell, "the number");
+        assert_eq!(d.app.game.value_at(cell), v, "INP-5: {what}: the app did not read {v}");
+        assert_kept(&d, &fb, &before, "the read of the ink");
+        let (cx, cy) = layout::cell_origin(cell);
+        assert_eq!(rgb_at(&draw_app(&d.app, &fonts), cx + 8, cy + 8), palette_rgb(Color::Orange), "HLT-2, BRD-7: {what}: the new number {v} has no highlight");
     }
 }
 

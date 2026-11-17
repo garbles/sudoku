@@ -184,7 +184,7 @@ builds in parallel).
 One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuffer.
 
 - `game.rs`: the board, the pencil marks, the undo and redo history (also the item of a checkpoint
-  restore, which sets the full board), the checkpoints (up to 5, newest first, saved in the game
+  restore, which sets the full board), the checkpoints (up to 4, newest first, saved in the game
   file), clashes, completed groups and completion.
 - `generator.rs`: the puzzle generator with a seed and a symmetry (only one solution). The key of a
   puzzle is `PuzzleKey = (seed, mode, symmetric)`. A symmetric puzzle removes the givens in pairs

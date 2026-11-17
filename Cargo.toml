@@ -2,7 +2,7 @@
 name = "rm-sudoku"
 version = "0.7.1"
 edition = "2021"
-description = "Sudoku for the reMarkable Paper Pro (AppLoad external app with qtfb)"
+description = "Sudoku for the reMarkable Paper Pro (AppLoad app with a QML frontend and a qtfb framebuffer)"
 license = "MIT"
 
 [lib]

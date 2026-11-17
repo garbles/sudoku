@@ -1434,3 +1434,25 @@ xochitl first (`FINDINGS.md` of the xochitl review, §1.5): the frontend calls
 | Examined | Result |
 | -------- | ------ |
 | Dev build on the tablet with the call in `main.qml` | The owner: it works as expected. The black and white flash of the program was not used. |
+
+## Owner request: the number highlight stays, 2026-11-17
+
+The owner asked: "update number highlighting (tapping on a number to highlight all of the other ones that match)
+so that persists the highlighting until either: 1. the user taps on it again to remove the highlight 2. the user
+taps on another number to highlight that number".
+
+| Examined | Result |
+| -------- | ------ |
+| Dev build `dev/keep-highlight` on the tablet. After a pen tap on a number: a pen tap on an empty cell (pencil mark added or removed, or the x of a refused mark), a pen stroke that starts on a filled cell, and a read of waiting ink (a number or the "?") | The owner approved. The highlight stays in all these cases. |
+
+- A number that ink writes with the highlighted digit shows highlighted (the highlight is by digit).
+- A highlight can show with an x or a "?" in any cell. The pencil marks, the clash colors and the "?" look as before.
+- A tap on a number while ink waits in another cell still reads the ink at the press. At the lift, the rule uses
+  the highlight at the press: v gives none, a different digit w gives w.
+- The other rules do not change: a new game, a restart, a completion, Help, Statistics, Licenses, the update
+  dialog and the switch Highlight numbers off remove the highlight; Undo, Redo, Restore, a finger, the eraser, the
+  menu and the panels keep it.
+- No visual change: no new image, no pixel change in the reference states.
+
+**Rejected:** the old behavior, where a tap on an empty cell, a stroke on a filled cell or a read of waiting ink
+removed the highlight (owner request: the highlight must stay until a tap on a number).

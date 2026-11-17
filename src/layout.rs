@@ -1360,7 +1360,7 @@ impl Device {
     };
 
     /// The reMarkable Paper Pro Move: 954 x 1696 at 264 DPI (owner decisions 2026-11-10). The board
-    /// has cells of 90 px in the two orientations. The page scale keeps the pages 1404 units wide.
+    /// has cells of 78 px in the two orientations. The page scale keeps the pages 1404 units wide.
     pub const MOVE: Device = Device {
         model: Model::Move,
         physical_w: 954,

@@ -1699,7 +1699,7 @@ mod tests {
         });
     }
 
-    /// HLT-2 item 2, HLT-9: a tap on an empty cell removes the highlight in one update with the mark, at
+    /// HLT-2, HLT-9: a tap on an empty cell keeps the highlight and gives one update with the mark, at
     /// the pen lift. The pixels of the highlight do not change before that.
     /// R§14.4, INP-24, MRK-5: the pen waveform removes only the marks that it drew. A mark that the
     /// UI waveform showed (here the area went to a different cell, for a number or for a mark) has
@@ -1812,7 +1812,7 @@ mod tests {
     }
 
     #[test]
-    fn a_tap_on_an_empty_cell_removes_the_highlight_in_one_update_with_the_mark() {
+    fn a_tap_on_an_empty_cell_keeps_the_highlight_and_gives_one_update_with_the_mark() {
         in_each_layout(|layout| {
             let mut r = Rig::new(true);
             let (v, _) = r.two_digits();
@@ -1828,21 +1828,18 @@ mod tests {
             r.wait(PEN_REGION_SETTLE_MS + 30);
             r.assert_highlight(v, true);
             let at_lift = r.up((q.0 + 1.0, q.1));
-            assert_eq!(r.app.ui.highlight, None, "{layout}");
+            assert_eq!(r.app.ui.highlight, Some(v), "{layout}: HLT-2: the highlight stays");
             assert_ne!(r.app.game.marks_at(cell) & crate::game::mark_bit(d), 0, "{layout}: no mark");
             assert_eq!(at_lift.len(), 1, "{layout}: the updates of the pen lift: {at_lift:?}");
-            r.assert_highlight(v, false);
+            r.assert_highlight(v, true);
             assert!(r.shows_the_frame(), "{layout}: the mark is not in the framebuffer");
-            for c in r.cells_with(v) {
-                assert!(covers(at_lift[0], c), "{layout}: {:?} does not contain the cell {c:?}", at_lift[0]);
-            }
         });
     }
 
-    /// HLT-2 item 4, HLT-9: while the player writes, the highlight stays on the screen and only the ink
-    /// changes. The read gives one update, with the removal of the highlight and the number together.
+    /// HLT-2, HLT-9: while the player writes, and after the read, the highlight stays. The read gives
+    /// one update, with the number.
     #[test]
-    fn writing_while_a_highlight_shows_changes_the_highlight_and_the_number_in_one_update() {
+    fn writing_while_a_highlight_shows_keeps_the_highlight_and_gives_the_number_in_one_update() {
         let check = |r: &mut Rig, name: &str| {
             let (v, _) = r.two_digits();
             r.make_highlight(v);
@@ -1868,21 +1865,17 @@ mod tests {
             // The read, at the exact time of the app, then the time of the redraw.
             r.now = lift + crate::app::RECOGNITION_PAUSE_MS;
             let mut log: Vec<(u64, Update)> = r.step(None).into_iter().map(|u| (r.now, u)).collect();
-            assert_eq!(r.app.ui.highlight, None, "{name}: the read does not remove the highlight");
+            assert_eq!(r.app.ui.highlight, Some(v), "{name}: the read keeps the highlight");
             let d = r.app.game.value_at(a);
             assert_ne!(d, 0, "{name}: the read gives no number");
             log.extend(r.wait(600));
             assert_eq!(log.len(), 1, "{name}: the updates after the read: {log:?}");
             let u = log[0].1;
             assert!(log[0].0 - lift >= crate::app::RECOGNITION_PAUSE_MS, "{name}");
-            // The highlight and the number show in the same update.
+            // The new number can clash with a cell of the digit v: the clash color then replaces the highlight color.
             assert!(r.shows_the_frame(), "{name}: the framebuffer does not show the frame");
-            r.assert_highlight(v, false);
             assert!(r.cell_pixels(a) != ink_on_screen, "{name}: the number does not replace the ink");
             assert!(covers(u, a), "{name}: {u:?} does not contain the cell of the number");
-            for c in r.cells_with(v) {
-                assert!(covers(u, c), "{name}: {u:?} does not contain the cell {c:?}");
-            }
         };
         in_each_layout(|layout| check(&mut Rig::new(true), layout));
         check(&mut Rig::new(false), "with no pen region");
@@ -1890,7 +1883,7 @@ mod tests {
 
     /// HLT-3, HLT-9: a tap on a number while ink waits in a different cell reads the ink at the press.
     /// The read and the result of the lift go in one update, and the tap compares with the highlight
-    /// at the press: a tap on v gives no highlight, and a tap on w gives w.
+    /// at the press: a tap on v removes the highlight, and a tap on w moves it to w. The read keeps it.
     #[test]
     fn a_tap_on_a_number_while_ink_waits_gives_one_update_with_the_read() {
         in_each_layout(|layout| {
@@ -1908,7 +1901,7 @@ mod tests {
                 let shown = r.fb.clone();
                 let mut log = r.down((x, y));
                 assert_ne!(r.app.game.value_at(a), 0, "{name}: the press does not read the ink");
-                assert_eq!(r.app.ui.highlight, None, "{name}: the read does not remove the highlight");
+                assert_eq!(r.app.ui.highlight, Some(v), "{name}: the read keeps the highlight");
                 assert_eq!(r.p.pen_region(), None, "{name}: a press on a filled cell keeps the pen region");
                 // The pen stays down after the region stopped: the read must still wait for the lift.
                 log.extend(r.wait(PEN_REGION_SETTLE_MS + 30).into_iter().map(|(_, u)| u));

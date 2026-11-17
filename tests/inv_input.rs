@@ -854,9 +854,9 @@ fn free_spot(d: &Driver) -> (Cell, u8) {
 
 #[test]
 fn a_tap_removes_or_moves_a_highlight_only_at_the_pen_lift() {
-    // HLT-2 items 1 and 2, HLT-3, HLT-9, MRK-10: all layouts. The press changes nothing. The tap on the
-    // same number removes it, on a different number moves it, on an empty cell removes it with the mark
-    // or with the x.
+    // HLT-2 item 1, HLT-3, HLT-7, HLT-9, MRK-10, MRK-12: all layouts. The press changes nothing. The tap
+    // on the same number removes it, on a different number moves it. A tap on an empty cell keeps it,
+    // with the mark (added or removed) or with the x (owner decision 2026-11-17).
     for (o, right_handed, mode, launch) in layouts_and_modes() {
         let _layout = InLayout::set(o, right_handed);
         let what = format!("{o:?}, right-handed {right_handed}, {mode}");
@@ -885,33 +885,48 @@ fn a_tap_removes_or_moves_a_highlight_only_at_the_pen_lift() {
         d.send(Input::PenUp { x, y });
         assert_eq!(d.app.ui.highlight, None, "HLT-3: {what}: the same digit removes the highlight");
 
-        // An empty cell: the mark and the removal at the lift.
+        // An empty cell: the mark at the lift, and the highlight stays.
         highlight_number(&mut d, a);
         let (cell, mark) = free_spot(&d);
         let (x, y) = micro_center(cell, mark);
         d.send(Input::PenDown { x, y, tool: Tool::Pen });
         assert_eq!((d.app.ui.highlight, d.app.game.marks_at(cell)), (Some(v), 0), "HLT-9: {what}: the press on an empty cell");
         d.send(Input::PenUp { x, y });
-        assert_eq!((d.app.ui.highlight, d.app.game.marks_at(cell)), (None, mark_bit(mark)), "HLT-2: {what}: the mark");
+        assert_eq!((d.app.ui.highlight, d.app.game.marks_at(cell)), (Some(v), mark_bit(mark)), "HLT-2: {what}: the mark keeps the highlight");
+        // The removal of the mark also keeps it.
+        d.tap_micro(cell, mark);
+        assert_eq!((d.app.ui.highlight, d.app.game.marks_at(cell)), (Some(v), 0), "HLT-2: {what}: the removal of the mark keeps the highlight");
 
-        // An empty cell: the x and the removal at the lift.
-        highlight_number(&mut d, a);
+        // An empty cell: the x at the lift, and the highlight stays (MRK-12: any value of `highlight`).
         let (cell, digit) = refused_pair(&d.app.game);
         let (x, y) = micro_center(cell, digit);
         d.send(Input::PenDown { x, y, tool: Tool::Pen });
         assert_eq!((d.app.ui.highlight, d.app.ui.refused), (Some(v), None), "HLT-9: {what}: the press of a refused tap");
         d.send(Input::PenUp { x, y });
-        assert_eq!(d.app.ui.highlight, None, "HLT-2: {what}: the x");
+        assert_eq!(d.app.ui.highlight, Some(v), "HLT-2, MRK-12: {what}: the x keeps the highlight");
         assert_eq!(d.app.ui.refused, Some((cell, digit, d.now)), "MRK-10: {what}");
+        check(&d);
+        // The x goes after its time, and the highlight stays (MRK-15, HLT-7).
+        d.wait(OVERLAY_MS);
+        assert_eq!((d.app.ui.refused, d.app.ui.highlight), (None, Some(v)), "MRK-15, HLT-7: {what}");
+        // A press on the number v removes the x, and the lift removes the highlight (HLT-3).
+        let (cell, digit) = refused_pair(&d.app.game);
+        d.tap_micro(cell, digit);
+        assert_eq!(d.app.ui.highlight, Some(v), "HLT-2: {what}: a second x");
+        let (x, y) = micro_center(a, 5);
+        d.send(Input::PenDown { x, y, tool: Tool::Pen });
+        assert_eq!((d.app.ui.refused, d.app.ui.highlight), (None, Some(v)), "MRK-15, HLT-9: {what}: the press removes only the x");
+        d.send(Input::PenUp { x, y });
+        assert_eq!(d.app.ui.highlight, None, "HLT-3: {what}");
         check(&d);
     }
 }
 
 #[test]
-fn a_stroke_from_a_filled_cell_removes_a_highlight_at_the_pen_lift() {
-    // HLT-2 item 3, INP-7, INP-22, HLT-9: the press and the movement change nothing. The lift removes the
-    // highlight. The board, the marks and the stacks do not change, and no ink waits. The writing timer
-    // starts (INP-16).
+fn a_stroke_from_a_filled_cell_keeps_a_highlight() {
+    // HLT-2, HLT-7, INP-7, INP-22, HLT-9 (owner decision 2026-11-17): the press, the movement and the lift
+    // change nothing. The highlight stays. The board, the marks and the stacks do not change, and no ink
+    // waits. Only the writing timer starts (INP-16).
     for (o, right_handed, mode, launch) in layouts_and_modes() {
         let _layout = InLayout::set(o, right_handed);
         let what = format!("{o:?}, right-handed {right_handed}, {mode}");
@@ -921,6 +936,11 @@ fn a_stroke_from_a_filled_cell_removes_a_highlight_at_the_pen_lift() {
         assert!(d.app.game.is_entry(e[0]), "the fixture has an entry");
         d.wait(WRITING_IDLE_MS);
         for from in [e[0], given_cell(&d.app.game)] {
+            if d.app.ui.highlight.is_some() {
+                // HLT-3: remove the highlight of the previous cell.
+                let h = d.app.ui.highlight;
+                d.tap_micro(cells().find(|&c| d.app.game.is_filled(c) && Some(d.app.game.value_at(c)) == h).unwrap(), 5);
+            }
             let v = highlight_number(&mut d, from);
             let before = state(&d);
             let (x0, y0) = micro_center(from, 1);
@@ -928,43 +948,47 @@ fn a_stroke_from_a_filled_cell_removes_a_highlight_at_the_pen_lift() {
             d.send(Input::PenDown { x: x0, y: y0, tool: Tool::Pen });
             d.send(Input::PenMove { x: (x0 + x1) / 2.0, y: (y0 + y1) / 2.0 });
             assert_eq!(d.app.ui.highlight, Some(v), "HLT-9: {what}: the highlight stays until the lift");
+            d.app.redraw = false;
             d.send(Input::PenUp { x: x1, y: y1 });
-            assert_eq!(d.app.ui.highlight, None, "HLT-2: {what}: the lift of the stroke");
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-2, INP-7: {what}: the lift of the stroke keeps the highlight");
+            assert!(!d.app.redraw, "INP-7: {what}: the stroke changes nothing");
             assert_eq!(state(&d), before, "INP-7: {what}");
             assert!(d.app.ui.pending_ink.is_none() && d.app.live_stroke.is_none(), "INP-22: {what}");
             assert!(d.app.is_writing(), "INP-16: {what}: a stroke on the board starts the timer");
             d.wait(WRITING_IDLE_MS);
             assert!(!d.app.is_writing(), "INP-16: {what}: the timer ends after 1 s");
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-7: {what}: after the timer");
             check(&d);
         }
     }
 }
 
 #[test]
-fn a_read_of_waiting_ink_removes_a_highlight_by_any_cause() {
-    // HLT-2 item 4, HLT-9, INP-5, INP-12, INP-21: a highlight stays while ink waits. The read removes it:
-    // at the end of the pause, at a pen press in a different cell, off the board on no control, on a
-    // control, and at the release of a control that a finger operates. It is a number and a "?".
+fn a_read_of_waiting_ink_keeps_a_highlight_by_any_cause() {
+    // HLT-2, HLT-7, HLT-9, INP-5, INP-12, INP-21 (owner decision 2026-11-17): a highlight stays while ink
+    // waits, and the read keeps it: at the end of the pause, at a pen press in a different cell, off the
+    // board on no control, on a control, and at the release of a control that a finger operates. It is
+    // a number and a "?". The lift of each pen press also keeps it.
     for (o, right_handed, mode, launch) in layouts_and_modes() {
         let _layout = InLayout::set(o, right_handed);
         let what = format!("{o:?}, right-handed {right_handed}, {mode}");
         for number in [true, false] {
             let what = format!("{what}, number {number}");
             let ink_of = |d: &Driver, cell: Cell| if number { digit_ink(cell, solution_at(&d.app.game, cell)) } else { scribble_ink(cell) };
+            let mut d = driver_in(launch, true, 603);
+            let given = given_cell(&d.app.game);
+            d.button(Button::Menu);
+            let v = highlight_number(&mut d, given);
             let read_ok = |d: &Driver, cell: Cell, why: &str| {
-                assert_eq!(d.app.ui.highlight, None, "HLT-2: {what}: {why}");
+                assert_eq!(d.app.ui.highlight, Some(v), "HLT-2: {what}: {why}: the read keeps the highlight");
                 assert!(d.app.ui.pending_ink.is_none(), "INP-5: {what}: {why}");
                 assert_eq!(d.app.game.value_at(cell) != 0, number, "INP-5: {what}: {why}: the value");
                 assert_eq!(d.app.ui.question.is_some_and(|q| q.0 == cell), !number, "QST-1: {what}: {why}: the \"?\"");
                 check(d);
             };
-            let mut d = driver_in(launch, true, 603);
-            let given = given_cell(&d.app.game);
-            d.button(Button::Menu);
 
             // The pause.
             let e = empty_cells(&d);
-            let v = highlight_number(&mut d, given);
             let ink = ink_of(&d, e[0]);
             d.write_strokes(&ink);
             assert_eq!(d.app.ui.highlight, Some(v), "HLT-9: {what}: the highlight stays with the ink");
@@ -975,31 +999,30 @@ fn a_read_of_waiting_ink_removes_a_highlight_by_any_cause() {
             read_ok(&d, e[0], "the pause");
             d.wait(OVERLAY_MS);
 
-            // A pen press in a different cell.
+            // A pen press in a different cell: the lift adds a mark or shows an x.
             let e = empty_cells(&d);
-            highlight_number(&mut d, given);
             let ink = ink_of(&d, e[0]);
             d.write_strokes(&ink);
             let (x, y) = micro_center(e[1], 5);
             d.send(Input::PenDown { x, y, tool: Tool::Pen });
             read_ok(&d, e[0], "a pen press in a different cell");
             d.send(Input::PenUp { x, y });
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-2: {what}: the lift on an empty cell");
             d.wait(OVERLAY_MS);
 
             // A pen press off the board, on no control.
             let e = empty_cells(&d);
-            highlight_number(&mut d, given);
             let ink = ink_of(&d, e[0]);
             d.write_strokes(&ink);
             let (x, y) = off_board_on_no_control();
             d.send(Input::PenDown { x, y, tool: Tool::Pen });
             read_ok(&d, e[0], "a pen press off the board");
             d.send(Input::PenUp { x, y });
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-7: {what}: the lift off the board");
             d.wait(OVERLAY_MS);
 
             // A pen press on a control: the number at the press, the action at the release.
             let e = empty_cells(&d);
-            highlight_number(&mut d, given);
             let ink = ink_of(&d, e[0]);
             d.write_strokes(&ink);
             let (x, y) = button_center(Button::Colors);
@@ -1008,12 +1031,12 @@ fn a_read_of_waiting_ink_removes_a_highlight_by_any_cause() {
             assert_eq!(d.app.ui.menu.panel(), None, "HLT-9: {what}: the action comes at the release");
             d.send(Input::PenUp { x, y });
             assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors), "{what}");
+            assert_eq!(d.app.ui.highlight, Some(v), "HLT-7: {what}: the panel keeps the highlight");
             d.button(Button::Colors);
             d.wait(OVERLAY_MS);
 
             // A finger on a control: the press keeps the ink and the highlight, the release reads it.
             let e = empty_cells(&d);
-            let v = highlight_number(&mut d, given);
             let ink = ink_of(&d, e[0]);
             d.write_strokes(&ink);
             let (x, y) = button_center(Button::Colors);
@@ -1029,7 +1052,7 @@ fn a_read_of_waiting_ink_removes_a_highlight_by_any_cause() {
 
 #[test]
 fn a_tap_on_a_number_with_ink_in_a_different_cell_uses_the_highlight_at_the_press() {
-    // HLT-3, HLT-9, INP-12, HLT-6: the press reads the ink, and the read removes the highlight v. At the
+    // HLT-3, HLT-9, INP-12, HLT-2: the press reads the ink, and the read keeps the highlight v. At the
     // lift, a tap on v gives no highlight and a tap on w gives w. A "?" from that read shows with w.
     for (o, right_handed, mode, launch) in layouts_and_modes() {
         let _layout = InLayout::set(o, right_handed);
@@ -1042,7 +1065,7 @@ fn a_tap_on_a_number_with_ink_in_a_different_cell_uses_the_highlight_at_the_pres
         d.write_strokes(&scribble_ink(e[0]));
         let (x, y) = micro_center(a, 5);
         d.send(Input::PenDown { x, y, tool: Tool::Pen });
-        assert_eq!(d.app.ui.highlight, None, "HLT-9: {what}: the read at the press");
+        assert_eq!(d.app.ui.highlight, Some(v), "HLT-2, HLT-9: {what}: the read at the press keeps v");
         assert_eq!(d.app.ui.question.map(|q| q.0), Some(e[0]), "INP-12: {what}");
         d.send(Input::PenUp { x, y });
         assert_eq!(d.app.ui.highlight, None, "HLT-3, HLT-9: {what}: a tap on v gives no highlight");
@@ -1052,18 +1075,31 @@ fn a_tap_on_a_number_with_ink_in_a_different_cell_uses_the_highlight_at_the_pres
         d.write_strokes(&scribble_ink(e[0]));
         let (x, y) = micro_center(b, 5);
         d.send(Input::PenDown { x, y, tool: Tool::Pen });
-        assert_eq!(d.app.ui.highlight, None, "HLT-9: {what}: the read at the press");
+        assert_eq!(d.app.ui.highlight, Some(v), "HLT-2, HLT-9: {what}: the read at the press keeps v");
         d.send(Input::PenUp { x, y });
         assert_eq!(d.app.ui.highlight, Some(w), "HLT-3, HLT-9: {what}: a tap on w gives w");
         assert_eq!(d.app.ui.question.map(|q| q.0), Some(e[0]), "HLT-9: {what}: the \"?\" shows with w");
         assert_ne!(v, w);
         check(&d);
+
+        // A number from the ink with the digit w: the read keeps w, and a tap on w removes it (HLT-3).
+        let cell = cells().find(|&c| !d.app.game.is_filled(c) && solution_at(&d.app.game, c) == w);
+        if let Some(cell) = cell {
+            d.wait(OVERLAY_MS);
+            d.write_strokes(&digit_ink(cell, w));
+            let (x, y) = micro_center(b, 5);
+            d.send(Input::PenDown { x, y, tool: Tool::Pen });
+            assert_eq!((d.app.game.value_at(cell), d.app.ui.highlight), (w, Some(w)), "INP-12, HLT-2: {what}: the number w");
+            d.send(Input::PenUp { x, y });
+            assert_eq!(d.app.ui.highlight, None, "HLT-3: {what}: a tap on w gives no highlight");
+            check(&d);
+        }
     }
 }
 
 #[test]
 fn a_new_game_a_completed_puzzle_and_the_update_dialog_remove_a_highlight() {
-    // HLT-1, HLT-2 items 5 and 7, CMP-3, UPD-10: a new game and a completed puzzle. The dialog shows only
+    // HLT-1, HLT-2 items 2 and 4, CMP-3, UPD-10: a new game and a completed puzzle. The dialog shows only
     // at a start of the program (the external mode, update not complete): that restart removes the
     // highlight, and it does not come back after "Later". While the dialog shows, a tap on a number makes
     // no highlight.
@@ -1111,7 +1147,7 @@ fn a_new_game_a_completed_puzzle_and_the_update_dialog_remove_a_highlight() {
         let given = given_cell(&d.app.game);
         let v = highlight_number(&mut d, given);
         show_update_dialog(&mut d);
-        assert_eq!(d.app.ui.highlight, None, "HLT-2 items 5 and 7: {what}: the restart with the dialog");
+        assert_eq!(d.app.ui.highlight, None, "HLT-2 items 2 and 4: {what}: the restart with the dialog");
         d.tap_micro(given, 5);
         assert_eq!(d.app.ui.highlight, None, "UPD-10: {what}: a tap under the dialog");
         let (x, y) = pixel_center(layout::dialog_cancel());
@@ -1126,7 +1162,7 @@ fn a_new_game_a_completed_puzzle_and_the_update_dialog_remove_a_highlight() {
 
 #[test]
 fn the_restart_dialog_shows_only_at_the_first_start_while_the_update_is_not_complete() {
-    // UPD-10, UPD-13, HLT-2 item 5, MRK-12, MRK-15: all layouts, the three modes (LCH-9) and the two
+    // UPD-10, UPD-13, HLT-2 item 2, MRK-12, MRK-15: all layouts, the three modes (LCH-9) and the two
     // saved values. The program starts again with a highlight or an x on the board. The dialog shows
     // exactly in the external mode with the frontend files and the saved value false. Under the dialog,
     // the pen writes no ink and makes no x. After "Later", the next start in the same state shows no
@@ -1137,15 +1173,16 @@ fn the_restart_dialog_shows_only_at_the_first_start_while_the_update_is_not_comp
             for shown in [false, true] {
                 let what = format!("{o:?}, right-handed {right_handed}, {mode}, saved value {shown}");
                 let mut d = Driver::new(609);
-                // A highlight or an x (MRK-12: not the two at the same time) before the restart.
+                // An x before the restart, also with a highlight (MRK-12, HLT-2: the two can show at the
+                // same time).
                 let (cell, digit) = refused_pair(&d.app.game);
                 if shown {
                     let given = given_cell(&d.app.game);
                     highlight_number(&mut d, given);
-                } else {
-                    d.tap_micro(cell, digit);
-                    assert!(d.app.ui.refused.is_some(), "{what}: the fixture has the x");
                 }
+                d.tap_micro(cell, digit);
+                assert!(d.app.ui.refused.is_some(), "{what}: the fixture has the x");
+                assert_eq!(d.app.ui.highlight.is_some(), shown, "HLT-2: {what}: the x keeps the highlight");
                 d.app.settings.restart_dialog_shown = shown;
                 restart_in(&mut d, launch);
                 check(&d);
@@ -1158,7 +1195,7 @@ fn the_restart_dialog_shows_only_at_the_first_start_while_the_update_is_not_comp
                 assert_eq!(d.app.settings.restart_dialog_shown, saved, "UPD-10, UPD-13: {what}: the saved value");
                 assert_eq!(d.app.settings_dirty, saved != shown, "UPD-10, UPD-13: {what}: the app saves only a change");
                 assert_eq!(d.app.update.restart_needed(), launch.restart_needed(), "UPD-10: {what}: restart_needed");
-                assert_eq!((d.app.ui.highlight, d.app.ui.refused, d.app.ui.question), (None, None, None), "HLT-2 item 5, MRK-15: {what}");
+                assert_eq!((d.app.ui.highlight, d.app.ui.refused, d.app.ui.question), (None, None, None), "HLT-2 item 2, MRK-15: {what}");
                 if !dialog {
                     continue;
                 }
@@ -1191,7 +1228,7 @@ fn the_restart_dialog_shows_only_at_the_first_start_while_the_update_is_not_comp
 
 #[test]
 fn leaving_the_board_removes_a_highlight_and_it_does_not_come_back() {
-    // HLT-2 item 6, HLT-4: Help and Statistics, also with the "< Back" of each. All layouts.
+    // HLT-2 item 3, HLT-4: Help and Statistics, also with the "< Back" of each. All layouts.
     for (o, right_handed) in LAYOUTS {
         let _layout = InLayout::set(o, right_handed);
         for button in [Button::Help, Button::Statistics] {
