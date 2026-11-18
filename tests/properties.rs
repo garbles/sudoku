@@ -2,11 +2,12 @@
 //! state rules of INVARIANTS.md (`invariants::check_app`, in `App::handle`). This test also checks the
 //! rules about two states one after the other (CLK-2, CLK-3, CMP-5, INP-1, INP-9, UND-2, UND-3, ANA-2,
 //! NAV-3, NAV-9, NAV-16, MRK-10 to MRK-16, HLT-1 to HLT-9, and the level buttons of the result card:
-//! CMP-9, CMP-10, DIF-4, DIF-5, DIF-8, PUZ-7, PUZ-8). The two-hand sequences examine the x of a
+//! CMP-9, CMP-10, DIF-4, DIF-5, DIF-8, PUZ-7, PUZ-8, PUZ-13). The two-hand sequences examine the x of a
 //! refused tap, the highlight, the ink and the hand touches at each event (INP-2, INP-5, INP-20, INP-21,
 //! INP-22, INP-24). They also start the program again in each mode (LCH-9), with the restart dialog and
 //! the update row of an update that is not complete (UPD-3, UPD-10, UPD-13, UPD-14). The group sequences at the end examine COL-8 to COL-12 against a separate model
-//! (`inv_groups`).
+//! (`inv_groups`). Random seeds examine the puzzles of the versions 2 and 3 (PUZ-2, PUZ-5, PUZ-8 to
+//! PUZ-11).
 
 mod common;
 mod inv_groups;
@@ -658,9 +659,11 @@ proptest! {
                 prop_assert!(g.checkpoints.is_empty(), "UND-6, DIF-5");
                 prop_assert_eq!(g.mode, d.app.settings.last_mode, "DIF-5");
                 prop_assert_eq!(g.symmetric, d.app.settings.last_symmetric, "DIF-5 after {:?}", a);
+                // PUZ-13: each new game has the current version (3).
+                prop_assert_eq!(g.generator, sudoku::generator::VERSION, "PUZ-13 after {:?}", a);
                 // PUZ-8: the starting numbers of a symmetric game are symmetric under a half turn.
                 if g.symmetric {
-                    prop_assert!(g.generator == 2, "PUZ-8");
+                    prop_assert!(matches!(g.generator, 2 | 3), "PUZ-8");
                     for c in cells() {
                         let (i, j) = sudoku::generator::partner(c);
                         prop_assert_eq!(g.is_given(c), g.is_given((i, j)), "PUZ-8: {:?} after {:?}", c, a);
@@ -1826,7 +1829,9 @@ fn the_two_hand_sequences_reach_each_rule_of_the_x() {
     use proptest::test_runner::TestRunner;
     let mut runner = TestRunner::deterministic();
     let mut all = Reached::default();
-    for case in 0..64 {
+    // 128 sequences: the puzzles of generator version 3 are different, and 64 sequences did not reach
+    // a read of the highlighted digit (HLT-2) with them.
+    for case in 0..128 {
         let acts = proptest::collection::vec(hand(), 1..40).new_tree(&mut runner).unwrap().current();
         let (mut h, _layout) = hands_for(case);
         for a in &acts {
@@ -2824,12 +2829,13 @@ fn group_sequence(seed: u64, acts: &[Act]) -> Result<GroupsReached, String> {
 proptest! {
     #![proptest_config(ProptestConfig { cases: 64, max_shrink_iters: 100, ..ProptestConfig::default() })]
 
-    /// PUZ-8, PUZ-9, PUZ-5, PUZ-2, PUZ-3: for each seed and mode, the symmetric puzzle has starting
-    /// numbers that are the same after a half turn of the board, one solution, starting numbers of the
-    /// solution, and (Easy) 44 or 45 starting numbers. The same key gives the same puzzle again.
+    /// PUZ-8, PUZ-9, PUZ-5, PUZ-2, PUZ-3: for each seed and mode, the symmetric puzzle of the versions 2
+    /// and 3 has starting numbers that are the same after a half turn of the board (the center has no
+    /// partner), one solution, starting numbers of the solution, and (Easy of version 2 only) 44 or 45
+    /// starting numbers. The same key gives the same puzzle again.
     #[test]
-    fn a_symmetric_puzzle_has_symmetric_starting_numbers(seed in any::<u64>(), mode in 0..sudoku::generator::MODES) {
-        let p = sudoku::generator::generate_version(2, seed, mode, true);
+    fn a_symmetric_puzzle_has_symmetric_starting_numbers(seed in any::<u64>(), mode in 0..sudoku::generator::MODES, version in 2u8..=3) {
+        let p = sudoku::generator::generate_version(version, seed, mode, true);
         for (r, c) in cells() {
             let (i, j) = sudoku::generator::partner((r, c));
             prop_assert_eq!((i, j), (8 - r, 8 - c), "partner");
@@ -2837,14 +2843,46 @@ proptest! {
             prop_assert_eq!(p.givens[r][c] != 0, p.givens[i][j] != 0, "PUZ-8: seed {} mode {} ({}, {})", seed, mode, r, c);
             prop_assert!(p.givens[r][c] == 0 || p.givens[r][c] == p.solution[r][c], "PUZ-3");
         }
+        prop_assert_eq!(p.givens_count() % 2 == 1, p.givens[4][4] != 0, "PUZ-8: the center cell goes out alone");
         prop_assert_eq!(sudoku::generator::count_solutions(&p.givens, 2), 1, "PUZ-2: seed {} mode {}", seed, mode);
-        if mode == 0 {
+        if mode == 0 && version == 2 {
             prop_assert!((44..=45).contains(&p.givens_count()), "PUZ-9: seed {}: {}", seed, p.givens_count());
         }
-        prop_assert_eq!(&p, &sudoku::generator::generate_version(2, seed, mode, true), "PUZ-5");
-        let g = sudoku::app::new_game_with_symmetry(seed, mode, true);
-        prop_assert!(g.symmetric && g.generator == 2, "PUZ-8");
+        prop_assert_eq!(&p, &sudoku::generator::generate_version(version, seed, mode, true), "PUZ-5");
+        let g = if version == 3 {
+            sudoku::app::new_game_with_symmetry(seed, mode, true)
+        } else {
+            sudoku::app::game_of_version(sudoku::generator::Version::V2, seed, mode, true)
+        };
+        prop_assert!(g.symmetric && g.generator == version, "PUZ-8, PUZ-13");
+        prop_assert_eq!((g.solution, g.value), (p.solution, p.givens), "PUZ-5");
         sudoku::invariants::check_game(&g).map_err(TestCaseError::fail)?;
+        sudoku::invariants::check_puzzle(&g).map_err(TestCaseError::fail)?;
+    }
+
+    /// PUZ-11, PUZ-10, PUZ-2, PUZ-5: for each seed, mode and symmetry, the puzzle of version 3: the
+    /// solver limited to the permitted group of the mode completes it, with no more stops than the
+    /// maximum; the most difficult group that it used is the needed group or more (these seeds are
+    /// random: the fallback of PUZ-11 was not seen in 14,000 measured puzzles); the quantity of starting
+    /// numbers is not less than the minimum (modes 0 to 4). The puzzle has one solution and is
+    /// different from the version 2 puzzle of the same key.
+    #[test]
+    fn a_puzzle_of_version_3_obeys_the_rule_of_its_mode(seed in any::<u64>(), mode in 0..sudoku::generator::MODES, symmetric in any::<bool>()) {
+        use sudoku::generator::{generate_version, MODE_RULES};
+        let p = generate_version(3, seed, mode, symmetric);
+        let rule = MODE_RULES[mode as usize];
+        let grade = rule.grade(&p.givens);
+        prop_assert!(grade.is_some(), "PUZ-11 (1, 2): seed {} mode {} symmetric {}", seed, mode, symmetric);
+        let grade = grade.unwrap();
+        prop_assert_eq!(sudoku::solver::grade_v3(&p.givens, rule.permitted, None), Some(grade), "PUZ-10: the grade is a function of the starting numbers");
+        prop_assert!(rule.max_stops.is_none_or(|max| grade.stops <= max), "PUZ-11 (2): {} stops", grade.stops);
+        prop_assert!(grade.hardest <= rule.permitted, "PUZ-11 (3): {:?}", grade.hardest);
+        prop_assert!(rule.accepts(grade.hardest), "PUZ-11 (3): seed {} mode {} symmetric {}: {:?}", seed, mode, symmetric, grade.hardest);
+        if mode <= 4 {
+            prop_assert!(p.givens_count() >= rule.floor.unwrap(), "PUZ-11 (4): seed {} mode {}: {}", seed, mode, p.givens_count());
+        }
+        prop_assert_eq!(sudoku::generator::count_solutions(&p.givens, 2), 1, "PUZ-2: seed {} mode {}", seed, mode);
+        prop_assert_ne!(&p, &generate_version(2, seed, mode, symmetric), "PUZ-5: the version 2 puzzle of the key");
     }
 }
 

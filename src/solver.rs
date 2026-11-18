@@ -1,17 +1,95 @@
 //! The human-style solver (REQUIREMENTS.md §14.5).
 //!
 //! The solver uses only the techniques that a person uses. It tries them from the easiest to the most
-//! difficult, and it starts again from the easiest after each step. The most difficult technique that
-//! it must use gives the level of the puzzle. The generator uses the solver to make the puzzle of each
-//! mode and to grade it. The solver never guesses: if no technique of the permitted levels can make a
+//! difficult, and it starts again from the easiest after each step. The generator uses the solver to
+//! make the puzzle of each mode and to grade it. The solver never guesses, and it never uses a
+//! technique that assumes that the puzzle has only one solution: if no permitted technique can make a
 //! step, the solver stops.
 //!
 //! Each step is a logical deduction from the starting numbers. Thus, if the solver completes the grid,
 //! the puzzle has only one solution (PUZ-2).
+//!
+//! The solver has one path for each generator version that uses it. The two paths use the same code
+//! for each technique:
+//!
+//! - Version 3 (`TechniqueGroup`, `Board::step_v3`, `grade_v3`): eight technique groups in a fixed
+//!   order. The grade is the most difficult group that the solver used and the quantity of stops
+//!   (PUZ-10). The groups 4 to 8 only remove candidates.
+//! - Version 2 (`Level`, `Technique`, `Board::step`, `grade`): six levels. The grade is the level of
+//!   the most difficult technique. This path is frozen: the puzzles of version 2 depend on its order
+//!   of techniques (PUZ-12). Do not change it.
 
 use std::sync::OnceLock;
 
-/// The groups of techniques, from the easiest to the most difficult.
+/// The technique groups of the version 3 solver, from the easiest to the most difficult (PUZ-10). The
+/// order of the variants is the order of the groups. It is not a group of nine cells (`game::Group`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum TechniqueGroup {
+    /// Group 1: a full house (a row, a column or a box with one empty cell), and a hidden single in a
+    /// box.
+    BoxSingles = 1,
+    /// Group 2: a hidden single in a row or in a column.
+    LineSingles,
+    /// Group 3: a naked single.
+    NakedSingles,
+    /// Group 4: pointing and claiming.
+    LockedCandidates,
+    /// Group 5: naked and hidden pairs, triples and quads.
+    Subsets,
+    /// Group 6: X-Wing, Swordfish, XY-Wing.
+    Fish,
+    /// Group 7: Skyscraper, 2-String Kite, XYZ-Wing, W-Wing, simple colouring, Jellyfish.
+    Wings,
+    /// Group 8: X-Chains, XY-Chains and other alternating inference chains (AIC).
+    Chains,
+}
+
+impl TechniqueGroup {
+    /// All groups, from the easiest (1) to the most difficult (8).
+    pub const ALL: [TechniqueGroup; 8] = [
+        TechniqueGroup::BoxSingles,
+        TechniqueGroup::LineSingles,
+        TechniqueGroup::NakedSingles,
+        TechniqueGroup::LockedCandidates,
+        TechniqueGroup::Subsets,
+        TechniqueGroup::Fish,
+        TechniqueGroup::Wings,
+        TechniqueGroup::Chains,
+    ];
+
+    /// The number of the group in REQUIREMENTS.md §14.5, from 1 to 8.
+    pub const fn number(self) -> u8 {
+        self as u8
+    }
+
+    /// True for the groups 1 to 3: a step puts one number in a cell. A step of the groups 4 to 8 only
+    /// removes candidates (PUZ-10).
+    pub const fn is_single(self) -> bool {
+        self.number() <= TechniqueGroup::NakedSingles.number()
+    }
+}
+
+/// The grade of a puzzle of generator version 3 (PUZ-10).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Grade {
+    /// The most difficult technique group that the solver used.
+    pub hardest: TechniqueGroup,
+    /// The quantity of stops: the sequences of one or more steps of the groups 4 to 8 between two
+    /// singles.
+    pub stops: u32,
+}
+
+/// What the chain technique does when it proves that a candidate is the number of its cell.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Proof {
+    /// Version 2: the technique puts the number in the cell.
+    Place,
+    /// Version 3: the technique removes the other candidates of the cell (PUZ-10: a step of group 8
+    /// puts no number). The next step is a single.
+    RemoveOthers,
+}
+
+/// The levels of techniques of the version 2 solver, from the easiest to the most difficult.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Level {
     /// Full house, naked single, hidden single.
@@ -28,7 +106,7 @@ pub enum Level {
     Chains,
 }
 
-/// The techniques, in the order that the solver tries them.
+/// The techniques, in the order that the version 2 solver tries them.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Technique {
     HiddenSingle,
@@ -274,8 +352,30 @@ impl Board {
         self.empty == 0
     }
 
-    /// Makes one step with the easiest technique that can make progress and that is not more difficult
-    /// than `max`. None if no such technique can make progress.
+    /// Version 3: makes one step with the easiest technique group that can make progress and that is
+    /// not more difficult than `permitted` (PUZ-10). None if no such group can make progress.
+    pub fn step_v3(&mut self, permitted: TechniqueGroup) -> Option<TechniqueGroup> {
+        TechniqueGroup::ALL.into_iter().take_while(|&g| g <= permitted).find(|&g| self.apply_group(g))
+    }
+
+    /// Makes one step with the first technique of the group that can make progress.
+    fn apply_group(&mut self, g: TechniqueGroup) -> bool {
+        match g {
+            TechniqueGroup::BoxSingles => self.full_house() || self.hidden_single_in(18..27),
+            TechniqueGroup::LineSingles => self.hidden_single_in(0..18),
+            TechniqueGroup::NakedSingles => self.naked_single(),
+            TechniqueGroup::LockedCandidates => self.pointing() || self.claiming(),
+            TechniqueGroup::Subsets => (2..=4).any(|n| self.naked_subset(n) || self.hidden_subset(n)),
+            TechniqueGroup::Fish => self.fish(2) || self.fish(3) || self.xy_wing(),
+            TechniqueGroup::Wings => {
+                self.turbot(true) || self.turbot(false) || self.xyz_wing() || self.w_wing() || self.simple_colouring() || self.fish(4)
+            }
+            TechniqueGroup::Chains => self.chain(Proof::RemoveOthers),
+        }
+    }
+
+    /// Version 2: makes one step with the easiest technique that can make progress and that is not
+    /// more difficult than `max`. None if no such technique can make progress.
     pub fn step(&mut self, max: Level) -> Option<Technique> {
         Technique::ALL.into_iter().take_while(|t| t.level() <= max).find(|&t| self.apply(t))
     }
@@ -302,7 +402,7 @@ impl Board {
             Skyscraper => self.turbot(true),
             TwoStringKite => self.turbot(false),
             SimpleColouring => self.simple_colouring(),
-            Chain => self.chain(),
+            Chain => self.chain(Proof::Place),
         }
     }
 
@@ -344,9 +444,34 @@ impl Board {
         self.pos[d as usize - 1]
     }
 
-    fn hidden_single(&mut self) -> bool {
+    /// A unit (a row, a column or a box) has one empty cell: the cell gets its only candidate.
+    fn full_house(&mut self) -> bool {
         let t = tables();
+        let empty = (0..81).filter(|&i| self.value[i] == 0).fold(0 as Set, |s, i| s | 1 << i);
         for u in 0..27 {
+            let last = t.unit_set[u] & empty;
+            if last.count_ones() == 1 {
+                let i = last.trailing_zeros() as usize;
+                // A board with a contradiction can have no candidate here. Then this is not a step.
+                if self.cand[i].count_ones() == 1 {
+                    self.place(i, self.cand[i].trailing_zeros() as u8 + 1);
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Version 2: a hidden single in a row, a column or a box (in this order of the units).
+    fn hidden_single(&mut self) -> bool {
+        self.hidden_single_in(0..27)
+    }
+
+    /// A digit is a candidate in only one cell of a unit of `units` (rows 0..9, columns 9..18, boxes
+    /// 18..27): the cell gets the digit.
+    fn hidden_single_in(&mut self, units: std::ops::Range<usize>) -> bool {
+        let t = tables();
+        for u in units {
             // The digits that are candidates in one cell of the unit, or in two cells or more.
             let (mut once, mut twice) = (0u16, 0u16);
             for &i in &t.units[u] {
@@ -677,7 +802,7 @@ impl Board {
     /// nodes true, and the weak links (two candidates of a cell, or one digit in two peers) make other
     /// nodes false. If A is false makes node B true, then A or B is true. X-Chains and XY-Chains are
     /// such chains.
-    fn chain(&mut self) -> bool {
+    fn chain(&mut self, proof: Proof) -> bool {
         let t = tables();
         let node = |i: usize, d: u8| i * 9 + (d as usize - 1);
         // The strong links of each node (cell, digit), in the order that they are found: at most 3
@@ -734,8 +859,17 @@ impl Board {
             let (ia, da) = (a / 9, (a % 9) as u8 + 1);
             if is_true.contains(a) {
                 // A is false makes A true: A is true.
-                self.place(ia, da);
-                return true;
+                match proof {
+                    Proof::Place => {
+                        self.place(ia, da);
+                        return true;
+                    }
+                    Proof::RemoveOthers => {
+                        if self.eliminate(1 << ia, !bit(da) & 0x1FF) {
+                            return true;
+                        }
+                    }
+                }
             }
             for b in is_true.iter().filter(|&b| b != a) {
                 let (ib, db) = (b / 9, (b % 9) as u8 + 1);
@@ -789,8 +923,48 @@ impl NodeSet {
     }
 }
 
-/// Solves the puzzle with the techniques that are not more difficult than `max`. Gives the level of
-/// the most difficult technique that was necessary, or None if the solver cannot complete the grid.
+/// Version 3: solves the puzzle with the technique groups that are not more difficult than
+/// `permitted`, and gives its grade (PUZ-10). None if the solver cannot complete the grid, or if it
+/// needs more stops than `max_stops` (None: no limit). The grade is a function of the arguments only.
+pub fn grade_v3(givens: &[[u8; 9]; 9], permitted: TechniqueGroup, max_stops: Option<u32>) -> Option<Grade> {
+    let mut board = Board::new(givens);
+    let mut run = Run::new();
+    while !board.is_solved() {
+        run.add(board.step_v3(permitted)?);
+        if max_stops.is_some_and(|max| run.grade.stops > max) {
+            return None;
+        }
+    }
+    Some(run.grade)
+}
+
+/// The grade of the steps of one run of the version 3 solver.
+struct Run {
+    grade: Grade,
+    /// True after a step of the groups 4 to 8, until the next single: these steps are one stop.
+    stopped: bool,
+}
+
+impl Run {
+    fn new() -> Run {
+        Run { grade: Grade { hardest: TechniqueGroup::BoxSingles, stops: 0 }, stopped: false }
+    }
+
+    /// Adds one step of `group` to the grade.
+    fn add(&mut self, group: TechniqueGroup) {
+        self.grade.hardest = self.grade.hardest.max(group);
+        if group.is_single() {
+            self.stopped = false;
+        } else if !self.stopped {
+            self.stopped = true;
+            self.grade.stops += 1;
+        }
+    }
+}
+
+/// Version 2: solves the puzzle with the techniques that are not more difficult than `max`. Gives the
+/// level of the most difficult technique that was necessary, or None if the solver cannot complete
+/// the grid.
 pub fn grade(givens: &[[u8; 9]; 9], max: Level) -> Option<Level> {
     let mut board = Board::new(givens);
     let mut hardest = Level::Singles;
@@ -803,7 +977,7 @@ pub fn grade(givens: &[[u8; 9]; 9], max: Level) -> Option<Level> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::generator::{count_solutions, generate, generate_version, MODES, MODE_LEVELS};
+    use crate::generator::{count_solutions, generate, generate_version, MODES, MODE_LEVELS, MODE_RULES};
     use std::collections::HashSet;
 
     /// Solves with all techniques. After each step, each empty cell keeps the digit of the solution,
@@ -839,13 +1013,75 @@ mod tests {
 
     #[test]
     fn each_mode_needs_its_level() {
-        // PUZ-2, PUZ-6
+        // PUZ-2, PUZ-6: the puzzles of generator version 2, with the version 2 solver.
         for seed in 0..8 {
             for mode in 0..MODES {
-                let p = generate(seed, mode);
+                let p = generate_version(2, seed, mode, false);
                 assert_eq!(count_solutions(&p.givens, 2), 1);
                 assert_eq!(grade(&p.givens, Level::Chains), Some(MODE_LEVELS[mode as usize]), "seed {seed} mode {mode}");
                 solve_checked(&p.givens, &p.solution);
+            }
+        }
+    }
+
+    /// Version 3: solves with the groups to `permitted`. After each step, each empty cell keeps the
+    /// digit of the solution, and each number is the digit of the solution. PUZ-10: a step of the
+    /// groups 1 to 3 puts one number; a step of the groups 4 to 8 puts no number and removes one
+    /// candidate or more. Gives the groups of the steps.
+    fn solve_checked_v3(givens: &[[u8; 9]; 9], solution: &[[u8; 9]; 9], permitted: TechniqueGroup) -> Vec<TechniqueGroup> {
+        let mut b = Board::new(givens);
+        let mut used = Vec::new();
+        loop {
+            let before = b.clone();
+            let Some(g) = b.step_v3(permitted) else { break };
+            assert!(g <= permitted, "{g:?} is more difficult than {permitted:?}");
+            used.push(g);
+            let placed = (0..81).filter(|&i| before.value(i) == 0 && b.value(i) != 0).count();
+            assert!((0..81).all(|i| before.value(i) == 0 || b.value(i) == before.value(i)), "{g:?} changed a number");
+            if g.is_single() {
+                assert_eq!(placed, 1, "PUZ-10: {g:?} puts one number");
+            } else {
+                assert_eq!(placed, 0, "PUZ-10: {g:?} puts no number");
+                assert!((0..81).all(|i| b.candidates(i) & !before.candidates(i) == 0), "{g:?} added a candidate");
+                assert!((0..81).any(|i| b.candidates(i) != before.candidates(i)), "PUZ-10: {g:?} made no progress");
+            }
+            for i in 0..81 {
+                let s = solution[i / 9][i % 9];
+                if b.value(i) == 0 {
+                    assert!(b.candidates(i) & bit(s) != 0, "{g:?} removed {s} from cell {i}");
+                } else {
+                    assert_eq!(b.value(i), s, "{g:?} put a wrong number in cell {i}");
+                }
+            }
+        }
+        used
+    }
+
+    #[test]
+    fn each_mode_of_version_3_agrees_with_its_rule() {
+        // PUZ-2, PUZ-10, PUZ-11: the puzzles of generator version 3, with the limits of the mode.
+        for seed in 0..8 {
+            for mode in 0..MODES {
+                for symmetric in [false, true] {
+                    let name = format!("seed {seed} mode {mode} symmetric {symmetric}");
+                    let rule = MODE_RULES[mode as usize];
+                    let p = generate_version(3, seed, mode, symmetric);
+                    assert_eq!(count_solutions(&p.givens, 2), 1, "{name}");
+                    // (1), (2): the limited solver completes the puzzle in the maximum of stops.
+                    let g = rule.grade(&p.givens).unwrap_or_else(|| panic!("PUZ-11: {name}: the limited solver does not complete the puzzle"));
+                    assert!(rule.max_stops.is_none_or(|max| g.stops <= max), "PUZ-11: {name}: {g:?}");
+                    // (3): the needed group or a more difficult group, and not more than the permitted group.
+                    assert!(g.hardest <= rule.permitted && rule.accepts(g.hardest), "PUZ-11: {name}: {g:?}");
+                    // (4): the floor of the starting numbers.
+                    assert!(rule.floor.is_none_or(|floor| p.givens_count() >= floor), "PUZ-11: {name}: {}", p.givens_count());
+                    // PUZ-10: the grade is a function of the starting numbers, and it is the grade of the steps.
+                    assert_eq!(grade_v3(&p.givens, rule.permitted, rule.max_stops), Some(g), "PUZ-10: {name}");
+                    let steps = solve_checked_v3(&p.givens, &p.solution, rule.permitted);
+                    let mut run = Run::new();
+                    steps.iter().for_each(|&s| run.add(s));
+                    assert_eq!(run.grade, g, "PUZ-10: {name}");
+                    assert_eq!(steps.iter().max(), Some(&g.hardest), "PUZ-10: {name}");
+                }
             }
         }
     }
@@ -861,6 +1097,148 @@ mod tests {
             self.pos = std::array::from_fn(|k| (0..81).filter(|&i| self.cand[i] >> k & 1 != 0).fold(0, |s, i| s | 1 << i));
             self
         }
+    }
+
+    /// An open board where digit `d` is a candidate of only the cell `keep` of the cells `unit`.
+    fn only_in(mut b: Board, unit: impl Iterator<Item = usize>, keep: usize, d: u8) -> Board {
+        for i in unit.filter(|&i| i != keep) {
+            b.cand[i] &= !bit(d);
+        }
+        b
+    }
+
+    #[test]
+    fn a_full_house_is_a_box_single() {
+        // PUZ-10, group 1: row 0 has one empty cell. Its digit is also a line single and a naked
+        // single: the solver gives the easiest group.
+        let mut givens = [[0u8; 9]; 9];
+        for c in 0..8 {
+            givens[0][c] = c as u8 + 1;
+        }
+        let mut b = Board::new(&givens);
+        assert_eq!(b.step_v3(TechniqueGroup::Chains), Some(TechniqueGroup::BoxSingles));
+        assert_eq!(b.value(8), 9);
+        // The same for a column and for a box.
+        for cells in [[0, 9, 18, 27, 36, 45, 54, 63, 72], [30, 31, 32, 39, 40, 41, 48, 49, 50]] {
+            let mut givens = [[0u8; 9]; 9];
+            for (k, &i) in cells[..8].iter().enumerate() {
+                givens[i / 9][i % 9] = k as u8 + 1;
+            }
+            let mut b = Board::new(&givens);
+            assert!(b.full_house(), "cells {cells:?}");
+            assert_eq!(b.value(cells[8]), 9, "cells {cells:?}");
+        }
+    }
+
+    #[test]
+    fn a_hidden_single_in_a_box_is_a_box_single() {
+        // PUZ-10, group 1: in box 0, the digit 1 is a candidate of only the cell 0. No row and no
+        // column has a hidden single, and no cell has one candidate.
+        let box0 = [0, 1, 2, 9, 10, 11, 18, 19, 20];
+        let mut b = only_in(open_board(), box0.into_iter(), 0, 1).sync();
+        assert!(!b.clone().full_house() && !b.clone().hidden_single_in(0..18) && !b.clone().naked_single());
+        assert_eq!(b.step_v3(TechniqueGroup::BoxSingles), Some(TechniqueGroup::BoxSingles));
+        assert_eq!(b.value(0), 1);
+        assert_eq!((0..81).filter(|&i| b.value(i) != 0).count(), 1, "one number");
+    }
+
+    #[test]
+    fn a_hidden_single_in_a_line_is_a_line_single() {
+        // PUZ-10, group 2: in row 8 (then in column 4), a digit is a candidate of only one cell. The
+        // box of the cell has the digit in other cells, thus group 1 cannot make progress.
+        for (unit, keep, d) in [((72..81).collect::<Vec<usize>>(), 80, 2), ((0..9).map(|r| r * 9 + 4).collect(), 40, 3)] {
+            let b = only_in(open_board(), unit.into_iter(), keep, d).sync();
+            assert_eq!(b.clone().step_v3(TechniqueGroup::BoxSingles), None, "PUZ-10: the limit, cell {keep}");
+            let mut b = b;
+            assert_eq!(b.step_v3(TechniqueGroup::Chains), Some(TechniqueGroup::LineSingles), "cell {keep}");
+            assert_eq!(b.value(keep), d);
+        }
+    }
+
+    #[test]
+    fn a_naked_single_is_group_3() {
+        // PUZ-10, group 3: the cell 40 has one candidate. Its digit is a candidate of all other
+        // cells, thus the groups 1 and 2 cannot make progress.
+        let mut b = open_board();
+        b.cand[40] = bit(5);
+        let b = b.sync();
+        assert_eq!(b.clone().step_v3(TechniqueGroup::LineSingles), None, "PUZ-10: the limit");
+        let mut b = b;
+        assert_eq!(b.step_v3(TechniqueGroup::Chains), Some(TechniqueGroup::NakedSingles));
+        assert_eq!(b.value(40), 5);
+    }
+
+    #[test]
+    fn the_solver_uses_the_easiest_group_first() {
+        // PUZ-10: a box single (1 in cell 0) and a line single (2 in cell 80) are both possible.
+        // The first step is of group 1. Then the solver starts again from group 1: no box single
+        // is possible, thus the second step is of group 2.
+        let box0 = [0, 1, 2, 9, 10, 11, 18, 19, 20];
+        let b = only_in(open_board(), box0.into_iter(), 0, 1);
+        let mut b = only_in(b, 72..81, 80, 2).sync();
+        assert!(b.clone().hidden_single_in(0..18), "a line single is possible");
+        assert_eq!(b.step_v3(TechniqueGroup::Chains), Some(TechniqueGroup::BoxSingles));
+        assert_eq!((b.value(0), b.value(80)), (1, 0));
+        assert_eq!(b.step_v3(TechniqueGroup::Chains), Some(TechniqueGroup::LineSingles));
+        assert_eq!(b.value(80), 2);
+        // The fixed order of the groups.
+        assert!(TechniqueGroup::ALL.windows(2).all(|w| w[0] < w[1] && w[0].number() + 1 == w[1].number()));
+    }
+
+    #[test]
+    fn a_removal_step_puts_no_number() {
+        // PUZ-10, group 4: in box 0, the digit 1 is only in row 0 (three cells). The step removes 1
+        // from the rest of row 0 and puts no number.
+        let mut b = open_board();
+        for i in [9, 10, 11, 18, 19, 20] {
+            b.cand[i] &= !bit(1);
+        }
+        let mut b = b.sync();
+        assert_eq!(b.clone().step_v3(TechniqueGroup::NakedSingles), None, "no single is possible");
+        assert_eq!(b.step_v3(TechniqueGroup::LockedCandidates), Some(TechniqueGroup::LockedCandidates));
+        assert!((0..81).all(|i| b.value(i) == 0), "no number");
+        assert!((3..9).all(|i| b.candidates(i) & bit(1) == 0) && (0..3).all(|i| b.candidates(i) & bit(1) != 0));
+    }
+
+    /// The grade of a sequence of steps.
+    fn grade_of(steps: &[TechniqueGroup]) -> Grade {
+        let mut run = Run::new();
+        steps.iter().for_each(|&g| run.add(g));
+        run.grade
+    }
+
+    #[test]
+    fn a_stop_is_a_sequence_of_removal_steps_between_two_singles() {
+        // PUZ-10 (the terms stop and grade).
+        use TechniqueGroup::*;
+        assert_eq!(grade_of(&[BoxSingles, LineSingles, NakedSingles]), Grade { hardest: NakedSingles, stops: 0 }, "singles are no stop");
+        assert_eq!(grade_of(&[BoxSingles, LockedCandidates, BoxSingles]), Grade { hardest: LockedCandidates, stops: 1 });
+        // Two removal steps one after the other are one stop, also when their groups are different.
+        assert_eq!(grade_of(&[BoxSingles, LockedCandidates, LockedCandidates, NakedSingles]).stops, 1);
+        assert_eq!(grade_of(&[LockedCandidates, Subsets, Chains, Fish, BoxSingles]), Grade { hardest: Chains, stops: 1 });
+        // A single between two removal steps makes two stops.
+        assert_eq!(grade_of(&[LockedCandidates, BoxSingles, LockedCandidates, LineSingles]).stops, 2);
+        assert_eq!(grade_of(&[Subsets, NakedSingles, Wings, Wings, LineSingles, LockedCandidates, BoxSingles]), Grade { hardest: Wings, stops: 3 });
+        // Each group of the groups 4 to 8 is a removal group, and each group of 1 to 3 is a single.
+        for g in TechniqueGroup::ALL {
+            assert_eq!(grade_of(&[g]).stops, u32::from(!g.is_single()), "{g:?}");
+        }
+    }
+
+    #[test]
+    fn the_maximum_of_stops_limits_the_grade() {
+        // PUZ-10, PUZ-11: a puzzle of mode 4 that needs a stop has no grade with a maximum of 0
+        // stops, and its grade does not depend on a maximum that is not less than its stops.
+        let (p, g) = (0..40u64)
+            .find_map(|seed| {
+                let p = generate_version(3, seed, 4, false);
+                let g = grade_v3(&p.givens, TechniqueGroup::LockedCandidates, None).unwrap();
+                (g.stops >= 1).then_some((p, g))
+            })
+            .expect("a puzzle with a stop");
+        assert_eq!(grade_v3(&p.givens, TechniqueGroup::LockedCandidates, Some(g.stops - 1)), None);
+        assert_eq!(grade_v3(&p.givens, TechniqueGroup::LockedCandidates, Some(g.stops)), Some(g));
+        assert_eq!(grade_v3(&p.givens, TechniqueGroup::NakedSingles, None), None, "PUZ-10: the limit of the group");
     }
 
     #[test]

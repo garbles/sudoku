@@ -235,7 +235,8 @@ fn undo_and_redo() {
     let before = d.app.game.clone();
     d.button(Button::Undo);
     assert_eq!(board(&d.app.game), board(&before), "a gray button has no effect");
-    let c1 = empty_cell(&d.app.game);
+    // The marks 1 and 9 are free in c1 (MRK-7: a tap on a digit of a peer adds no mark).
+    let c1 = free_cell(&d.app, &[1, 9]);
     d.tap_micro(c1, 1);
     d.write(c1, 4);
     let after = (d.app.game.value, d.app.game.marks);
@@ -2500,7 +2501,8 @@ fn a_full_group_of_starting_numbers_has_the_color_from_the_first_frame() {
     // COL-9, §6.4: Easy puzzles of the generator (PUZ-5) with a row, a column, a box, or two groups
     // that are full at the start. There is no exception for them.
     let fonts = fonts();
-    let cases: [(u64, Cell); 4] = [(323, (0, 8)), (4, (8, 0)), (249, (2, 8)), (368, (5, 8))];
+    // Seeds of generator version 3: row 0, column 4, box 0, and row 7 with box 7.
+    let cases: [(u64, Cell); 4] = [(151, (0, 8)), (24, (8, 4)), (134, (2, 2)), (462, (7, 4))];
     for (seed, cell) in cases {
         let game = sudoku::app::new_game(seed, 0);
         let d = Driver::opened(app_with_game(game.clone(), START_TIME, seed));
@@ -2518,15 +2520,15 @@ fn a_new_game_gets_the_colors_of_its_own_numbers() {
     // COL-10: a new game replaces the colors of the old board, in one action and with empty stacks.
     let fonts = fonts();
     for_each_layout(|layout_case| {
-        // Not symmetric (DIF-3, DIF-5): row 0 of the puzzle of (323, 0, not symmetric) is full.
+        // Not symmetric (DIF-3, DIF-5): row 0 of the puzzle of (151, 0, not symmetric, version 3) is full.
         let settings = Settings { last_mode: 0, last_symmetric: false, ..Settings::default() };
-        let app = App::new(None, Some(settings), ResultsDb::in_memory(), Box::new(sudoku::script::FixedEnv(323)), App::placeholder_ng_stops());
+        let app = App::new(None, Some(settings), ResultsDb::in_memory(), Box::new(sudoku::script::FixedEnv(151)), App::placeholder_ng_stops());
         let mut d = Driver::from(app);
         d.app.game = order_board();
         d.button(Button::Menu);
         d.button(Button::NewGame);
         d.finger_tap(layout::ng_pl() as f32 + 50.0, layout::ng_start_y() as f32);
-        assert_eq!(d.app.game, sudoku::app::new_game(323, 0), "{layout_case}");
+        assert_eq!(d.app.game, sudoku::app::new_game(151, 0), "{layout_case}");
         assert!(d.app.game.undo.is_empty() && d.app.game.redo.is_empty());
         // Row 0 of this puzzle is full. (5, 0) of the old board clashed.
         assert_cells(&d, &fonts, layout_case, &[((0, 8), GREEN)]);
@@ -5946,9 +5948,9 @@ fn assert_level_game_sym(d: &Driver, old_seed: u64, mode: u8, symmetric: bool, c
     assert!(g.undo.is_empty() && g.redo.is_empty() && g.checkpoints.is_empty(), "DIF-5 ({case})");
     assert!(cells().all(|c| g.is_given(c) || (!g.is_filled(c) && g.marks_at(c) == 0)), "DIF-5 ({case})");
     assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Closed), "NAV-9, CMP-10 ({case})");
-    let p = sudoku::generator::generate_version(2, g.seed, mode, symmetric);
+    let p = sudoku::generator::generate_version(3, g.seed, mode, symmetric);
     let given = p.givens.map(|row| row.map(|v| v != 0));
-    assert_eq!((g.generator, g.solution, g.given), (2, p.solution, given), "PUZ-5, PUZ-7 ({case})");
+    assert_eq!((g.generator, g.solution, g.given), (3, p.solution, given), "PUZ-5, PUZ-7, PUZ-13 ({case})");
 }
 
 #[test]
@@ -6404,7 +6406,7 @@ fn start_new_game_keeps_the_selected_symmetry() {
             tap_start(&mut d);
             let g = &d.app.game;
             assert_ne!(g.seed, old, "DIF-5 ({case})");
-            assert_eq!((g.mode, g.symmetric, g.generator), (stop as u8, sym, 2), "DIF-5, PUZ-8 ({case})");
+            assert_eq!((g.mode, g.symmetric, g.generator), (stop as u8, sym, 3), "DIF-5, PUZ-8, PUZ-13 ({case})");
             assert_eq!((d.app.settings.last_mode, d.app.settings.last_symmetric), (stop as u8, sym), "DIF-5 ({case})");
             assert_eq!(*g, sudoku::app::new_game_with_symmetry(g.seed, stop as u8, sym), "PUZ-5 ({case})");
             if sym {
@@ -6443,11 +6445,11 @@ fn the_background_puzzle_of_the_panel_follows_the_switch() {
     assert_eq!(d.app.early_game(), Some((seed, 5, false)), "PUZ-7");
     tap_start(&mut d);
     assert_eq!(d.app.game.seed, seed, "PUZ-7: Start new game uses next_seed");
-    let p = sudoku::generator::generate_version(2, seed, 5, false);
+    let p = sudoku::generator::generate_version(3, seed, 5, false);
     assert_eq!((d.app.game.solution, d.app.game.given), (p.solution, p.givens.map(|r| r.map(|v| v != 0))), "PUZ-5, PUZ-7");
-    assert!(!d.app.game.symmetric);
+    assert!(!d.app.game.symmetric && d.app.game.generator == 3, "PUZ-13");
     // The non-symmetric puzzle of a seed is not its symmetric puzzle (R§14.5: a different sequence).
-    assert_ne!(sudoku::generator::generate_version(2, seed, 5, true).givens, p.givens, "R§14.5");
+    assert_ne!(sudoku::generator::generate_version(3, seed, 5, true).givens, p.givens, "R§14.5");
 }
 
 #[test]

@@ -373,6 +373,8 @@ pub fn puzzle_with(entries: &[(Cell, u8)]) -> Game {
 /// A game with the solution `SOLUTION` and these starting numbers (a '.' is an empty cell). It is not
 /// a puzzle of the generator, thus `App::new` does not accept it as a saved game (PER-5). These starting
 /// numbers do not always have only one solution: use it only for tests that send no input to the app.
+/// The game has generator version 2 (mode 2): `PUZZLE` has 30 starting numbers, and version 3 needs 34
+/// or more for mode 2 (PUZ-11). Version 2 has no minimum for mode 2 (PUZ-6).
 pub fn board_of(rows: &[&str; 9]) -> Game {
     let solution = digits(&SOLUTION);
     let given = digits(rows);
@@ -380,7 +382,7 @@ pub fn board_of(rows: &[&str; 9]) -> Game {
         let v = given[r as usize][c as usize];
         assert!(v == 0 || v == solution[r as usize][c as usize], "PUZ-3: the starting number at ({r},{c})");
     }
-    Game::new(1, 2, solution, given)
+    Game { generator: 2, ..Game::new(1, 2, solution, given) }
 }
 
 /// A board with only the starting numbers at `given` (values of `SOLUTION`).
@@ -390,7 +392,7 @@ pub fn board_with(given: &[Cell]) -> Game {
     for &(r, c) in given {
         g[r as usize][c as usize] = solution[r as usize][c as usize];
     }
-    Game::new(1, 2, solution, g)
+    Game { generator: 2, ..Game::new(1, 2, solution, g) }
 }
 
 /// The 27 groups: 9 rows, 9 columns and 9 boxes.

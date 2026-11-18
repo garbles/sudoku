@@ -12,9 +12,9 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use common::*;
-use sudoku::app::{new_game, new_game_with_symmetry, App, Env, Panel, Screen};
+use sudoku::app::{game_of_version, new_game, new_game_with_symmetry, App, Env, Panel, Screen};
 use sudoku::game::{cells, mark_bit, peers, Board, Cell, Change, Checkpoint, Game};
-use sudoku::generator::{count_solutions, generate_version, partner, FIRST_MODE, FIRST_SYMMETRIC, MODES, VERSION};
+use sudoku::generator::{count_solutions, generate_version, partner, Version, FIRST_MODE, FIRST_SYMMETRIC, MODES, VERSION};
 use sudoku::invariants::{check_app, check_game};
 use sudoku::layout::{self, Button};
 use sudoku::settings::{Color, LineGray, Section, Settings, Switch};
@@ -1249,8 +1249,9 @@ fn each_result_has_correct_values_and_a_unique_id() {
 
 #[test]
 fn a_game_saved_before_generator_version_2_is_used() {
-    // PUZ-5, PER-5: a game file of version 1 has no "generator". It is a puzzle of version 1, and the
-    // app continues it. The same file with a puzzle of version 2, or with mode 5 or 6, is not correct.
+    // PUZ-5, PUZ-13, PER-5: a game file of version 1 has no "generator". It is a puzzle of version 1,
+    // and the app continues it. The same file with a puzzle of version 2 or 3, or with mode 5 or 6, is
+    // not correct.
     let p = generate_version(1, 908, 3, false);
     let v1 = Game { generator: 1, ..Game::new(908, 3, p.solution, p.givens) };
     let mut json = serde_json::to_value(&v1).unwrap();
@@ -1265,9 +1266,10 @@ fn a_game_saved_before_generator_version_2_is_used() {
     assert_eq!(app.game, v1, "the app continues the game of version 1");
     check_app(&app).unwrap();
 
-    let v2_puzzle = Game { generator: 1, ..new_game(908, 3) };
+    let v2_puzzle = Game { generator: 1, ..game_of_version(Version::V2, 908, 3, false) };
+    let v3_puzzle = Game { generator: 1, ..new_game(908, 3) };
     let v1_mode_5 = Game { generator: 1, ..new_game(909, 5) };
-    for (name, bad) in [("version 2 puzzle", v2_puzzle), ("mode 5", v1_mode_5)] {
+    for (name, bad) in [("version 2 puzzle", v2_puzzle), ("version 3 puzzle", v3_puzzle), ("mode 5", v1_mode_5)] {
         let app = open_app(Some(bad.clone()), None, ResultsDb::in_memory(), 5);
         assert_ne!(app.game, bad, "{name}: the app used a game that is not generate_version(1, seed, mode)");
         assert_eq!(app.game, new_game_with_symmetry(first_seed(5), FIRST_MODE, FIRST_SYMMETRIC), "{name}: a new game of the last mode");
@@ -1591,5 +1593,194 @@ fn a_results_database_of_version_2_gets_the_symmetry_false() {
     let conn = rusqlite::Connection::open(&path).unwrap();
     let kept: i64 = conn.query_row("SELECT count(*) FROM results WHERE seed = 44", [], |r| r.get(0)).unwrap();
     assert_eq!(kept, 1, "ANA-1: the row that the app does not use stays in the file");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+// ---- PUZ-5, PUZ-7, PUZ-12, PUZ-13, PER-5, CMP-5, ANA-4: generator version 3 and the saved games of
+// the versions 1 and 2.
+
+/// The generator version of the result row of `seed` in the results file (the column `generator`).
+fn result_generator(path: &PathBuf, seed: u64) -> i64 {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.query_row("SELECT generator FROM results WHERE seed = ?1", [seed as i64], |r| r.get(0)).unwrap()
+}
+
+/// True if the two games have the same puzzle (the solution and the starting cells).
+fn same_puzzle(a: &Game, b: &Game) -> bool {
+    a.solution == b.solution && a.given == b.given
+}
+
+#[test]
+fn the_current_version_is_3_and_a_new_game_has_it() {
+    // PUZ-13, PUZ-5: the first start (no saved game) and a new game that replaces a saved game that
+    // the app does not use have generator = 3 and the puzzle of version 3 of their key.
+    assert_eq!(VERSION, 3, "PUZ-13: the current version");
+    let first = open_app(None, None, ResultsDb::in_memory(), 5);
+    let want = game_of_version(Version::V3, first_seed(5), FIRST_MODE, FIRST_SYMMETRIC);
+    assert_eq!(first.game.generator, 3, "PUZ-13: the first start");
+    assert_eq!(first.game, want, "PUZ-5, PUZ-13: the first start");
+    // A saved game that the app does not use (PER-5): the new game has version 3.
+    let bad = Game { seed: 999_999, ..new_game(960, 2) };
+    let app = open_app(Some(bad), None, ResultsDb::in_memory(), 5);
+    assert_eq!(app.game, want, "PUZ-13: the new game that replaces the saved data");
+    // The background puzzle of the New game panel has the key of the panel, and Start new game gives
+    // the puzzle of version 3 (PUZ-7).
+    let mut d = Driver::from(first);
+    d.button(Button::Menu);
+    d.button(Button::NewGame);
+    let (seed, mode, sym) = d.app.early_game().expect("PUZ-7: the panel starts the background puzzle");
+    d.finger_tap(layout::ng_panel().x0 as f32 + 100.0, (layout::tb_bottom_y() + 56) as f32);
+    assert_eq!(d.app.game, game_of_version(Version::V3, seed, mode, sym), "PUZ-7, PUZ-13: Start new game");
+    check_app(&d.app).unwrap();
+}
+
+#[test]
+fn a_saved_game_of_version_2_opens_and_continues() {
+    // PUZ-5, PUZ-13, PER-5, PER-1: a saved game of version 2 that is the puzzle of its own key opens
+    // with version 2, symmetric and not, at the first, a middle and the last mode. The player continues
+    // it, and it keeps version 2 through the game file. Its puzzle is not the puzzle of version 3 of the
+    // same key (PUZ-12): thus the app did not make the game again.
+    for (seed, mode, sym) in [(930u64, 0u8, false), (931, 0, true), (932, 4, true), (933, 6, false), (934, 6, true)] {
+        let what = format!("seed {seed}, mode {mode}, symmetric {sym}");
+        let v2 = game_of_version(Version::V2, seed, mode, sym);
+        assert_eq!(v2.generator, 2, "{what}");
+        assert!(!same_puzzle(&v2, &game_of_version(Version::V3, seed, mode, sym)), "{what}: the two versions have the same puzzle");
+        let dir = data_dir(&format!("v2-continue-{seed}"));
+        let path = dir.join("game.json");
+        save_json(&path, &v2).unwrap();
+        let loaded: Game = load_json(&path).expect("a game file of version 2");
+        let app = open_app(Some(loaded), None, ResultsDb::in_memory(), 5);
+        assert_eq!(app.game, v2, "PUZ-5, PER-5: {what}: the app uses the game of version 2");
+        check_app(&app).unwrap_or_else(|e| panic!("{what}: {e}"));
+        // The player continues the game.
+        let mut d = Driver::from(app);
+        let cell = cells().find(|&c| !d.app.game.is_filled(c)).unwrap();
+        let v = d.app.game.solution[cell.0 as usize][cell.1 as usize];
+        d.write(cell, v);
+        assert_eq!(d.app.game.value_at(cell), v, "{what}: the app did not read {v}");
+        assert_eq!(d.app.game.generator, 2, "PUZ-13: {what}: the generator of a game does not change");
+        save_json(&path, &d.app.game).unwrap();
+        let again = open_app(load_json(&path), None, ResultsDb::in_memory(), 6);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_eq!(again.game, d.app.game, "PER-1: {what}: the continued game of version 2");
+        assert_eq!(again.game.generator, 2, "PUZ-13: {what}");
+    }
+}
+
+#[test]
+fn a_saved_game_with_the_puzzle_of_a_different_version_is_not_used() {
+    // PUZ-5, PUZ-12, PER-5: the puzzle of version 2 with generator 3, and the puzzle of version 3 with
+    // generator 2, of the same (seed, mode, symmetric): the app does not use them. The new game has
+    // version 3 (PUZ-13). The correct games of the two versions are used.
+    for (seed, mode, sym) in [(940u64, 2u8, false), (941, 5, true), (942, 3, true), (943, 6, false)] {
+        let what = format!("seed {seed}, mode {mode}, symmetric {sym}");
+        let v2 = game_of_version(Version::V2, seed, mode, sym);
+        let v3 = game_of_version(Version::V3, seed, mode, sym);
+        assert!(!same_puzzle(&v2, &v3), "{what}: the fixture needs two different puzzles");
+        for good in [&v2, &v3] {
+            assert_eq!(&open_app(Some(good.clone()), None, ResultsDb::in_memory(), 5).game, good, "PUZ-5: {what}: version {}", good.generator);
+        }
+        for (name, bad) in [("v2-puzzle-as-3", Game { generator: 3, ..v2.clone() }), ("v3-puzzle-as-2", Game { generator: 2, ..v3.clone() })] {
+            assert_not_used(&bad, &format!("puz5-{name}-{seed}"));
+            let app = open_app(Some(bad), None, ResultsDb::in_memory(), 5);
+            assert_eq!(app.game.generator, 3, "PUZ-13: {what}, {name}");
+        }
+    }
+}
+
+#[test]
+fn a_game_file_with_a_version_that_is_not_1_2_or_3_is_not_used() {
+    // PUZ-5, PER-5: generator ∈ {1, 2, 3}. A game file with version 0, 4 or 255 is not correct: the
+    // app does not use it, it does not stop, and the new game has version 3 (PUZ-13). The puzzle of
+    // the file is a correct puzzle of version 3, thus only the version is wrong.
+    let base = new_game(950, 3);
+    for (k, version) in [0u8, 4, 255].into_iter().enumerate() {
+        let bad = Game { generator: version, ..base.clone() };
+        let err = check_game(&bad).expect_err("PUZ-5: a version that is not 1, 2 or 3");
+        assert!(err.contains("PUZ-5"), "PUZ-5: version {version}: {err}");
+        assert_rejected(&base, &bad, "PUZ-5", &format!("puz5-version-{version}"));
+        // The same file as text, with the number of the version in JSON.
+        let dir = data_dir(&format!("puz5-version-text-{version}"));
+        let path = dir.join("game.json");
+        let mut json = serde_json::to_value(&base).unwrap();
+        json["generator"] = version.into();
+        std::fs::write(&path, json.to_string()).unwrap();
+        let app = open_app(load_json(&path), None, ResultsDb::in_memory(), 7 + k as u64);
+        std::fs::remove_dir_all(&dir).ok();
+        assert_ne!(app.game.seed, base.seed, "PER-5: version {version}: the app used the game");
+        assert_eq!(app.game.generator, 3, "PUZ-13: version {version}");
+        check_app(&app).unwrap();
+    }
+}
+
+#[test]
+fn a_completed_game_of_version_2_keeps_version_2_and_the_next_game_has_version_3() {
+    // CMP-5, PUZ-13, PUZ-7: the result of a game of version 2 has generator 2 in the results file. The
+    // background puzzle and the level buttons make games of version 3, symmetric and not. A completed
+    // game of version 2 that opens from the save keeps version 2 (PER-1).
+    use sudoku::layout::LevelButton;
+    for (seed, mode, sym, b) in [(970u64, 3u8, false, LevelButton::Same), (971, 4, true, LevelButton::Easier), (972, 2, true, LevelButton::Harder)] {
+        let what = format!("seed {seed}, mode {mode}, symmetric {sym}, {b:?}");
+        let mut g = game_of_version(Version::V2, seed, mode, sym);
+        let empty: Vec<Cell> = cells().filter(|&c| !g.is_filled(c)).collect();
+        let (last, rest) = empty.split_last().unwrap();
+        for &(r, c) in rest {
+            g.add_number((r, c), g.solution[r as usize][c as usize]);
+        }
+        let dir = data_dir(&format!("v2-complete-{seed}"));
+        let path = dir.join(RESULTS_FILE);
+        let mut d = Driver::from(open_app(Some(g.clone()), None, ResultsDb::open(&path).unwrap(), 20));
+        assert_eq!(d.app.game.generator, 2, "{what}: the app uses the game of version 2");
+        d.wait(1500);
+        write_last_number(&mut d, *last);
+        assert_eq!(d.app.game.generator, 2, "PUZ-13: {what}: the completed game keeps its version");
+        assert_eq!(result_generator(&path, seed), 2, "CMP-5, PUZ-13: {what}: the result has the version of its game");
+        let row = d.app.results.iter().find(|r| r.seed == seed).expect("CMP-5: the result");
+        assert_eq!((row.mode, row.symmetric, row.givens), (mode, sym, g.givens_count()), "CMP-5: {what}");
+        check_app(&d.app).unwrap();
+        // The completed game of version 2 opens from the save with version 2.
+        let completed = d.app.game.clone();
+        let reopened = open_app(Some(completed.clone()), None, ResultsDb::open(&path).unwrap(), 21);
+        assert_eq!(reopened.game, completed, "PER-1: {what}: the completed game of version 2");
+        // PUZ-7: the background puzzle is the Same mode with the symmetry of the game, and the level
+        // button makes the puzzle of version 3.
+        let (next, early_mode, early_sym) = d.app.early_game().expect("PUZ-7: the background puzzle at the completion");
+        assert_eq!((early_mode, early_sym), (mode, sym), "PUZ-7: {what}");
+        let r = layout::level_button(b);
+        d.finger_tap((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0);
+        let target = b.target(mode).unwrap();
+        assert_eq!(d.app.game, game_of_version(Version::V3, next, target, sym), "PUZ-7, PUZ-13: {what}: the next game");
+        assert_eq!(d.app.game.generator, 3, "PUZ-13: {what}");
+        assert_eq!(result_generator(&path, seed), 2, "CMP-5: {what}: the row does not change");
+        check_app(&d.app).unwrap();
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[test]
+fn the_results_of_all_versions_of_a_mode_are_one_group() {
+    // ANA-4, CMP-8, ANA-1: rows of the generator versions 1, 2 and 3 at the same mode are in one group:
+    // the app uses all of them, the average and the best time of the result card use all of them.
+    let dir = data_dir("ana4-versions");
+    let path = dir.join(RESULTS_FILE);
+    let mut db = ResultsDb::open(&path).unwrap();
+    for (k, (generator, seconds)) in [(1u8, 100u64), (2, 200), (3, 600), (2, 900)].into_iter().enumerate() {
+        let mode = if k == 3 { 4 } else { 2 };
+        db.insert(&sudoku::store::NewResult { finished_at: 1_790_000_000 + k as i64, mode, givens: 30, seconds, seed: 80 + k as u64, generator, symmetric: k % 2 == 0 }).unwrap();
+    }
+    drop(db);
+    let (g, last) = nearly_complete(975, 2);
+    let mut d = Driver::from(open_app(Some(g), None, ResultsDb::open(&path).unwrap(), 30));
+    assert_eq!(d.app.results.len(), 4, "ANA-1: the app uses the rows of all versions");
+    let mode_2: Vec<_> = d.app.results.iter().filter(|r| r.mode == 2).collect();
+    assert_eq!(mode_2.len(), 3, "ANA-4: the versions 1, 2 and 3 of mode 2 are one group");
+    assert_eq!(sudoku::app::average_seconds(mode_2.into_iter()), Some(300), "ANA-4: (100 + 200 + 600) / 3");
+    write_last_number(&mut d, last);
+    assert_eq!(result_generator(&path, 975), 3, "CMP-5: the result of a game of version 3");
+    assert_eq!(
+        d.app.card_comparison(),
+        sudoku::app::Comparison::Earlier { average: 300, best: 100 },
+        "CMP-8, ANA-4: the earlier results of mode 2 of all versions"
+    );
     std::fs::remove_dir_all(&dir).ok();
 }

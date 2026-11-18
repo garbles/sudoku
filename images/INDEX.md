@@ -223,8 +223,10 @@ This section is a short summary. `REQUIREMENTS.md` gives the full behavior.
 
 ## Work to do
 
-- **Puzzle generator (done).** `src/generator.rs` makes puzzles with only one solution. It sets the
-  quantity of starting numbers for each mode (REQUIREMENTS.md §14.5).
+- **Puzzle generator (done).** `src/generator.rs` makes puzzles with only one solution. For each mode, it
+  sets the solving techniques that the puzzle permits and needs, the minimum quantity of starting
+  numbers and the maximum quantity of stops (REQUIREMENTS.md §14.5). A puzzle can have more starting
+  numbers than the minimum of its mode.
 - **Recognition pause (done).** The owner examined 1 s on the device (REQUIREMENTS.md §16).
 - **E-ink check (done).** The owner examined the faint micro-cell lines, the cell colors and the
   gray icons on the tablet. All are clear.

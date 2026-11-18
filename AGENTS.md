@@ -188,8 +188,12 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   file), clashes, completed groups and completion.
 - `generator.rs`: the puzzle generator with a seed and a symmetry (only one solution). The key of a
   puzzle is `PuzzleKey = (seed, mode, symmetric)`. A symmetric puzzle removes the givens in pairs
-  (cell and `partner`, rotation by 180 degrees); `generate(seed, mode)` is not symmetric and gives
-  the same puzzle as before. Version 1 stays for old saves (never symmetric).
+  (cell and `partner`, rotation by 180 degrees); `generate(seed, mode)` is not symmetric and uses
+  the current version, 3 (`generator::VERSION`). A puzzle is a function of the seed, the mode, the
+  symmetry and the version. Versions 1 (never symmetric) and 2 stay only for saved games and old
+  scripts: their puzzles must not change (frozen). Version 3 gives each mode a rule
+  (`generator::MODE_RULES`: the permitted technique group, the needed group, the minimum of
+  starting numbers and the maximum of stops).
   After the first attempt, up to 4 threads make batches of attempts; the results are examined in
   the order of the attempts, thus the puzzle does not depend on the threads (PUZ-5). While the New
   game panel is open, the app draws the seed of the next game and makes its puzzle in the
@@ -197,7 +201,12 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   then uses it. While a completed game shows, the
   app also makes the puzzle of the Same mode and the same symmetry, from the completion (`App::start_early_game`); the
   level buttons of the result card use it.
-- `solver.rs`: the human-style solver. It grades a puzzle by the most difficult technique it needs.
+- `solver.rs`: the human-style solver. Version 2 grades a puzzle by the most difficult technique it
+  needs (frozen, for versions 1 and 2). Version 3 puts the techniques in eight groups
+  (`TechniqueGroup`: box singles, line singles, naked singles, locked candidates, subsets, fish,
+  wings, chains), uses the easiest group that makes progress, and grades a puzzle by the most
+  difficult group and the quantity of stops (a sequence of removal steps between two singles;
+  `grade_v3`).
 - `recognizer.rs`: reads handwriting in a cell (it compares the pen direction and pen path features of the ink with the nearest examples). All examples are stored in both pen directions, and the features are calculated at each start. Up to 4
   threads scan ranges of the examples; the main thread plays the accepted examples of all ranges
   again in order, thus the result is the same bit for bit. At each pen lift, the app starts the
@@ -288,7 +297,10 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   AppLoad (`remarkable-debug` skill). The ink patch `sudoku-penregion.qmd` went away.
 - `install.sh` (not in `src/`): the installer for the tablet. It runs on the computer of the user.
   `scripts/terminal.py` draws its output (`images/install-*.png`).
-- `script.rs`: the event scripts (`video/*.txt`) for the video tool and the bench.
+- `script.rs`: the event scripts (`video/*.txt`) for the video tool and the bench. The line
+  `puzzle seed S mode M [generator V]` can name a generator version; with no version it uses the
+  current one. `video/demo.txt` and `video/demo-full.txt` name version 2, so the videos and the bench
+  hashes do not change.
 - `bin/video.rs`: runs the app with a script of timed events (`video/*.txt`) and records a video.
 - `bench.rs`, `bin/bench.rs`: the performance bench (refer to Performance).
 

@@ -1,21 +1,28 @@
 //! The puzzle generator (REQUIREMENTS.md §14.5).
 //!
 //! `generate_with_symmetry(seed, mode, symmetric)` always gives the same puzzle for the same values
-//! (INVARIANTS.md PUZ-5). `generate(seed, mode)` is the puzzle that is not symmetric. The
-//! generator uses its own random number generator, so that a change of a library does not change the
-//! puzzles of the saved seeds. Each puzzle has only one solution (PUZ-2).
+//! (INVARIANTS.md PUZ-5). `generate(seed, mode)` is the puzzle that is not symmetric. The two use the
+//! current version (3): the app makes each new game with it (PUZ-13). The generator uses its own
+//! random number generator, so that a change of a library does not change the puzzles of the saved
+//! seeds. Each puzzle has only one solution (PUZ-2).
 //!
-//! Version 2 makes the puzzles with the human-style solver (`solver.rs`). Each mode has a most
+//! Version 3 makes the puzzles with the version 3 path of the human-style solver (`solver.rs`). Four
+//! values together set the difficulty of a mode (`MODE_RULES`, PUZ-11): the most difficult technique
+//! group that the solver can use, the group that the puzzle must need, the minimum of starting numbers
+//! and the maximum of stops.
+//!
+//! The versions 1 and 2 are frozen (PUZ-12): each of their puzzles must stay the same, bit for bit.
+//! The app keeps them only to examine the games that it saved (PUZ-5). Version 2 gave each mode a most
 //! difficult technique level, and the puzzle needs a technique of that level (PUZ-6). Version 1 used
-//! only a quantity of starting numbers. The app keeps version 1 only to examine the games that it saved
-//! before version 2 (PUZ-5).
+//! only a quantity of starting numbers.
 //!
 //! A symmetric puzzle has 2-way rotational symmetry: cell (r, c) is a starting number if and only if
-//! cell (8 - r, 8 - c) is a starting number (PUZ-8). Only version 2 has the symmetry. A puzzle that is
-//! not symmetric is the same as before the symmetry option.
+//! cell (8 - r, 8 - c) is a starting number (PUZ-8). The versions 2 and 3 have the symmetry, with the
+//! same meaning. A puzzle of version 2 that is not symmetric is the same as before the symmetry
+//! option.
 
 use crate::game::{cells, Cell};
-use crate::solver::{self, Level};
+use crate::solver::{self, Level, TechniqueGroup};
 
 pub const MODES: u8 = 7;
 /// The mode of the first game (DIF-2).
@@ -23,13 +30,122 @@ pub const FIRST_MODE: u8 = 2;
 /// The symmetry of the first game, and of a settings file with no symmetry (DIF-9, PER-9).
 pub const FIRST_SYMMETRIC: bool = true;
 
-/// The version of the generator. A different version gives a different puzzle for the same seed.
-pub const VERSION: u8 = 2;
+/// A version of the generator. A different version gives a different puzzle for the same seed, thus
+/// each game and each result has the number of its version (PUZ-5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Version {
+    /// Frozen (PUZ-12). The modes 0..4, never symmetric.
+    V1 = 1,
+    /// Frozen (PUZ-12). The modes 0..6, symmetric or not.
+    V2 = 2,
+    /// The modes 0..6, symmetric or not.
+    V3 = 3,
+}
+
+impl Version {
+    /// The version of each new game (PUZ-13).
+    pub const CURRENT: Version = Version::V3;
+
+    /// The version of a number in a game file or in a script. None if the number is not a version.
+    pub const fn from_number(n: u8) -> Option<Version> {
+        match n {
+            1 => Some(Version::V1),
+            2 => Some(Version::V2),
+            3 => Some(Version::V3),
+            _ => None,
+        }
+    }
+
+    /// The number of the version in the game file and in the results.
+    pub const fn number(self) -> u8 {
+        self as u8
+    }
+
+    /// The quantity of modes of the version, from 0 (Easy).
+    pub const fn modes(self) -> u8 {
+        match self {
+            Version::V1 => V1_MODES,
+            Version::V2 | Version::V3 => MODES,
+        }
+    }
+
+    /// True if the version has the symmetry option (PUZ-8).
+    pub const fn has_symmetry(self) -> bool {
+        !matches!(self, Version::V1)
+    }
+
+    /// True if the version has a puzzle for `(mode, symmetric)` (PUZ-5, PUZ-8).
+    pub const fn permits(self, mode: u8, symmetric: bool) -> bool {
+        mode < self.modes() && (!symmetric || self.has_symmetry())
+    }
+
+    /// The puzzle of `(seed, mode, symmetric)`. The version must permit the mode and the symmetry
+    /// (`permits`): if not, that is a bug of the caller.
+    pub fn generate(self, seed: u64, mode: u8, symmetric: bool) -> Puzzle {
+        match self {
+            Version::V1 => {
+                assert!(!symmetric, "generator version 1 has no symmetry");
+                generate_v1(seed, mode)
+            }
+            Version::V2 => generate_v2(seed, mode, symmetric),
+            Version::V3 => generate_v3(seed, mode, symmetric),
+        }
+    }
+}
+
+/// The number of the current version of the generator (3).
+pub const VERSION: u8 = Version::CURRENT.number();
 /// The quantity of modes of version 1, from 0 (Easy) to 4.
 pub const V1_MODES: u8 = 5;
 
-/// The most difficult technique level of each mode, from 0 (Easy) to 6 (Hard). Only the generator
-/// uses these values (PUZ-6).
+/// The values of one mode of version 3 (PUZ-11).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ModeRule {
+    /// The most difficult technique group that the solver can use.
+    pub permitted: TechniqueGroup,
+    /// The easiest technique group that the puzzle must need. None: the puzzle must need nothing
+    /// more than the easiest group.
+    pub needed: Option<TechniqueGroup>,
+    /// The minimum quantity of starting numbers: the removal stops there. None: no minimum.
+    pub floor: Option<usize>,
+    /// The maximum quantity of stops. None: no limit.
+    pub max_stops: Option<u32>,
+}
+
+impl ModeRule {
+    /// The grade of the starting numbers with the limits of the mode. None if the limited solver
+    /// cannot complete the grid, or if it needs too many stops (PUZ-11, items 1 and 2).
+    pub fn grade(&self, givens: &[[u8; 9]; 9]) -> Option<solver::Grade> {
+        solver::grade_v3(givens, self.permitted, self.max_stops)
+    }
+
+    /// True if the generator accepts a puzzle whose grade has the most difficult group `hardest`: it
+    /// is the needed group, or a more difficult group (PUZ-11, item 3).
+    pub fn accepts(&self, hardest: TechniqueGroup) -> bool {
+        self.needed.is_none_or(|needed| hardest >= needed)
+    }
+}
+
+/// Version 3: the values of each mode, from 0 (Easy) to 6 (Hard). Only the generator and the checks
+/// of its puzzles use these values (PUZ-6, PUZ-11).
+pub const MODE_RULES: [ModeRule; MODES as usize] = {
+    use TechniqueGroup::*;
+    const fn rule(permitted: TechniqueGroup, needed: Option<TechniqueGroup>, floor: Option<usize>, max_stops: Option<u32>) -> ModeRule {
+        ModeRule { permitted, needed, floor, max_stops }
+    }
+    [
+        rule(NakedSingles, None, Some(44), Some(0)),
+        rule(BoxSingles, None, Some(38), Some(0)),
+        rule(LineSingles, Some(LineSingles), Some(34), Some(0)),
+        rule(NakedSingles, Some(LineSingles), Some(31), Some(0)),
+        rule(LockedCandidates, Some(LockedCandidates), Some(28), Some(2)),
+        rule(Fish, Some(Subsets), None, None),
+        rule(Chains, Some(Wings), None, None),
+    ]
+};
+
+/// Version 2: the most difficult technique level of each mode, from 0 (Easy) to 6 (Hard). Only the
+/// generator uses these values (PUZ-6).
 pub const MODE_LEVELS: [Level; MODES as usize] = [
     Level::Singles,
     Level::Singles,
@@ -40,11 +156,11 @@ pub const MODE_LEVELS: [Level; MODES as usize] = [
     Level::Chains,
 ];
 
-/// The generator stops to remove starting numbers at this quantity. Only Easy stops early: more
-/// starting numbers give more possible moves at each step.
+/// Version 2: the generator stops to remove starting numbers at this quantity. Only Easy stops early:
+/// more starting numbers give more possible moves at each step.
 const MIN_GIVENS: [usize; MODES as usize] = [44, 0, 0, 0, 0, 0, 0];
 
-/// The maximum quantity of attempts to get a puzzle that needs the level of the mode.
+/// The versions 2 and 3: the maximum quantity of attempts to get a puzzle that the mode accepts.
 const MAX_ATTEMPTS: u64 = 400;
 
 /// Version 1: the target quantity of starting numbers for each mode, from 0 (Easy) to 4.
@@ -96,8 +212,7 @@ impl Puzzle {
     }
 }
 
-/// The puzzle of `(seed, mode)` that is not symmetric, with the current version of the generator. It
-/// is the same puzzle as before the symmetry option (PUZ-5).
+/// The puzzle of `(seed, mode)` that is not symmetric, with the current version of the generator.
 pub fn generate(seed: u64, mode: u8) -> Puzzle {
     generate_with_symmetry(seed, mode, false)
 }
@@ -106,7 +221,7 @@ pub fn generate(seed: u64, mode: u8) -> Puzzle {
 /// `generate_early` started the same puzzle, this gives its result (it waits for the end of that
 /// calculation).
 pub fn generate_with_symmetry(seed: u64, mode: u8, symmetric: bool) -> Puzzle {
-    EARLY.get(&(seed, mode, symmetric), || generate_v2(seed, mode, symmetric))
+    EARLY.get(&(seed, mode, symmetric), || Version::CURRENT.generate(seed, mode, symmetric))
 }
 
 /// The key of a puzzle of the current version: the seed, the mode and the symmetry (PUZ-5, PUZ-7).
@@ -119,50 +234,80 @@ static EARLY: crate::early::Early<PuzzleKey, Puzzle> = crate::early::Early::new(
 /// Starts to make the puzzle of `(seed, mode, symmetric)` on a background thread, so that Start new
 /// game and a level button of the result card do not wait for the generator.
 pub fn generate_early(seed: u64, mode: u8, symmetric: bool) {
-    EARLY.start((seed, mode, symmetric), |&(seed, mode, symmetric)| generate_v2(seed, mode, symmetric));
+    EARLY.start((seed, mode, symmetric), |&(seed, mode, symmetric)| Version::CURRENT.generate(seed, mode, symmetric));
 }
 
 /// Waits for the end of the puzzle that started early, if there is one (for the bench).
 pub fn finish_early() {
-    EARLY.finish(|&(seed, mode, symmetric)| generate_v2(seed, mode, symmetric));
+    EARLY.finish(|&(seed, mode, symmetric)| Version::CURRENT.generate(seed, mode, symmetric));
 }
 
-/// The puzzle of `(seed, mode, symmetric)` with a version of the generator. Version 1 has only the
-/// modes 0..4 and has no symmetry (PUZ-8): a symmetric puzzle of version 1 is a bug of the caller.
+/// The puzzle of `(seed, mode, symmetric)` with the version `version` of the generator (1, 2 or 3).
+/// A number that is not a version, a mode that the version does not have, and a symmetric puzzle of
+/// version 1 (PUZ-8) are bugs of the caller: examine a value from a file with `Version::from_number`
+/// and `Version::permits` first.
 pub fn generate_version(version: u8, seed: u64, mode: u8, symmetric: bool) -> Puzzle {
-    match version {
-        1 => {
-            assert!(!symmetric, "generator version 1 has no symmetry");
-            generate_v1(seed, mode)
-        }
-        2 => generate_v2(seed, mode, symmetric),
-        _ => panic!("generator version {version} is not known"),
-    }
+    let Some(version) = Version::from_number(version) else { panic!("generator version {version} is not known") };
+    version.generate(seed, mode, symmetric)
 }
 
-/// Removes starting numbers while the solver, limited to the level of the mode, can complete the grid.
-/// Then it grades the puzzle. If the puzzle does not need the level of the mode, it starts again.
-/// The symmetry changes the random sequence (the bit 40 of the start value): a puzzle that is not
-/// symmetric has the same sequence as before the symmetry option (PUZ-5).
+/// The start value of the random sequence of one attempt of the versions 2 and 3. Each version has its
+/// own number in the value, thus the sequence of version 2 does not depend on the current version
+/// (PUZ-12). The symmetry changes the sequence (the bit 40): a puzzle that is not symmetric has the
+/// same sequence as before the symmetry option (PUZ-5).
+fn attempt_rng(version: Version, seed: u64, mode: u8, symmetric: bool, attempt: u64) -> Rng {
+    Rng::new(seed ^ (u64::from(mode) << 56) ^ (u64::from(version.number()) << 48) ^ attempt.wrapping_mul(0xA24B_AED4_963E_E407) ^ (u64::from(symmetric) << 40))
+}
+
+/// Version 3 (REQUIREMENTS.md §14.5, "The procedure of version 3"). Each attempt removes starting
+/// numbers while the solver, with the limits of the mode, can complete the grid. Then it grades the
+/// puzzle. If the puzzle does not need the needed group of the mode, the generator starts again. If no
+/// attempt is accepted, the puzzle is the first attempt with the most difficult group (PUZ-11).
+fn generate_v3(seed: u64, mode: u8, symmetric: bool) -> Puzzle {
+    assert!(mode < MODES, "mode {mode} is not in 0..{MODES}");
+    let rule = MODE_RULES[mode as usize];
+    let attempt = |attempt: u64| -> (TechniqueGroup, Puzzle) {
+        let mut rng = attempt_rng(Version::V3, seed, mode, symmetric, attempt);
+        let solution = full_grid(&mut rng);
+        let givens = dig(&mut rng, solution, rule.floor.unwrap_or(0), symmetric, |givens| rule.grade(givens).is_some());
+        let grade = rule.grade(&givens).expect("the dig keeps a puzzle that the solver completes");
+        (grade.hardest, Puzzle { solution, givens })
+    };
+    // The quantity of stops is not a part of the comparison: only the group selects the puzzle.
+    first_accepted(attempt, |&hardest| rule.accepts(hardest))
+}
+
+/// Version 2 (frozen, PUZ-12). Removes starting numbers while the solver, limited to the level of the
+/// mode, can complete the grid. Then it grades the puzzle. If the puzzle does not need the level of
+/// the mode, it starts again.
 fn generate_v2(seed: u64, mode: u8, symmetric: bool) -> Puzzle {
     assert!(mode < MODES, "mode {mode} is not in 0..{MODES}");
     let level = MODE_LEVELS[mode as usize];
     let attempt = |attempt: u64| -> (Level, Puzzle) {
-        let mut rng = Rng::new(seed ^ (u64::from(mode) << 56) ^ (u64::from(VERSION) << 48) ^ attempt.wrapping_mul(0xA24B_AED4_963E_E407) ^ (u64::from(symmetric) << 40));
+        let mut rng = attempt_rng(Version::V2, seed, mode, symmetric, attempt);
         let solution = full_grid(&mut rng);
-        let givens = dig(&mut rng, solution, level, MIN_GIVENS[mode as usize], symmetric);
+        let givens = dig(&mut rng, solution, MIN_GIVENS[mode as usize], symmetric, |givens| solver::grade(givens, level).is_some());
         let grade = solver::grade(&givens, level).expect("the dig keeps a puzzle that the solver completes");
         (grade, Puzzle { solution, givens })
     };
-    // The attempts do not depend on each other: after the first attempt (it is often correct), the
-    // threads make batches of attempts. The results are examined in the order of the attempts, thus
-    // the puzzle is the same as with one attempt after the other (PUZ-5).
+    first_accepted(attempt, |&grade| grade == level)
+}
+
+/// The versions 2 and 3: the puzzle of the first attempt (from 0, to a maximum of `MAX_ATTEMPTS`)
+/// whose grade `accept` accepts. If there is none, the first attempt with the largest grade.
+///
+/// The attempts do not depend on each other: after the first attempt (it is often correct), the
+/// threads make batches of attempts. The results are examined in the order of the attempts, thus the
+/// puzzle is the same as with one attempt after the other, and it does not depend on the quantity of
+/// threads (PUZ-5).
+fn first_accepted<G: Ord + Send>(attempt: impl Fn(u64) -> (G, Puzzle) + Sync, accept: impl Fn(&G) -> bool) -> Puzzle {
+    let attempt = &attempt;
     let threads = crate::system::threads() as u64;
-    let mut best: Option<(Level, Puzzle)> = None;
+    let mut best: Option<(G, Puzzle)> = None;
     let mut next = 0;
     while next < MAX_ATTEMPTS {
         let n = if next == 0 { 1 } else { threads.min(MAX_ATTEMPTS - next) };
-        let batch: Vec<(Level, Puzzle)> = if n == 1 {
+        let batch: Vec<(G, Puzzle)> = if n == 1 {
             vec![attempt(next)]
         } else {
             std::thread::scope(|s| {
@@ -172,7 +317,7 @@ fn generate_v2(seed: u64, mode: u8, symmetric: bool) -> Puzzle {
         };
         next += n;
         for (grade, p) in batch {
-            if grade == level {
+            if accept(&grade) {
                 return p;
             }
             if best.as_ref().map(|(g, _)| grade > *g).unwrap_or(true) {
@@ -183,15 +328,16 @@ fn generate_v2(seed: u64, mode: u8, symmetric: bool) -> Puzzle {
     best.expect("one attempt or more").1
 }
 
-/// Removes starting numbers in a random order. A removal stays only if the solver, limited to `level`,
-/// can complete the grid. Thus the puzzle has only one solution.
+/// Removes starting numbers in a random order. A removal stays only if `completes` is true for the
+/// starting numbers that stay: the solver, with the limits of the mode, can complete the grid. Thus
+/// the puzzle has only one solution. The removal stops at `min_givens`.
 ///
 /// If `symmetric`, the order is an order of the pairs: a cell and its partner (`partner`) go out
 /// together, and the center cell goes out alone. A pair that goes below `min_givens` stays, and the
-/// removal continues with the other pairs (thus a symmetric Easy puzzle has 44 or 45 starting
-/// numbers, PUZ-9). If not `symmetric`, the order and the steps are the same as before the symmetry
-/// option (PUZ-5).
-fn dig(rng: &mut Rng, solution: [[u8; 9]; 9], level: Level, min_givens: usize, symmetric: bool) -> [[u8; 9]; 9] {
+/// removal continues with the other pairs (thus a symmetric Easy puzzle of version 2 has 44 or 45
+/// starting numbers, PUZ-9). If not `symmetric`, the order and the steps are the same as before the
+/// symmetry option (PUZ-5).
+fn dig(rng: &mut Rng, solution: [[u8; 9]; 9], min_givens: usize, symmetric: bool, completes: impl Fn(&[[u8; 9]; 9]) -> bool) -> [[u8; 9]; 9] {
     let mut givens = solution;
     // One cell of each pair: the cell that is before its partner (or is its partner: the center).
     let mut order: Vec<Cell> = cells().filter(|&cell| !symmetric || cell <= partner(cell)).collect();
@@ -210,7 +356,7 @@ fn dig(rng: &mut Rng, solution: [[u8; 9]; 9], level: Level, min_givens: usize, s
         for &(r, c) in group {
             givens[r as usize][c as usize] = 0;
         }
-        if solver::grade(&givens, level).is_some() {
+        if completes(&givens) {
             count -= group.len();
         } else {
             for (&(r, c), v) in group.iter().zip(keep) {

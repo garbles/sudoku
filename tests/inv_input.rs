@@ -1491,7 +1491,7 @@ fn a_highlight_stays_when_undo_removes_the_last_number_of_its_digit() {
     // HLT-8, HLT-3, HLT-5: a puzzle where only an entry has the digit. Undo and the Restore of a checkpoint
     // keep the highlight. It shows again when the digit comes back. A tap on that digit then removes it.
     // A generator puzzle can have no starting number of one digit: this seed has one.
-    let game = new_game(6, 2);
+    let game = new_game(9, 2); // Generator version 3: no starting number has the digit 7.
     let digit = (1..=9u8).find(|&v| cells().all(|c| game.value_at(c) != v)).expect("the seed has a digit with no starting number");
     for (o, right_handed) in LAYOUTS {
         let _layout = InLayout::set(o, right_handed);
@@ -1933,7 +1933,11 @@ fn the_pen_area_starts_at_each_pen_down_on_an_empty_cell() {
         assert_eq!(d.app.pen_cell(), Some(tap_cell), "INP-24: {what}: the tap");
         d.send(Input::PenUp { x, y });
         assert!(!d.app.is_writing() && d.app.pen_cell().is_none(), "INP-24: {what}: a tap starts no timer");
-        let (x, y) = micro_center(e[3], 5);
+        // A digit that a peer of e[3] has: a tap on it shows an x and adds no mark. Thus the micro-cell
+        // shows no mark at the next presses (INP-24: a press on a mark starts the area only when the pen
+        // leaves the micro-cell).
+        let refused = (1..=9u8).find(|v| !free_digits(&d, e[3]).contains(v)).expect("a peer of e[3] has a digit");
+        let (x, y) = micro_center(e[3], refused);
         d.send(Input::PenDown { x, y, tool: Tool::Pen });
         assert_eq!(d.app.pen_cell(), Some(e[3]), "INP-24: {what}: the press after the tap");
         d.send(Input::PenUp { x, y });
@@ -1942,7 +1946,8 @@ fn the_pen_area_starts_at_each_pen_down_on_an_empty_cell() {
         // A press after the timer ended also starts the area at the pen down (INP-16: the timer is 1 s).
         for ms in [WRITING_IDLE_MS - 1, WRITING_IDLE_MS] {
             pen_stroke(&mut d, Tool::Pen, micro_center(given, 1), micro_center(given, 9));
-            let (x, y) = micro_center(e[3], 5);
+            assert_eq!(d.app.game.marks_at(e[3]), 0, "{what}: the fixture has no mark in e[3]");
+            let (x, y) = micro_center(e[3], refused);
             d.wait(ms);
             assert_eq!(d.app.is_writing(), ms < WRITING_IDLE_MS, "INP-16: {what}: the timer {ms} ms after the last stroke");
             d.send(Input::PenDown { x, y, tool: Tool::Pen });

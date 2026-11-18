@@ -281,8 +281,9 @@ pub fn run(load_fonts: impl FnOnce() -> Result<Fonts, String>, opts: &Options) -
     crate::layout::set_right_handed(true);
     hashes.insert("draw.states", draw_hash.hex());
 
-    // ---- The generator. The puzzles are not symmetric: their hash is the same as before the
-    // symmetry option (PUZ-5).
+    // ---- The generator, with the current version (3). The puzzles are not symmetric. A new
+    // generator version changes this hash; the puzzle of the script has the version that the script
+    // names (`script.rs`), thus the script hashes do not change.
     if opts.gen_seeds > 0 {
         let mut h = Hash::new();
         for mode in 0..crate::generator::MODES {

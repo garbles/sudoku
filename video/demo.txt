@@ -4,7 +4,7 @@
 # Each write has a different writer, thus no two numbers have the same handwriting.
 
 fps 30
-puzzle seed 7 mode 0          # Easy. The same puzzle each time.
+puzzle seed 7 mode 0 generator 2 # Easy. The same puzzle each time.
 hand right                    # the menu is at the left edge
 
 wait 1.5                      # show the new board

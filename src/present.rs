@@ -979,11 +979,12 @@ mod tests {
         crate::layout::set_rotation(0);
     }
 
-    /// The app with the puzzle of seed 7 and the menu closed. The app opens with the menu open
+    /// The app with the puzzle of seed 7 of generator version 2 (the puzzle of these tests before
+    /// version 3: the cells that the tests select come from it) and the menu closed. The app opens with the menu open
     /// (PER-2), but these tests examine only the board: the closed menu does not change when the
     /// undo button becomes black.
     fn game_app() -> App {
-        let mut app = App::new(Some(crate::app::new_game(7, 0)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)), App::placeholder_ng_stops());
+        let mut app = App::new(Some(crate::app::game_of_version(crate::generator::Version::V2, 7, 0, false)), None, crate::store::ResultsDb::in_memory(), Box::new(crate::script::FixedEnv(7)), App::placeholder_ng_stops());
         app.ui.menu = crate::app::Menu::Closed;
         app
     }

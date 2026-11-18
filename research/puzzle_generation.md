@@ -3,6 +3,15 @@
 This document records the results of a web search about algorithms that make Sudoku puzzles. It
 also compares these algorithms with `src/generator.rs`. Date of the search: 2026-10-25.
 
+> **Status, 2026-11-17.** This document is history. It compares with generator version 1.
+> Generator version 2 used the plan of sections 7 and 8.2 (Solo's method, one most difficult
+> technique for each mode), and its middle modes were too difficult: modes 1 to 6 were all minimal
+> puzzles of approximately 27 starting numbers, and mode 4 needed an XY-Wing. Generator version 3
+> replaces it: three groups of singles, a minimum of starting numbers and a maximum of stops for
+> each mode. REQUIREMENTS.md §14.5 gives the current rules, and DECISIONS.md (2026-11-17) gives the
+> measurements and the sources (Solo, Sudoku Explainer, HoDoKu, Andrew Stuart, Pelánek). The table
+> of section 7 and the mode table of section 8.3 are not the current design.
+
 ## 1. Summary
 
 - Almost all generators use the same two steps. First, they make a full, correct grid. Then they

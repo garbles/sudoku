@@ -698,7 +698,9 @@ fn a_level_button_starts_a_new_game_at_its_target_with_the_menu_closed() {
                             assert!(cells().all(|c| a.game.marks_at(c) == 0), "DIF-5: {what}: marks");
                             assert_eq!((a.screen, a.ui.menu), (Screen::Game, Menu::Closed), "NAV-9, CMP-10: {what}");
                             assert_eq!(a.results, results, "CMP-5, DIF-7: {what}: the old game is recorded");
-                            let p = generate_version(2, seed, target, g.symmetric);
+                            // PUZ-13: the new game has the current version (3), also after a game of version 2.
+                            assert_eq!(a.game.generator, 3, "PUZ-13, PUZ-7: {what}");
+                            let p = generate_version(3, seed, target, g.symmetric);
                             assert_eq!(a.game.solution, p.solution, "PUZ-7, PUZ-5: {what}");
                             assert_eq!(a.game.given, p.givens.map(|r| r.map(|v| v != 0)), "PUZ-7, PUZ-5: {what}");
                         }
@@ -841,7 +843,8 @@ fn the_early_game_starts_at_the_completion_by_the_ink() {
         let target = b.target(mode).unwrap();
         d.finger_tap(level_center(b).0, level_center(b).1);
         assert_eq!((d.app.game.seed, d.app.game.mode), (seed, target), "PUZ-7: {b:?} after mode {mode}");
-        let p = generate_version(2, seed, target, g.symmetric);
+        assert_eq!(d.app.game.generator, 3, "PUZ-13, PUZ-7");
+        let p = generate_version(3, seed, target, g.symmetric);
         assert_eq!(d.app.game.symmetric, g.symmetric, "CMP-10, PUZ-7: symmetry");
         assert_eq!(d.app.game.solution, p.solution, "PUZ-7, PUZ-5");
         assert_eq!(d.app.game.given, p.givens.map(|r| r.map(|v| v != 0)), "PUZ-7, PUZ-5");
@@ -863,7 +866,8 @@ fn the_new_game_panel_on_a_complete_game_keeps_the_seed_of_the_next_game() {
     // DIF-5, PUZ-7: Start new game uses the switch (the setting, on), not the symmetry of the complete
     // game (off).
     assert!(d.app.game.symmetric && d.app.settings.last_symmetric, "DIF-5: the symmetry of the switch");
-    let p = generate_version(2, seed, 5, true);
+    assert_eq!(d.app.game.generator, 3, "PUZ-13, PUZ-7");
+    let p = generate_version(3, seed, 5, true);
     assert_eq!(d.app.game.solution, p.solution, "PUZ-7, PUZ-5");
     assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-9");
 }

@@ -5,7 +5,7 @@
 //! true. Refer to REQUIREMENTS.md §2, §3, §5, §8 to §13 and INVARIANTS.md.
 
 use crate::game::{Cell, Game, Outcome};
-use crate::generator::{generate_early, generate_with_symmetry, PuzzleKey};
+use crate::generator::{generate_early, generate_with_symmetry, PuzzleKey, Version};
 use crate::launch::Launch;
 use crate::layout::{self, Button, CheckpointControl, LevelButton, Rect};
 use crate::recognizer::{self, Stroke};
@@ -674,7 +674,8 @@ impl App {
     /// slider and the selected symmetry, when no pen or finger is down (not at each stop of a slider
     /// move). Else, on a complete game (the result card): the mode of Same and the symmetry of the
     /// game, immediately, also at a completion by the read of the ink at the end of the pause. The
-    /// result is the same as at the time of need (PUZ-5).
+    /// result is the same as at the time of need (PUZ-5). The puzzle has the current version of the
+    /// generator, also when the game has an earlier version (PUZ-13).
     fn start_early_game(&mut self) {
         let (mode, symmetric) = if self.ui.menu.panel() == Some(Panel::NewGame) && self.screen == Screen::Game {
             if self.pen.is_some() || self.touch.is_some() {
@@ -1624,18 +1625,32 @@ pub fn new_game(seed: u64, mode: u8) -> Game {
     new_game_with_symmetry(seed, mode, false)
 }
 
-/// A new game: the puzzle of `(seed, mode, symmetric)` with the current version of the generator.
+/// A new game: the puzzle of `(seed, mode, symmetric)` with the current version of the generator
+/// (PUZ-13).
 pub fn new_game_with_symmetry(seed: u64, mode: u8, symmetric: bool) -> Game {
     let p = generate_with_symmetry(seed, mode, symmetric);
-    Game { symmetric, ..Game::new(seed, mode, p.solution, p.givens) }
+    let g = Game { symmetric, ..Game::new(seed, mode, p.solution, p.givens) };
+    debug_assert_eq!(crate::invariants::check_puzzle(&g), Ok(()), "seed {seed}");
+    g
+}
+
+/// A game at its start with the puzzle of `(seed, mode, symmetric)` of a version of the generator,
+/// as a game that an earlier release saved. The app does not make a new game with it (PUZ-13): it is
+/// for the event scripts and the tests. The version must permit the mode and the symmetry
+/// (`Version::permits`).
+pub fn game_of_version(version: Version, seed: u64, mode: u8, symmetric: bool) -> Game {
+    let p = version.generate(seed, mode, symmetric);
+    Game { symmetric, generator: version.number(), ..Game::new(seed, mode, p.solution, p.givens) }
 }
 
 /// True if the starting numbers and the solution are the puzzle of `(seed, mode, symmetric)` with the
 /// version of the generator of the game (PUZ-5). The app examines this only when it opens a saved
-/// game, because the generator is slow for each input. `check_game` first makes sure that the
-/// version, the mode and the symmetry are possible (PUZ-8).
+/// game, because the generator is slow for each input. A game with a number that is not a version,
+/// or with a mode or a symmetry that its version does not have, is not a puzzle of the generator
+/// (PUZ-5, PUZ-8): the app does not use it, and it does not stop.
 fn is_generated(g: &Game) -> bool {
-    let p = crate::generator::generate_version(g.generator, g.seed, g.mode, g.symmetric);
+    let Some(version) = Version::from_number(g.generator).filter(|v| v.permits(g.mode, g.symmetric)) else { return false };
+    let p = version.generate(g.seed, g.mode, g.symmetric);
     let given = p.givens.map(|row| row.map(|v| v != 0));
     p.solution == g.solution && given == g.given
 }

@@ -202,12 +202,12 @@ pub enum Change {
 pub struct Game {
     pub seed: u64,
     pub mode: u8,
-    /// The version of the generator that made the puzzle (PUZ-5). A game that was saved before
-    /// version 2 has no version in its file: it is version 1.
+    /// The version of the generator that made the puzzle: 1, 2 or 3 (PUZ-5). It never changes
+    /// (PUZ-13). A game that was saved before version 2 has no version in its file: it is version 1.
     #[serde(default = "first_generator")]
     pub generator: u8,
     /// The starting numbers have 2-way rotational symmetry (PUZ-8): `given[r][c] = given[8 - r][8 -
-    /// c]`. Only version 2 of the generator makes a symmetric puzzle. A game file of an earlier
+    /// c]`. Only the versions 2 and 3 of the generator make a symmetric puzzle. A game file of an earlier
     /// version has no value: the game is not symmetric (PER-9).
     #[serde(default)]
     pub symmetric: bool,

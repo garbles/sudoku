@@ -1582,9 +1582,11 @@ Images: [`images/pro/new-game-menu.png`](images/pro/new-game-menu.png),
 - **Symmetrical** means 2-way rotational symmetry (a half turn of the board, 180°): cell (r, c) has a
   starting number if and only if cell (8 − r, 8 − c) has a starting number
   ([§14.5](#145-puzzle-generation)).
-- There are **seven modes**, from 0 (Easy) to 6 (Hard). Each mode has a level of solving techniques,
-  from singles to chains; a mode with a more difficult level needs more difficult techniques. The
-  puzzle generator sets the techniques of each mode ([§14.5](#145-puzzle-generation)).
+- There are **seven modes**, from 0 (Easy) to 6 (Hard). Four values together set the
+  difficulty of a mode: the most difficult group of solving techniques that the puzzle can need
+  (from box singles to chains), the group that it must need, the minimum of starting numbers and the
+  maximum of stops (the times when no single is possible). The puzzle generator sets these values
+  for each mode ([§14.5](#145-puzzle-generation); owner approval 2026-11-17).
 - When the panel opens, the slider shows the **last mode that you selected**. At the first start, the
   slider shows **mode 2**.
 - When the panel opens, the switch shows the **symmetry of the last new game** (the saved setting,
@@ -1796,6 +1798,11 @@ Symmetric and non-symmetric games share the averages and the best times (Statist
 the group. The completed games list ([§13.2](#132-completed-games-list)) does not show the symmetry
 and does not filter by it (owner decision 2026-11-07).
 
+The results of all generator versions (1, 2 and 3) of a mode also share one group: Statistics and the
+comparison of the result card group the results by the mode only. Thus one group can contain results
+of puzzles with different difficulty scales. The owner accepted this mix; the statistics, the result
+card and the database do not change (owner decision 2026-11-17).
+
 The app adds a row when a puzzle is complete. Only the bin in the games list and **Delete all games** on the summary remove rows.
 
 ### 14.2 Settings (kept when the app closes)
@@ -1835,7 +1842,9 @@ The app keeps:
 
 - The puzzle, its seed, its mode, its symmetry (on or off) and the version of the generator. A game
   file of an earlier version has no symmetry: the game is not symmetric. A symmetric game is always
-  generator version 2: the app does not use a saved game that is symmetric with version 1 (PER-5).
+  generator version 2 or 3: the app does not use a saved game that is symmetric with version 1
+  (PER-5). The version is 1 (modes 0 to 4), 2 or 3 (modes 0 to 6): the app does not use a saved game
+  with a different version, or with version 1 and mode 5 or 6 (PER-5; owner approval 2026-11-17).
   When the app opens a saved game, it makes the puzzle again from the seed, the mode, the symmetry and
   the version, and compares it with the saved puzzle (PUZ-5; owner approval 2026-11-07).
 - All numbers and pencil marks.
@@ -1856,6 +1865,10 @@ older version loses that game. A preview build can update to an older stable ver
 An earlier version does not know the symmetry. For the seed of a symmetric game, it makes a different
 puzzle, thus it discards that saved game after an update to an older version (owner approval
 2026-11-07).
+
+An earlier version of the app does not know generator version 3
+([§14.5](#145-puzzle-generation)). It must not use a game file of version 3 (PER-5), thus an update
+to an older version loses that game (review finding 2026-11-17; refer to `DECISIONS.md`).
 
 The app does **not** keep temporary UI states. The app always opens again at the game screen, with
 the menu open, the panels closed, no highlight, no "?" and no x. The app does not save the x (owner
@@ -2127,10 +2140,84 @@ external app (DECISIONS.md, 2026-10-25); it is not examined yet in the window of
 ### 14.5 Puzzle generation
 
 A generator with a seed makes each puzzle. Each puzzle must have **only one solution**. The generator
-makes the puzzle for the selected mode. Each mode has a most difficult group of techniques (a
-level). The puzzle of a mode needs a technique of its level, and no technique of a more difficult
-level. No mode needs a guess, and no mode needs a technique that assumes that the puzzle has only one
-solution (owner decision, 2026-10-25):
+makes the puzzle for the selected mode. The puzzle is a function of the seed, the mode, the symmetry
+and the version of the generator. No mode needs a guess, and no mode needs a technique that assumes
+that the puzzle has only one solution (owner decision, 2026-10-25).
+
+The generator has three versions (refer to **Versions** below). A new game always has **version 3**
+(owner approval 2026-11-17): Start new game, a level button of the result card, the first start and
+the puzzle that the app makes in the background. Versions 1 and 2 stay only to examine saved games.
+
+**The solver of version 3** (owner approval 2026-11-17). A human-style solver (`src/solver.rs`) puts
+the techniques in eight groups, from the easiest to the most difficult. The order of the groups is
+fixed:
+
+| Group | Name | Techniques |
+|---|---|---|
+| 1 | Box singles | A full house (a row, a column or a box with one empty cell), and a hidden single in a box |
+| 2 | Line singles | A hidden single in a row or in a column |
+| 3 | Naked singles | Naked single |
+| 4 | Locked candidates | Pointing and claiming |
+| 5 | Subsets | Naked and hidden pairs, triples and quads |
+| 6 | Fish | X-Wing, Swordfish, XY-Wing |
+| 7 | Wings | Skyscraper, 2-String Kite, XYZ-Wing, W-Wing, simple colouring, Jellyfish |
+| 8 | Chains | X-Chain, XY-Chain and other alternating inference chains (AIC) |
+
+- At each step, the solver uses the easiest group that can make progress. Then it starts again from
+  the easiest group.
+- The groups 1 to 3 put a number in a cell. The groups 4 to 8 only remove candidates.
+- A **stop** is one sequence of one or more steps of the groups 4 to 8 between two singles: a time
+  when no single is possible. Two removal steps one after the other are one stop.
+- The **grade** of a puzzle is the most difficult group that the solver used, and the quantity of
+  stops. The grade is a function of the starting numbers only.
+
+**The modes of version 3** (owner approval 2026-11-17). Four values together set the difficulty of a
+mode, not only the technique group:
+
+| Mode | Most difficult group that is permitted | The puzzle must need | Minimum of starting numbers | Maximum of stops |
+|---|---|---|---|---|
+| 0 (Easy) | Naked singles (groups 1 to 3) | Nothing more | 44 | 0 |
+| 1 | Box singles (group 1) | Nothing more | 38 | 0 |
+| 2 (the first game) | Line singles (groups 1 and 2) | A line single | 34 | 0 |
+| 3 | Naked singles (groups 1 to 3) | A line single or a naked single | 31 | 0 |
+| 4 | Locked candidates (groups 1 to 4) | A locked candidate | 28 | 2 |
+| 5 | Fish (groups 1 to 6) | A subset or a fish | None | No limit |
+| 6 (Hard) | Chains (all groups) | A wing or a chain | None | No limit |
+
+Mode 0 permits naked singles, and the modes 1 and 2 do not (owner approval 2026-11-17). The minimum
+is a floor, not an exact quantity: the limited solver can refuse removals, thus a puzzle can have
+more starting numbers than the minimum. A puzzle of the modes 0 to 4 never has fewer starting numbers
+than the minimum of its mode. This document gives no exact quantity and no upper limit of starting
+numbers for version 3 (the measured ranges are in `DECISIONS.md`, 2026-11-17). The generator has no
+limit on the quantity of possible moves (owner approval 2026-11-17).
+
+**The procedure of version 3** (owner approval 2026-11-17). For each attempt, the generator:
+
+1. Makes a full, correct grid (as version 2).
+2. Removes starting numbers in a random order. A removal stays only if the solver, limited to the
+   permitted group of the mode, completes the grid with a quantity of stops that is not more than the
+   maximum of the mode. Thus the puzzle has only one solution. The removal stops at the minimum of
+   the mode.
+   A **symmetric** puzzle removes a cell and its partner together, in a random order of the pairs.
+   The partner of cell (r, c) is cell (8 − r, 8 − c). The center cell (4, 4) has no partner: it is
+   removed alone. If the removal of a pair does not stay, the two cells come back. A symmetric puzzle
+   skips a pair that goes below the minimum of the mode, and continues with the other cells.
+3. Grades the puzzle with the solver, limited to the permitted group of the mode. The generator
+   accepts the puzzle if the most difficult group that the solver used is the needed group of the
+   mode ("The puzzle must need"), or a more difficult group.
+4. If the puzzle is not accepted, makes a new attempt (a maximum of 400 attempts). If no attempt of
+   the 400 is accepted, the puzzle is the first attempt with the most difficult group. Then the
+   puzzle can be easier than its mode needs (owner decision 2026-11-17: the rule of 2026-11-02 also
+   applies to version 3).
+
+The result does not depend on the quantity of threads. In tests on the computer (1000 seeds for each
+mode and each symmetry), the generator accepted all puzzles of version 3 with no fallback, and the
+slowest puzzle took 31 ms (mode 6, symmetric). The time on the tablet is not measured (refer to
+`DECISIONS.md`, 2026-11-17).
+
+**Version 2** (owner decision 2026-10-25; frozen 2026-11-17). Version 2 made the new games from
+2026-10-25 until version 3. Each mode had a most difficult group of techniques (a level). The puzzle
+of a mode needed a technique of its level, and no technique of a more difficult level:
 
 | Mode | Level: the techniques that the mode adds | Starting numbers |
 |---|---|---|
@@ -2142,27 +2229,28 @@ solution (owner decision, 2026-10-25):
 | 5 | Skyscraper, 2-String Kite, XYZ-Wing, W-Wing, simple colouring, Jellyfish | As few as possible |
 | 6 (Hard) | X-Chain, XY-Chain and other alternating inference chains (AIC) | As few as possible |
 
-A human-style solver (`src/solver.rs`) uses these techniques, from the easiest to the most difficult.
-For each attempt, the generator:
+The solver of version 2 uses these techniques, from the easiest to the most difficult. For each
+attempt, the generator of version 2:
 
 1. Makes a full, correct grid.
 2. Removes starting numbers in a random order. A removal stays only if the solver, with only the
    techniques of the level of the mode, can complete the grid. Thus the puzzle has only one solution.
    Easy stops at 44 starting numbers.
-   A **symmetric** puzzle removes a cell and its partner together, in a random order of the pairs.
-   The partner of cell (r, c) is cell (8 − r, 8 − c). The center cell (4, 4) has no partner: it is
-   removed alone. A removal of a pair stays only if the solver (with only the techniques of the level
-   of the mode) can complete the grid; else the two cells come back. A symmetric Easy puzzle never
-   goes below 44 starting numbers: the generator skips a pair that goes below 44, and continues with
-   the other cells. Thus it has 44 or 45 starting numbers (owner decision 2026-11-07: accept 45).
-   81 − 44 = 37 is odd, thus the center must be removed to get 44; when the solver needs the center,
-   the puzzle stops at 45 (16 of 300 sample seeds gave 45). The other modes remove as many as
-   possible, the same as a puzzle that is not symmetric.
+   A symmetric puzzle removes a cell and its partner together, as in version 3. A removal of a pair
+   stays only if the solver (with only the techniques of the level of the mode) can complete the
+   grid; else the two cells come back. A symmetric Easy puzzle never goes below 44 starting numbers:
+   the generator skips a pair that goes below 44, and continues with the other cells. Thus it has 44
+   or 45 starting numbers (owner decision 2026-11-07: accept 45). 81 − 44 = 37 is odd, thus the
+   center must be removed to get 44; when the solver needs the center, the puzzle stops at 45 (16 of
+   300 sample seeds gave 45). The other modes remove as many as possible, the same as a puzzle that
+   is not symmetric.
 3. Grades the puzzle with all techniques. If the puzzle does not need the level of the mode, the
    generator makes a new attempt (a maximum of 400 attempts). If no attempt of the 400 needs the
    level of the mode, the generator gives the attempt with the most difficult grade (the first of
    them). Then the level of the puzzle can be easier than the level of the mode (owner decision
    2026-11-02).
+
+The quantities 44 and "44 or 45" for Easy are rules of version 2 only.
 
 The generator uses its own random number generator (SplitMix64). Thus a change of a library does not
 change the puzzle of a saved seed. The code is in `src/generator.rs`.
@@ -2171,18 +2259,36 @@ change the puzzle of a saved seed. The code is in `src/generator.rs`.
 turn, 180°): cell (r, c) is a starting number if and only if cell (8 − r, 8 − c) is a starting
 number. The symmetry is an input of the generator: the puzzle is a function of the seed, the mode, the
 symmetry and the version. A symmetric puzzle uses a different random sequence from the puzzle of the
-same seed that is not symmetric. A puzzle that is not symmetric does not change: the same seed and
-mode give the same puzzle as before the symmetry option, and the generator version stays 2. Version 1
-has no symmetry. In tests on the computer, the symmetric puzzles of all modes got to the level of
-their mode, and the slowest Hard puzzle took 23 ms. The puzzle of the next game that the app makes in
-the background (`early.rs`) has the seed, the mode and the symmetry as its key.
+same seed that is not symmetric. The versions 2 and 3 have the symmetry option, with the same meaning
+(owner approval 2026-11-17). Version 1 has no symmetry. The symmetry option did not change the
+puzzles of version 2 that are not symmetric: the same seed and mode gave the same puzzle as before
+the option, and the generator version stayed 2. In tests of version 2 on the computer, the symmetric
+puzzles of all modes got to the level of their mode, and the slowest Hard puzzle took 23 ms. The
+puzzle of the next game that the app makes in the background (`early.rs`) has the seed, the mode and
+the symmetry as its key, and it has the current version (3).
 
 **Versions.** A change of the generator gives a different puzzle for the same seed. Thus each game and
-each result has the version of the generator. Version 1 (before 2026-10-25) had five modes (0 to 4) and
-set only the quantity of starting numbers (44, 37, 31, 27, 24). The app keeps version 1 only to
-examine a game that it saved before version 2. A game file with no version is version 1. When the
-app opens a results database of version 1, it moves the rows to the new table with generator version
-1. A row that the app cannot use stays in the file, in the table `results_v1`.
+each result has the version of the generator. The possible versions are (owner approval 2026-11-17):
+
+| Version | Modes | Symmetry | Use |
+|---|---|---|---|
+| 1 (before 2026-10-25) | 0 to 4 | Never symmetric | Only to examine saved games |
+| 2 (2026-10-25 to 2026-11-17) | 0 to 6 | Symmetric or not | Only to examine saved games |
+| 3 (from 2026-11-17) | 0 to 6 | Symmetric or not | All new games |
+
+- Version 1 had five modes (0 to 4) and set only the quantity of starting numbers (44, 37, 31, 27,
+  24). A game file with no version is version 1.
+- The versions 1 and 2 are frozen (owner approval 2026-11-17): each puzzle of version 1 and of
+  version 2 (symmetric and not symmetric) is the same, bit for bit, as in the release before
+  version 3. The random sequence of version 2 does not depend on the number of the current version.
+- The app makes new games only with the current version (3).
+- A saved game of version 1 or 2 that is in progress opens and continues. A completed game keeps the
+  version of its puzzle in its result. The next game is version 3.
+- A saved game is correct only if its puzzle is the puzzle of its own version
+  ([§14.3](#143-game-in-progress-kept-when-the-app-closes)). The app does not use a game file with a
+  version that is not 1, 2 or 3, and it does not stop (PER-5).
+- When the app opens a results database of version 1, it moves the rows to the new table with
+  generator version 1. A row that the app cannot use stays in the file, in the table `results_v1`.
 
 ### 14.6 Installer
 
@@ -2333,7 +2439,9 @@ These items are closed:
   palette and the gray icons on the device. All are clear. Later, the owner found the first palette too
   faint on the tablet and approved the palette in §15 (owner approval 2026-11-04 and 2026-11-05).
   On 2026-11-08 the owner approved the micro-cell lines as a pattern of `gray15` dots (§4.1).
-- **Puzzle generator** (closed 2026-10-25). Refer to §14.5.
+- **Puzzle generator** (closed 2026-10-25). Refer to §14.5. Generator version 3 gives a new
+  difficulty scale to the seven modes (owner approval 2026-11-17). The time of the version 3
+  generator on the tablet is not measured (`DECISIONS.md`, 2026-11-17).
 
 ## 17. Image reference
 

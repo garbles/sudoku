@@ -5,7 +5,8 @@
 
 use crate::app::{average_seconds, App, Comparison, Menu, Panel, Screen, HAND_TOUCH_MS, MANUAL_PAGES, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
 use crate::game::{cells, mark_bit, Board, Change, Game, Group, MAX_CHECKPOINTS};
-use crate::generator::{count_solutions, is_valid_solution, partner, MODES, V1_MODES, VERSION};
+use crate::generator::{count_solutions, is_valid_solution, partner, ModeRule, Version, MODES, MODE_RULES, VERSION};
+use crate::solver::TechniqueGroup;
 use crate::layout::{self, LevelButton, Rect};
 use crate::settings::Color;
 use crate::update::{has_updates, is_update, UpToDateRow, UpdateButton, UpdateRequest, UpdateState};
@@ -68,6 +69,53 @@ const _: () = {
     }
 };
 
+// PUZ-13: the current version of the generator is 3. `Game::new` and the background puzzle use it.
+const _: () = assert!(VERSION == 3 && Version::CURRENT.number() == 3, "PUZ-13");
+// PUZ-5, PUZ-8: version 1 has the modes 0..4 and no symmetry. The versions 2 and 3 have the modes
+// 0..6, symmetric or not. No other number is a version.
+const _: () = {
+    assert!(Version::V1.modes() == 5 && !Version::V1.has_symmetry(), "PUZ-5");
+    assert!(Version::V2.modes() == MODES && Version::V2.has_symmetry(), "PUZ-5");
+    assert!(Version::V3.modes() == MODES && Version::V3.has_symmetry(), "PUZ-5");
+    assert!(Version::from_number(0).is_none() && Version::from_number(4).is_none(), "PUZ-5");
+};
+// PUZ-10: the fixed order of the eight technique groups. The groups 1 to 3 put a number.
+const _: () = {
+    let mut i = 0;
+    while i < 8 {
+        let g = TechniqueGroup::ALL[i];
+        assert!(g.number() as usize == i + 1, "PUZ-10");
+        assert!(g.is_single() == (i < 3), "PUZ-10");
+        i += 1;
+    }
+};
+// PUZ-11: the values of the modes of version 3, as (permitted, needed, floor, max_stops). 0 is
+// "none" for the needed group and the floor, and `NO_LIMIT` is "no limit" for the stops.
+const _: () = {
+    const NO_LIMIT: u32 = u32::MAX;
+    let table: [(u8, u8, usize, u32); MODES as usize] =
+        [(3, 0, 44, 0), (1, 0, 38, 0), (2, 2, 34, 0), (3, 2, 31, 0), (4, 4, 28, 2), (6, 5, 0, NO_LIMIT), (8, 7, 0, NO_LIMIT)];
+    let mut m = 0;
+    while m < MODES as usize {
+        let ModeRule { permitted, needed, floor, max_stops } = MODE_RULES[m];
+        let (p, n, f, s) = table[m];
+        assert!(permitted.number() == p, "PUZ-11");
+        assert!(matches!(needed, None) == (n == 0), "PUZ-11");
+        if let Some(needed) = needed {
+            assert!(needed.number() == n && n <= p, "PUZ-11");
+        }
+        assert!(matches!(floor, None) == (f == 0), "PUZ-11");
+        if let Some(floor) = floor {
+            assert!(floor == f, "PUZ-11");
+        }
+        assert!(matches!(max_stops, None) == (s == NO_LIMIT), "PUZ-11");
+        if let Some(max_stops) = max_stops {
+            assert!(max_stops == s, "PUZ-11");
+        }
+        m += 1;
+    }
+};
+
 /// BRD-9: the quantity of gray15 pixels in a 2x4 px run of a micro-cell line of the gray `gray`
 /// (2 px across the line, 4 px along it), the same for the two directions.
 const fn pattern_dots_per_run(gray: u8) -> u32 {
@@ -101,8 +149,9 @@ macro_rules! ensure {
 /// The rules for the game only (§1 to §4, §7 and §8 of INVARIANTS.md).
 pub fn check_game(g: &Game) -> Result<(), String> {
     ensure!(g.mode < MODES, "DIF-1", "mode {} is not in 0..6", g.mode);
-    ensure!(g.generator == VERSION || (g.generator == 1 && g.mode < V1_MODES), "PUZ-5", "generator {} mode {}", g.generator, g.mode);
-    ensure!(!g.symmetric || g.generator == VERSION, "PUZ-8", "a symmetric game of generator {}", g.generator);
+    let Some(version) = Version::from_number(g.generator) else { return fail("PUZ-5", format!("generator {} is not 1, 2 or 3", g.generator)) };
+    ensure!(g.mode < version.modes(), "PUZ-5", "generator {} mode {}", g.generator, g.mode);
+    ensure!(!g.symmetric || version.has_symmetry(), "PUZ-8", "a symmetric game of generator {}", g.generator);
     ensure!(is_valid_solution(&g.solution), "PUZ-1", "the solution is not a correct sudoku");
 
     let mut givens = [[0u8; 9]; 9];
@@ -124,9 +173,10 @@ pub fn check_game(g: &Game) -> Result<(), String> {
             let (i, j) = partner(cell);
             ensure!(g.given[r as usize][c as usize] == g.given[i as usize][j as usize], "PUZ-8", "({r},{c}) and ({i},{j}) of a symmetric game");
         }
-        // PUZ-9: a symmetric Easy puzzle has 44 or 45 starting numbers.
+        // PUZ-9: a symmetric Easy puzzle of version 2 has 44 or 45 starting numbers. The rule gives no
+        // quantity for version 3.
         let n = g.givens_count();
-        ensure!(g.mode != 0 || (44..=45).contains(&n), "PUZ-9", "a symmetric Easy game has {n} starting numbers");
+        ensure!(version != Version::V2 || g.mode != 0 || (44..=45).contains(&n), "PUZ-9", "a symmetric Easy game of version 2 has {n} starting numbers");
     }
 
     let solved = g.is_solved_board();
@@ -415,6 +465,30 @@ fn check_card(app: &App) -> Result<(), String> {
             ensure!(symmetric == g.symmetric, "PUZ-7", "early puzzle of symmetry {symmetric} on a complete game of symmetry {}", g.symmetric);
         }
     }
+    Ok(())
+}
+
+/// PUZ-11: the puzzle of a game of generator version 3 agrees with the values of its mode. (1) The
+/// solver, limited to the permitted group of the mode, completes the puzzle, (2) with no more stops
+/// than the maximum of the mode. (4) The quantity of starting numbers is not less than the floor.
+/// Item (3), the needed group, has the exception of the fallback after 400 attempts, which one state
+/// does not show: the tests examine it. A game of version 1 or 2 has no such rule.
+///
+/// `check_game` does not call this check: as PUZ-5, it is a rule about the puzzle of the generator,
+/// and the solver is slow for each input. Debug builds examine each new game with it
+/// (`app::new_game_with_symmetry`), and a saved game must be the puzzle of the generator (PUZ-5),
+/// which obeys the rule. The tests and the reference states also make games by hand (`Game::new`):
+/// such a game is not a puzzle of the generator, and this check can fail for it.
+pub fn check_puzzle(g: &Game) -> Result<(), String> {
+    if g.generator != Version::V3.number() {
+        return Ok(());
+    }
+    ensure!(g.mode < MODES, "DIF-1", "mode {} is not in 0..6", g.mode);
+    let rule = MODE_RULES[g.mode as usize];
+    let givens: [[u8; 9]; 9] = std::array::from_fn(|r| std::array::from_fn(|c| if g.given[r][c] { g.solution[r][c] } else { 0 }));
+    ensure!(rule.grade(&givens).is_some(), "PUZ-11", "the limited solver of mode {} does not complete the puzzle in its maximum of stops", g.mode);
+    let n = g.givens_count();
+    ensure!(rule.floor.is_none_or(|floor| usize::from(n) >= floor), "PUZ-11", "mode {} has {n} starting numbers", g.mode);
     Ok(())
 }
 

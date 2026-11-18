@@ -64,6 +64,35 @@ fn screens_agree_with_the_reference_images() {
     }
 }
 
+#[test]
+fn the_game_of_each_reference_state_obeys_the_puzzle_rules() {
+    // PUZ-11, PUZ-5, PUZ-6, PUZ-13: the game of each reference state agrees with the rules of its
+    // generator version. The board of board-state.py (30 starting numbers, mode 2) is not a puzzle of
+    // version 3 (PUZ-11: 34 or more), thus its games have version 2. A state that keeps the game of
+    // the app has a new game of the current version (3).
+    let fonts = fonts();
+    for (name, setup) in reference::states() {
+        let mut app = reference::app(&fonts);
+        let fresh = app.game.clone();
+        setup(&mut app);
+        let g = &app.game;
+        if g.givens_count() == 0 {
+            continue; // The empty board of screen.png is not a puzzle (reference.rs).
+        }
+        assert_eq!(sudoku::invariants::check_game(g), Ok(()), "{name}");
+        assert_eq!(sudoku::invariants::check_puzzle(g), Ok(()), "{name}");
+        if g.seed == fresh.seed && g.given == fresh.given {
+            assert_eq!(g.generator, 3, "PUZ-13: {name}");
+        } else {
+            assert!(g.generator == 2 && g.mode == 2 && !g.symmetric, "{name}: the board of board-state.py");
+        }
+    }
+    for g in [reference::sample_game(), reference::completed_game(), reference::completed_group_game(), reference::checkpoints_game()] {
+        assert_eq!(sudoku::invariants::check_puzzle(&g), Ok(()), "PUZ-11");
+        assert_eq!(g.generator, 2, "PUZ-6, PUZ-11");
+    }
+}
+
 /// The pixels of `off` that are not only a glyph edge directly under a horizontal panel line (§15;
 /// refer to the comment at the start of this file). A pixel is removed only if the two rows directly
 /// above it are black from 10 px at its left to 10 px at its right in the two pictures (a line of the

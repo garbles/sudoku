@@ -387,7 +387,14 @@ fn undo_and_redo_are_black_only_when_they_operate() {
     let fonts = fonts();
     let mut d = Driver::new(73);
     d.button(Button::Menu);
-    let cell = free_cell(&d.app, &[1, 2]);
+    // An empty cell with two free digits a and b (MRK-7: a tap on a digit of a peer adds no mark).
+    let (cell, a, b) = cells()
+        .filter(|&c| !d.app.game.is_filled(c))
+        .find_map(|c| {
+            let free: Vec<u8> = (1..=9u8).filter(|&v| peer_numbers(&d.app.game, c) & mark_bit(v) == 0).collect();
+            (free.len() >= 2).then(|| (c, free[0], free[1]))
+        })
+        .expect("an empty cell with two free digits");
     let check = |d: &mut Driver, undo: bool, redo: bool| {
         assert_eq!((d.app.game.can_undo(), d.app.game.can_redo()), (undo, redo));
         let pm = draw_app(&d.app, &fonts);
@@ -404,9 +411,9 @@ fn undo_and_redo_are_black_only_when_they_operate() {
         }
     };
     check(&mut d, false, false);
-    d.tap_micro(cell, 1);
+    d.tap_micro(cell, a);
     check(&mut d, true, false);
-    d.tap_micro(cell, 2);
+    d.tap_micro(cell, b);
     d.button(Button::Undo);
     check(&mut d, true, true);
     d.button(Button::Undo);
@@ -765,6 +772,28 @@ fn the_summary_shows_the_quantity_and_the_average_of_each_mode() {
     check_summary(&fonts, &pm, "4", "19:35", &[none(), s("2", "3:20"), none(), s("1", "1:06:40"), none(), none(), s("1", "5:00")]);
 }
 
+#[test]
+fn the_summary_puts_the_results_of_all_generator_versions_of_a_mode_in_one_group() {
+    // ANA-4, ANA-3, ANA-1 (owner decision 2026-11-17): the results file has rows of the generator
+    // versions 1, 2 and 3 at mode 2 and one row of version 2 at mode 6. Mode 2 shows 3 results and the
+    // average of the three: (100 + 200 + 600) / 3 = 300 s, thus 5:00. The total is 4, and the total
+    // average is (100 + 200 + 600 + 900) / 4 = 450 s, thus 7:30.
+    let fonts = fonts();
+    let mut db = sudoku::store::ResultsDb::in_memory();
+    for (k, (mode, generator, seconds)) in [(2u8, 1u8, 100u64), (2, 2, 200), (2, 3, 600), (6, 2, 900)].into_iter().enumerate() {
+        let new = sudoku::store::NewResult { finished_at: 1_790_000_000 + k as i64, mode, givens: 30, seconds, seed: k as u64, generator, symmetric: k == 2 };
+        db.insert(&new).unwrap();
+    }
+    let mut app = App::new(None, None, db, Box::new(TestEnv { time: START_TIME, seed: 81 }), App::placeholder_ng_stops());
+    app.ui.menu = Menu::Closed;
+    app.screen = Screen::Statistics;
+    assert_eq!(app.results.len(), 4, "ANA-1: the app uses the rows of all versions");
+    let pm = draw_app(&app, &fonts);
+    let s = |a: &str, b: &str| (a.to_string(), b.to_string());
+    let none = || s("0", "–");
+    check_summary(&fonts, &pm, "4", "7:30", &[none(), none(), s("3", "5:00"), none(), none(), none(), s("1", "15:00")]);
+}
+
 // ---- INP-10: no ink stays on the board.
 
 /// An app that never got ink, with the same game and the same screen state as `d`.
@@ -1034,8 +1063,8 @@ fn assert_grid(pm: &Pixmap, cell: Cell, line: LineGray, what: &str) {
 }
 
 /// The seed of the symmetric new game of `the_x_changes_only_its_micro_cell_in_all_layouts`. Its board
-/// has a refused tap for each digit.
-const SYMMETRIC_X_SEED: u64 = 301;
+/// has a refused tap for each digit (generator version 3).
+const SYMMETRIC_X_SEED: u64 = 303;
 
 #[test]
 fn the_x_changes_only_its_micro_cell_in_all_layouts() {

@@ -1,9 +1,10 @@
 //! The event scripts of the video tool and the bench (`video/*.txt`). A script gives timed pen, eraser
 //! and finger events. `src/bin/video.rs` gives the commands of the script.
 
-use crate::app::{new_game, App, Env, Input, Menu, Tool};
+use crate::app::{game_of_version, App, Env, Input, Menu, Tool};
 use crate::font::Fonts;
 use crate::game::{mark_bit, Cell, Marks};
+use crate::generator::Version;
 use crate::layout;
 use crate::render;
 use crate::settings::{Color, Section};
@@ -180,6 +181,9 @@ pub struct Script {
     pub fps: u64,
     pub seed: u64,
     pub mode: u8,
+    /// The generator version of the puzzle. A puzzle line with no `generator` gives the current
+    /// version. A script names an earlier version to keep its puzzle when the current version changes.
+    pub generator: Version,
     pub timeline: Timeline,
 }
 
@@ -189,7 +193,7 @@ impl Script {
     /// at that mode and the switch is off, DIF-3), no results and a fixed clock.
     pub fn app(&self, fonts: &Fonts) -> App {
         let settings = crate::settings::Settings { last_mode: self.mode, last_symmetric: false, ..Default::default() };
-        let app = App::new(Some(new_game(self.seed, self.mode)), Some(settings), ResultsDb::in_memory(), Box::new(FixedEnv(self.seed)), render::ng_stops(fonts));
+        let app = App::new(Some(game_of_version(self.generator, self.seed, self.mode, false)), Some(settings), ResultsDb::in_memory(), Box::new(FixedEnv(self.seed)), render::ng_stops(fonts));
         let mut app = app;
         // The real app opens with the menu open (PER-2). The scripts start with the menu closed:
         // they show the empty board first, and then they open the menu with a tap. Thus the
@@ -216,10 +220,18 @@ pub fn parse(text: &str, pause_ms: u64) -> Result<Script, String> {
         let need_puzzle = || if puzzle.is_none() { Err(err("the puzzle line must come first".into())) } else { Ok(()) };
         match w.as_slice() {
             ["fps", v] => fps = v.parse().map_err(|_| err(format!("incorrect fps {v:?}")))?,
-            ["puzzle", "seed", s, "mode", m] => {
+            ["puzzle", "seed", s, "mode", m, rest @ ..] => {
                 let seed = s.parse().map_err(|_| err(format!("incorrect seed {s:?}")))?;
-                let mode = m.parse().map_err(|_| err(format!("incorrect mode {m:?}")))?;
-                puzzle = Some((seed, mode));
+                let mode: u8 = m.parse().map_err(|_| err(format!("incorrect mode {m:?}")))?;
+                let generator = match rest {
+                    [] => Version::CURRENT,
+                    ["generator", v] => v.parse().ok().and_then(Version::from_number).ok_or_else(|| err(format!("incorrect generator {v:?}")))?,
+                    _ => return Err(err(format!("unknown line {line:?}"))),
+                };
+                if !generator.permits(mode, false) {
+                    return Err(err(format!("generator {} has no mode {m}", generator.number())));
+                }
+                puzzle = Some((seed, mode, generator));
             }
             ["hand", h @ ("right" | "left")] => {
                 if !tl.events.is_empty() {
@@ -318,8 +330,8 @@ pub fn parse(text: &str, pause_ms: u64) -> Result<Script, String> {
             _ => return Err(err(format!("unknown line {line:?}"))),
         }
     }
-    let (seed, mode) = puzzle.ok_or("the script has no puzzle line")?;
-    Ok(Script { fps, seed, mode, timeline: tl })
+    let (seed, mode, generator) = puzzle.ok_or("the script has no puzzle line")?;
+    Ok(Script { fps, seed, mode, generator, timeline: tl })
 }
 
 /// A finger tap. The pen goes away first, as a hand does.

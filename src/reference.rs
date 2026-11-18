@@ -73,10 +73,18 @@ fn restart_state(a: &mut App, dialog: bool) {
     a.settings.restart_dialog_shown = true;
 }
 
+/// A game of the board of board-state.py (seed 1, mode 2). Its 30 starting numbers need only singles.
+/// That is not a puzzle of generator version 3 for mode 2 (PUZ-11: 34 or more starting numbers), thus
+/// these games have generator version 2: version 2 has no minimum for mode 2, and its fallback permits
+/// an easier level (PUZ-6). The screens do not show the version, thus the pixels do not change.
+fn reference_game(solution: [[u8; 9]; 9], givens: [[u8; 9]; 9]) -> Game {
+    Game { generator: 2, ..Game::new(1, 2, solution, givens) }
+}
+
 /// The game in progress of board-state.py, made with the same operations as a player.
 pub fn sample_game() -> Game {
     let sol = grid(&SOLUTION);
-    let mut g = Game::new(1, 2, sol, grid(&GIVENS));
+    let mut g = reference_game(sol, grid(&GIVENS));
     for &(r, c) in &ENTERED {
         g.add_number((r, c), sol[r as usize][c as usize]);
     }
@@ -112,7 +120,7 @@ pub fn image_path(root: impl AsRef<std::path::Path>, name: &str) -> std::path::P
 /// column 4 and row 7 are complete.
 pub fn completed_group_game() -> Game {
     let sol = grid(&SOLUTION);
-    let mut g = Game::new(1, 2, sol, grid(&GIVENS));
+    let mut g = reference_game(sol, grid(&GIVENS));
     for &(r, c) in ENTERED.iter().chain(&GROUP_ENTERED) {
         g.add_number((r, c), sol[r as usize][c as usize]);
     }
@@ -132,7 +140,7 @@ fn sample_game_with_redo() -> Game {
 /// sample_game() if `mistake`, and the marks of `marked` that are free in THIS board.
 fn checkpoint(entered: &[(u8, u8)], mistake: bool, marked: &[(u8, u8)], minutes: u64, seconds: u64) -> Checkpoint {
     let sol = grid(&SOLUTION);
-    let mut g = Game::new(1, 2, sol, grid(&GIVENS));
+    let mut g = reference_game(sol, grid(&GIVENS));
     for &(r, c) in entered {
         g.add_number((r, c), sol[r as usize][c as usize]);
     }
@@ -178,7 +186,7 @@ pub fn full_checkpoints_game() -> Game {
 
 pub fn completed_game() -> Game {
     let sol = grid(&SOLUTION);
-    let mut g = Game::new(1, 2, sol, grid(&GIVENS));
+    let mut g = reference_game(sol, grid(&GIVENS));
     for (r, c) in crate::game::cells() {
         g.add_number((r, c), sol[r as usize][c as usize]);
     }
@@ -188,7 +196,7 @@ pub fn completed_game() -> Game {
 
 /// The empty board of screen.png. It is not a puzzle; only the images use it.
 fn empty_game() -> Game {
-    let mut g = Game::new(1, 2, grid(&SOLUTION), [[0; 9]; 9]);
+    let mut g = reference_game(grid(&SOLUTION), [[0; 9]; 9]);
     g.completed = false;
     g
 }

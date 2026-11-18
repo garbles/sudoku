@@ -11,7 +11,11 @@
 //! Script lines (a `#` starts a comment). Cells are rRcC, with rows and columns from 1 to 9:
 //!
 //!     fps N                       frames each second (default 30)
-//!     puzzle seed S mode M        the puzzle (it must come before the first event)
+//!     puzzle seed S mode M [generator V]
+//!                                 the puzzle (it must come before the first event). V is the version
+//!                                 of the generator, 1 to 3 (default: the current version). A script
+//!                                 that names its version keeps its puzzle when the current version
+//!                                 changes.
 //!     hand right|left             the handedness of the player (default right, as on the device). It
 //!                                 must come before the first event.
 //!     wait S                      no input for S seconds

@@ -208,6 +208,8 @@ The owner asked for two more difficulty levels. The owner decided:
 
 - The two new modes are **more difficult** than the old Hard: modes 5 and 6. The modes 0 to 4 keep
   their numbers, thus a saved `last_mode` and the results keep their meaning.
+  (2026-11-17: the statement about the results is not true after generator version 3. Refer to
+  "Owner request: generator version 3".)
 - **All seven modes** come from the techniques that a person must use, not from the quantity of
   starting numbers: 0 singles with 44 starting numbers; 1 singles; 2 locked candidates; 3 subsets;
   4 X-Wing, Swordfish, XY-Wing; 5 Skyscraper, 2-String Kite, XYZ-Wing, W-Wing, simple colouring,
@@ -1456,3 +1458,101 @@ taps on another number to highlight that number".
 
 **Rejected:** the old behavior, where a tap on an empty cell, a stroke on a filled cell or a read of waiting ink
 removed the highlight (owner request: the highlight must stay until a tap on a number).
+
+## Owner request: generator version 3, a new difficulty scale for the seven modes, 2026-11-17
+
+Request of the owner: "i want to rebuild the entire puzzle generation and solver." The owner said that
+"medium level puzzles are often much too difficult" and that "4 is medium". For "often the puzzles on
+the easy end are easy", the owner answered "it's fine as is". The owner also said: "keep the seven
+modes". Beads issue: remarkable-sudoku-gur.
+
+Cause, measured on generator version 2 (200 symmetric puzzles for each mode):
+
+- Mode 0 has 44 starting numbers. The modes 1 to 6 all have approximately 27 to 28 (minimal puzzles).
+- The modes 2 to 6 have the same singles work (mean breadth 5.7 to 6.0). Only the most difficult
+  technique is different.
+- Mode 4 needs an XY-Wing in 94% of its puzzles. Sudoku Explainer rates the XY-Wing 4.2, a locked
+  candidate 2.6 to 2.8, a naked single 2.3 and a hidden single 1.2 to 1.5.
+- Research (Solo, Sudoku Explainer, HoDoKu, Andrew Stuart, Pelánek): the generation method of
+  version 2 is the standard. The best programs do not grade only by the most difficult technique:
+  they divide the singles, they count the difficult steps, and they use the quantity of possible
+  moves.
+
+| Examined | Result |
+| -------- | ------ |
+| Dev build `dev/generator-v3` on the tablet: new games at the modes, with generator version 3 (the eight technique groups, the stops, and the mode table of REQUIREMENTS.md §14.5) | The owner approved the prototype on 2026-11-17. |
+
+The approved values of the modes (REQUIREMENTS.md §14.5 has the full rules):
+
+| Mode | Permitted group | Must need | Minimum of starting numbers | Maximum of stops |
+|---|---|---|---|---|
+| 0 (Easy) | Naked singles (groups 1 to 3) | Nothing more | 44 | 0 |
+| 1 | Box singles (group 1) | Nothing more | 38 | 0 |
+| 2 (the first game) | Line singles (groups 1 and 2) | A line single | 34 | 0 |
+| 3 | Naked singles (groups 1 to 3) | A line single or a naked single | 31 | 0 |
+| 4 | Locked candidates (groups 1 to 4) | A locked candidate | 28 | 2 |
+| 5 | Fish (groups 1 to 6) | A subset or a fish | None | No limit |
+| 6 (Hard) | Chains (all groups) | A wing or a chain | None | No limit |
+
+The owner approved that mode 0 permits naked singles and that the modes 1 and 2 do not.
+
+Decisions of the owner (2026-11-17):
+
+- **Statistics and result card: accept the mix.** They group the results by the mode only, as before.
+  The old results (versions 1 and 2) and the new results of a mode stay in one group. The statistics,
+  the result card and the database do not change. Thus the statement of 2026-10-25 that "the results
+  keep their meaning" is not true after this change.
+- **Demo videos: keep the old puzzle.** The event scripts name generator version 2 for their puzzle
+  (seed 7, mode 0). The script command for the puzzle gets an optional version; with no version, it
+  uses the current version. `video/demo.txt` and `video/demo-full.txt` name version 2. The videos and
+  the script hashes of the bench must stay the same as before, byte for byte.
+- **Fallback: keep the rule.** If none of the 400 attempts is accepted, the puzzle is the first
+  attempt with the most difficult group (the rule of 2026-11-02 also applies to version 3).
+- The versions 1 and 2 do not change (bit for bit). The app keeps them only to examine saved games.
+  All new games are version 3.
+
+Measured on the computer (prototype), 200 symmetric seeds for each mode:
+
+| Mode | Starting numbers (mean) | Breadth (mean) | Narrow steps | Stops |
+|---|---|---|---|---|
+| 0 | 44.0 | 14.2 | 2.0 | 0 |
+| 1 | 38.1 | 12.7 | 2.0 | 0 |
+| 2 | 34.1 | 8.6 | 2.4 | 0 |
+| 3 | 31.7 | 7.8 | 2.9 | 0 |
+| 4 | 28.6 | 5.7 | 9.4 | 1.2 |
+| 5 | 27.8 | 5.8 | 9.7 | 1.6 |
+| 6 | 27.4 | 5.9 | 11.1 | 2.5 |
+
+1000 seeds for each mode and each symmetry (14,000 puzzles):
+
+- The generator accepted all puzzles: no puzzle came from the fallback.
+- Range of the starting numbers for the modes 0 to 6, not symmetric: 44, 38, 34, 31, 28 to 29,
+  21 to 28, 21 to 28.
+- Range of the starting numbers for the modes 0 to 6, symmetric: 44 to 45, 38 to 39, 34 to 35,
+  31 to 34, 28 to 34, 22 to 34, 23 to 34.
+- Slowest puzzle: 31 ms (mode 6, symmetric). Mean of mode 6: 5 to 7 ms.
+
+These ranges are measured, not proved. The only rule about the quantity is that a puzzle of the modes
+0 to 4 does not have fewer starting numbers than the minimum of its mode. A rule with an exact
+quantity or an upper limit for version 3 needs a proof or a decision of the owner. The rules about 44
+(not symmetric) and 44 or 45 (symmetric) for Easy stay for version 2 only.
+
+**Rejected:**
+
+- Mode 4 with a minimum of 30 starting numbers and a maximum of 1 stop: the narrow steps changed only
+  from 9.4 to 8.2. The owner approved 28 and 2.
+- A limit on the breadth (the quantity of possible moves): the prototype did not have one, and the
+  owner approved it without one.
+- The first proposal (mode 1: box singles with a minimum of 40; mode 2: all singles with a minimum of
+  32 as the first game; mode 4: locked candidates and pairs): replaced before the prototype, because
+  the owner calls mode 4 "medium".
+
+Not examined:
+
+- The time of the version 3 generator on the tablet is not measured. The tablet bench stays for the
+  owner.
+- An older app that reads a game file of version 3 must not use it (PER-5). This release changes
+  nothing for that; an update to an older version loses a version 3 game in progress.
+
+No visual change: no screen, panel, text, input or saved field changes, and no design image and no
+manual page changes.
