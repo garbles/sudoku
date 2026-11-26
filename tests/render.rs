@@ -14,8 +14,9 @@
 //! the pixel (refer to `without_glyph_edges_under_lines`). There is a third exception: under the veil
 //! of a dialog, the contrast of an edge is low. A crisp edge of the app can then differ by more than 64
 //! from the soft edge of the image, and the image has no edge of more than 64 within 1 px. Thus the
-//! images with a dialog permit 12 pixels in the limit of 1 px (refer to `max_off1`). All other
-//! drawings keep the limits above.
+//! images with a dialog permit 12 pixels in the limit of 1 px (refer to `max_off1`), and
+//! analytics-delete-all.png permits 16: its veil covers the summary, which has four columns of text
+//! (ANA-4: "Average hints" also). All other drawings keep the limits above.
 mod common;
 
 use std::path::Path;
@@ -37,9 +38,16 @@ fn limits(name: &str) -> (f64, f64) {
 }
 
 /// The maximum quantity of pixels that differ more than 1 px from an edge (refer to the start of this
-/// file): 12 for an image with the veil of a dialog, else 2.
+/// file): 12 for an image with the veil of a dialog (16 for the summary with its four columns under
+/// the veil), else 2.
 fn max_off1(name: &str) -> usize {
-    if name.starts_with("update-restart") || name.contains("-delete") { 12 } else { 2 }
+    if name.starts_with("analytics-delete-all") {
+        16
+    } else if name.starts_with("update-restart") || name.contains("-delete") {
+        12
+    } else {
+        2
+    }
 }
 
 #[test]
@@ -87,7 +95,15 @@ fn the_game_of_each_reference_state_obeys_the_puzzle_rules() {
             assert!(g.generator == 2 && g.mode == 2 && !g.symmetric, "{name}: the board of board-state.py");
         }
     }
-    for g in [reference::sample_game(), reference::completed_game(), reference::completed_group_game(), reference::checkpoints_game()] {
+    for g in [
+        reference::sample_game(),
+        reference::completed_game(),
+        reference::completed_hints_game(),
+        reference::completed_group_game(),
+        reference::checkpoints_game(),
+        reference::hint_game(false),
+        reference::hint_game(true),
+    ] {
         assert_eq!(sudoku::invariants::check_puzzle(&g), Ok(()), "PUZ-11");
         assert_eq!(g.generator, 2, "PUZ-6, PUZ-11");
     }
@@ -347,13 +363,14 @@ fn landscape_color_menu_agrees_with_the_reference_image() {
     assert!(off1.len() <= 2, "pixels that differ more than 1 px from an edge: {:?}", &off1[..off1.len().min(10)]);
     // A panel at a different position by some pixels stays near the edges of the image. Thus the
     // lines of the panel must be at the exact pixels in the app and in the image.
-    let probes = [(1248, 800), (1648, 800), (2046, 800), (1500, 112), (1900, 112), (1500, 1191), (1900, 1191)];
+    // NAV-17: y 224 to 1304 (top slot 2).
+    let probes = [(1248, 800), (1648, 800), (2046, 800), (1500, 224), (1900, 224), (1500, 1303), (1900, 1303)];
     for (x, y) in probes {
         assert_eq!(rgb_at(&pm, x, y), [0, 0, 0], "app: no line of the panel at ({x}, {y})");
         assert_eq!(rgb_at(&want, x, y), [0, 0, 0], "image: no line of the panel at ({x}, {y})");
     }
     // The empty space below the Micro-cell lines section is plain white (NAV-17).
-    for y in 840..1185 {
+    for y in 952..1297 {
         for x in (1655..2040).step_by(5) {
             assert_eq!(rgb_at(&pm, x, y), [255, 255, 255], "app: the empty space at ({x}, {y})");
             assert_eq!(rgb_at(&want, x, y), [255, 255, 255], "image: the empty space at ({x}, {y})");
@@ -1094,17 +1111,18 @@ fn the_highlight_is_on_top_of_the_completed_color() {
 
 #[test]
 fn a_highlight_shows_with_the_menu_and_with_each_panel() {
-    // HLT-4, HLT-7: a highlight can show while the menu or a panel is open. No image in images/pro/ shows
+    // HLT-4, HLT-7, HNT-7: a highlight can show while the menu or a panel (also the Hint panel) is open. No image in images/pro/ shows
     // this state. In each layout and with each panel, the cells outside the panel have the highlight
     // color, the other cells do not have it, and the panel does not change. A retained frame gives the
     // same pixels as a full drawing, when the highlight comes and when it goes.
     use sudoku::app::{Menu, Panel};
-    use sudoku::layout::{ckp_panel, colors_panel, ng_panel, settings_panel};
+    use sudoku::layout::{ckp_panel, colors_panel, hint_panel, ng_panel, settings_panel};
     let fonts = fonts();
     for layout in LAYOUTS {
         set_layout(layout);
         let area = [
             (Menu::Open(None), None),
+            (Menu::Open(Some(Panel::Hint)), Some(hint_panel(reference::sample_game().hint_state()))),
             (Menu::Open(Some(Panel::Colors)), Some(colors_panel())),
             (Menu::Open(Some(Panel::Settings)), Some(settings_panel(false))),
             (Menu::Open(Some(Panel::NewGame)), Some(ng_panel())),
@@ -1295,7 +1313,7 @@ fn the_framebuffer_shows_the_recolor_of_a_far_group() {
 
 #[test]
 fn the_colors_panel_has_the_same_pixels_and_covers_nothing_in_each_layout() {
-    // NAV-17: the panel is at its x range and at y 112 to 1192. The items of the panel are the same in
+    // NAV-17: the panel is at its x range and at y 224 to 1304 (top slot 2). The items of the panel are the same in
     // the four layouts, thus the order of the columns does not change with the hand. Out of the panel,
     // only the toolbar slot of the paint bucket changes when the panel opens: the panel does not cover
     // a toolbar button, the close button, the meter or "Completed in".
@@ -1315,16 +1333,16 @@ fn the_colors_panel_has_the_same_pixels_and_covers_nothing_in_each_layout() {
             let tb = sudoku::layout::tb_x();
             let mut slots = std::collections::BTreeSet::new();
             for (x, y) in changed_pixels(&open, &closed) {
-                if (x0..x0 + 800).contains(&x) && (112..=1192).contains(&y) {
+                if (x0..x0 + 800).contains(&x) && (224..=1304).contains(&y) {
                     continue;
                 }
                 assert!((tb..tb + sudoku::layout::tb_slot()).contains(&x), "{at}: the panel changes ({x}, {y})");
                 slots.insert(y / sudoku::layout::tb_slot());
             }
-            assert_eq!(slots.len(), 1, "{at}: the panel changes the toolbar slots {slots:?}");
+            assert_eq!(slots, std::collections::BTreeSet::from([2]), "{at}: the panel changes the toolbar slots");
             // The inner pixels of the panel: all of them, except the two side lines.
             let mut inner = Vec::with_capacity(796 * 1081);
-            for y in 112..=1192 {
+            for y in 224..=1304 {
                 for x in x0 + 2..x0 + 798 {
                     inner.push(rgb_at(&open, x, y));
                 }
@@ -1372,13 +1390,13 @@ const WHITE: [u8; 3] = [255, 255, 255];
 const BLACK: [u8; 3] = [0, 0, 0];
 
 fn ckp_row_top(i: i32) -> i32 {
-    672 + 180 * i
+    784 + 180 * i
 }
 
 /// The last y of the panel with `n` checkpoints (NAV-18).
 fn ckp_bottom(n: i32) -> i32 {
     if n == 0 {
-        864
+        976
     } else {
         ckp_row_top(n)
     }
@@ -1475,18 +1493,18 @@ fn the_lines_of_the_checkpoints_panel_are_at_the_exact_pixels_of_each_image() {
         let want = decode_png(&std::fs::read(sudoku::reference::image_path(&root, file)).unwrap());
         let bottom = ckp_bottom(n);
         let mut black = vec![
-            (pl, 616),
-            (pl + 1, 616),
-            (pl + 598, 616),
-            (pl + 599, 616),
-            (pl + 300, 560),
-            (pl + 300, 561),
-            (pl + 300, 670),
-            (pl + 300, 671),
+            (pl, 728),
+            (pl + 1, 728),
+            (pl + 598, 728),
+            (pl + 599, 728),
+            (pl + 300, 672),
+            (pl + 300, 673),
+            (pl + 300, 782),
+            (pl + 300, 783),
             (pl + 300, bottom - 1),
             (pl + 300, bottom),
         ];
-        let mut white = vec![(pl + 2, 616), (pl + 597, 616), (pl + 300, 562), (pl + 300, 669), (pl + 300, 672), (pl + 300, bottom - 2)];
+        let mut white = vec![(pl + 2, 728), (pl + 597, 728), (pl + 300, 674), (pl + 300, 781), (pl + 300, 784), (pl + 300, bottom - 2)];
         for i in 0..n {
             let y0 = ckp_row_top(i);
             // The button: the first and the last pixels are in the button.
@@ -1533,18 +1551,18 @@ fn the_checkpoints_panel_has_the_same_pixels_and_covers_nothing_in_each_layout()
             let tb = sudoku::layout::tb_x();
             let mut slots = std::collections::BTreeSet::new();
             for (x, y) in changed_pixels(&open, &closed) {
-                if (pl..pl + 600).contains(&x) && (560..=bottom).contains(&y) {
+                if (pl..pl + 600).contains(&x) && (672..=bottom).contains(&y) {
                     continue;
                 }
                 assert!((tb..tb + 112).contains(&x), "{at}: the panel changes ({x}, {y})");
                 slots.insert(y / 112);
             }
-            assert_eq!(slots, std::collections::BTreeSet::from([5]), "{at}: the panel changes the toolbar slots");
+            assert_eq!(slots, std::collections::BTreeSet::from([6]), "{at}: the panel changes the toolbar slots");
             // The panel touches the toolbar: there is no space between its side line and the slot.
             let side = if pl == 112 { pl } else { pl + 599 };
-            assert_eq!(rgb_at(&open, side, 616), BLACK, "{at}: the side line next to the toolbar");
+            assert_eq!(rgb_at(&open, side, 728), BLACK, "{at}: the side line next to the toolbar");
             let mut inner = Vec::new();
-            for y in 560..=bottom {
+            for y in 672..=bottom {
                 for x in pl + 2..pl + 598 {
                     inner.push(rgb_at(&open, x, y));
                 }
@@ -1556,7 +1574,7 @@ fn the_checkpoints_panel_has_the_same_pixels_and_covers_nothing_in_each_layout()
             let w = 596;
             let diff: Vec<(usize, usize, [u8; 3], [u8; 3])> = (0..inner.len())
                 .filter(|&i| (0..3).any(|k| first[i][k].abs_diff(inner[i][k]) > 32))
-                .map(|i| (i % w + 2, i / w + 560, first[i], inner[i]))
+                .map(|i| (i % w + 2, i / w + 672, first[i], inner[i]))
                 .collect();
             assert!(diff.is_empty(), "{at}: {} pixels are not the same as in the first layout (offset x, y, first, this): {:?}", diff.len(), &diff[..diff.len().min(12)]);
         }
@@ -1576,9 +1594,9 @@ fn the_panel_with_no_checkpoint_shows_the_save_row_and_two_lines_of_text() {
         set_layout(layout);
         let pm = draw_app(&fonts, &with_panel(&fonts, game.clone()));
         let inside = pl + 2..pl + 598;
-        assert_text(&fonts, &pm, (Weight::Medium, 28.0, BLACK), (pl + 100, 625), Anchor::Start, "Save checkpoint", pl + 90..pl + 598);
-        assert_text(&fonts, &pm, (Weight::Regular, 28.0, gray(25)), (pl + 299, 760), Anchor::Middle, "No checkpoints", inside.clone());
-        assert_text(&fonts, &pm, (Weight::Regular, 25.0, gray(25)), (pl + 299, 800), Anchor::Middle, "Save the board before a difficult guess.", inside);
+        assert_text(&fonts, &pm, (Weight::Medium, 28.0, BLACK), (pl + 100, 737), Anchor::Start, "Save checkpoint", pl + 90..pl + 598);
+        assert_text(&fonts, &pm, (Weight::Regular, 28.0, gray(25)), (pl + 299, 872), Anchor::Middle, "No checkpoints", inside.clone());
+        assert_text(&fonts, &pm, (Weight::Regular, 25.0, gray(25)), (pl + 299, 912), Anchor::Middle, "Save the board before a difficult guess.", inside);
     }
     reset_layout();
 }
@@ -1682,7 +1700,7 @@ fn the_small_board_has_the_colors_of_the_rules_of_the_board() {
         let high = draw(|a| a.ui.highlight = Some(5));
         assert!(plain.data() != high.data(), "{layout:?}: the highlight does not show on the board");
         for (x, y) in changed_pixels(&plain, &high) {
-            assert!(!(pl..pl + 600).contains(&x) || !(560..=1392).contains(&y), "{layout:?}: the highlight changes ({x}, {y}) in the panel");
+            assert!(!(pl..pl + 600).contains(&x) || !(672..=1504).contains(&y), "{layout:?}: the highlight changes ({x}, {y}) in the panel");
         }
     }
     reset_layout();
@@ -1814,8 +1832,8 @@ fn the_save_row_and_the_buttons_follow_the_board_of_the_game() {
             let pm = draw_app(&fonts, &with_panel(&fonts, game.clone()));
             let save = if can_save { BLACK } else { gray(70) };
             assert_eq!(game.can_save_checkpoint(), can_save, "{at}: can_save");
-            assert_eq!(rgb_at(&pm, pl + 58, 616), save, "{at}: the plus");
-            assert_text(&fonts, &pm, (Weight::Medium, 28.0, save), (pl + 100, 625), Anchor::Start, "Save checkpoint", pl + 90..pl + 598);
+            assert_eq!(rgb_at(&pm, pl + 58, 728), save, "{at}: the plus");
+            assert_text(&fonts, &pm, (Weight::Medium, 28.0, save), (pl + 100, 737), Anchor::Start, "Save checkpoint", pl + 90..pl + 598);
             for (i, &current) in current.iter().enumerate() {
                 let y0 = ckp_row_top(i as i32);
                 let (inner, text, label) = if current { (BLACK, WHITE, "Current") } else { (WHITE, BLACK, "Restore") };
@@ -1851,7 +1869,7 @@ fn the_bookmark_has_the_color_of_the_state_of_the_game() {
     for layout in LAYOUTS {
         set_layout(layout);
         let tb = sudoku::layout::tb_x();
-        let (cx, cy) = (tb + 56, 616);
+        let (cx, cy) = (tb + 56, 728);
         let cases = [
             ("game", reference::sample_game(), Menu::Open(None), BLACK, WHITE),
             ("game, other panel", reference::sample_game(), Menu::Open(Some(Panel::Settings)), BLACK, WHITE),
@@ -1869,7 +1887,7 @@ fn the_bookmark_has_the_color_of_the_state_of_the_game() {
             for (x, y) in [(cx, cy - 18), (cx - 12, cy), (cx + 12, cy)] {
                 assert_eq!(rgb_at(&pm, x, y), icon, "{layout:?}, {name}: the line at ({x}, {y})");
             }
-            for (x, y) in [(cx, cy), (cx, cy + 14), (tb + 4, 564), (tb + 107, 667)] {
+            for (x, y) in [(cx, cy), (cx, cy + 14), (tb + 4, 676), (tb + 107, 779)] {
                 assert_eq!(rgb_at(&pm, x, y), slot, "{layout:?}, {name}: the slot at ({x}, {y})");
             }
         }
@@ -2178,7 +2196,7 @@ fn the_new_game_panel_has_three_rows_and_the_settings_switch_in_each_layout() {
         settings.game = reference::sample_game();
         settings.ui.menu = Menu::Open(Some(Panel::Settings));
         let s = Switch::ALL[0];
-        let r = sudoku::layout::settings_row(s.row());
+        let r = sudoku::layout::settings_row(s.row(), false);
         let sb = |x1: i32, cy: i32| (x1 - 75, cy - 21, x1 + 3, cy + 21);
         let sbox = sb(sudoku::layout::settings_pr() - 33, r.y0 + 56);
         for (pm, look) in [(&on, true), (&off, false)] {
@@ -2523,4 +2541,171 @@ fn the_swatches_of_the_micro_cell_lines_have_the_pattern_of_their_gray() {
         }
         reset_layout();
     }
+}
+
+// ---- The Hint panel and the revealed cells (REQUIREMENTS.md §9.5).
+
+#[test]
+fn the_lines_of_the_hint_panel_are_at_the_exact_pixels_of_each_image() {
+    // HNT-11, HNT-2, §15: the frame (2 px), the divider below the row (y 224–225) and the bottom of the
+    // box are at the exact pixels in the app and in each image. The panel is 198 px high when a hint
+    // is available and 236 px high in the other two states, 500 px wide in portrait and 392 px wide
+    // in landscape, and it starts at the top of slot 1 (y 112).
+    use sudoku::layout::Orientation::{Landscape, Portrait};
+    let fonts = fonts();
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let images = [
+        ("hint-menu.png", Portrait, 1008, 500, 198),
+        ("hint-menu-revealed.png", Portrait, 1008, 500, 198),
+        ("hint-menu-incorrect.png", Portrait, 1008, 500, 236),
+        ("hint-menu-clash.png", Portrait, 1008, 500, 236),
+        ("hint-menu-right-handed.png", Portrait, 112, 500, 198),
+        ("hint-menu-landscape.png", Landscape, 1656, 392, 198),
+    ];
+    for (name, orientation, pl, w, h) in images {
+        // The state sets its layout, and reference::render sets the portrait layout again.
+        let pm = reference::render(&fonts, reference_setup(name));
+        let want = decode_png(&std::fs::read(reference::image_path(&root, name)).unwrap());
+        assert_eq!((pm.width(), pm.height()), (want.width(), want.height()), "{name}: {orientation:?}");
+        let (pr, bottom) = (pl + w - 1, 112 + h - 1);
+        // A point at the side away from the texts.
+        let x = pr - 10;
+        let mut black = vec![(pl, 160), (pl + 1, 160), (pr - 1, 160), (pr, 160), (x, 112), (x, 113), (x, 224), (x, 225), (x, bottom - 1), (x, bottom)];
+        let mut white = vec![(pl + 2, 160), (pr - 2, 160), (x, 114), (x, 223), (x, 226), (x, bottom - 2)];
+        // The side lines go down to the bottom of the box.
+        black.extend([(pl, bottom - 5), (pr, bottom - 5)]);
+        white.extend([(pl + 2, bottom - 5), (pr - 2, bottom - 5)]);
+        for (x, y) in black {
+            assert_eq!(rgb_at(&pm, x, y), BLACK, "{name}, app: ({x}, {y})");
+            assert_eq!(rgb_at(&want, x, y), BLACK, "{name}, image: ({x}, {y})");
+        }
+        for (x, y) in white {
+            assert_eq!(rgb_at(&pm, x, y), WHITE, "{name}, app: ({x}, {y})");
+            assert_eq!(rgb_at(&want, x, y), WHITE, "{name}, image: ({x}, {y})");
+        }
+    }
+}
+
+#[test]
+fn the_reference_states_of_the_hint_images_come_from_real_requests() {
+    // HNT-3, HNT-4, HNT-5, HNT-6, HNT-7, images/INDEX.md: two real requests on the game of
+    // hint-menu.png reveal (8, 0) = 3, then (0, 5) = 8. The count is 2, the panel stays open, and redo
+    // is not available (one undo item each). A request on the board with the incorrect 1 at (5, 5)
+    // reveals that number and changes nothing more. The clash state reveals nothing.
+    use sudoku::app::{Menu, Panel};
+    use sudoku::game::{HintState, IncorrectShown};
+    let fonts = fonts();
+    let state = |name: &str| {
+        let mut app = reference::app(&fonts);
+        reference_setup(name)(&mut app);
+        reset_layout();
+        app
+    };
+    let base = state("hint-menu.png");
+    assert_eq!((base.game.hints, base.game.hint_state()), (0, HintState::Available));
+    assert!(base.game.can_redo(), "hint-menu.png: redo is black");
+    let revealed = state("hint-menu-revealed.png");
+    assert_eq!(revealed.ui.menu, Menu::Open(Some(Panel::Hint)), "HNT-4: the panel stays open");
+    assert_eq!(revealed.game.hints, 2, "HNT-6");
+    let cells: Vec<_> = revealed.ui.revealed.iter().collect();
+    assert_eq!(cells, vec![(0, 5), (8, 0)], "HNT-5, HNT-7: the revealed cells (row order)");
+    assert_eq!((revealed.game.value_at((8, 0)), revealed.game.value_at((0, 5))), (3, 8));
+    assert_eq!(revealed.game.undo.len(), base.game.undo.len() + 2, "HNT-4: one undo item for each reveal");
+    assert!(!revealed.game.can_redo(), "HNT-4: a reveal makes the redo history empty");
+    let incorrect = state("hint-menu-incorrect.png");
+    assert_eq!(incorrect.game.incorrect_shown, Some(IncorrectShown { cell: (5, 5), digit: 1 }), "HNT-3");
+    assert_eq!((incorrect.game.hints, incorrect.game.hint_state()), (0, HintState::Incorrect), "HNT-3, HNT-6");
+    assert!(incorrect.ui.revealed.is_empty() && incorrect.game.can_redo(), "HNT-3: nothing more changes");
+    let clash = state("hint-menu-clash.png");
+    assert_eq!((clash.game.hint_state(), clash.game.incorrect_shown, clash.game.hints), (HintState::Clash, None, 0), "HNT-2");
+}
+
+#[test]
+fn the_revealed_cells_have_the_highlight_color_and_the_incorrect_number_the_clash_color() {
+    // BRD-7, HNT-7, HNT-8, HLT-6, all layouts: each revealed cell has the highlight color, also on a
+    // completed group (column 0 after the reveal of (8, 0)), also with the switch "Highlight numbers"
+    // off, and with no highlighted digit. The revealed incorrect number has the clash color. A change
+    // of a color follows. With White, the cell is white: no completed color and no starting color.
+    use sudoku::app::Menu;
+    let fonts = fonts();
+    for layout in LAYOUTS {
+        set_layout(layout);
+        for (name, cells) in [("hint-menu-revealed.png", &[(8, 0), (0, 5)][..]), ("hint-menu-incorrect.png", &[(5, 5)][..])] {
+            let at = format!("{layout:?}, {name}");
+            let mut app = reference::app(&fonts);
+            reference_setup(name)(&mut app);
+            app.ui.menu = Menu::Closed;
+            assert_eq!(app.ui.highlight, None, "{at}");
+            let clash = app.game.incorrect_shown.is_some();
+            let set = |app: &mut sudoku::app::App, c: Color| {
+                if clash {
+                    app.settings.color_clash = c;
+                } else {
+                    app.settings.color_highlight = c;
+                }
+            };
+            let default = if clash { app.settings.color_clash } else { app.settings.color_highlight };
+            let pm = draw_app(&fonts, &app);
+            for &cell in cells {
+                assert_eq!(cell_background(&pm, cell), default.rgb(), "{at}: {cell:?}");
+            }
+            if !clash {
+                // Column 0 is complete: the other cells of the column have the completed color.
+                assert_eq!(cell_background(&pm, (7, 0)), app.settings.color_completed.rgb(), "{at}: the completed column");
+                app.settings.highlight_on = false;
+                let off = draw_app(&fonts, &app);
+                for &cell in cells {
+                    assert_eq!(cell_background(&off, cell), default.rgb(), "HLT-6: {at}: {cell:?} with the switch off");
+                }
+            }
+            set(&mut app, Color::Orange);
+            let pm = draw_app(&fonts, &app);
+            for &cell in cells {
+                assert_eq!(cell_background(&pm, cell), Color::Orange.rgb(), "{at}: {cell:?} in Orange");
+            }
+            set(&mut app, Color::White);
+            let pm = draw_app(&fonts, &app);
+            for &cell in cells {
+                assert_eq!(cell_background(&pm, cell), WHITE, "{at}: {cell:?} with White");
+            }
+        }
+    }
+    reset_layout();
+}
+
+#[test]
+fn the_small_boards_never_show_the_colors_of_a_hint() {
+    // CKP-7, HNT-7, HNT-8: a checkpoint of the board with the revealed cells and the revealed incorrect
+    // number. The Checkpoints panel has the same pixels as for the same game with no revealed cell and
+    // no revealed incorrect number. The board itself shows the two colors.
+    use sudoku::app::{Menu, Panel};
+    let fonts = fonts();
+    for layout in LAYOUTS {
+        set_layout(layout);
+        let mut app = reference::app(&fonts);
+        reference_setup("hint-menu-revealed.png")(&mut app);
+        // An incorrect number that does not clash, revealed with a real request.
+        let (cell, digit) = sudoku::game::cells()
+            .filter(|&c| !app.game.is_filled(c))
+            .find_map(|c @ (r, col)| {
+                let sol = app.game.solution[r as usize][col as usize];
+                (1..=9).find(|&d| d != sol && !sudoku::game::peers(c).any(|p| app.game.value_at(p) == d)).map(|d| (c, d))
+            })
+            .expect("an empty cell with an incorrect digit that does not clash");
+        app.game.add_number(cell, digit);
+        assert!(matches!(app.game.request_hint(), sudoku::game::Hint::Incorrect(c) if c == cell));
+        assert!(!app.ui.revealed.is_empty());
+        assert!(app.game.save_checkpoint());
+        app.ui.menu = Menu::Open(Some(Panel::Checkpoints));
+        let with = draw_app(&fonts, &app);
+        app.ui.revealed = Default::default();
+        app.game.incorrect_shown = None;
+        let without = draw_app(&fonts, &app);
+        let p = sudoku::layout::ckp_panel(1);
+        for (x, y) in changed_pixels(&with, &without) {
+            assert!(!(p.x0..p.x1).contains(&x) || !(p.y0..p.y1).contains(&y), "{layout:?}: the hint colors change ({x}, {y}) in the panel");
+        }
+        assert!(!changed_pixels(&with, &without).is_empty(), "{layout:?}: the board does not show the hint colors");
+    }
+    reset_layout();
 }

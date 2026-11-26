@@ -1556,3 +1556,92 @@ Not examined:
 
 No visual change: no screen, panel, text, input or saved field changes, and no design image and no
 manual page changes.
+
+## Owner request: a Hint button that reveals one number, 2026-11-24
+
+Request of the owner: "on the sidebar, you can tap a button which will use the solver to find just one
+number". "when the number is inserted, it uses the highlight color to highlight which number was just
+filled in". "keep track of how many hints are used in the puzzle"; "undoing a hint does not subtract
+from the number of hints used". "when a puzzle is completed, the number of hints used should be stored
+in the database (default to 0)". "the statistics page should state the number of hints used for each
+individual puzzle solve, it should also show the average number of hints used (up to 2 decimal places
+if not a whole number) per difficulty level". Beads issue: remarkable-sudoku-9ke.
+
+| Examined | Result |
+| -------- | ------ |
+| Dev build `dev/hint-panel` on the Paper Pro: the lightbulb in top slot 1, with the other top buttons and their panels one slot lower | The owner approved (2026-11-24). |
+| The Hint panel in portrait (500 px wide, above the board) with the row "Reveal one number" and the box "N hints used" | The owner approved. The panel covers no cell. |
+| Two taps on the row: two numbers in the highlight color, the count 2 on the button. Then two pen presses on the board: the first closes the panel, the second removes the highlight | The owner approved. The highlight has no time limit. |
+| Undo of a revealed number | The owner approved: the count stays. |
+| An incorrect number with no clash, then a request: the cell gets the clash color, the row is gray, the box shows "Incorrect number revealed" and "Erase it to continue.". After the erasure the row is black | The owner approved. |
+| A clashing number with the panel open: "Numbers clash" and "Erase one to continue." | The owner approved. |
+| A completed puzzle: "N hints used" on the result card; the columns "Average hints" and "Hints" in Statistics, in portrait and in landscape | The owner approved. |
+| The panel in landscape (392 px wide): it covers approximately 101 px of the cells of rows 1 and 2 of one edge column | The owner accepted this. |
+
+Decisions of the owner (2026-11-24):
+
+- The highlight of a revealed number stays until an action on the board: "they should never timeout
+  ... just make them persist until an action is taken on the board". "revealing multiple hints without
+  any action should highlight numbers until an action is taken".
+- "a number on the board can be incorrect even if it is not highlighted in red". The app shows that no
+  hint is available only after a request: "it should highlight the number (in the error color)
+  permanently until it is erased", and "the user should not be allowed to ask for another hint until
+  it is erased". Only one incorrect number shows at a time.
+- "if there is an existing conflict on the board, you should not be able to ask for a hint".
+- A game with hints counts in "Previous best", "Average" and "Average time" as each other game.
+- If the clash color or the highlight color is White, the revealed incorrect number or the revealed
+  number has no visible mark. The owner accepted this.
+- The Move in landscape (not seen on a device): each toolbar slot is 95 px, not 96 px, so that the two
+  groups of the toolbar do not overlap with 10 buttons on 954 px. A panel that does not fit below its
+  button starts at the top of slot 1 (the Settings panel with the update row, the Checkpoints panel
+  with 4 checkpoints).
+- The manual: pages 7 (menu) and 6 (mistakes) tell about the hint. The owner approved the words of
+  REQUIREMENTS.md §12 on 2026-11-24 ("Add it as proposed").
+- The manual pages 6 and 7 became more dense so that the new text fits. Page 7: the row step is
+  89 units (before: 98 units in portrait and 110 units in landscape). Page 6 in portrait: the
+  correction figure has the cell scale 1.5 (before: 1.75). The owner did not see these pages yet.
+
+**Rejected:**
+
+- The Hint button in top slot 6, below the bookmark: its panel covered board cells in portrait.
+- A landscape panel of 275 px with wrapped text ("Reveal one" / "number"), and a landscape panel of
+  500 px: the text must be on one line, and the panel must cover only a part of one cell column.
+- A time limit of 5 s for the highlight of a revealed number (the first request of the owner; the
+  owner then asked for no time limit).
+- All incorrect numbers in the clash color at the same time: one at a time.
+- A gray hint button after the panel closes.
+- The texts "Show one number", "X hints in this puzzle" and "Incorrect cell revealed. Erase it to
+  continue.".
+- "N hints used" in the Medium weight and black: it looked like a button.
+- Other designs: a dialog, a message line, a count next to the meter, a panel that closes after each
+  reveal, an erase button in the panel.
+- A limit of 81 hints for a result that the app reads: the prototype first hid results with more than
+  81 hints. The count has no upper limit, and the app must read each count that it can write.
+
+Findings of the review (2026-11-24):
+
+- The statement "the app does not compare your numbers with the solution" has one exception: the
+  comparison at a hint request. Only the one revealed incorrect number shows the result.
+- The revealed incorrect number is valid only on a game that is not complete, when its cell holds a
+  number of the player with the saved digit, and that digit is not the solution. The app removes a
+  value that breaks this rule after each change of the board and when a game file opens. Such a file
+  is not incorrect saved data.
+- The list "only these remove a highlight" of REQUIREMENTS.md §6.2 is for the digit highlight. The
+  highlight of the revealed numbers has its own list (§9.5).
+- An update to an earlier version of the app loses the hint count of the game in progress.
+
+Open point, not decided by the owner yet:
+
+- The Move in landscape, the New game panel: its rows stay 96 px high in all layouts. With the toolbar
+  slots of 95 px in this layout, the rows do not line up with the slots. The panel still touches the
+  toolbar, and its bottom is the bottom of the screen, as before. The owner must confirm this, or give
+  rows of 95 px for this layout.
+- The Move in landscape, the Hint panel: it covers approximately 7 px of the width of the cells of
+  rows 1 to 3 of one edge column (the Paper Pro: 101 px, rows 1 and 2).
+
+Not examined on the tablet:
+
+- A reveal directly after a "?" in the same cell (the pen area must stop when its cell becomes filled).
+- The time of a reveal on a Hard board.
+- The statistics columns on the Move, and all Move layouts (the owner has no Move: the Move images are
+  the check).

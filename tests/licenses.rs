@@ -11,7 +11,7 @@ use sudoku::licenses;
 fn open_licenses(d: &mut Driver) {
     d.button(Button::Menu);
     d.button(Button::Settings);
-    let (x, y) = pixel_center(layout::settings_row(layout::LICENSES_ROW));
+    let (x, y) = pixel_center(layout::settings_row(layout::LICENSES_ROW, d.app.update.has_row()));
     d.finger_tap(x, y);
 }
 

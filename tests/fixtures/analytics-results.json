@@ -2,116 +2,139 @@
  {
   "finished_at": 1792693500,
   "mode": 2,
-  "seconds": 900
+  "seconds": 900,
+  "hints": 0
  },
  {
   "finished_at": 1792430580,
   "mode": 2,
-  "seconds": 1604
+  "seconds": 1604,
+  "hints": 2
  },
  {
   "finished_at": 1792343100,
   "mode": 2,
-  "seconds": 898
+  "seconds": 898,
+  "hints": 0
  },
  {
   "finished_at": 1792272420,
   "mode": 0,
-  "seconds": 591
+  "seconds": 591,
+  "hints": 0
  },
  {
   "finished_at": 1792190400,
   "mode": 2,
-  "seconds": 891
+  "seconds": 891,
+  "hints": 0
  },
  {
   "finished_at": 1791921780,
   "mode": 4,
-  "seconds": 2065
+  "seconds": 2065,
+  "hints": 3
  },
  {
   "finished_at": 1791833160,
   "mode": 0,
-  "seconds": 422
+  "seconds": 422,
+  "hints": 0
  },
  {
   "finished_at": 1791669120,
   "mode": 2,
-  "seconds": 926
+  "seconds": 926,
+  "hints": 0
  },
  {
   "finished_at": 1791411120,
   "mode": 2,
-  "seconds": 1300
+  "seconds": 1300,
+  "hints": 1
  },
  {
   "finished_at": 1791320580,
   "mode": 2,
-  "seconds": 1256
+  "seconds": 1256,
+  "hints": 0
  },
  {
   "finished_at": 1791060540,
   "mode": 1,
-  "seconds": 932
+  "seconds": 932,
+  "hints": 0
  },
  {
   "finished_at": 1790882340,
   "mode": 1,
-  "seconds": 693
+  "seconds": 693,
+  "hints": 1
  },
  {
   "finished_at": 1790789760,
   "mode": 1,
-  "seconds": 879
+  "seconds": 879,
+  "hints": 0
  },
  {
   "finished_at": 1790634480,
   "mode": 1,
-  "seconds": 1164
+  "seconds": 1164,
+  "hints": 0
  },
  {
   "finished_at": 1790544360,
   "mode": 1,
-  "seconds": 789
+  "seconds": 789,
+  "hints": 1
  },
  {
   "finished_at": 1790366520,
   "mode": 4,
-  "seconds": 2127
+  "seconds": 2127,
+  "hints": 2
  },
  {
   "finished_at": 1790113800,
   "mode": 3,
-  "seconds": 1710
+  "seconds": 1710,
+  "hints": 1
  },
  {
   "finished_at": 1789846680,
   "mode": 2,
-  "seconds": 1509
+  "seconds": 1509,
+  "hints": 3
  },
  {
   "finished_at": 1789751820,
   "mode": 2,
-  "seconds": 1397
+  "seconds": 1397,
+  "hints": 0
  },
  {
   "finished_at": 1789685040,
   "mode": 1,
-  "seconds": 927
+  "seconds": 927,
+  "hints": 0
  },
  {
   "finished_at": 1789417080,
   "mode": 3,
-  "seconds": 2456
+  "seconds": 2456,
+  "hints": 4
  },
  {
   "finished_at": 1789234140,
   "mode": 1,
-  "seconds": 947
+  "seconds": 947,
+  "hints": 0
  },
  {
   "finished_at": 1789060380,
   "mode": 3,
-  "seconds": 1470
+  "seconds": 1470,
+  "hints": 1
  }
 ]

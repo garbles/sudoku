@@ -1017,14 +1017,15 @@ fn a_game_file_of_an_earlier_version_has_no_checkpoints() {
     let json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
     let fields = json.as_object().unwrap();
     assert!(!fields.contains_key("checkpoints"), "PER-1: an empty list does not write the field");
-    // "symmetric" is the only field that is new after the checkpoints (PER-9). An earlier version
-    // does not know it and ignores it.
-    let earlier = ["seed", "mode", "generator", "symmetric", "solution", "given", "value", "marks", "undo", "redo", "elapsed_ms", "completed"];
+    // "symmetric" and "hints" are the only fields that are new after the checkpoints (PER-9, HNT-6).
+    // An earlier version does not know them and ignores them. With no revealed incorrect number, the
+    // file has no field "incorrect_shown" (PER-1, HNT-8).
+    let earlier = ["seed", "mode", "generator", "symmetric", "solution", "given", "value", "marks", "undo", "redo", "elapsed_ms", "completed", "hints"];
     let mut keys: Vec<&str> = fields.keys().map(String::as_str).collect();
     keys.sort_unstable();
     let mut want = earlier.to_vec();
     want.sort_unstable();
-    assert_eq!(keys, want, "the file has only the fields of an earlier version and the symmetry");
+    assert_eq!(keys, want, "the file has only the fields of an earlier version, the symmetry and the hint count");
     let loaded: Game = load_json(&path).expect("the file of an earlier version gives a game");
     std::fs::remove_dir_all(&dir).ok();
     assert!(loaded.checkpoints.is_empty());
@@ -1339,6 +1340,7 @@ fn result_rows_that_break_ana_1_are_not_used() {
     for r in &app.results {
         assert!(r.mode < MODES && r.givens <= 81, "ANA-1: {r:?}");
         assert!(!r.symmetric, "ANA-1, PER-9: a row of an earlier database is not symmetric: {r:?}");
+        assert_eq!(r.hints, 0, "ANA-1, PER-9: a row of an earlier database has no hints: {r:?}");
     }
     check_app(&app).unwrap();
     std::fs::remove_dir_all(&dir).ok();
@@ -1574,8 +1576,9 @@ fn a_results_database_of_version_2_gets_the_symmetry_false() {
     let rows = db.all().unwrap();
     let got: Vec<(i64, u8, u8, u64, u64, bool)> = rows.iter().map(|r| (r.id, r.mode, r.givens, r.seconds, r.seed, r.symmetric)).collect();
     assert_eq!(got, vec![(7, 0, 44, 300, 42, false), (4, 6, 24, 900, 41, false)], "ANA-1, PER-9");
+    assert!(rows.iter().all(|r| r.hints == 0), "ANA-1, PER-9: the rows of a version 2 database get hints = 0");
     let new = db
-        .insert(&sudoku::store::NewResult { finished_at: 1790000002, mode: 0, givens: 45, seconds: 200, seed: 43, generator: 2, symmetric: true })
+        .insert(&sudoku::store::NewResult { finished_at: 1790000002, mode: 0, givens: 45, seconds: 200, seed: 43, generator: 2, symmetric: true, hints: 0 })
         .unwrap();
     assert!(new.symmetric, "CMP-5");
     drop(db);
@@ -1766,7 +1769,7 @@ fn the_results_of_all_versions_of_a_mode_are_one_group() {
     let mut db = ResultsDb::open(&path).unwrap();
     for (k, (generator, seconds)) in [(1u8, 100u64), (2, 200), (3, 600), (2, 900)].into_iter().enumerate() {
         let mode = if k == 3 { 4 } else { 2 };
-        db.insert(&sudoku::store::NewResult { finished_at: 1_790_000_000 + k as i64, mode, givens: 30, seconds, seed: 80 + k as u64, generator, symmetric: k % 2 == 0 }).unwrap();
+        db.insert(&sudoku::store::NewResult { finished_at: 1_790_000_000 + k as i64, mode, givens: 30, seconds, seed: 80 + k as u64, generator, symmetric: k % 2 == 0, hints: 0 }).unwrap();
     }
     drop(db);
     let (g, last) = nearly_complete(975, 2);
@@ -1783,4 +1786,402 @@ fn the_results_of_all_versions_of_a_mode_are_one_group() {
         "CMP-8, ANA-4: the earlier results of mode 2 of all versions"
     );
     std::fs::remove_dir_all(&dir).ok();
+}
+
+// ---- PER-1, PER-2, PER-5, PER-9, HNT-6, HNT-8, HNT-9, ANA-1, CMP-5: the hint count, the revealed
+// incorrect number and the column `hints` of the results.
+
+/// A game of `seed` with one incorrect entry that does not clash (BRD-5), as the player writes it.
+/// Returns the game, the cell and the digit.
+fn game_with_incorrect(seed: u64) -> (Game, Cell, u8) {
+    let mut g = new_game(seed, 2);
+    let (cell, digit) = cells()
+        .filter(|&c| !g.is_filled(c))
+        .find_map(|c @ (r, k)| (1..=9u8).find(|&v| v != g.solution[r as usize][k as usize] && g.peer_digits(c) & mark_bit(v) == 0).map(|v| (c, v)))
+        .expect("an empty cell with an incorrect digit that does not clash");
+    g.add_number(cell, digit);
+    assert!(check_game(&g).is_ok());
+    (g, cell, digit)
+}
+
+/// Opens the Hint panel (the menu is closed) and taps the row "Reveal one number".
+fn request_hint(d: &mut Driver) {
+    if !d.app.ui.menu.is_open() {
+        d.button(Button::Menu);
+    }
+    if d.app.ui.menu.panel() != Some(Panel::Hint) {
+        d.button(Button::Hint);
+    }
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Hint), "HNT-1: the panel is open");
+    let (x, y) = pixel_center(layout::hint_row());
+    d.finger_tap(x, y);
+}
+
+/// The game goes through a file, and the app opens with it (PER-1, PER-2).
+fn through_file(g: &Game, name: &str, seed: u64) -> (App, serde_json::Value) {
+    let dir = data_dir(name);
+    let path = dir.join("game.json");
+    save_json(&path, g).unwrap();
+    let text = std::fs::read_to_string(&path).unwrap();
+    let json: serde_json::Value = serde_json::from_str(&text).unwrap();
+    let app = open_app(load_json(&path), None, ResultsDb::in_memory(), seed);
+    std::fs::remove_dir_all(&dir).ok();
+    (app, json)
+}
+
+#[test]
+fn the_hint_count_and_the_revealed_incorrect_number_go_through_the_file() {
+    // PER-1, PER-2, HNT-6, HNT-7, HNT-8: the app saves `hints` and `incorrect_shown`, and it does not
+    // save `revealed`. When the app opens again, `revealed = ∅` and no panel is open.
+    let mut d = Driver::from(open_app(Some(new_game(950, 2)), None, ResultsDb::in_memory(), 5));
+    request_hint(&mut d);
+    request_hint(&mut d);
+    assert_eq!((d.app.game.hints, d.app.ui.revealed.iter().count()), (2, 2), "HNT-4: two reveals");
+    let (app, json) = through_file(&d.app.game, "hnt-file-revealed", 5);
+    assert_eq!(json["hints"], 2, "PER-1: the name of INVARIANTS.md §0 in the file");
+    assert!(json.get("incorrect_shown").is_none_or(|v| v.is_null()), "PER-1: no revealed incorrect number");
+    assert!(!json.to_string().contains("revealed"), "PER-1: the app does not save `revealed`");
+    assert_eq!(app.game, d.app.game, "PER-2: the same game, with the hint count");
+    assert!(app.ui.revealed.is_empty(), "PER-2: revealed = ∅ after a start");
+    assert_eq!((app.screen, app.ui.menu), (Screen::Game, sudoku::app::Menu::Open(None)), "PER-2");
+    check_app(&app).unwrap();
+
+    // An incorrect number with no clash, then a request: the revealed incorrect number goes through
+    // the file with its cell and its digit.
+    let (g, cell, digit) = game_with_incorrect(951);
+    let mut d = Driver::from(open_app(Some(Game { hints: 3, ..g }), None, ResultsDb::in_memory(), 5));
+    request_hint(&mut d);
+    let shown = sudoku::game::IncorrectShown { cell, digit };
+    assert_eq!(d.app.game.incorrect_shown, Some(shown), "HNT-3");
+    let (app, json) = through_file(&d.app.game, "hnt-file-incorrect", 5);
+    assert_eq!(json["hints"], 3, "PER-1");
+    assert!(json.get("incorrect_shown").is_some_and(|v| !v.is_null()), "PER-1: the file has the revealed incorrect number");
+    assert_eq!(app.game, d.app.game, "PER-2");
+    assert_eq!(app.game.incorrect_shown, Some(shown), "PER-2: HNT-8 is true, thus the value stays");
+    assert_eq!(app.game.hint_state(), sudoku::game::HintState::Incorrect, "HNT-2");
+    check_app(&app).unwrap();
+
+    // HNT-6: no upper limit. A count above 99 and the maximum of the app go through the file.
+    for hints in [100, 81_000, u32::MAX] {
+        let g = Game { hints, ..new_game(952, 3) };
+        let (app, json) = through_file(&g, "hnt-file-max", 5);
+        assert_eq!(json["hints"], hints, "PER-1: {hints}");
+        assert_eq!(app.game, g, "HNT-6, PER-2: the app uses the count {hints}");
+        check_app(&app).unwrap();
+    }
+}
+
+#[test]
+fn an_earlier_game_file_has_no_hint_count_and_no_revealed_incorrect_number() {
+    // PER-9, PER-5: a game file with no `hints` and no `incorrect_shown` gets 0 and None. The app uses
+    // the game, and two starts give the same result.
+    let (g, _, _) = game_with_incorrect(953);
+    let dir = data_dir("hnt-per9");
+    let path = dir.join("game.json");
+    let mut json = serde_json::to_value(&Game { hints: 4, incorrect_shown: None, ..g.clone() }).unwrap();
+    assert_eq!(json["hints"], 4, "the name of INVARIANTS.md §0 in the file");
+    json.as_object_mut().unwrap().remove("hints");
+    json.as_object_mut().unwrap().remove("incorrect_shown");
+    std::fs::write(&path, json.to_string()).unwrap();
+    for start in 0..2 {
+        let loaded: Game = load_json(&path).expect("a game file of an earlier version");
+        assert_eq!((loaded.hints, loaded.incorrect_shown), (0, None), "PER-9: start {start}");
+        let app = open_app(Some(loaded), None, ResultsDb::in_memory(), 5);
+        assert_eq!(app.game, Game { hints: 0, incorrect_shown: None, ..g.clone() }, "PER-9: start {start}: the app uses the game");
+        assert_eq!(app.game.hint_state(), sudoku::game::HintState::Available, "CLS-4: the incorrect entry is not revealed");
+        check_app(&app).unwrap();
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn a_game_file_with_a_bad_revealed_incorrect_number_opens_without_it() {
+    // HNT-9, PER-5, PER-2: a game file whose `incorrect_shown` breaks HNT-8 opens with
+    // `incorrect_shown = None`. All other values stay: the app does not make a new game.
+    use sudoku::game::IncorrectShown;
+    let (mut g, cell @ (r, c), digit) = game_with_incorrect(954);
+    g.hints = 7;
+    let empty = empty_cell(&g);
+    let given = given_cell(&g);
+    let correct = cells().find(|&p| !g.is_given(p) && g.is_filled(p) && p != cell);
+    let mut with_correct = g.clone();
+    let correct = correct.unwrap_or_else(|| {
+        let e = empty_cell(&with_correct);
+        with_correct.add_number(e, with_correct.solution[e.0 as usize][e.1 as usize]);
+        e
+    });
+    let other = (1..=9).find(|&v| v != digit).unwrap();
+    let (complete, _) = nearly_complete(955, 1);
+    let complete = {
+        let mut k = complete;
+        let last = empty_cell(&k);
+        k.add_number(last, k.solution[last.0 as usize][last.1 as usize]);
+        assert!(k.completed);
+        k
+    };
+    let complete_entry = cells().find(|&p| !complete.is_given(p)).unwrap();
+    let cases: Vec<(&str, Game, IncorrectShown)> = vec![
+        ("an empty cell", g.clone(), IncorrectShown { cell: empty, digit }),
+        ("a starting number", g.clone(), IncorrectShown { cell: given, digit: g.value_at(given) }),
+        ("a starting number with a different digit", g.clone(), IncorrectShown { cell: given, digit: (g.value_at(given) % 9) + 1 }),
+        ("a different digit", g.clone(), IncorrectShown { cell, digit: other }),
+        ("the digit of the solution", with_correct.clone(), IncorrectShown { cell: correct, digit: with_correct.value_at(correct) }),
+        ("a complete game", complete.clone(), IncorrectShown { cell: complete_entry, digit: complete.value_at(complete_entry) }),
+        ("a row out of the board", g.clone(), IncorrectShown { cell: (9, c), digit }),
+        ("a column out of the board", g.clone(), IncorrectShown { cell: (r, 200), digit }),
+        ("the digit 0", g.clone(), IncorrectShown { cell, digit: 0 }),
+        ("the digit 10", g.clone(), IncorrectShown { cell, digit: 10 }),
+    ];
+    for (name, base, shown) in cases {
+        let bad = Game { incorrect_shown: Some(shown), ..base.clone() };
+        assert!(check_game(&bad).is_err(), "{name}: the value breaks HNT-8");
+        let dir = data_dir(&format!("hnt9-{}", name.replace(' ', "-")));
+        let path = dir.join("game.json");
+        save_json(&path, &bad).unwrap();
+        for start in 0..2 {
+            let loaded: Game = load_json(&path).expect("the file is JSON of a game");
+            assert_eq!(loaded, bad, "{name}");
+            let app = open_app(Some(loaded), None, ResultsDb::in_memory(), 5);
+            assert_eq!(app.game, Game { incorrect_shown: None, ..base.clone() }, "HNT-9: {name}, start {start}: the other values stay");
+            assert!(app.ui.revealed.is_empty(), "PER-2: {name}");
+            check_app(&app).unwrap_or_else(|e| panic!("{name}: {e}"));
+        }
+        std::fs::remove_dir_all(&dir).ok();
+    }
+    // The control: a valid value stays (PER-2).
+    let good = Game { incorrect_shown: Some(IncorrectShown { cell, digit }), ..g.clone() };
+    let (app, _) = through_file(&good, "hnt9-good", 5);
+    assert_eq!(app.game, good, "PER-2: HNT-8 is true, thus the value stays");
+}
+
+#[test]
+fn each_hint_request_that_changes_the_game_is_marked_for_saving() {
+    // PER-1, PER-7, HNT-3, HNT-4: a reveal and the reveal of an incorrect number set `game_dirty`. A tap
+    // on the gray row, on the box and on the lightbulb change nothing that is saved.
+    let (g, cell, _) = game_with_incorrect(956);
+    let mut d = Driver::from(open_app(Some(g), None, ResultsDb::in_memory(), 5));
+    d.button(Button::Menu);
+    d.button(Button::Hint);
+    d.app.game_dirty = false;
+    request_hint(&mut d);
+    assert!(d.app.game.incorrect_shown.is_some() && d.app.game_dirty, "HNT-3, PER-1: the app saves the revealed incorrect number");
+    d.app.game_dirty = false;
+    request_hint(&mut d);
+    let (x, y) = ((layout::hint_text_x() + 40) as f32, (layout::hint_box_top() + 30) as f32);
+    d.pen_tap(x, y);
+    d.button(Button::Hint);
+    d.button(Button::Hint);
+    assert!(!d.app.game_dirty, "HNT-2: the gray row, the box and the lightbulb change nothing that is saved");
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Hint));
+    d.button(Button::Menu);
+    d.erase(cell);
+    assert_eq!(d.app.game.incorrect_shown, None, "HNT-8: the eraser removed the number");
+    d.app.game_dirty = false;
+    let before = d.app.game.hints;
+    request_hint(&mut d);
+    assert_eq!(d.app.game.hints, before + 1, "HNT-4");
+    assert!(d.app.game_dirty, "PER-1: the app saves a reveal");
+}
+
+/// A results table of schema 3: the column `symmetric`, no column `hints`.
+fn results_v3(path: &PathBuf) {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    conn.execute_batch(
+        "CREATE TABLE results (
+             id          INTEGER PRIMARY KEY AUTOINCREMENT,
+             finished_at INTEGER NOT NULL,
+             mode        INTEGER NOT NULL CHECK (mode BETWEEN 0 AND 6),
+             givens      INTEGER NOT NULL CHECK (givens BETWEEN 0 AND 81),
+             seconds     INTEGER NOT NULL CHECK (seconds >= 0),
+             seed        INTEGER NOT NULL,
+             generator   INTEGER NOT NULL CHECK (generator >= 1),
+             symmetric   INTEGER NOT NULL DEFAULT 0 CHECK (symmetric IN (0, 1))
+         );
+         INSERT INTO results (id, finished_at, mode, givens, seconds, seed, generator, symmetric) VALUES
+             (3, 1790000000, 6, 24, 900, 61, 3, 1),
+             (9, 1790000001, 0, 44, 300, 62, 2, 0);
+         PRAGMA user_version = 3;",
+    )
+    .unwrap();
+}
+
+/// The column `hints` of the schema: (type, not null, default).
+fn hints_column(path: &PathBuf) -> (String, i64, Option<String>) {
+    let conn = rusqlite::Connection::open(path).unwrap();
+    let mut stmt = conn.prepare("SELECT type, \"notnull\", dflt_value FROM pragma_table_info('results') WHERE name = 'hints'").unwrap();
+    stmt.query_row([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap()
+}
+
+fn user_version(path: &PathBuf) -> i64 {
+    rusqlite::Connection::open(path).unwrap().query_row("PRAGMA user_version", [], |r| r.get(0)).unwrap()
+}
+
+#[test]
+fn a_results_database_of_schema_3_gets_the_hints_0() {
+    // ANA-1, PER-9: the database changes to schema 4. The column `hints` is a whole number, not null,
+    // with the default 0. The rows of schema 3 get hints = 0, and their ids and other values do not
+    // change. A row that an earlier version of the app adds after a downgrade gets 0.
+    let dir = data_dir("ana1-v3");
+    let path = dir.join(RESULTS_FILE);
+    results_v3(&path);
+    let db = ResultsDb::open(&path).unwrap();
+    let got: Vec<(i64, u8, u8, u64, u64, bool, u64)> = db.all().unwrap().iter().map(|r| (r.id, r.mode, r.givens, r.seconds, r.seed, r.symmetric, r.hints)).collect();
+    assert_eq!(got, vec![(9, 0, 44, 300, 62, false, 0), (3, 6, 24, 900, 61, true, 0)], "ANA-1, PER-9");
+    drop(db);
+    assert_eq!(user_version(&path), 4, "ANA-1: schema 4");
+    assert_eq!(hints_column(&path), ("INTEGER".to_string(), 1, Some("0".to_string())), "ANA-1: the column hints");
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("INSERT INTO results (finished_at, mode, givens, seconds, seed, generator, symmetric) VALUES (1790000002, 2, 30, 100, 63, 3, 0);").unwrap();
+    }
+    for start in 0..2 {
+        let app = open_app(None, None, ResultsDb::open(&path).unwrap(), 5);
+        let rows: Vec<(u64, u64)> = app.results.iter().map(|r| (r.seed, r.hints)).collect();
+        assert_eq!(rows, vec![(63, 0), (62, 0), (61, 0)], "ANA-1, PER-9: start {start}");
+        check_app(&app).unwrap();
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_databases_of_schema_1_and_2_get_the_hints_0() {
+    // ANA-1, PER-9: a database of schema 1 (user_version 0) and of schema 2 changes to schema 4, and
+    // each row gets hints = 0.
+    for (name, version, columns, values) in [
+        ("ana1-hints-v1", 0, "", ""),
+        ("ana1-hints-v2", 2, ", generator INTEGER NOT NULL CHECK (generator >= 1)", ", 2"),
+    ] {
+        let dir = data_dir(name);
+        let path = dir.join(RESULTS_FILE);
+        {
+            let conn = rusqlite::Connection::open(&path).unwrap();
+            conn.execute_batch(&format!(
+                "CREATE TABLE results (
+                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                     finished_at INTEGER NOT NULL,
+                     mode        INTEGER NOT NULL,
+                     givens      INTEGER NOT NULL,
+                     seconds     INTEGER NOT NULL,
+                     seed        INTEGER NOT NULL{columns}
+                 );
+                 INSERT INTO results (finished_at, mode, givens, seconds, seed{}) VALUES (1790000000, 1, 40, 300, 71{values}), (1790000001, 3, 30, 200, 72{values});
+                 PRAGMA user_version = {version};",
+                if columns.is_empty() { "" } else { ", generator" }
+            ))
+            .unwrap();
+        }
+        let app = open_app(None, None, ResultsDb::open(&path).unwrap(), 5);
+        let rows: Vec<(u64, u64)> = app.results.iter().map(|r| (r.seed, r.hints)).collect();
+        assert_eq!(rows, vec![(72, 0), (71, 0)], "ANA-1, PER-9: {name}");
+        check_app(&app).unwrap();
+        drop(app);
+        assert_eq!(user_version(&path), 4, "ANA-1: {name}");
+        assert_eq!(hints_column(&path).1, 1, "ANA-1: {name}: not null");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+}
+
+#[test]
+fn each_hint_count_that_the_app_writes_is_read_again() {
+    // ANA-1, HNT-6, CMP-5: `hints` has no upper limit. The app reads each count that it can write, also
+    // above 81. A row with a negative count breaks ANA-1: the app does not use it, and it stays in the
+    // file.
+    let dir = data_dir("ana1-hints-max");
+    let path = dir.join(RESULTS_FILE);
+    let mut db = ResultsDb::open(&path).unwrap();
+    let counts = [0u32, 1, 81, 82, 99, 100, 1000, u32::MAX];
+    for (i, &hints) in counts.iter().enumerate() {
+        let row = db
+            .insert(&sudoku::store::NewResult { finished_at: 1_790_000_000 + i as i64, mode: (i % 7) as u8, givens: 30, seconds: 60, seed: 500 + i as u64, generator: 3, symmetric: false, hints })
+            .unwrap();
+        assert_eq!(row.hints, u64::from(hints), "CMP-5");
+    }
+    drop(db);
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch("PRAGMA ignore_check_constraints = ON; INSERT INTO results (finished_at, mode, givens, seconds, seed, generator, symmetric, hints) VALUES (1790000100, 1, 40, 100, 599, 3, 0, -1);").unwrap();
+    }
+    for start in 0..2 {
+        let app = open_app(None, None, ResultsDb::open(&path).unwrap(), 5);
+        let mut got: Vec<u64> = app.results.iter().map(|r| r.hints).collect();
+        got.reverse();
+        assert_eq!(got, counts.map(u64::from).to_vec(), "ANA-1, HNT-6: start {start}: each count is read");
+        assert!(app.results.iter().all(|r| r.seed != 599), "ANA-1: the row with a negative count is not used");
+        check_app(&app).unwrap();
+    }
+    let conn = rusqlite::Connection::open(&path).unwrap();
+    let kept: i64 = conn.query_row("SELECT count(*) FROM results WHERE seed = 599", [], |r| r.get(0)).unwrap();
+    assert_eq!(kept, 1, "ANA-1: the row stays in the file");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_completion_writes_the_hint_count_of_the_game() {
+    // CMP-5, HNT-6, ANA-1, PER-4: the result row gets the `hints` of the game, also the maximum of the
+    // app, and the app reads it again from the file. A completion by a reveal counts that reveal.
+    let dir = data_dir("cmp5-hints");
+    let path = dir.join(RESULTS_FILE);
+    let (g, last) = nearly_complete(957, 2);
+    let mut d = Driver::from(open_app(Some(Game { hints: 150, ..g }), None, ResultsDb::open(&path).unwrap(), 30));
+    write_last_number(&mut d, last);
+    assert_eq!(d.app.results[0].hints, 150, "CMP-5");
+    drop(d);
+    let (g, _) = nearly_complete(958, 4);
+    let mut d = Driver::from(open_app(Some(Game { hints: u32::MAX - 1, ..g }), None, ResultsDb::open(&path).unwrap(), 31));
+    request_hint(&mut d);
+    assert!(d.app.game.completed, "HNT-4: the reveal completed the puzzle");
+    assert_eq!(d.app.game.hints, u32::MAX, "HNT-6: the reveal adds 1");
+    assert_eq!(d.app.ui.menu.panel(), None, "HNT-4, CMP-3: the panel closes");
+    drop(d);
+    let app = open_app(None, None, ResultsDb::open(&path).unwrap(), 32);
+    let rows: Vec<(u64, u64)> = app.results.iter().map(|r| (r.seed, r.hints)).collect();
+    assert_eq!(rows, vec![(958, u64::from(u32::MAX)), (957, 150)], "CMP-5, ANA-1: the counts in the file");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// HNT-12, written from INVARIANTS.md: the text of the average s / n of the hints of n results.
+fn model_average_hints(s: u128, n: u128) -> String {
+    if n == 0 {
+        return "–".to_string();
+    }
+    // The average in hundredths, rounded with ties to even: compare the remainder with one half.
+    let (q, rest) = ((100 * s) / n, (100 * s) % n);
+    let h = match (2 * rest).cmp(&n) {
+        std::cmp::Ordering::Less => q,
+        std::cmp::Ordering::Greater => q + 1,
+        std::cmp::Ordering::Equal => q + q % 2,
+    };
+    let text = format!("{}.{:02}", h / 100, h % 100);
+    text.trim_end_matches('0').trim_end_matches('.').to_string()
+}
+
+#[test]
+fn the_average_of_the_hints_has_at_most_two_decimals_and_no_end_zeros() {
+    // HNT-12, ANA-4: the examples of the documents, and each sum and quantity in a range against the
+    // model and the check of the app.
+    use sudoku::app::average_hints_text;
+    for (s, n, want) in [(0, 0, "–"), (0, 3, "0"), (4, 2, "2"), (2, 7, "0.29"), (5, 2, "2.5"), (1, 8, "0.12"), (3, 8, "0.38"), (5, 8, "0.62"), (1, 3, "0.33"), (2, 3, "0.67"), (100, 1, "100")] {
+        assert_eq!(average_hints_text(s, n), want, "HNT-12: {s} / {n}");
+        assert_eq!(model_average_hints(s, n), want, "the model: {s} / {n}");
+    }
+    for n in 0..=60u128 {
+        for s in 0..=400u128 {
+            let text = average_hints_text(s, n);
+            assert_eq!(text, model_average_hints(s, n), "HNT-12: {s} / {n}");
+            sudoku::invariants::check_average_hints(s, n).unwrap_or_else(|e| panic!("{s} / {n}: {e}"));
+        }
+    }
+    // Counts with no upper limit (HNT-6): large sums of large counts.
+    let max = u128::from(u32::MAX);
+    for (s, n) in [(max, 1), (max * 3 + 1, 8), (max * 1000, 999), (u128::from(u64::MAX), 7)] {
+        assert_eq!(average_hints_text(s, n), model_average_hints(s, n), "HNT-12: {s} / {n}");
+    }
+    // ANA-4: the average of the rows of the results, for each mode.
+    let rows: Vec<sudoku::store::ResultRow> = [0u64, 1, 0, 0, 0, 0, 0, 0]
+        .iter()
+        .enumerate()
+        .map(|(i, &hints)| sudoku::store::ResultRow { id: i as i64, finished_at: i as i64, mode: 2, givens: 30, seconds: 60, seed: i as u64, symmetric: false, hints })
+        .collect();
+    assert_eq!(sudoku::app::average_hints(rows.iter()), "0.12", "HNT-12: 1 hint in 8 games");
+    assert_eq!(sudoku::app::average_hints(std::iter::empty()), "–", "HNT-12, ANA-4: no results");
 }

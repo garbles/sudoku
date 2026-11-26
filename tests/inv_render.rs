@@ -383,7 +383,8 @@ fn the_marks_of_a_filled_cell_are_hidden() {
 
 #[test]
 fn undo_and_redo_are_black_only_when_they_operate() {
-    // UND-7: each button is black only if it can operate. A gray button has no effect.
+    // UND-7: each button is black only if it can operate. A gray button has no effect. NAV-12: undo is
+    // in top slot 4 and redo in top slot 5.
     let fonts = fonts();
     let mut d = Driver::new(73);
     d.button(Button::Menu);
@@ -398,7 +399,7 @@ fn undo_and_redo_are_black_only_when_they_operate() {
     let check = |d: &mut Driver, undo: bool, redo: bool| {
         assert_eq!((d.app.game.can_undo(), d.app.game.can_redo()), (undo, redo));
         let pm = draw_app(&d.app, &fonts);
-        for (k, on) in [(3, undo), (4, redo)] {
+        for (k, on) in [(4, undo), (5, redo)] {
             let want = if on { 0 } else { gray(70)[0] };
             assert_eq!(darkest(&pm, slot(k * layout::tb_slot())), want, "button {k}, undo {undo}, redo {redo}");
         }
@@ -425,8 +426,8 @@ fn undo_and_redo_are_black_only_when_they_operate() {
 
 #[test]
 fn undo_and_redo_are_gray_on_a_complete_game() {
-    // UND-8: when the game is complete, the two buttons are gray and have no effect, also when the
-    // stacks are not empty.
+    // UND-8, NAV-12: when the game is complete, the two buttons (top slots 4 and 5) are gray and have
+    // no effect, also when the stacks are not empty.
     let fonts = fonts();
     let mut d = Driver::new(74);
     solve(&mut d);
@@ -439,7 +440,7 @@ fn undo_and_redo_are_gray_on_a_complete_game() {
     d.button(Button::Menu);
     assert!(d.app.ui.menu.is_open());
     let pm = draw_app(&d.app, &fonts);
-    for k in [3, 4] {
+    for k in [4, 5] {
         assert_eq!(darkest(&pm, slot(k * layout::tb_slot())), gray(70)[0], "button {k} is not gray");
     }
     let g = d.app.game.clone();
@@ -538,20 +539,23 @@ fn the_dot_of_the_menu_button_shows_the_menu_state() {
 #[test]
 fn only_the_button_of_the_open_panel_is_white_on_black() {
     // NAV-8: the button of the open panel is white on black. The other buttons are black on white.
+    // NAV-12, HNT-1: the slots of the top group are Hint 1, Cell colors 2, Settings 3, Undo 4, Redo 5
+    // and Checkpoints 6.
     let fonts = fonts();
     let slots = [
-        (Some(Panel::Colors), layout::tb_slot()),
-        (Some(Panel::Settings), 2 * layout::tb_slot()),
-        (None, 3 * layout::tb_slot()),
+        (Some(Panel::Hint), layout::tb_slot()),
+        (Some(Panel::Colors), 2 * layout::tb_slot()),
+        (Some(Panel::Settings), 3 * layout::tb_slot()),
         (None, 4 * layout::tb_slot()),
-        (Some(Panel::Checkpoints), 5 * layout::tb_slot()),
+        (None, 5 * layout::tb_slot()),
+        (Some(Panel::Checkpoints), 6 * layout::tb_slot()),
         (None, layout::tb_bottom_y() - 2 * layout::tb_slot()),
         (None, layout::tb_bottom_y() - layout::tb_slot()),
         (Some(Panel::NewGame), layout::tb_bottom_y()),
     ];
     let mut d = Driver::new(77);
     d.button(Button::Menu);
-    for (button, panel) in [(None, None), (Some(Button::Colors), Some(Panel::Colors)), (Some(Button::Settings), Some(Panel::Settings)), (Some(Button::Checkpoints), Some(Panel::Checkpoints)), (Some(Button::NewGame), Some(Panel::NewGame)), (Some(Button::NewGame), None)] {
+    for (button, panel) in [(None, None), (Some(Button::Hint), Some(Panel::Hint)), (Some(Button::Colors), Some(Panel::Colors)), (Some(Button::Settings), Some(Panel::Settings)), (Some(Button::Checkpoints), Some(Panel::Checkpoints)), (Some(Button::NewGame), Some(Panel::NewGame)), (Some(Button::NewGame), None)] {
         if let Some(b) = button {
             d.button(b);
         }
@@ -588,7 +592,7 @@ fn draw_handed(app: &App, fonts: &Fonts, right_handed: bool) -> Pixmap {
 fn a_right_handed_player_has_the_toolbar_at_the_left() {
     // NAV-15: for a right-handed player the toolbar and its panels are at the left edge, with the same
     // icons, and the menu button and the close button are mirror images. NAV-18: the Checkpoints panel
-    // has the same contents in all layouts, here with two rows.
+    // has the same contents in all layouts, here with two rows. HNT-11: the Hint panel also.
     let fonts = fonts();
     let mut d = Driver::new(79);
     assert!(d.app.game.save_checkpoint());
@@ -599,7 +603,7 @@ fn a_right_handed_player_has_the_toolbar_at_the_left() {
         layout::set_orientation(o);
         let w = layout::screen_w() as i32;
         let shift = w - layout::tb_slot();
-        for (button, panel) in [(Some(Button::Menu), None), (Some(Button::Colors), Some(Panel::Colors)), (Some(Button::Settings), Some(Panel::Settings)), (Some(Button::Checkpoints), Some(Panel::Checkpoints)), (Some(Button::NewGame), Some(Panel::NewGame))] {
+        for (button, panel) in [(Some(Button::Menu), None), (Some(Button::Hint), Some(Panel::Hint)), (Some(Button::Colors), Some(Panel::Colors)), (Some(Button::Settings), Some(Panel::Settings)), (Some(Button::Checkpoints), Some(Panel::Checkpoints)), (Some(Button::NewGame), Some(Panel::NewGame))] {
             if let Some(b) = button {
                 d.button(b);
             }
@@ -631,6 +635,7 @@ fn a_right_handed_player_has_the_toolbar_at_the_left() {
             }
             // The panel touches the toolbar and has the same contents.
             let p = match panel {
+                Some(Panel::Hint) => Some(layout::hint_panel(d.app.game.hint_state())),
                 Some(Panel::Colors) => Some(layout::colors_panel()),
                 Some(Panel::Settings) => Some(layout::settings_panel(false)),
                 Some(Panel::NewGame) => Some(layout::ng_panel()),
@@ -712,27 +717,34 @@ fn a_color_of_a_different_section_is_not_available() {
     }
 }
 
-// ---- ANA-3, ANA-4: the summary.
+// ---- ANA-3, ANA-4, HNT-12: the summary.
+
+/// The values of one mode in the summary: the quantity, the average of the hints and the average time.
+type ModeRow = (String, String, String);
 
 /// Examines the summary of `results` against the expected text: the total, the total average, and the
-/// quantity and the average of each mode.
-fn check_summary(fonts: &Fonts, pm: &Pixmap, total: &str, average: &str, modes: &[(String, String); MODES as usize]) {
+/// quantity, the average of the hints (right edge at `summary_hints_x`, ANA-4) and the average time of
+/// each mode.
+fn check_summary(fonts: &Fonts, pm: &Pixmap, total: &str, average: &str, modes: &[ModeRow; MODES as usize]) {
     let bw = layout::summary_box_w();
     for (x0, value) in [(72.0, total), (100.0 + bw, average)] {
         let want = text_only(fonts, Units::Page, Weight::Medium, 84.0, x0 + 30.0, 405.0, Anchor::Start, value);
         let area = layout::page_rect(x0 + 10.0, 320.0, x0 + bw - 10.0, 432.0);
         assert_eq!(first_difference(pm, &want, area), None, "the box at {x0} does not show only \"{value}\"");
     }
-    let (count_x, right) = (layout::summary_count_x(), layout::page_right());
+    let (count_x, hints_x, right) = (layout::summary_count_x(), layout::summary_hints_x(), layout::page_right());
     let mut y = layout::device().summary.table.top;
-    for (mode, (count, avg)) in modes.iter().enumerate() {
+    for (mode, (count, hints, avg)) in modes.iter().enumerate() {
         let row = layout::summary_row();
         let base = y + (row / 2.0).floor() + 12.0;
         let want = text_only(fonts, Units::Page, Weight::Regular, 34.0, count_x, base, Anchor::End, count);
         let area = layout::page_rect(600.0, y + 5.0, count_x + 10.0, y + row - 5.0);
         assert_eq!(first_difference(pm, &want, area), None, "mode {mode}: the quantity is not \"{count}\"");
+        let want = text_only(fonts, Units::Page, Weight::Regular, 34.0, hints_x, base, Anchor::End, hints);
+        let area = layout::page_rect(count_x + 50.0, y + 5.0, hints_x + 10.0, y + row - 5.0);
+        assert_eq!(first_difference(pm, &want, area), None, "mode {mode}: the average of the hints is not \"{hints}\"");
         let want = text_only(fonts, Units::Page, Weight::Regular, 34.0, right, base, Anchor::End, avg);
-        let area = layout::page_rect(count_x + 50.0, y + 5.0, right + 10.0, y + row - 5.0);
+        let area = layout::page_rect(hints_x + 50.0, y + 5.0, right + 10.0, y + row - 5.0);
         assert_eq!(first_difference(pm, &want, area), None, "mode {mode}: the average is not \"{avg}\"");
         y += row;
     }
@@ -740,7 +752,8 @@ fn check_summary(fonts: &Fonts, pm: &Pixmap, total: &str, average: &str, modes: 
 
 #[test]
 fn the_summary_without_results_shows_zero_and_a_dash() {
-    // ANA-3, ANA-4: with no results, "Puzzles completed" is 0, and each average is "–".
+    // ANA-3, ANA-4, HNT-12: with no results, "Puzzles completed" is 0, and each average (also the
+    // average of the hints) is "–".
     let fonts = fonts();
     let mut d = Driver::new(79);
     d.button(Button::Menu);
@@ -748,28 +761,60 @@ fn the_summary_without_results_shows_zero_and_a_dash() {
     assert_eq!(d.app.screen, Screen::Statistics);
     assert!(d.app.results.is_empty());
     let pm = draw_app(&d.app, &fonts);
-    let none = || ("0".to_string(), "–".to_string());
+    let none = || ("0".to_string(), "–".to_string(), "–".to_string());
     check_summary(&fonts, &pm, "0", "–", &std::array::from_fn(|_| none()));
 }
 
 #[test]
 fn the_summary_shows_the_quantity_and_the_average_of_each_mode() {
-    // ANA-3, ANA-4: the total is |results|; each mode shows its quantity and the average of its
-    // seconds, or "–" if it has no results. The quantities of the modes add up to the total.
+    // ANA-3, ANA-4, HNT-12: the total is |results|; each mode shows its quantity, the average of its
+    // hints and the average of its seconds, or "–" if it has no results. The quantities of the modes
+    // add up to the total. A game with hints counts in the average time as each other game.
     let fonts = fonts();
-    let row = |id: i64, mode: u8, seconds: u64| ResultRow { id, finished_at: 1_790_000_000 + id, mode, givens: 30, seconds, seed: 0, symmetric: id % 2 == 0 };
+    let row = |id: i64, mode: u8, seconds: u64, hints: u64| ResultRow { id, finished_at: 1_790_000_000 + id, mode, givens: 30, seconds, seed: 0, symmetric: id % 2 == 0, hints };
     let mut app = reference::app(&fonts);
     app.screen = Screen::Statistics;
-    // Mode 1: 100 s and 300 s (average 3:20). Mode 3: 4000 s (1:06:40). The total average is
-    // (100 + 300 + 4000) / 3 = 1466.67 s, thus 24:27. Mode 6: 300 s.
-    app.results = vec![row(1, 1, 100), row(2, 3, 4000), row(3, 1, 300), row(4, 6, 300)];
+    // Mode 1: 100 s and 300 s (average 3:20), 1 and 0 hints (0.5). Mode 3: 4000 s (1:06:40), 3 hints.
+    // Mode 6: 300 s, 0 hints.
+    app.results = vec![row(1, 1, 100, 1), row(2, 3, 4000, 3), row(3, 1, 300, 0), row(4, 6, 300, 0)];
     let counts: usize = (0..MODES).map(|m| app.results.iter().filter(|r| r.mode == m).count()).sum();
     assert_eq!(counts, app.results.len());
     let pm = draw_app(&app, &fonts);
-    let s = |a: &str, b: &str| (a.to_string(), b.to_string());
+    let s = |a: &str, h: &str, b: &str| (a.to_string(), h.to_string(), b.to_string());
     // The total average is (100 + 300 + 4000 + 300) / 4 = 1175 s, thus 19:35.
-    let none = || s("0", "–");
-    check_summary(&fonts, &pm, "4", "19:35", &[none(), s("2", "3:20"), none(), s("1", "1:06:40"), none(), none(), s("1", "5:00")]);
+    let none = || s("0", "–", "–");
+    check_summary(&fonts, &pm, "4", "19:35", &[none(), s("2", "0.5", "3:20"), none(), s("1", "3", "1:06:40"), none(), none(), s("1", "0", "5:00")]);
+}
+
+#[test]
+fn the_average_of_the_hints_has_at_most_two_decimals_with_no_end_zeros() {
+    // HNT-12, ANA-4: the average of the hints of a mode, rounded to 2 decimal places with ties to
+    // even, with no zeros at the end and no decimal point for a whole number. Mode 0: 1 hint in 8
+    // games (0.125, thus "0.12"). Mode 1: 3 hints in 8 games (0.375, thus "0.38"). Mode 2: 2 hints in
+    // 3 games ("0.67"). Mode 3: 2 hints in 2 games ("1"). Mode 4: 5 hints in 2 games ("2.5", not
+    // "2.50"). Mode 5: 0 hints ("0"). Mode 6: one game with a very large count (no upper limit, HNT-6).
+    let fonts = fonts();
+    let mut rows = Vec::new();
+    let mut add = |mode: u8, hints: &[u64]| {
+        for &h in hints {
+            let id = rows.len() as i64 + 1;
+            rows.push(ResultRow { id, finished_at: 1_790_000_000 + id, mode, givens: 30, seconds: 600, seed: 0, symmetric: false, hints: h });
+        }
+    };
+    add(0, &[1, 0, 0, 0, 0, 0, 0, 0]);
+    add(1, &[1, 1, 1, 0, 0, 0, 0, 0]);
+    add(2, &[0, 1, 1]);
+    add(3, &[2, 0]);
+    add(4, &[4, 1]);
+    add(5, &[0]);
+    add(6, &[1_000_000]);
+    let mut app = reference::app(&fonts);
+    app.screen = Screen::Statistics;
+    app.results = rows;
+    let pm = draw_app(&app, &fonts);
+    let s = |a: &str, h: &str| (a.to_string(), h.to_string(), "10:00".to_string());
+    let modes = [s("8", "0.12"), s("8", "0.38"), s("3", "0.67"), s("2", "1"), s("2", "2.5"), s("1", "0"), s("1", "1000000")];
+    check_summary(&fonts, &pm, "25", "10:00", &modes);
 }
 
 #[test]
@@ -781,7 +826,7 @@ fn the_summary_puts_the_results_of_all_generator_versions_of_a_mode_in_one_group
     let fonts = fonts();
     let mut db = sudoku::store::ResultsDb::in_memory();
     for (k, (mode, generator, seconds)) in [(2u8, 1u8, 100u64), (2, 2, 200), (2, 3, 600), (6, 2, 900)].into_iter().enumerate() {
-        let new = sudoku::store::NewResult { finished_at: 1_790_000_000 + k as i64, mode, givens: 30, seconds, seed: k as u64, generator, symmetric: k == 2 };
+        let new = sudoku::store::NewResult { finished_at: 1_790_000_000 + k as i64, mode, givens: 30, seconds, seed: k as u64, generator, symmetric: k == 2, hints: 0 };
         db.insert(&new).unwrap();
     }
     let mut app = App::new(None, None, db, Box::new(TestEnv { time: START_TIME, seed: 81 }), App::placeholder_ng_stops());
@@ -789,8 +834,8 @@ fn the_summary_puts_the_results_of_all_generator_versions_of_a_mode_in_one_group
     app.screen = Screen::Statistics;
     assert_eq!(app.results.len(), 4, "ANA-1: the app uses the rows of all versions");
     let pm = draw_app(&app, &fonts);
-    let s = |a: &str, b: &str| (a.to_string(), b.to_string());
-    let none = || s("0", "–");
+    let s = |a: &str, b: &str| (a.to_string(), "0".to_string(), b.to_string());
+    let none = || (String::from("0"), String::from("–"), String::from("–"));
     check_summary(&fonts, &pm, "4", "7:30", &[none(), none(), s("3", "5:00"), none(), none(), none(), s("1", "15:00")]);
 }
 
@@ -1711,6 +1756,10 @@ fn a_completed_game_shows_no_completed_color() {
 
 // ---- NAV-17, R§10: the Cell colors panel.
 
+/// The first and the last row of the Cell colors panel (NAV-17: top slot 2, y 224 to 1304).
+const CM_TOP: i32 = 224;
+const CM_BOTTOM: i32 = 1304;
+
 /// The x range of the panel in a layout, with the two ends included (NAV-17).
 fn colors_x_range(o: layout::Orientation, right_handed: bool) -> (i32, i32) {
     match (right_handed, o) {
@@ -1723,7 +1772,7 @@ fn colors_x_range(o: layout::Orientation, right_handed: bool) -> (i32, i32) {
 /// The left x and the top y of a section (the index in the order of §10: the left column from the
 /// top, then the right column from the top), from the values of NAV-17.
 fn section_origin(x0: i32, index: i32) -> (i32, i32) {
-    (x0 + index / 3 * 400, 112 + index % 3 * 360)
+    (x0 + index / 3 * 400, CM_TOP + index % 3 * 360)
 }
 
 /// The grid cell `i` of a section, from the values of §10. The first grid cell is 64 px below the top
@@ -1749,7 +1798,7 @@ fn colors_driver(seed: u64) -> Driver {
 
 #[test]
 fn the_cell_colors_panel_has_its_position_and_its_lines_in_all_layouts() {
-    // NAV-17, R§10: the x ranges, y 112 to 1192, the line between the columns, a line at the top of each
+    // NAV-17, R§10: the x ranges, y 224 to 1304, the line between the columns, a line at the top of each
     // section below the first of its column, and no line below the Micro-cell lines section. The space
     // below that section is plain white. The titles show the order of the sections, for the two hands.
     let fonts = fonts();
@@ -1760,27 +1809,29 @@ fn the_cell_colors_panel_has_its_position_and_its_lines_in_all_layouts() {
         let (x0, x1) = colors_x_range(o, right_handed);
         assert_eq!(x1 - x0 + 1, 800, "{what}");
         let p = layout::colors_panel();
-        assert_eq!((p.x0, p.x1 - 1, p.y0, p.y1 - 1), (x0, x1, 112, 1192), "NAV-17: {what}");
+        assert_eq!((p.x0, p.x1 - 1, p.y0, p.y1 - 1), (x0, x1, CM_TOP, CM_BOTTOM), "NAV-17: {what}");
         let d = colors_driver(130);
         let pm = draw_app(&d.app, &fonts);
         let black = |x: i32, y: i32| rgb_at(&pm, x, y) == [0, 0, 0];
-        for y in 112..=1192 {
+        for y in CM_TOP..=CM_BOTTOM {
             assert!(black(x0 + 400, y) && black(x0 + 401, y), "NAV-17: {what}: the line between the columns at y {y}");
             assert!(black(x0, y) && black(x0 + 1, y) && black(x1, y) && black(x1 - 1, y), "R§10: {what}: the border at y {y}");
         }
         for x in x0..=x1 {
-            assert!(black(x, 112) && black(x, 113) && black(x, 1191) && black(x, 1192), "R§10: {what}: the border at x {x}");
+            assert!(black(x, CM_TOP) && black(x, CM_TOP + 1) && black(x, CM_BOTTOM - 1) && black(x, CM_BOTTOM), "R§10: {what}: the border at x {x}");
         }
         for (left, right) in [(x0 + 2, x0 + 399), (x0 + 402, x1 - 2)] {
             for x in left..=right {
-                assert!(black(x, 472) && black(x, 473), "NAV-17: {what}: the line at y 472, x {x}");
+                let y = CM_TOP + 360;
+                assert!(black(x, y) && black(x, y + 1), "NAV-17: {what}: the line at y {y}, x {x}");
             }
         }
         for x in x0 + 2..=x0 + 399 {
-            assert!(black(x, 832) && black(x, 833), "NAV-17: {what}: the line at y 832, x {x}");
+            let y = CM_TOP + 720;
+            assert!(black(x, y) && black(x, y + 1), "NAV-17: {what}: the line at y {y}, x {x}");
         }
         // The empty space, also at the place of the line that the right column does not have.
-        for y in 832..=1190 {
+        for y in CM_TOP + 720..=CM_BOTTOM - 2 {
             for x in x0 + 402..=x1 - 2 {
                 assert_eq!(rgb_at(&pm, x, y), [255, 255, 255], "NAV-17: {what}: the empty space at ({x}, {y})");
             }
@@ -1804,8 +1855,9 @@ fn the_cell_colors_panel_covers_no_button_and_not_the_meter_or_the_result_card()
     for (o, right_handed) in LAYOUTS {
         let _layout = InLayout::set(o, right_handed);
         let (x0, x1) = colors_x_range(o, right_handed);
-        let panel = Rect::new(x0, 112, x1 + 1, 1193);
-        let bucket = Rect::new(layout::tb_x(), layout::tb_slot(), layout::tb_x() + layout::tb_slot(), 2 * layout::tb_slot());
+        let panel = Rect::new(x0, CM_TOP, x1 + 1, CM_BOTTOM + 1);
+        // NAV-12: the paint bucket is in top slot 2.
+        let bucket = Rect::new(layout::tb_x(), 2 * layout::tb_slot(), layout::tb_x() + layout::tb_slot(), 3 * layout::tb_slot());
         for completed in [false, true] {
             let what = format!("{o:?}, right-handed {right_handed}, completed {completed}");
             let mut app = reference::app(&fonts);
@@ -1822,7 +1874,7 @@ fn the_cell_colors_panel_covers_no_button_and_not_the_meter_or_the_result_card()
             let below = board_origin(o).1 + layout::board_size() + 1;
             let (w, h) = (layout::screen_w() as i32, layout::screen_h() as i32);
             let ink = (below..h).flat_map(|y| (layout::tb_slot()..w - layout::tb_slot()).map(move |x| (x, y))).filter(|&(x, y)| rgb_at(&without, x, y) != [255, 255, 255]).count();
-            assert!(below > 1192, "NAV-17: {what}: the board ends at {below}");
+            assert!(below > CM_BOTTOM, "NAV-17: {what}: the board ends at {below}");
             if completed {
                 // CMP-7: the frame of the result card (x0 − 1 to x1 + 1) is outside the panel.
                 let (cx0, cy0, cx1, cy1) = match (o, right_handed) {
@@ -1830,7 +1882,7 @@ fn the_cell_colors_panel_covers_no_button_and_not_the_meter_or_the_result_card()
                     (layout::Orientation::Landscape, false) => (48, 125, 370, 1494),
                     (layout::Orientation::Landscape, true) => (1790, 125, 2112, 1494),
                 };
-                let apart = cx1 + 1 < x0 || cx0 - 1 > x1 || cy1 + 1 < 112 || cy0 - 1 > 1192;
+                let apart = cx1 + 1 < x0 || cx0 - 1 > x1 || cy1 + 1 < CM_TOP || cy0 - 1 > CM_BOTTOM;
                 assert!(apart, "NAV-17, CMP-7: {what}: the panel covers the result card");
                 assert_eq!(rgb_at(&with, cx0, (cy0 + cy1) / 2), [0, 0, 0], "CMP-7: {what}: no result card");
             } else {
@@ -1839,11 +1891,11 @@ fn the_cell_colors_panel_covers_no_button_and_not_the_meter_or_the_result_card()
         }
         // The buttons are outside the panel, and the hit area of each button stays a button.
         let what = format!("{o:?}, right-handed {right_handed}");
-        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+        for b in [Button::Menu, Button::Hint, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
             let (cx, cy) = button_center(b);
             // The first and the last pixel of the slot of 112 px: the center is between two pixels.
             let (l, r, t, y1) = (cx - 55.5, cx + 55.5, cy - 55.5, cy + 55.5);
-            let apart = r < x0 as f32 || l > x1 as f32 || y1 < 112.0 || t > 1192.0;
+            let apart = r < x0 as f32 || l > x1 as f32 || y1 < CM_TOP as f32 || t > CM_BOTTOM as f32;
             assert!(apart, "NAV-17: {what}: the panel covers {b:?}");
             assert_eq!(layout::game_button(cx, cy, true), Some(b), "NAV-17: {what}");
         }
@@ -1936,7 +1988,7 @@ fn a_tap_on_the_empty_space_or_on_a_title_changes_nothing() {
         let (settings, game) = (d.app.settings.clone(), board(&d.app.game));
         let mut points: Vec<(i32, i32)> = Vec::new();
         // The empty space, with its limits.
-        for y in [834, 900, 1000, 1100, 1190, 1192] {
+        for y in [834, 900, 1000, 1100, 1190, 1192].map(|y| y - 112 + CM_TOP) {
             for x in [x0 + 402, x0 + 500, x0 + 600, x0 + 700, x1] {
                 points.push((x, y));
             }
@@ -1964,7 +2016,7 @@ fn a_tap_on_the_empty_space_or_on_a_title_changes_nothing() {
         }
         // One pixel outside the panel, at the sides that are not at the toolbar.
         let free_side = if right_handed { (x1 + 1, 600) } else { (x0 - 1, 600) };
-        for (x, y) in [free_side, ((x0 + x1) / 2, 1193), ((x0 + x1) / 2, 111)] {
+        for (x, y) in [free_side, ((x0 + x1) / 2, CM_BOTTOM + 1), ((x0 + x1) / 2, CM_TOP - 1)] {
             d.finger_tap(x as f32, y as f32);
             assert_eq!(d.app.ui.menu.panel(), None, "NAV-11: {what}: the tap at ({x}, {y})");
             assert_eq!(board(&d.app.game), game, "NAV-11: {what}: the tap at ({x}, {y})");
@@ -1992,8 +2044,9 @@ fn the_settings_panel_stays_400_px_wide_with_the_new_row() {
         };
         let p = layout::settings_panel(false);
         assert_eq!((p.x0, p.x1), (x0, x0 + 400), "NAV-14: {what}");
-        assert_eq!((p.y0, p.y1 - 1), (224, 224 + 5 * 114 + 1), "UPD-1, LIC-1: {what}: five rows");
-        assert_eq!(layout::settings_panel(true).y1 - 1, 224 + 6 * 114 + 1, "UPD-1: {what}: six rows");
+        // NAV-14: the gear is in top slot 3, and the panel starts at y 336.
+        assert_eq!((p.y0, p.y1 - 1), (336, 336 + 5 * 114 + 1), "UPD-1, LIC-1: {what}: five rows");
+        assert_eq!(layout::settings_panel(true).y1 - 1, 336 + 6 * 114 + 1, "UPD-1: {what}: six rows");
         let mut d = Driver::new(133);
         d.button(Button::Menu);
         d.button(Button::Settings);
@@ -2001,7 +2054,7 @@ fn the_settings_panel_stays_400_px_wide_with_the_new_row() {
         let rows = [Switch::HighlightNumbers, Switch::HideMarksAutomatically, Switch::ColorCompletedGroups];
         assert_eq!(Switch::ALL, rows, "NAV-14: {what}");
         for (i, s) in rows.into_iter().enumerate() {
-            let y = 226 + i as i32 * 114 + 56;
+            let y = 338 + i as i32 * 114 + 56;
             for _ in 0..2 {
                 let before = d.app.settings.clone();
                 d.finger_tap((x0 + 200) as f32, y as f32);
@@ -2013,14 +2066,14 @@ fn the_settings_panel_stays_400_px_wide_with_the_new_row() {
             }
         }
         let before = d.app.settings.clone();
-        d.finger_tap((x0 + 200) as f32, (226 + 3 * 114 + 56) as f32);
+        d.finger_tap((x0 + 200) as f32, (338 + 3 * 114 + 56) as f32);
         assert_eq!(d.app.settings, before, "NAV-14: {what}: the version row");
         assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "NAV-14: {what}: the version row");
 
         // The two lines of the name, as §9.1 gives them, and the two other names.
         let pm = draw_app(&d.app, &fonts);
         for (row, lines) in [(0, &["Highlight numbers"][..]), (1, &["Hide pencil marks", "automatically"][..]), (2, &["Color completed", "groups"][..])] {
-            let top = 226 + row * 114;
+            let top = 338 + row * 114;
             let cy = (top + 56) as f32;
             let first = if lines.len() == 1 { cy + 9.0 } else { cy - 7.0 };
             for (k, line) in lines.iter().enumerate() {
@@ -2078,7 +2131,7 @@ fn a_highlight_shows_with_the_menu_and_each_panel() {
         d.pen_tap(x, y);
         assert_eq!(d.app.ui.highlight, Some(v));
         d.button(Button::Menu);
-        for button in [None, Some(Button::Colors), Some(Button::Settings), Some(Button::Checkpoints), Some(Button::NewGame)] {
+        for button in [None, Some(Button::Hint), Some(Button::Colors), Some(Button::Settings), Some(Button::Checkpoints), Some(Button::NewGame)] {
             let what = format!("{o:?}, right-handed {right_handed}, {button:?}");
             if let Some(b) = button {
                 d.button(b);
@@ -2086,6 +2139,7 @@ fn a_highlight_shows_with_the_menu_and_each_panel() {
             }
             assert_eq!(d.app.ui.highlight, Some(v), "HLT-4: {what}");
             let panel = match d.app.ui.menu.panel() {
+                Some(Panel::Hint) => Some(layout::hint_panel(d.app.game.hint_state())),
                 Some(Panel::Colors) => Some(layout::colors_panel()),
                 Some(Panel::Settings) => Some(layout::settings_panel(d.app.update.has_row())),
                 Some(Panel::Checkpoints) => Some(layout::ckp_panel(0)),
@@ -3072,5 +3126,146 @@ fn the_grid_is_the_same_in_the_first_frame_the_tile_cache_and_a_retained_redraw(
         assert_eq!(d.app.game.marks_at(m), 0);
         settle(&mut d, &mut p, &mut fb);
         check(&d, &p, "the removal of the mark");
+    }
+}
+
+// ---- HNT-10, HNT-11: the Hint button and the Hint panel.
+
+/// The x range of the Hint panel in a layout, with the two ends included (HNT-11).
+fn hint_x_range(o: layout::Orientation, right_handed: bool) -> (i32, i32) {
+    match (o, right_handed) {
+        (layout::Orientation::Portrait, false) => (1008, 1507),
+        (layout::Orientation::Portrait, true) => (112, 611),
+        (layout::Orientation::Landscape, false) => (1656, 2047),
+        (layout::Orientation::Landscape, true) => (112, 503),
+    }
+}
+
+#[test]
+fn the_hint_panel_has_its_position_and_covers_no_button_in_all_layouts() {
+    // HNT-11, HNT-1, NAV-8, NAV-21: in all layouts and in the three states. The panel starts at the
+    // top of slot 1 (y 112), it is 198 px high (Available) or 236 px high (Clash, Incorrect), it
+    // touches the toolbar, and it is on the screen. Out of the panel only the slot of the lightbulb
+    // changes when it opens. In portrait it covers no cell. In landscape it covers only a part of the
+    // cells of rows 1 and 2 of one edge column. No button is under it, and each button stays a button.
+    use sudoku::game::HintState;
+    let fonts = fonts();
+    let mut incorrect = reference::hint_game(true);
+    assert!(matches!(incorrect.request_hint(), sudoku::game::Hint::Incorrect(_)));
+    let games = [(reference::hint_game(false), HintState::Available, 198), (incorrect, HintState::Incorrect, 236), (reference::sample_game(), HintState::Clash, 236)];
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let (x0, x1) = hint_x_range(o, right_handed);
+        assert_eq!(x1 - x0 + 1, if o == layout::Orientation::Portrait { 500 } else { 392 });
+        for (game, state, h) in &games {
+            let what = format!("{o:?}, right-handed {right_handed}, {state:?}");
+            assert_eq!(game.hint_state(), *state, "{what}");
+            let p = layout::hint_panel(*state);
+            assert_eq!((p.x0, p.x1 - 1, p.y0, p.y1 - 1), (x0, x1, 112, 112 + h - 1), "HNT-11: {what}");
+            let touches = if right_handed { x0 == layout::tb_x() + layout::tb_slot() } else { x1 + 1 == layout::tb_x() };
+            assert!(touches, "HNT-11: {what}: the panel does not touch the toolbar");
+            let mut app = reference::app(&fonts);
+            app.game = game.clone();
+            app.ui.menu = Menu::Open(None);
+            let without = draw_app(&app, &fonts);
+            app.ui.menu = Menu::Open(Some(Panel::Hint));
+            let with = draw_app(&app, &fonts);
+            // NAV-8: the lightbulb is in top slot 1.
+            let bulb = bulb_slot();
+            for (x, y) in differences(&without, &with) {
+                let inside = |r: Rect| x >= r.x0 && x < r.x1 && y >= r.y0 && y < r.y1;
+                assert!(inside(p) || inside(bulb), "HNT-11: {what}: the pixel ({x}, {y}) is outside the panel");
+            }
+            assert_eq!(rgb_at(&with, bulb.x0 + 4, bulb.y0 + 4), [0, 0, 0], "NAV-8: {what}: the slot of the lightbulb is not black");
+            for cell @ (r, c) in cells() {
+                let (cx, cy) = layout::cell_origin(cell);
+                let cr = Rect::new(cx, cy, cx + cell_size(), cy + cell_size());
+                if cr.overlaps(&p) {
+                    let edge = if right_handed { 0 } else { 8 };
+                    assert!(o == layout::Orientation::Landscape && c == edge && r <= 1, "HNT-11: {what}: the panel covers the cell {cell:?}");
+                }
+            }
+        }
+        let p = layout::hint_panel(HintState::Clash);
+        for b in [Button::Menu, Button::Hint, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+            let (cx, cy) = button_center(b);
+            let (l, r, t, y1) = (cx - 55.5, cx + 55.5, cy - 55.5, cy + 55.5);
+            let apart = r < p.x0 as f32 || l > (p.x1 - 1) as f32 || y1 < p.y0 as f32 || t > (p.y1 - 1) as f32;
+            assert!(apart, "HNT-11: {o:?}, right-handed {right_handed}: the panel covers {b:?}");
+            assert_eq!(layout::game_button(cx, cy, true), Some(b), "HNT-11: {o:?}, right-handed {right_handed}");
+        }
+    }
+}
+
+/// Top slot 1, the slot of the lightbulb (HNT-1), in the column of the toolbar of the current layout.
+fn bulb_slot() -> Rect {
+    let (x, s) = (layout::tb_x(), layout::tb_slot());
+    Rect::new(x, s, x + s, 2 * s)
+}
+
+/// The pixels of the slot of the lightbulb that a hint count changes: the drawing with `hints` and the
+/// drawing with 0 hints.
+fn count_pixels(fonts: &Fonts, game: &Game, menu: Menu, hints: u32) -> (Vec<(i32, i32)>, Pixmap) {
+    let mut app = reference::app(fonts);
+    app.game = game.clone();
+    app.ui.menu = menu;
+    let zero = draw_app(&app, fonts);
+    app.game.hints = hints;
+    let pm = draw_app(&app, fonts);
+    assert_eq!(app.game.hints, hints, "HNT-10: the game keeps the true count");
+    (differences(&zero, &pm), pm)
+}
+
+#[test]
+fn the_count_on_the_lightbulb_has_its_text_its_place_and_its_color() {
+    // HNT-10: the count shows exactly when the menu is open and hints ≥ 1. Its text is the count up
+    // to 99 and "99+" above 99. Each count stays 4 px or more inside slot 1 in all layouts. Its left
+    // is 74 px and its top is 64 px from the origin of the slot (x 1582, y 176 in portrait,
+    // left-handed). It is black, white while the Hint panel is open, and gray 70 on a complete game.
+    let fonts = fonts();
+    let game = reference::hint_game(false);
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let what = format!("{o:?}, right-handed {right_handed}");
+        let s = bulb_slot();
+        // The menu is closed: no count.
+        let (closed, _) = count_pixels(&fonts, &game, Menu::Closed, 5);
+        assert!(closed.is_empty(), "HNT-10: {what}: a count shows with the menu closed");
+        let mut texts = std::collections::HashMap::new();
+        for hints in [1u32, 2, 9, 10, 99, 100, 101, 12345, u32::MAX] {
+            let (changed, pm) = count_pixels(&fonts, &game, Menu::Open(None), hints);
+            assert!(!changed.is_empty(), "HNT-10: {what}: no count for {hints}");
+            for &(x, y) in &changed {
+                assert!(x >= s.x0 + 4 && x < s.x1 - 4 && y >= s.y0 + 4 && y < s.y1 - 4, "HNT-10: {what}: {hints}: the pixel ({x}, {y}) is not 4 px inside the slot {s:?}");
+            }
+            let darkest = changed.iter().map(|&(x, y)| rgb_at(&pm, x, y)[0]).min().unwrap();
+            assert_eq!(darkest, 0, "HNT-10: {what}: {hints}: the count is not black");
+            let shape: Vec<(i32, i32, [u8; 3])> = changed.iter().map(|&(x, y)| (x - s.x0, y - s.y0, rgb_at(&pm, x, y))).collect();
+            texts.insert(hints, shape);
+            if hints == 2 && o == layout::Orientation::Portrait && !right_handed {
+                let left = changed.iter().map(|p| p.0).min().unwrap() - s.x0;
+                let top = changed.iter().map(|p| p.1).min().unwrap() - s.y0;
+                // The left edge of the glyph can be 1 px after the start of the text (its side bearing).
+                assert!((74..=75).contains(&left) && top == 64, "HNT-10: {what}: the count starts at ({left}, {top}) in the slot");
+            }
+        }
+        // "99+" for each count above 99: the same pixels.
+        assert_eq!(texts[&100], texts[&101], "HNT-10: {what}: 100 and 101");
+        assert_eq!(texts[&100], texts[&12345], "HNT-10: {what}: 100 and 12345");
+        assert_eq!(texts[&100], texts[&u32::MAX], "HNT-10: {what}: 100 and the largest count");
+        assert_ne!(texts[&99], texts[&100], "HNT-10: {what}: 99 and 99+");
+        // While the Hint panel is open, the count is white on the black slot.
+        let (changed, pm) = count_pixels(&fonts, &game, Menu::Open(Some(Panel::Hint)), 2);
+        assert!(!changed.is_empty(), "HNT-10: {what}: no count with the panel open");
+        assert_eq!(changed.iter().map(|&(x, y)| rgb_at(&pm, x, y)[0]).max(), Some(255), "HNT-10: {what}: the count is not white");
+        // On a complete game the count is gray 70, also with a different panel open. The result card
+        // also shows the count (HNT-13): only the pixels of the slot are the count.
+        for menu in [Menu::Open(None), Menu::Open(Some(Panel::Colors))] {
+            let (changed, pm) = count_pixels(&fonts, &reference::completed_game(), menu, 3);
+            let changed: Vec<(i32, i32)> = changed.into_iter().filter(|&(x, y)| x >= s.x0 && x < s.x1 && y >= s.y0 && y < s.y1).collect();
+            assert!(!changed.is_empty(), "HNT-10: {what}: no count on a complete game ({menu:?})");
+            let darkest = changed.iter().map(|&(x, y)| rgb_at(&pm, x, y)[0]).min().unwrap();
+            assert_eq!(darkest, gray(70)[0], "HNT-10: {what}: the count on a complete game is not gray 70 ({menu:?})");
+        }
     }
 }

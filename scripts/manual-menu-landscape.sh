@@ -6,26 +6,33 @@ M=$(mktemp)
 UI=$1
 
 text 72 170 84 black start "The menu"
-text 72 255 38 gray25 start "Tap the menu button in the top right to open the menu."
+text 72 245 38 gray25 start "Tap the menu button in the top right to open the menu."
 
-# row Y ICON HEADING DESCRIPTION : a toolbar icon at its real size, with a heading and one line of description
+# row Y ICON HEADING LINE... : a toolbar icon at its real size, with a heading and one or more lines of description.
+# The rows have a step of 89 units, and each more line adds 40 units. The icon picture is 97 units high: the white
+# edge of the next picture goes on the white edge of this one.
 row() {
   picture 72 $1 "$2"
-  text 200 $(($1+42)) 40 black start "$3"
-  text 200 $(($1+88)) 34 gray25 start "$4"
+  text 200 $(($1+37)) 40 black start "$3"
+  ry=$(($1+77)); shift 3
+  for line in "$@"; do text 200 $ry 34 gray25 start "$line"; ry=$((ry+40)); done
 }
 slot() { shot "$UI/screen-toolbar.png" $(slot_crop $1); }
+# The top slots: 0 menu, 1 hint, 2 cell colors, 3 settings, 4 undo, 5 redo, 6 checkpoints.
 slot_on() { shot "$UI/color-menu.png" $(slot_crop $1); }
-row 300 "$(slot 0)" "Menu" "Opens and closes the menu."
-row 410 "$(slot 1)" "Cell colors" "Sets the colors of numbers and completed groups."
-row 520 "$(slot 2)" "Settings" "Turns the helpers on or off. Shows the"
-row 664 "$(slot_on 3)" "Undo" "Cancels your last change to the board."
-row 774 "$(slot_on 4)" "Redo" "Makes the last canceled change again."
-row 884 "$(slot 5)" "Checkpoints" "Saves the board. Restore shows it again."
-row 994 "$(slot help)" "Help" "Opens this manual."
-row 1104 "$(slot statistics)" "Statistics" "Shows your completed puzzles and their times."
-row 1214 "$(slot new)" "New game" "Starts a new puzzle. Refer to page 8."
-text 200 $((520+128)) 34 gray25 start "version and the licenses."
+row 260 "$(slot 0)" "Menu" "Opens and closes the menu."
+row 349 "$(slot 1)" "Hint" "Reveals one number. The number has the highlight" \
+  "color until your next action on the board. The" \
+  "button shows the quantity of hints that you used." \
+  "No hint is available while numbers clash."
+row 558 "$(slot 2)" "Cell colors" "Sets the colors of numbers and completed groups."
+row 647 "$(slot 3)" "Settings" "Turns the helpers on or off. Shows the" "version and the licenses."
+row 776 "$(slot_on 4)" "Undo" "Cancels your last change to the board."
+row 865 "$(slot_on 5)" "Redo" "Makes the last canceled change again."
+row 954 "$(slot 6)" "Checkpoints" "Saves the board. Restore shows it again."
+row 1043 "$(slot help)" "Help" "Opens this manual."
+row 1132 "$(slot statistics)" "Statistics" "Shows your completed puzzles and their times."
+row 1221 "$(slot new)" "New game" "Starts a new puzzle. Refer to page 8."
 
 text 1010 330 50 black start "Select colors"
 text 1010 395 38 gray25 start "Tap Cell colors to open the panel. It has"

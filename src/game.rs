@@ -1,7 +1,8 @@
-//! The game: the puzzle, the numbers, the pencil marks, the undo and redo history, the checkpoints
-//! and the clock.
+//! The game: the puzzle, the numbers, the pencil marks, the undo and redo history, the checkpoints,
+//! the hints and the clock.
 //!
-//! All changes to the board go through this module. Refer to REQUIREMENTS.md §4, §6, §7, §8 and §9.3.
+//! All changes to the board go through this module. Refer to REQUIREMENTS.md §4, §6, §7, §8, §9.3
+//! and §9.5.
 
 use serde::{Deserialize, Serialize};
 
@@ -58,7 +59,7 @@ impl Group {
 }
 
 /// A set of cells of the board.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct CellSet(u128);
 
 impl CellSet {
@@ -72,6 +73,15 @@ impl CellSet {
 
     pub fn contains(self, cell: Cell) -> bool {
         self.0 & Self::bit(cell) != 0
+    }
+
+    pub fn is_empty(self) -> bool {
+        self.0 == 0
+    }
+
+    /// The cells of the set, in row order.
+    pub fn iter(self) -> impl Iterator<Item = Cell> {
+        cells().filter(move |&c| self.contains(c))
     }
 }
 
@@ -223,6 +233,49 @@ pub struct Game {
     /// The checkpoints, the newest first (§9.3, CKP-4). A game file of an earlier version has none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub checkpoints: Vec<Checkpoint>,
+    /// The hint count: the quantity of reveals of this game (§9.5, HNT-6). Only `request_hint`
+    /// increases it. A game file of an earlier version has no value: the count is 0 (PER-9).
+    #[serde(default)]
+    pub hints: u32,
+    /// The one incorrect number that a hint request revealed (§9.5, HNT-8), or None. A game file of
+    /// an earlier version has none (PER-9).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub incorrect_shown: Option<IncorrectShown>,
+}
+
+/// The incorrect number of the player that a hint request revealed (§9.5, HNT-3): its cell and its
+/// digit. It is valid only while the cell holds that digit as a number of the player, the digit is
+/// not the solution of the cell, and the game is not complete (HNT-8, `Game::incorrect_is_valid`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct IncorrectShown {
+    pub cell: Cell,
+    pub digit: u8,
+}
+
+/// The state of the row "Reveal one number" of the Hint panel (§9.5, HNT-2): the first rule that
+/// applies. It is a function of the numbers on the board and of `Game::incorrect_shown` only.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum HintState {
+    /// A cell of the board clashes. The row is gray.
+    Clash,
+    /// An incorrect number is revealed. The row is gray.
+    Incorrect,
+    /// The row is black, and a tap on it is a hint request.
+    Available,
+}
+
+/// The result of a hint request (`Game::request_hint`, §9.5).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Hint {
+    /// No hint is available (the game is complete, or the state of the row is not Available).
+    /// Nothing changed.
+    NotAvailable,
+    /// One or more numbers of the player are incorrect: the first one in row order is revealed
+    /// (HNT-3). The board, the history and the hint count did not change.
+    Incorrect(Cell),
+    /// The app put the solution into this empty cell (a reveal, HNT-4), with this result for the
+    /// board.
+    Revealed(Cell, Outcome),
 }
 
 fn first_generator() -> u8 {
@@ -268,6 +321,8 @@ impl Game {
             elapsed_ms: 0,
             completed: false,
             checkpoints: Vec::new(),
+            hints: 0,
+            incorrect_shown: None,
         };
         g.completed = g.is_solved_board();
         g
@@ -471,7 +526,70 @@ impl Game {
         self.after_change()
     }
 
+    /// The state of the row of the Hint panel (HNT-2).
+    pub fn hint_state(&self) -> HintState {
+        if cells().any(|c| self.is_clashing(c)) {
+            HintState::Clash
+        } else if self.incorrect_shown.is_some() {
+            HintState::Incorrect
+        } else {
+            HintState::Available
+        }
+    }
+
+    /// The first number of the player, in row order, that is different from the solution (an
+    /// incorrect entry of INVARIANTS.md §0).
+    pub fn first_incorrect(&self) -> Option<IncorrectShown> {
+        cells()
+            .find(|&(r, c)| self.is_entry((r, c)) && self.value_at((r, c)) != self.solution[r as usize][c as usize])
+            .map(|cell| IncorrectShown { cell, digit: self.value_at(cell) })
+    }
+
+    /// HNT-8: the revealed incorrect number is still on the board. True also when none is revealed.
+    /// The cell of a game file can be out of the board: then the value is not valid.
+    pub fn incorrect_is_valid(&self) -> bool {
+        self.incorrect_shown.is_none_or(|IncorrectShown { cell: cell @ (r, c), digit }| {
+            r < 9 && c < 9 && !self.completed && self.is_entry(cell) && self.value_at(cell) == digit && digit != self.solution[r as usize][c as usize]
+        })
+    }
+
+    /// Removes a revealed incorrect number that is not valid (HNT-8, HNT-9). The game calls it
+    /// after each change of the board, and the app calls it when it opens a game file.
+    pub fn drop_invalid_incorrect(&mut self) {
+        if !self.incorrect_is_valid() {
+            self.incorrect_shown = None;
+        }
+    }
+
+    /// The cell that a reveal fills on this board (HNT-5): a function of the numbers only. None if
+    /// the board has no empty cell. The caller makes sure that no number of the player is incorrect.
+    pub fn reveal_cell(&self) -> Option<Cell> {
+        crate::solver::next_number(&self.value).map(|(cell, _)| cell)
+    }
+
+    /// A hint request: a tap on the black row "Reveal one number" (§9.5). With an incorrect number of
+    /// the player on the board, it reveals the first one in row order and changes nothing more
+    /// (HNT-3). Else it puts the solution into the cell of `reveal_cell`, as a number of the player:
+    /// one item of the undo history, and the hint count increases by 1 (HNT-4).
+    pub fn request_hint(&mut self) -> Hint {
+        if self.completed || self.hint_state() != HintState::Available {
+            return Hint::NotAvailable;
+        }
+        if let Some(incorrect) = self.first_incorrect() {
+            self.incorrect_shown = Some(incorrect);
+            return Hint::Incorrect(incorrect.cell);
+        }
+        let Some(cell @ (r, c)) = self.reveal_cell() else { return Hint::NotAvailable };
+        let digit = self.solution[r as usize][c as usize];
+        let outcome = self.record(Change::AddNumber { cell, digit, removed: Vec::new() });
+        self.hints = self.hints.saturating_add(1);
+        Hint::Revealed(cell, outcome)
+    }
+
+    /// The end of each change of the board: a revealed incorrect number that is not on the board
+    /// now goes away (HNT-8), and a solved board is complete.
     fn after_change(&mut self) -> Outcome {
+        self.drop_invalid_incorrect();
         if self.is_solved_board() {
             self.completed = true;
             Outcome::Completed

@@ -40,6 +40,12 @@ fn screen() -> Rect {
     Rect::new(0, 0, layout::screen_w() as i32, layout::screen_h() as i32)
 }
 
+/// The slot of a button of the toolbar: the full width of the column and the height of a slot.
+fn slot(b: layout::Button) -> Rect {
+    let y = layout::slot_top(b);
+    Rect::new(layout::tb_x(), y, layout::tb_x() + layout::tb_slot(), y + layout::slot_height())
+}
+
 fn toolbar() -> Rect {
     Rect::new(layout::tb_x(), 0, layout::tb_x() + layout::tb_slot(), layout::screen_h() as i32)
 }
@@ -101,23 +107,35 @@ fn the_board_keeps_its_physical_position_when_the_tablet_turns() {
 
 #[test]
 fn the_toolbar_the_panels_and_the_card_fit_in_all_layouts() {
-    // NAV-14, NAV-17, NAV-18, NAV-21, CMP-7, owner decisions 2026-11-10.
+    // NAV-14, NAV-17, NAV-18, NAV-21, HNT-11, CMP-7, owner decisions 2026-11-10 and 2026-11-24.
     move_device();
     for_each_layout(|case| {
-        let slot = layout::tb_slot();
+        let slot = layout::slot_height();
         let h = layout::screen_h() as i32;
-        // The top group (6 slots) and the bottom group (3 slots) do not touch.
-        assert!(6 * slot < layout::tb_bottom_y() - 2 * slot, "{case}: the two groups of the toolbar");
-        // The panels are on the screen and do not cover the toolbar.
+        // The top group (7 slots) and the bottom group (3 slots) do not touch.
+        assert_eq!(layout::Button::TOP.len(), 7, "{case}");
+        let top_end = layout::slot_top(layout::Button::TOP[6]) + slot;
+        let bottom_start = layout::slot_top(layout::Button::Help);
+        assert!(top_end < bottom_start, "{case}: the two groups of the toolbar ({top_end}, {bottom_start})");
+        assert_eq!(layout::slot_top(layout::Button::NewGame) + slot, h, "{case}: the + is at the bottom of the screen");
+        // The panels are on the screen and do not cover the toolbar, at each size.
+        use sudoku::game::HintState;
         let panels = [
+            ("Hint", layout::hint_panel(HintState::Available)),
+            ("Hint (two lines)", layout::hint_panel(HintState::Incorrect)),
             ("Cell colors", layout::colors_panel()),
-            ("Settings", layout::settings_panel(true)),
+            ("Settings", layout::settings_panel(false)),
+            ("Settings (update row)", layout::settings_panel(true)),
+            ("Checkpoints (empty)", layout::ckp_panel(0)),
             ("Checkpoints", layout::ckp_panel(sudoku::game::MAX_CHECKPOINTS)),
             ("New game", layout::ng_panel()),
         ];
         for (name, p) in panels {
             assert!(inside(p, screen()), "{case}: {name} {p:?} is not on the screen");
             assert!(!p.overlaps(&toolbar()), "{case}: {name} {p:?} covers the toolbar");
+            // The panel touches the toolbar (NAV-21).
+            let touches = if layout::right_handed() { p.x0 == layout::tb_x() + layout::tb_slot() } else { p.x1 == layout::tb_x() };
+            assert!(touches, "{case}: {name} {p:?} does not touch the toolbar at x {}", layout::tb_x());
         }
         // The meter is below the board and on the screen.
         assert!(layout::meter_y() + 13 < h, "{case}: the meter");
@@ -142,16 +160,113 @@ fn the_toolbar_the_panels_and_the_card_fit_in_all_layouts() {
 #[test]
 fn the_landscape_panels_have_the_move_shape() {
     // NAV-17, NAV-18, R§1.1: in landscape, the Cell colors panel has three columns of two rows
-    // (1200 x 720 px from slot 1), and the Checkpoints panel starts at slot 1.
+    // (1200 x 720 px from slot 2, y 190–910), and the Checkpoints panel starts at slot 1 (y 95). In
+    // portrait the Cell colors panel is at y 192–1272 and the Checkpoints panel starts at slot 6 (y 576).
     move_device();
     layout::set_orientation(Orientation::Landscape);
     assert_eq!(layout::color_columns(), 3);
-    assert_eq!(layout::colors_panel(), Rect::new(1600 - 1200, 96, 1600, 96 + 720 + 1));
-    assert_eq!(layout::ckp_top(), 96);
+    assert_eq!(layout::colors_panel(), Rect::new(1600 - 1200, 190, 1600, 910 + 1));
+    assert_eq!(layout::ckp_top(), 95);
     layout::set_orientation(Orientation::Portrait);
     assert_eq!(layout::color_columns(), 2);
-    assert_eq!(layout::colors_panel(), Rect::new(858 - 800, 96, 858, 96 + 1080 + 1));
-    assert_eq!(layout::ckp_top(), 480, "in portrait the panel starts at the bookmark (slot 5)");
+    assert_eq!(layout::colors_panel(), Rect::new(858 - 800, 192, 858, 1272 + 1));
+    assert_eq!(layout::ckp_top(), 576, "in portrait the panel starts at the bookmark (slot 6)");
+}
+
+#[test]
+fn the_landscape_toolbar_has_slots_of_95_px() {
+    // NAV-21, NAV-12, R§1.1 (owner decision 2026-11-24): on the Move in landscape each slot is 95 px
+    // high, and the column stays 96 px wide. Top slot K starts at y 95 × K, and the bottom slots start
+    // at y 669, 764 and 859. Portrait keeps the slots of 96 px. Each icon is at the center of its slot
+    // (within 0.5 px), and a tap at the center of a slot operates its button.
+    use layout::Button;
+    move_device();
+    let top = Button::TOP;
+    assert_eq!(top, [Button::Menu, Button::Hint, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints], "NAV-12");
+    for_each_layout(|case| {
+        let landscape = layout::orientation() == Orientation::Landscape;
+        let height = if landscape { 95 } else { 96 };
+        assert_eq!((layout::slot_height(), layout::tb_slot()), (height, 96), "{case}");
+        for (k, &b) in top.iter().enumerate() {
+            assert_eq!(layout::slot_top(b), height * k as i32, "{case}: {b:?}");
+        }
+        let bottom = if landscape { [669, 764, 859] } else { [1408, 1504, 1600] };
+        for (b, y) in [Button::Help, Button::Statistics, Button::NewGame].into_iter().zip(bottom) {
+            assert_eq!(layout::slot_top(b), y, "{case}: {b:?}");
+        }
+        for b in top.into_iter().chain([Button::Help, Button::Statistics, Button::NewGame]) {
+            let s = slot(b);
+            let (cx, cy) = layout::icon_center(b);
+            let (mx, my) = ((s.x0 + s.x1) as f32 / 2.0, (s.y0 + s.y1) as f32 / 2.0);
+            assert!((cx - mx).abs() <= 0.5 && (cy - my).abs() <= 0.5, "{case}: the icon of {b:?} at ({cx}, {cy}), the slot {s:?}");
+            if b != Button::Menu {
+                assert_eq!(layout::game_button(cx, cy, true), Some(b), "{case}: a tap on {b:?}");
+            }
+        }
+    });
+}
+
+#[test]
+fn a_landscape_panel_that_does_not_fit_below_its_button_starts_at_slot_1() {
+    // NAV-21, NAV-14, NAV-18, HNT-11, R§1.1 (owner decision 2026-11-24): on the Move in landscape, the
+    // Settings panel with the update row and the Checkpoints panel (at each quantity of checkpoints)
+    // start at the top of slot 1 (y 95). The Settings panel with no update row starts at its slot (slot
+    // 3, y 285). The Hint panel starts at slot 1 (y 95), the Cell colors panel at slot 2 (y 190). In
+    // portrait each panel starts at the slot of its button.
+    use layout::Button;
+    move_device();
+    for right_handed in [false, true] {
+        layout::set_right_handed(right_handed);
+        layout::set_orientation(Orientation::Landscape);
+        let case = format!("landscape, right-handed {right_handed}");
+        assert_eq!(layout::settings_panel(true).y0, 95, "NAV-14: {case}: with the update row");
+        assert_eq!(layout::settings_panel(false).y0, 3 * 95, "NAV-14: {case}: with no update row");
+        assert!(3 * 95 + layout::settings_panel(true).y1 - layout::settings_panel(true).y0 > 954, "{case}: the panel with the update row does not fit below slot 3");
+        for n in 0..=sudoku::game::MAX_CHECKPOINTS {
+            assert_eq!(layout::ckp_panel(n).y0, 95, "NAV-18: {case}: {n} checkpoints");
+        }
+        assert_eq!(layout::hint_panel(sudoku::game::HintState::Available).y0, 95, "HNT-11: {case}");
+        assert_eq!(layout::colors_panel().y0, 190, "NAV-17: {case}");
+        layout::set_orientation(Orientation::Portrait);
+        let case = format!("portrait, right-handed {right_handed}");
+        assert_eq!(layout::settings_panel(true).y0, layout::slot_top(Button::Settings), "NAV-14: {case}");
+        assert_eq!(layout::settings_panel(true).y0, 288, "NAV-14: {case}");
+        assert_eq!(layout::ckp_panel(4).y0, 576, "NAV-18: {case}");
+        assert_eq!(layout::hint_panel(sudoku::game::HintState::Available).y0, 96, "HNT-11: {case}");
+    }
+    layout::set_right_handed(false);
+}
+
+#[test]
+fn the_hint_panel_has_the_widths_of_the_paper_pro() {
+    // HNT-11, R§1.1: on the Move the Hint panel is 500 px wide in portrait and 392 px wide in
+    // landscape. It touches the toolbar. In landscape it is at x 1208–1599 for a left-handed player,
+    // and it covers only a part (at most 7 px of the width) of the cells of rows 1 to 3 of one edge
+    // column of the board. In portrait it covers no cell.
+    use sudoku::game::{cells, HintState};
+    move_device();
+    for_each_layout(|case| {
+        let landscape = layout::orientation() == Orientation::Landscape;
+        for (state, h) in [(HintState::Available, 198), (HintState::Clash, 236), (HintState::Incorrect, 236)] {
+            let p = layout::hint_panel(state);
+            assert_eq!((p.x1 - p.x0, p.y1 - p.y0), (if landscape { 392 } else { 500 }, h), "{case}: {state:?}");
+            if landscape && !layout::right_handed() {
+                assert_eq!((p.x0, p.x1 - 1), (1208, 1599), "{case}: {state:?}");
+            }
+            for cell @ (r, c) in cells() {
+                let (x, y) = layout::cell_origin(cell);
+                let cr = Rect::new(x, y, x + layout::device().cell, y + layout::device().cell);
+                if !cr.overlaps(&p) {
+                    continue;
+                }
+                assert!(landscape, "{case}: {state:?}: the panel covers the cell {cell:?}");
+                let edge = if layout::right_handed() { 0 } else { 8 };
+                assert!(c == edge && r <= 2, "{case}: {state:?}: the panel covers the cell {cell:?}");
+                let covered = cr.x1.min(p.x1) - cr.x0.max(p.x0);
+                assert!(covered <= 7, "{case}: {state:?}: the panel covers {covered} px of the cell {cell:?}");
+            }
+        }
+    });
 }
 
 #[test]
@@ -227,4 +342,44 @@ fn the_manual_shows_the_move_pages() {
         }
     }
     layout::set_orientation(Orientation::Portrait);
+}
+
+#[test]
+fn the_count_on_the_lightbulb_stays_in_its_slot() {
+    // HNT-10, NAV-21: each count text, also "99+", stays 4 px or more inside slot 1 in all four layouts
+    // of the Move (also in the slots of 95 px). A count above 99 shows "99+".
+    move_device();
+    let fonts = fonts();
+    for_each_layout(|case| {
+        let s = slot(layout::Button::Hint);
+        let draw = |hints: u32| {
+            let mut app = reference::app(&fonts);
+            app.game = reference::hint_game(false);
+            app.ui.menu = sudoku::app::Menu::Open(None);
+            app.game.hints = hints;
+            let mut pm = tiny_skia::Pixmap::new(layout::screen_w(), layout::screen_h()).unwrap();
+            sudoku::render::draw(&mut sudoku::render::Canvas::new(&mut pm, &fonts), &app);
+            pm
+        };
+        let zero = draw(0);
+        let mut shapes = Vec::new();
+        for hints in [1u32, 99, 100, 5000] {
+            let pm = draw(hints);
+            let w = pm.width() as usize;
+            let changed: Vec<(i32, i32)> = pm
+                .pixels()
+                .iter()
+                .zip(zero.pixels())
+                .enumerate()
+                .filter(|(_, (p, q))| p != q)
+                .map(|(i, _)| ((i % w) as i32, (i / w) as i32))
+                .collect();
+            assert!(!changed.is_empty(), "{case}: no count for {hints}");
+            for &(x, y) in &changed {
+                assert!(x >= s.x0 + 4 && x < s.x1 - 4 && y >= s.y0 + 4 && y < s.y1 - 4, "{case}: {hints}: the pixel ({x}, {y}) is not 4 px inside the slot {s:?}");
+            }
+            shapes.push(changed.iter().map(|&(x, y)| (x - s.x0, y - s.y0)).collect::<Vec<_>>());
+        }
+        assert_eq!(shapes[2], shapes[3], "{case}: 100 and 5000 show the same text (99+)");
+    });
 }

@@ -4,7 +4,7 @@
 
 use tiny_skia::{Color as SkColor, Pixmap};
 
-use crate::app::{App, Menu, Panel, PendingInk, Screen};
+use crate::app::{App, Input, Menu, Panel, PendingInk, Screen, Tool};
 use crate::font::{Anchor, Fonts, Weight};
 use crate::game::{peers, Checkpoint, Game};
 use crate::launch::{Launch, Restart};
@@ -26,14 +26,17 @@ const MARKED: [(u8, u8); 14] =
 const GROUP_ENTERED: [(u8, u8); 6] = [(2, 4), (6, 4), (7, 1), (7, 2), (7, 6), (7, 7)];
 
 /// The results of scripts/analytics.py (tests/fixtures/analytics-results.json), as (unix time in UTC,
-/// mode, seconds).
-fn analytics_results() -> Vec<(i64, u8, u64)> {
+/// mode, seconds, hints). The hint counts are `HINTS` of the script (ANA-4, ANA-5).
+fn analytics_results() -> Vec<(i64, u8, u64, u32)> {
     let json: serde_json::Value =
         serde_json::from_str(include_str!("../tests/fixtures/analytics-results.json")).expect("fixture");
     json.as_array()
         .expect("array")
         .iter()
-        .map(|r| (r["finished_at"].as_i64().unwrap(), r["mode"].as_u64().unwrap() as u8, r["seconds"].as_u64().unwrap()))
+        .map(|r| {
+            let hints = r["hints"].as_u64().unwrap() as u32;
+            (r["finished_at"].as_i64().unwrap(), r["mode"].as_u64().unwrap() as u8, r["seconds"].as_u64().unwrap(), hints)
+        })
         .collect()
 }
 
@@ -194,6 +197,59 @@ pub fn completed_game() -> Game {
     g
 }
 
+/// The game of screen-completed-hints*.png (`board-state.py completed-hints`): the completed game
+/// with 2 hints (HNT-13, CMP-8). Only the hint count is different from completed_game().
+pub fn completed_hints_game() -> Game {
+    Game { hints: 2, ..completed_game() }
+}
+
+/// The game of hint-menu*.png (`board-state.py hint`): the game in progress before the mistake (no
+/// clash, thus box 0 has the completed color), with one undone change (undo and redo are available).
+/// `incorrect`: the player also wrote an incorrect number that does not clash (hint-menu-incorrect.png:
+/// a 1 at (5, 5), the solution is 4), before the pencil marks.
+pub fn hint_game(incorrect: bool) -> Game {
+    let sol = grid(&SOLUTION);
+    let mut g = reference_game(sol, grid(&GIVENS));
+    for &(r, c) in &ENTERED {
+        g.add_number((r, c), sol[r as usize][c as usize]);
+    }
+    if incorrect {
+        g.add_number((5, 5), 1);
+    }
+    add_marks(&mut g);
+    g.toggle_mark((8, 0), 3); // 3 is free in (8, 0) (MRK-7).
+    g.undo();
+    g
+}
+
+/// A pen tap at a point (a press and a release at the same time).
+fn pen_tap(a: &mut App, (x, y): (f32, f32)) {
+    a.handle(Input::PenDown { x, y, tool: Tool::Pen }, 0);
+    a.handle(Input::PenUp { x, y }, 0);
+}
+
+/// Opens the Hint panel with a tap on the lightbulb of the open menu (HNT-1).
+fn open_hint_panel(a: &mut App) {
+    a.ui.menu = Menu::Open(None);
+    pen_tap(a, crate::layout::icon_center(crate::layout::Button::Hint));
+    assert_eq!(a.ui.menu, Menu::Open(Some(Panel::Hint)), "the lightbulb opens the Hint panel");
+}
+
+/// A tap on the row "Reveal one number" of the open Hint panel: a real hint request (HNT-3, HNT-4).
+fn request_hint(a: &mut App) {
+    let r = crate::layout::hint_row();
+    pen_tap(a, ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0));
+}
+
+/// The Hint panel of hint-menu.png on the game of hint_game(false), after `requests` taps on its row.
+fn hint_menu(a: &mut App, requests: usize) {
+    a.game = hint_game(false);
+    open_hint_panel(a);
+    for _ in 0..requests {
+        request_hint(a);
+    }
+}
+
 /// The empty board of screen.png. It is not a puzzle; only the images use it.
 fn empty_game() -> Game {
     let mut g = reference_game(grid(&SOLUTION), [[0; 9]; 9]);
@@ -203,8 +259,8 @@ fn empty_game() -> Game {
 
 pub fn app(fonts: &Fonts) -> App {
     let mut db = ResultsDb::in_memory();
-    for (i, (t, mode, seconds)) in analytics_results().into_iter().enumerate() {
-        db.insert(&NewResult { finished_at: t, mode, givens: 30, seconds, seed: i as u64, generator: 2, symmetric: false }).unwrap();
+    for (i, (t, mode, seconds, hints)) in analytics_results().into_iter().enumerate() {
+        db.insert(&NewResult { finished_at: t, mode, givens: 30, seconds, seed: i as u64, generator: 2, symmetric: false, hints }).unwrap();
     }
     let mut app = App::new(None, None, db, Box::new(FixedEnv(7)), render::ng_stops(fonts));
     // The app opens with the menu open (PER-2), but most images show the menu closed. Each state
@@ -327,6 +383,31 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             restart_state(a, true);
             a.ui.menu = Menu::Open(Some(Panel::Settings))
         }),
+        // §9.5, HNT-1, HNT-2, HNT-11: the Hint panel when a hint is available ("0 hints used").
+        ("hint-menu.png", |a| hint_menu(a, 0)),
+        // HNT-4, HNT-5, HNT-7, HNT-10: two real requests reveal (8, 0) = 3, then (0, 5) = 8. The two
+        // cells have the highlight color, the button shows 2, and redo is not available.
+        ("hint-menu-revealed.png", |a| hint_menu(a, 2)),
+        // HNT-3, HNT-2: a request on a board with an incorrect number that does not clash reveals it.
+        ("hint-menu-incorrect.png", |a| {
+            a.game = hint_game(true);
+            open_hint_panel(a);
+            request_hint(a)
+        }),
+        // HNT-2: the game in progress has a clash, thus no hint is available.
+        ("hint-menu-clash.png", |a| {
+            a.game = sample_game_with_redo();
+            open_hint_panel(a)
+        }),
+        ("hint-menu-right-handed.png", |a| {
+            crate::layout::set_right_handed(true);
+            hint_menu(a, 0)
+        }),
+        // HNT-11: the panel in landscape is 392 px wide.
+        ("hint-menu-landscape.png", |a| {
+            crate::layout::set_orientation(crate::layout::Orientation::Landscape);
+            hint_menu(a, 0)
+        }),
         ("analytics.png", |a| a.screen = Screen::Statistics),
         ("analytics-delete-all.png", |a| {
             a.screen = Screen::Statistics;
@@ -362,6 +443,17 @@ pub fn states() -> Vec<(&'static str, Setup)> {
             crate::layout::set_orientation(crate::layout::Orientation::Landscape);
             crate::layout::set_right_handed(true);
             a.game = completed_game()
+        }),
+        // HNT-13, CMP-8: the result card of a completed game with 2 hints, in the layouts of the card.
+        ("screen-completed-hints.png", |a| a.game = completed_hints_game()),
+        ("screen-completed-hints-landscape.png", |a| {
+            crate::layout::set_orientation(crate::layout::Orientation::Landscape);
+            a.game = completed_hints_game()
+        }),
+        ("screen-completed-hints-landscape-right-handed.png", |a| {
+            crate::layout::set_orientation(crate::layout::Orientation::Landscape);
+            crate::layout::set_right_handed(true);
+            a.game = completed_hints_game()
         }),
     ]
 }

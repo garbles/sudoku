@@ -42,7 +42,7 @@ pub fn app_with_game(game: Game, time: i64, seed: u64) -> App {
 pub fn app_with_results(n: usize) -> App {
     let mut db = ResultsDb::in_memory();
     for i in 0..n {
-        db.insert(&NewResult { finished_at: 1_700_000_000 + i as i64 * 1000, mode: (i % 5) as u8, givens: 30, seconds: 100 + i as u64, seed: i as u64, generator: 2, symmetric: i % 2 == 1 })
+        db.insert(&NewResult { finished_at: 1_700_000_000 + i as i64 * 1000, mode: (i % 5) as u8, givens: 30, seconds: 100 + i as u64, seed: i as u64, generator: 2, symmetric: i % 2 == 1, hints: (i % 3) as u32 })
             .unwrap();
     }
     App::new(None, None, db, Box::new(TestEnv { time: START_TIME, seed: 1 }), App::placeholder_ng_stops())
@@ -249,7 +249,7 @@ pub fn line_gray_point(g: sudoku::settings::LineGray) -> (f32, f32) {
 
 /// The point that a test taps to change the switch `s` in the Settings panel: the center of its row.
 pub fn switch_point(s: Switch) -> (f32, f32) {
-    exact_center(layout::settings_row(s.row()))
+    exact_center(layout::settings_row(s.row(), false))
 }
 
 pub fn micro_center((r, c): Cell, digit: u8) -> (f32, f32) {
@@ -263,11 +263,12 @@ pub fn button_center(b: layout::Button) -> (f32, f32) {
     let x = layout::tb_cx();
     match b {
         Menu => (x, layout::tb_cy(0)),
-        Colors => (x, layout::tb_cy(1)),
-        Settings => (x, layout::tb_cy(2)),
-        Undo => (x, layout::tb_cy(3)),
-        Redo => (x, layout::tb_cy(4)),
-        Checkpoints => (x, layout::tb_cy(5)),
+        Hint => (x, layout::tb_cy(1)),
+        Colors => (x, layout::tb_cy(2)),
+        Settings => (x, layout::tb_cy(3)),
+        Undo => (x, layout::tb_cy(4)),
+        Redo => (x, layout::tb_cy(5)),
+        Checkpoints => (x, layout::tb_cy(6)),
         Help => (x, (layout::tb_bottom_y() - 168) as f32),
         Statistics => (x, (layout::tb_bottom_y() - 56) as f32),
         NewGame => (x, (layout::tb_bottom_y() + 56) as f32),
@@ -421,15 +422,16 @@ pub fn model_in_completed_group(g: &Game, cell: Cell) -> bool {
     model_completed_groups(g).iter().any(|group| group.contains(&cell))
 }
 
-/// BRD-7: the background of a cell, from the first rule that applies.
+/// BRD-7: the background of a cell, from the first rule that applies. The revealed incorrect number
+/// (HNT-8) has the clash color, and a revealed cell (HNT-7) has the highlight color.
 pub fn model_background(app: &App, cell: Cell) -> [u8; 3] {
     let (g, s) = (&app.game, &app.settings);
     let v = g.value_at(cell);
     if v == 0 {
         Color::White.rgb()
-    } else if model_clashing(g, cell) {
+    } else if model_clashing(g, cell) || g.incorrect_shown.is_some_and(|i| i.cell == cell) {
         s.color_clash.rgb()
-    } else if app.ui.highlight == Some(v) {
+    } else if app.ui.highlight == Some(v) || app.ui.revealed.contains(cell) {
         s.color_highlight.rgb()
     } else if s.completed_color_on && s.color_completed != Color::White && !g.completed && model_in_completed_group(g, cell) {
         s.color_completed.rgb()
@@ -469,6 +471,7 @@ pub fn assert_board(app: &App, fonts: &Fonts, case: &str) {
         assert_eq!(d, [1, 2, 3, 4, 5, 6, 7, 8, 9], "COL-9, {case}: {group:?}");
     }
     let panel = app.ui.menu.panel().map(|p| match p {
+        Panel::Hint => layout::hint_panel(app.game.hint_state()),
         Panel::Colors => layout::colors_panel(),
         Panel::Settings => layout::settings_panel(app.update.has_row()),
         Panel::NewGame => layout::ng_panel(),
@@ -511,8 +514,21 @@ pub fn documented_checkpoints_x() -> (i32, i32) {
     }
 }
 
-/// The first y of row `i` (from 0) of the Settings panel: y 224, a 2 px border and lines, rows of
-/// 112 px (REQUIREMENTS.md §9.1).
+/// The first y of row `i` (from 0) of the Settings panel: y 336 (top slot 3), a 2 px border and
+/// lines, rows of 112 px (REQUIREMENTS.md §9.1, NAV-14).
 pub fn documented_settings_row_y(i: i32) -> i32 {
-    224 + 2 + i * 114
+    336 + 2 + i * 114
+}
+
+/// The x range of the Hint panel in the current layout, with the two ends (HNT-11). The documents
+/// give 1008-1507 (left-handed, portrait), 1656-2047 (left-handed, landscape) and 112-503
+/// (right-handed, landscape). The right-handed portrait range is the mirror of the left-handed
+/// range: 500 px from the toolbar edge (x 112).
+pub fn documented_hint_x() -> (i32, i32) {
+    match (layout::right_handed(), layout::screen_w() == 2160) {
+        (true, false) => (112, 611),
+        (true, true) => (112, 503),
+        (false, false) => (1008, 1507),
+        (false, true) => (1656, 2047),
+    }
 }

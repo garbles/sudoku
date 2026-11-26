@@ -1,7 +1,8 @@
 #!/bin/sh
 # Makes the open menu (the toolbar on the right) and its panels in $1. The dimensions are the same as the
 # toolbar and the pop-up menus of the device (refer to ui-lib.sh):
-#   screen-toolbar.png        menu open on a new game: cell colors, undo and redo (not available), help, analytics, +
+#   screen-toolbar.png        menu open on a new game: hint, cell colors, settings, undo and redo (not available),
+#                             checkpoints, help, analytics, +
 #   new-game-menu.png         the + panel is open: the difficulty slider, "Symmetrical" (on) and "Start new game"
 #   color-menu.png            the Cell colors panel is open (two columns: starting, clashing, highlighted; completed,
 #                             micro-cell lines), on a game
@@ -15,10 +16,17 @@
 #   color-menu-landscape.png  color-menu.png in landscape (2160x1620 on the Paper Pro)
 #   screen-completed-landscape.png, screen-completed-landscape-right-handed.png  the complete puzzle in landscape,
 #                             menu closed: the result card is a column at the side opposite the toolbar
+#   screen-completed-hints-landscape.png, screen-completed-hints-landscape-right-handed.png  the same for
+#                             screen-completed-hints.png: the result card has the hint count
+#   hint-menu.png             the Hint panel on a game with no clash: a hint is available, "0 hints used"
+#   hint-menu-revealed.png    after two reveals: two numbers with the highlight color, the count 2 on the button
+#   hint-menu-incorrect.png   after a request on a board with an incorrect number: that number has the clash color
+#   hint-menu-clash.png       the Hint panel on the game in progress (it has a clash): no hint is available
+#   hint-menu-right-handed.png, hint-menu-landscape.png  hint-menu.png in these layouts
 #   settings-menu.png         the Settings panel of a development build
 #   screen-toolbar-update.png, settings-update.png, settings-up-to-date.png, settings-check-updates.png,
 #   settings-restart.png                                                      updates (stable build v0.1.0)
-# Top of the menu: menu button, cell colors, settings, undo, redo, checkpoints. Bottom, from the bottom to the top: + (new game),
+# Top of the menu: menu button, hint, cell colors, settings, undo, redo, checkpoints. Bottom, from the bottom to the top: + (new game),
 # Analytics, Help.
 set -e
 . "$(dirname "$0")/ui-lib.sh"
@@ -34,17 +42,33 @@ active_slot() {
   echo "stroke none fill black rectangle $TB_X,$y $PHYS_W,$((y+TB_W-1))" >> $M
 }
 
-# colors_icon ACTIVE : cell colors (slot 1). A paint bucket: a tilted bucket with a handle and a drop.
+# hint_icon COLOR : hint (slot 1). The lightbulb (ui-lib.sh lightbulb). With 1 or more hints (HINT_COUNT), the count
+# shows at the bottom right of the lightbulb, in the color of the icon (ui-lib.sh HINT_COUNT_*).
+HINT_COUNT=0
+hint_icon() {
+  cy=$(tb_cy $SLOT_HINT)
+  lightbulb $TB_CX $cy $1 >> $M
+  if [ $HINT_COUNT -gt 0 ]; then
+    ht=$(hint_count_text $HINT_COUNT)
+    hw=$(magick -font "$UI_FONT" -pointsize $HINT_COUNT_SIZE label:"$ht" -format %w info:)
+    awk -v cx=$TB_CX -v cy=$cy -v dx=$HINT_COUNT_DX -v dy=$HINT_COUNT_BASE_DY -v right=$((TB_X+TB_W-HINT_COUNT_MARGIN)) -v w=$hw \
+        -v col=$1 -v font="$UI_FONT" -v size=$HINT_COUNT_SIZE -v t="$ht" 'BEGIN{
+      x = cx + dx; if (x + w > right) x = right - w
+      printf "stroke none fill %s font \047%s\047 font-size %s text-anchor start text %g,%g \047%s\047\n", col, font, size, x, cy + dy, t }' >> $M
+  fi
+}
+
+# colors_icon ACTIVE : cell colors (slot 2). A paint bucket: a tilted bucket with a handle and a drop.
 colors_icon() {
-  cy=$(tb_cy 1); line=black; [ -n "$1" ] && line=white
+  cy=$(tb_cy $SLOT_COLORS); line=black; [ -n "$1" ] && line=white
   echo "push graphic-context translate $TB_CX,$cy fill none stroke $line stroke-width 3 stroke-linecap round stroke-linejoin round" >> $M
   echo "polygon -18,1 -3,-14 12,1 -3,16 line -18,1 12,1 path 'M -10,-7 L -15,-12 C -17,-14 -15,-18 -12,-17 L -5,-12'" >> $M
   echo "stroke none fill $line path 'M 16,3 C 16,3 21,10 21,13 C 21,16 18.8,18 16,18 C 13.2,18 11,16 11,13 C 11,10 16,3 16,3 Z' pop graphic-context" >> $M
 }
 
-# gear_icon ACTIVE : settings (slot 2). A gear: a ring, a small center ring and eight teeth.
+# gear_icon ACTIVE : settings (slot 3). A gear: a ring, a small center ring and eight teeth.
 gear_icon() {
-  cy=$(tb_cy 2); line=black; [ -n "$1" ] && line=white
+  cy=$(tb_cy $SLOT_SETTINGS); line=black; [ -n "$1" ] && line=white
   echo "push graphic-context translate $TB_CX,$cy fill none stroke $line stroke-width 3 circle 0,0 11,0 circle 0,0 4.5,0 stroke-width 6 stroke-linecap butt" >> $M
   for k in 0 1 2 3 4 5 6 7; do
     awk -v k=$k 'BEGIN{ a=k*3.14159265/4; printf "line %.3f,%.3f %.3f,%.3f\n", 11*cos(a), 11*sin(a), 17*cos(a), 17*sin(a) }' >> $M
@@ -52,18 +76,19 @@ gear_icon() {
   echo "pop graphic-context" >> $M
 }
 
-# undo_redo COLOR : undo (slot 3) and redo (slot 4). Black when they are available, gray when they are not.
+# undo_redo COLOR [REDO] : undo (slot 4) and redo (slot 5). Black when they are available, gray when they are not.
+# REDO is the color of redo (default: COLOR).
 undo_redo() {
-  for k in 3 4; do
-    cy=$(tb_cy $k); sx=1; [ $k = 4 ] && sx=-1
-    echo "push graphic-context translate $TB_CX,$cy scale $sx,1 fill none stroke $1 stroke-width 3 stroke-linecap round stroke-linejoin round" >> $M
+  for k in $SLOT_UNDO $SLOT_REDO; do
+    cy=$(tb_cy $k); sx=1; uc=$1; [ $k = $SLOT_REDO ] && { sx=-1; uc=${2:-$1}; }
+    echo "push graphic-context translate $TB_CX,$cy scale $sx,1 fill none stroke $uc stroke-width 3 stroke-linecap round stroke-linejoin round" >> $M
     echo "path 'M -18,-4 L 3,-4 C 13,-4 19,4 19,15' polyline -10,-12 -18,-4 -10,4 pop graphic-context" >> $M
   done
 }
 
-# bookmark_icon COLOR : checkpoints (slot 5). A closed line: a bookmark with a notch at the bottom.
+# bookmark_icon COLOR : checkpoints (slot 6). A closed line: a bookmark with a notch at the bottom.
 bookmark_icon() {
-  cy=$(tb_cy 5)
+  cy=$(tb_cy $SLOT_CKP)
   echo "push graphic-context translate $TB_CX,$cy fill none stroke $1 stroke-width 3 stroke-linecap round stroke-linejoin round polygon -12,-18 12,-18 12,18 0,8 -12,18 pop graphic-context" >> $M
 }
 
@@ -84,15 +109,18 @@ plus_icon() {
   echo "stroke none fill black font '$UI_FONT' font-size 26 text-anchor middle text $TB_CX,$((hy+9)) '?'" >> $M
 }
 
-# toolbar UNDO ACTIVE [BOOKMARK] : all menu buttons. UNDO is the color of undo and redo. ACTIVE is "colors", "settings",
-# "checkpoints", "plus" or "". BOOKMARK is the color of the bookmark when its panel is not open (default: black).
+# toolbar UNDO ACTIVE [BOOKMARK] [REDO] : all menu buttons. UNDO is the color of undo and redo. ACTIVE is "hint",
+# "colors", "settings", "checkpoints", "plus" or "". BOOKMARK is the color of the lightbulb and of the bookmark when
+# their panels are not open (default: black; gray70 on a complete puzzle). REDO is the color of redo (default: UNDO).
 toolbar() {
-  [ "$2" = colors ] && active_slot 1
-  [ "$2" = settings ] && active_slot 2
-  [ "$2" = checkpoints ] && active_slot 5
+  [ "$2" = hint ] && active_slot $SLOT_HINT
+  [ "$2" = colors ] && active_slot $SLOT_COLORS
+  [ "$2" = settings ] && active_slot $SLOT_SETTINGS
+  [ "$2" = checkpoints ] && active_slot $SLOT_CKP
+  if [ "$2" = hint ]; then hint_icon white; else hint_icon "${3:-black}"; fi
   if [ "$2" = checkpoints ]; then bookmark_icon white; else bookmark_icon "${3:-black}"; fi
   colors_icon $([ "$2" = colors ] && echo active); gear_icon $([ "$2" = settings ] && echo active)
-  undo_redo $1; plus_icon $([ "$2" = plus ] && echo active)
+  undo_redo $1 $4; plus_icon $([ "$2" = plus ] && echo active)
 }
 
 # switch X1 CY ON : a switch of the Settings panel with its right end at X1 (track 72x36, knob of 28 px)
@@ -127,8 +155,8 @@ LINE_GRAYS="None:white 90:gray90 80:gray80 70:gray70 60:gray60 55:gray55 50:gray
 # NAME:COLOR pairs. A black box shows the selected item. The colors of the other sections (TAKEN) are not
 # available: gray ring, a line through the dot, gray name. White is always available, so all sections can use it.
 color_section() {
-  left=$((PL+$1*CM_COL)); top=$((CM_TOP+$2*CM_ROW)); title=$3; items=$4; sel=$5; shift 5; taken=" $* "
-  [ $top -gt $CM_TOP ] && echo "stroke none fill black rectangle $left,$top $((left+CM_COL-1)),$((top+1))" >> $M
+  left=$((PL+$1*CM_COL)); top=$((CM_Y+$2*CM_ROW)); title=$3; items=$4; sel=$5; shift 5; taken=" $* "
+  [ $top -gt $CM_Y ] && echo "stroke none fill black rectangle $left,$top $((left+CM_COL-1)),$((top+1))" >> $M
   label $((left+33)) $((top+46)) start black "$title"
   i=0
   for c in $items; do
@@ -192,13 +220,15 @@ PL=$SET_PL; TX=$((PL+33)); TR=$((PR-32))
 # section is plain white, with no line.
 # color_menu BASE OUTFILE LINE : the panel with the micro-cell line gray LINE selected, on BASE
 # cm_panel ROWS LINE : the MVG of the panel with ROWS section rows (3, or 2 with three columns) and the micro-cell line
-# gray LINE selected, at the left edge PL and the right edge PR. Section i is in column i / ROWS and row i % ROWS.
+# gray LINE selected, at the left edge PL, the right edge PR and the top CM_Y. Section i is in column i / ROWS and row
+# i % ROWS.
+CM_Y=$CM_TOP
 cm_panel() {
   rows=$1; cols=$((6/rows))
   cm_at() { echo "$(($1/rows)) $(($1%rows))"; }
-  panel $CM_TOP $((CM_TOP+rows*CM_ROW))
+  panel $CM_Y $((CM_Y+rows*CM_ROW))
   k=1; while [ $k -lt $cols ]; do
-    echo "stroke none fill black rectangle $((PL+k*CM_COL)),$CM_TOP $((PL+k*CM_COL+1)),$((CM_TOP+rows*CM_ROW))" >> $M; k=$((k+1))
+    echo "stroke none fill black rectangle $((PL+k*CM_COL)),$CM_Y $((PL+k*CM_COL+1)),$((CM_Y+rows*CM_ROW))" >> $M; k=$((k+1))
   done
   color_section $(cm_at 0) "Starting numbers" "$COLORS" "$STARTING_BG" "$CLASH_BG" "$HIGHLIGHT_BG" "$COMPLETED_BG"
   color_section $(cm_at 1) "Clashing numbers" "$COLORS" "$CLASH_BG" "$STARTING_BG" "$HIGHLIGHT_BG" "$COMPLETED_BG"
@@ -228,7 +258,7 @@ done
 # then "Third-party licenses" with a › 45 px from the right edge (REQUIREMENTS.md §9.4).
 # A stable build has a sixth row for updates (BOTTOM SET_BOTTOM_STABLE, REQUIREMENTS.md §9.2).
 settings_panel() {
-  r0=$SET_ROW0; r1=$((SET_ROW0+SET_STEP)); r2=$((SET_ROW0+2*SET_STEP))   # the tops of the switch rows (y 226, 340, 454)
+  r0=$SET_ROW0; r1=$((SET_ROW0+SET_STEP)); r2=$((SET_ROW0+2*SET_STEP))   # the tops of the switch rows (y 338, 452, 566)
   panel $SET_TOP $2; divider $((r1-2)); divider $((r2-2)); divider $((r2+SET_STEP-2))
   label $TX $((r0+65)) start black "Highlight numbers"; switch $((PR-33)) $((r0+56)) on
   label $TX $((r1+49)) start black "Hide pencil marks"; label $TX $((r1+81)) start black "automatically"; switch $((PR-33)) $((r1+56)) on
@@ -245,10 +275,10 @@ settings_panel() {
 gray_text() { echo "stroke none fill $TEXT_GRAY font '$DIGIT_FONT' font-size $UI_SIZE text-anchor $1 text $2,$3 '$4'" >> $M; }
 regular_text() { echo "stroke none fill black font '$DIGIT_FONT' font-size $UI_SIZE text-anchor $1 text $2,$3 '$4'" >> $M; }
 
-# caution : the red caution icon at the top right of the gear (slot 2): its center is 16 px to the right of
+# caution : the red caution icon at the top right of the gear (slot 3): its center is 16 px to the right of
 # and 16 px above the center of the gear. A red circle with a white border and a white "!".
 caution() {
-  x=$(awk -v c=$TB_CX 'BEGIN{ printf "%.1f", c+16 }'); y=$(awk -v c=$(tb_cy 2) 'BEGIN{ printf "%.1f", c-16 }')
+  x=$(awk -v c=$TB_CX 'BEGIN{ printf "%.1f", c+16 }'); y=$(awk -v c=$(tb_cy $SLOT_SETTINGS) 'BEGIN{ printf "%.1f", c-16 }')
   awk -v x=$x -v y=$y 'BEGIN{
     printf "fill #D62D20 stroke white stroke-width 3 circle %.1f,%.1f %.1f,%.1f\n", x, y, x+10, y
     printf "fill none stroke white stroke-width 3 stroke-linecap round line %.1f,%.1f %.1f,%.1f\n", x, y-6, x, y+1.5
@@ -314,7 +344,7 @@ settings_panel v0.1.0 $SET_BOTTOM_STABLE; update_button "Restart interface" rest
 toolbar black settings; caution
 compose screen-in-progress.png settings-restart.png
 
-# --- complete puzzle: the board is locked, so undo, redo and the Checkpoints panel are not available
+# --- complete puzzle: the board is locked, so the hint, undo, redo and the Checkpoints panel are not available
 toolbar gray70 "" gray70
 compose screen-completed.png screen-completed-menu.png
 
@@ -372,11 +402,13 @@ PL=$SET_PL
 # the close button to the top right. The menu icon is a mirror image. The other icons and the panel contents
 # do not change. All moves are full pixels.
 # right_handed SOURCE OUTFILE CROP X Y : the crop of the panel of SOURCE goes to X,Y.
+# BOARD_BASE is the image with the board of SOURCE and no menu (also for landscape).
+BOARD_BASE=screen-in-progress.png
 right_handed() {
   # $6 $7 $8: the source, the crop and the place of the toolbar column (refer to compose)
   if [ $BOARD_UNDER_TB = 1 ]; then set -- "$@" "$OUT/.tb-$1" ${TB_W}x$((PHYS_H-TB_W))+$TB_X+$TB_W +0+$TB_W
   else set -- "$@" "$OUT/$1" ${TB_W}x$PHYS_H+$TB_X+0 +0+0; fi
-  magick "$OUT/screen-in-progress.png" \( "$6" -crop $7 +repage \) -geometry $8 -composite \
+  magick "$OUT/$BOARD_BASE" \( "$6" -crop $7 +repage \) -geometry $8 -composite \
     \( "$OUT/$1" -crop ${TB_W}x$TB_W+$TB_X+0 +repage -flop \) -geometry +0+0 -composite \
     \( "$OUT/$1" -crop ${TB_W}x$TB_W+0+0 +repage \) -geometry +$TB_X+0 -composite \
     \( "$OUT/$1" -crop $3 +repage \) -geometry +$4+$5 -composite \
@@ -385,7 +417,9 @@ right_handed() {
 # --- A panel image in landscape (REQUIREMENTS.md §3.3). The items do not change. They move by full pixels: the
 # board and the meter to the center of the landscape screen, the toolbar to the right edge with its bottom slots
 # at the bottom edge, and the panel to its position, where it covers the right part of the board.
-TB_TOP_H=$((6*TB_W)); TB_LOW_Y=$((TB_BOTTOM_Y-2*TB_W))
+# Each toolbar slot moves as one crop: slot K of the top group to K * LS_SLOT, and the slots of the bottom group to
+# the bottom edge. A slot is LS_SLOT px high in landscape (ui-lib.sh: 95 px on the Move, where the last pixel row of
+# each slot goes away; the icons do not change).
 # The board area of the portrait image that moves (x 130-1489): 18 px around the board, and in screen-in-progress.png
 # also the meter below the board (to y 1839). The other pixels of the landscape image are white.
 BOARD_CROP_X=$((X0-12)); BOARD_CROP_Y=$((Y0-12)); BOARD_CROP_W=$((BOARD+24))
@@ -393,38 +427,100 @@ BOARD_CROP_H_METER=$((BOARD+111)); BOARD_CROP_H=$((BOARD+24))
 # landscape SOURCE OUTFILE CROP X Y : the crop of the panel of SOURCE goes to X,Y.
 landscape() {
   tb="$OUT/$1"; [ $BOARD_UNDER_TB = 1 ] && tb="$OUT/.tb-$1"
-  magick -size ${LS_W}x${LS_H} xc:white \
-    \( "$OUT/screen-in-progress.png" -crop ${BOARD_CROP_W}x$BOARD_CROP_H_METER+$BOARD_CROP_X+$BOARD_CROP_Y +repage \) -geometry +$((BOARD_CROP_X+LS_DX))+$((BOARD_CROP_Y+LS_DY)) -composite \
-    \( "$OUT/$1" -crop ${TB_W}x$TB_W+0+0 +repage \) -geometry +0+0 -composite \
-    \( "$tb" -crop ${TB_W}x$TB_TOP_H+$TB_X+0 +repage \) -geometry +$LS_TB_X+0 -composite \
-    \( "$tb" -crop ${TB_W}x$((PHYS_H-TB_LOW_Y))+$TB_X+$TB_LOW_Y +repage \) -geometry +$LS_TB_X+$((TB_LOW_Y+LS_BOTTOM_DY)) -composite \
-    \( "$OUT/$1" -crop $3 +repage \) -geometry +$4+$5 -composite \
-    -units PixelsPerInch -density $DPI "$OUT/$2"
+  ls_src=$1; ls_out=$2; ls_crop=$3; ls_x=$4; ls_y=$5
+  set -- -size ${LS_W}x${LS_H} xc:white \
+    \( "$OUT/$BOARD_BASE" -crop ${BOARD_CROP_W}x$BOARD_CROP_H_METER+$BOARD_CROP_X+$BOARD_CROP_Y +repage \) -geometry +$((BOARD_CROP_X+LS_DX))+$((BOARD_CROP_Y+LS_DY)) -composite \
+    \( "$OUT/$ls_src" -crop ${TB_W}x$TB_W+0+0 +repage \) -geometry +0+0 -composite
+  k=0; while [ $k -lt $TOP_SLOTS ]; do
+    set -- "$@" \( "$tb" -crop ${TB_W}x$LS_SLOT+$TB_X+$(slot_y $k) +repage \) -geometry +$LS_TB_X+$(ls_slot_y $k) -composite; k=$((k+1))
+  done
+  for k in help statistics new; do
+    set -- "$@" \( "$tb" -crop ${TB_W}x$LS_SLOT+$TB_X+$(slot_y $k) +repage \) -geometry +$LS_TB_X+$(ls_slot_y $k) -composite
+  done
+  magick "$@" \( "$OUT/$ls_src" -crop $ls_crop +repage \) -geometry +$ls_x+$ls_y -composite \
+    -units PixelsPerInch -density $DPI "$OUT/$ls_out"
 }
 CM_CROP=${CM_W}x$((CM_BOTTOM-CM_TOP+1))+$CM_PL+$CM_TOP   # the full panel, with its bottom line
 right_handed color-menu.png color-menu-right-handed.png $CM_CROP $CM_PL_RIGHT $CM_TOP
 if [ $CM_ROWS_LANDSCAPE = $CM_ROWS ]; then
-  landscape color-menu.png color-menu-landscape.png $CM_CROP $CM_PL_LANDSCAPE $CM_TOP
+  landscape color-menu.png color-menu-landscape.png $CM_CROP $CM_PL_LANDSCAPE $CM_TOP_LANDSCAPE
 else
   # The panel has a different shape in landscape (the Move): the landscape screen of color-menu.png with no panel (the
   # crop of the close button goes to its own place), then the panel drawn in landscape coordinates.
   landscape color-menu.png .cm-landscape.png ${TB_W}x$TB_W+0+0 0 0
-  PL=$CM_PL_LANDSCAPE; PR=$((LS_TB_X-1))
+  PL=$CM_PL_LANDSCAPE; PR=$((LS_TB_X-1)); CM_Y=$CM_TOP_LANDSCAPE
   cm_panel $CM_ROWS_LANDSCAPE gray90
   magick "$OUT/.cm-landscape.png" -draw @$M -units PixelsPerInch -density $DPI "$OUT/color-menu-landscape.png"
-  rm -f "$OUT/.cm-landscape.png"; : > $M; PL=$SET_PL; PR=$SET_PR
+  rm -f "$OUT/.cm-landscape.png"; : > $M; PL=$SET_PL; PR=$SET_PR; CM_Y=$CM_TOP
 fi
 CKP_CROP=${CKP_W}x$((CKP_ROW0+3*CKP_STEP-CKP_TOP+1))+$CKP_PL+$CKP_TOP   # the panel of checkpoints-menu.png (three rows)
 right_handed checkpoints-menu.png checkpoints-menu-right-handed.png $CKP_CROP $CKP_PL_RIGHT $CKP_TOP
 landscape checkpoints-menu.png checkpoints-menu-landscape.png $CKP_CROP $CKP_PL_LANDSCAPE $CKP_TOP_LANDSCAPE
 
+# --- the Hint panel (REQUIREMENTS.md, the Hint panel section). It has the construction of the Checkpoints panel: a
+# frame of 2 px, the row "Reveal one number" with the lightbulb, a black line of 2 px, then a box with text (ui-lib.sh
+# HINT_*).
+# hint_panel TOP INSET STATE COUNT : the panel at the left edge PL and the right edge PR. STATE: "available" (the row is
+# black, the box shows the hint count COUNT in Regular, gray25), "incorrect" or "clash" (the row is gray70, the box
+# shows a heading in Medium, black, and one line in Regular 25, gray25).
+hint_panel() {
+  ht=$1; hx=$((PL+$2)); hb=$((ht+PANEL_ROW+2)); hc=black; hh=$HINT_H
+  [ $3 = available ] || { hc=gray70; hh=$HINT_H_2; }
+  panel $ht $((ht+hh-1)); divider $((ht+PANEL_ROW))
+  lightbulb $((hx+HINT_ICON_DX)) $((ht+HINT_ICON_DY)) $hc >> $M
+  ckp_text "$UI_FONT" 28 $hc start $((hx+HINT_TEXT_DX)) $((ht+HINT_ROW_BASE)) "Reveal one number"
+  case $3 in
+    available) ckp_text "$DIGIT_FONT" 28 $TEXT_GRAY start $hx $((hb+HINT_BOX_BASE)) "$(hints_text $4)" ;;
+    incorrect) ckp_text "$UI_FONT" 28 black start $hx $((hb+HINT_BOX_BASE)) "Incorrect number revealed"
+               ckp_text "$DIGIT_FONT" $UI_SIZE $TEXT_GRAY start $hx $((hb+HINT_BOX_BASE+HINT_BOX_LINE)) "Erase it to continue." ;;
+    clash)     ckp_text "$UI_FONT" 28 black start $hx $((hb+HINT_BOX_BASE)) "Numbers clash"
+               ckp_text "$DIGIT_FONT" $UI_SIZE $TEXT_GRAY start $hx $((hb+HINT_BOX_BASE+HINT_BOX_LINE)) "Erase one to continue." ;;
+  esac
+}
+# hint_board MODE OUTFILE : the board of board-state.py MODE, menu closed (a temporary image)
+hint_board() {
+  python3 -I "$UI_DIR/board-state.py" $1 > $M
+  magick "$OUT/screen.png" -draw @$M -units PixelsPerInch -density $DPI "$OUT/$2"; : > $M
+}
+# hint_menu BASE OUTFILE STATE COUNT [REDO] : the panel in portrait on BASE, with the count on the button
+hint_menu() {
+  PL=$HINT_PL; HINT_COUNT=$4
+  hint_panel $HINT_TOP $HINT_INSET $3 $4
+  PL=$SET_PL
+  toolbar black hint black $5
+  compose "$1" "$2"; HINT_COUNT=0
+}
+# The game in progress with no clash (the state before the mistake): a hint is available.
+hint_board hint .hint.png
+hint_menu .hint.png hint-menu.png available 0
+# After two reveals: the two numbers have the highlight color, and the button shows the count. A reveal makes the redo
+# history empty, thus redo is gray.
+hint_board hint-revealed .hint-revealed.png
+hint_menu .hint-revealed.png hint-menu-revealed.png available 2 gray70
+# After a request on a board with an incorrect number that does not clash: the number has the clash color.
+hint_board hint-incorrect .hint-incorrect.png
+hint_menu .hint-incorrect.png hint-menu-incorrect.png incorrect 0
+# The game in progress has a clash: no hint is available.
+hint_menu screen-in-progress.png hint-menu-clash.png clash 0
+# hint-menu.png for a right-handed player, and in landscape. The panel has a different width in landscape: the
+# landscape screen of hint-menu.png with no panel (the crop of the close button goes to its own place), then the panel
+# drawn in landscape coordinates.
+BOARD_BASE=.hint.png
+right_handed hint-menu.png hint-menu-right-handed.png ${HINT_W}x$HINT_H+$HINT_PL+$HINT_TOP $HINT_PL_RIGHT $HINT_TOP
+landscape hint-menu.png .hint-landscape.png ${TB_W}x$TB_W+0+0 0 0
+PL=$HINT_PL_LANDSCAPE; PR=$((LS_TB_X-1))
+hint_panel $HINT_TOP_LANDSCAPE $HINT_INSET_LANDSCAPE available 0
+magick "$OUT/.hint-landscape.png" -draw @$M -units PixelsPerInch -density $DPI "$OUT/hint-menu-landscape.png"
+: > $M; PL=$SET_PL; PR=$SET_PR; BOARD_BASE=screen-in-progress.png
+rm -f "$OUT"/.hint.png "$OUT"/.hint-revealed.png "$OUT"/.hint-incorrect.png "$OUT"/.hint-landscape.png
+
 # --- The complete puzzle in landscape, menu closed (REQUIREMENTS.md §3.3, §8.3). The board and the menu button move by
 # full pixels from screen-completed.png. The result card is a column at the side opposite the toolbar: at the left
 # for a left-handed player, at the right for a right-handed player (the toolbar and the menu button at the left, the
 # menu icon is a mirror image). The contents of the column are the same for the two hands.
-# completed_landscape left|right OUTFILE
+# completed_landscape left|right OUTFILE [HINTS] : with HINTS, the card shows that hint count (ui-lib.sh CARD_HINTS)
 completed_landscape() {
-  result_card $1 $LEVEL > $M
+  CARD_HINTS=${3:-0}; result_card $1 $LEVEL > $M; CARD_HINTS=0
   if [ $1 = right ]; then mb="-flop"; mx=0; else mb=""; mx=$LS_TB_X; fi
   magick -size ${LS_W}x${LS_H} xc:white \
     \( "$OUT/screen-completed.png" -crop ${BOARD_CROP_W}x$BOARD_CROP_H+$BOARD_CROP_X+$BOARD_CROP_Y +repage \) -geometry +$((BOARD_CROP_X+LS_DX))+$((BOARD_CROP_Y+LS_DY)) -composite \
@@ -433,4 +529,6 @@ completed_landscape() {
 }
 completed_landscape left screen-completed-landscape.png
 completed_landscape right screen-completed-landscape-right-handed.png
+completed_landscape left screen-completed-hints-landscape.png $CARD_HINTS_SAMPLE
+completed_landscape right screen-completed-hints-landscape-right-handed.png $CARD_HINTS_SAMPLE
 rm -f $M "$OUT"/.tb-*.png

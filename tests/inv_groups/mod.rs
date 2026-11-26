@@ -82,15 +82,23 @@ pub fn palette_rgb(color: Color) -> [u8; 3] {
     }
 }
 
-/// BRD-7: the background of a cell. The first item that applies: clash, highlight, completed, starting
-/// number, white. An empty cell is white.
+/// BRD-7: the background of a cell with no hint state. The first item that applies: clash, highlight,
+/// completed, starting number, white. An empty cell is white.
 pub fn background(s: &Settings, g: &Game, highlight: Option<u8>, cell: Cell) -> [u8; 3] {
+    background_with_hints(s, g, highlight, &[], None, cell)
+}
+
+/// BRD-7, HNT-7, HNT-8: the background of a cell. The first item that applies: the clash color for a
+/// clashing cell and for the cell of `incorrect_shown`; the highlight color for a cell with the
+/// value `highlight` and for a cell of `revealed` (also with the switch off); the completed color;
+/// the starting color; white. An empty cell is white.
+pub fn background_with_hints(s: &Settings, g: &Game, highlight: Option<u8>, revealed: &[Cell], incorrect_shown: Option<Cell>, cell: Cell) -> [u8; 3] {
     let v = g.value[cell.0 as usize][cell.1 as usize];
     if v == 0 {
         palette_rgb(Color::White)
-    } else if clashing(&g.value, cell) {
+    } else if clashing(&g.value, cell) || incorrect_shown == Some(cell) {
         palette_rgb(s.color_clash)
-    } else if highlight == Some(v) {
+    } else if highlight == Some(v) || revealed.contains(&cell) {
         palette_rgb(s.color_highlight)
     } else if shows_completed(s, g, cell) {
         palette_rgb(s.color_completed)
@@ -102,11 +110,14 @@ pub fn background(s: &Settings, g: &Game, highlight: Option<u8>, cell: Cell) -> 
 }
 
 /// BRD-7: the first cell where the drawn background is not the background of the model. The point is
-/// away from the digit, the marks and the x, and inside the board lines.
+/// away from the digit, the marks and the x, and inside the board lines. The model gets the revealed
+/// cells and the revealed incorrect number of the app (HNT-7, HNT-8).
 pub fn board_color_error(pm: &Pixmap, app: &App) -> Option<String> {
+    let revealed: Vec<Cell> = app.ui.revealed.iter().collect();
+    let incorrect = app.game.incorrect_shown.map(|i| i.cell);
     (0..9u8).flat_map(|r| (0..9u8).map(move |c| (r, c))).find_map(|cell| {
         let (x, y) = layout::cell_origin(cell);
-        let (got, want) = (rgb_at(pm, x + 8, y + 8), background(&app.settings, &app.game, app.ui.highlight, cell));
+        let (got, want) = (rgb_at(pm, x + 8, y + 8), background_with_hints(&app.settings, &app.game, app.ui.highlight, &revealed, incorrect, cell));
         (got != want).then(|| format!("BRD-7: the cell {cell:?} (value {}) has the background {got:?}, not {want:?}", app.game.value[cell.0 as usize][cell.1 as usize]))
     })
 }

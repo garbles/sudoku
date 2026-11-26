@@ -27,6 +27,7 @@ paper, and it does the work that paper cannot do.
 - **Highlight on tap**: Tap a number to highlight them all.
 - **See completed groups**: Highlight your progress in each row, column and box.
 - **Checkpoints**: Use the Nishio strategy without having to manually undo your failed attempt.
+- **Hints**: Reveal numbers when you get stuck.
 
 **Puzzles**
 
@@ -36,7 +37,7 @@ paper, and it does the work that paper cannot do.
 
 **Other**
 
-- **Statistics**: Follow your times and your completed games.
+- **Statistics**: Follow your times, the hints that you used and your completed games.
 - **Portrait and landscape mode**: Hold your reMarkable in any way you like.
 - **Autosave**: Game saves after every move.
 - **Updates**: Install application updates with one tap.

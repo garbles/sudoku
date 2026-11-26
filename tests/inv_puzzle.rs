@@ -1,5 +1,6 @@
 //! Tests for the rules of INVARIANTS.md about the puzzle (§1: the symmetry PUZ-5 to PUZ-9, the generator
-//! versions and the solver of version 3 PUZ-10 to PUZ-13), the cells (§2) and the clashes (§4).
+//! versions and the solver of version 3 PUZ-10 to PUZ-13), the cells (§2), the clashes (§4) and the cell
+//! of a reveal (HNT-4 to HNT-6).
 //! Each test gives the rules that it examines. `invariants::check_app` runs only in debug builds, thus
 //! these tests assert the rules directly. They also pass with `cargo test --release`.
 
@@ -1183,4 +1184,97 @@ fn each_new_game_has_the_current_version_and_a_saved_game_keeps_its_version() {
         assert_eq!((givens_of(g), g.solution), (p.givens, p.solution), "PUZ-7: {what}");
     }
     std::fs::remove_dir_all(&dir).ok();
+}
+
+// ---- HNT-4, HNT-5, HNT-6: the reveal is a function of the board.
+
+/// The candidates of an empty cell: the digits that no peer has (INVARIANTS.md HNT-5), from the board.
+fn model_candidates(value: &Grid, (r, c): Cell) -> u32 {
+    let peer: Vec<u8> = cells()
+        .filter(|&(pr, pc)| (pr, pc) != (r, c) && (pr == r || pc == c || (pr / 3 == r / 3 && pc / 3 == c / 3)))
+        .map(|(pr, pc)| value[pr as usize][pc as usize])
+        .collect();
+    (1..=9u8).filter(|d| !peer.contains(d)).count() as u32
+}
+
+#[test]
+fn reveals_complete_each_puzzle_with_the_solution_and_do_not_depend_on_other_values() {
+    // HNT-4, HNT-5, HNT-6, CMP-1: from the start of a puzzle of each mode and of the generator versions
+    // 2 and 3, the reveals fill one empty cell at a time with its solution, until the puzzle is
+    // complete. Each reveal adds 1 to `hints` and one item to `undo`. The cell is a function of `value`
+    // only: a copy with other marks, stacks, count, clock and checkpoints, and a copy on other threads,
+    // give the same cell.
+    for version in [2u8, 3] {
+        for mode in 0..MODES {
+            let seed = 9_000 + mode as u64 + 100 * version as u64;
+            let mut g = game_of_version(Version::from_number(version).unwrap(), seed, mode, version == 3 && mode % 2 == 0);
+            let empty = cells().filter(|&c| !g.is_filled(c)).count() as u32;
+            for i in 0..empty {
+                let what = format!("version {version}, mode {mode}, reveal {i}");
+                let before = g.clone();
+                let expected = before.reveal_cell().unwrap_or_else(|| panic!("HNT-5: {what}: no cell"));
+                let other = Game { marks: before.marks.map(|row| row.map(|m| m ^ 0b1_0101_0100)), undo: Vec::new(), redo: Vec::new(), hints: 77, elapsed_ms: 5, checkpoints: Vec::new(), ..before.clone() };
+                assert_eq!(other.reveal_cell(), Some(expected), "HNT-5: {what}: other values");
+                let threads: Vec<Option<Cell>> = std::thread::scope(|s| {
+                    let hs: Vec<_> = (0..4).map(|_| s.spawn(|| before.reveal_cell())).collect();
+                    hs.into_iter().map(|h| h.join().unwrap()).collect()
+                });
+                assert!(threads.iter().all(|&c| c == Some(expected)), "HNT-5: {what}: threads {threads:?}");
+                let hint = g.request_hint();
+                let (r, c) = expected;
+                assert!(matches!(hint, sudoku::game::Hint::Revealed(cell, _) if cell == expected), "HNT-4: {what}: {hint:?}");
+                assert_eq!(before.value_at(expected), 0, "HNT-4: {what}: the cell was empty");
+                assert_eq!(g.value_at(expected), g.solution[r as usize][c as usize], "HNT-4, HNT-5: {what}: the solution");
+                assert_eq!(cells().filter(|&p| g.value_at(p) != before.value_at(p)).count(), 1, "HNT-4: {what}: one cell");
+                assert_eq!((g.hints, g.undo.len(), g.redo.len()), (before.hints + 1, before.undo.len() + 1, 0), "HNT-4, HNT-6: {what}");
+                assert_eq!(g.marks, before.marks, "HNT-4: {what}: the marks");
+                assert!(!cells().any(|p| g.is_clashing(p)), "HNT-4, CLS-1: {what}");
+                check_game(&g).unwrap_or_else(|e| panic!("{what}: {e}"));
+                assert_eq!(g.completed, i + 1 == empty, "CMP-1: {what}");
+            }
+            assert_eq!(g.value, g.solution, "HNT-4: version {version}, mode {mode}");
+            assert_eq!(g.request_hint(), sudoku::game::Hint::NotAvailable, "HNT-1: no request on a complete game");
+            assert_eq!(g.hints, empty, "HNT-6");
+        }
+    }
+}
+
+#[test]
+fn the_reveal_uses_the_solver_first_and_else_the_cell_with_the_fewest_candidates() {
+    // HNT-5: with no number that the solver can put, the cell is an empty cell with the fewest
+    // candidates (the digits that no peer has). The result is a function of the numbers only, also on
+    // other threads. A board with no empty cell has no reveal.
+    let solution = digits(&SOLUTION);
+    let mut fallbacks = 0;
+    let mut state = 12_345u64;
+    for k in 0..400usize {
+        // The solution with some cells kept: few numbers, thus the solver often can put none.
+        let keep = k % 30;
+        let mut value = [[0u8; 9]; 9];
+        for _ in 0..keep {
+            state = state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            let i = (state >> 33) as usize % 81;
+            value[i / 9][i % 9] = solution[i / 9][i % 9];
+        }
+        let got = sudoku::solver::next_number(&value).expect("HNT-5: an empty cell");
+        let again = std::thread::scope(|s| s.spawn(|| sudoku::solver::next_number(&value)).join().unwrap());
+        assert_eq!(Some(got), again, "HNT-5: the same board gives the same cell");
+        let ((r, c), digit) = got;
+        assert_eq!(value[r as usize][c as usize], 0, "HNT-5: the cell {:?} is not empty", (r, c));
+        if digit == 0 {
+            // The fallback: the fewest candidates.
+            fallbacks += 1;
+            let min = cells().filter(|&p| value[p.0 as usize][p.1 as usize] == 0).map(|p| model_candidates(&value, p)).min().unwrap();
+            assert_eq!(model_candidates(&value, (r, c)), min, "HNT-5: {:?} has not the fewest candidates", (r, c));
+        } else {
+            // A number of the solver agrees with the solution of the board (all its numbers are
+            // correct, thus each digit that logic puts is correct).
+            assert_eq!(digit, solution[r as usize][c as usize], "HNT-5: the solver put {digit} at {:?}", (r, c));
+        }
+    }
+    assert!(fallbacks > 0, "HNT-5: no board without a number of the solver");
+    // HNT-5 gives no order for two cells with the same quantity of candidates: on an empty board
+    // each cell is correct.
+    assert!(sudoku::solver::next_number(&[[0; 9]; 9]).is_some(), "HNT-5: an empty board has a cell");
+    assert_eq!(sudoku::solver::next_number(&solution), None, "HNT-5: a full board has no reveal");
 }

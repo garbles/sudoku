@@ -1,6 +1,6 @@
 //! Tests for the rules of INVARIANTS.md about the result card of a complete puzzle and the darker
 //! secondary gray: CMP-4, CMP-6 to CMP-10, CLK-4, DIF-5 to DIF-8, NAV-9, NAV-19, QST-5, PUZ-7 and
-//! PUZ-8. The values come from INVARIANTS.md and REQUIREMENTS.md §8.3 and §15, not from the code. Each test makes
+//! PUZ-8, and the hint counts of the card and of the lightbulb (HNT-10, HNT-13). The values come from INVARIANTS.md and REQUIREMENTS.md §8.3 and §15, not from the code. Each test makes
 //! the state where the rule can break and examines the state or the pixels.
 
 mod common;
@@ -166,7 +166,7 @@ fn complete_sym(seed: u64, mode: u8, symmetric: bool, seconds: u64) -> Game {
 }
 
 fn row(mode: u8, seconds: u64, seed: u64) -> ResultRow {
-    ResultRow { id: seed as i64 + 1, finished_at: 1_700_000_000 + seed as i64, mode, givens: 30, seconds, seed, symmetric: false }
+    ResultRow { id: seed as i64 + 1, finished_at: 1_700_000_000 + seed as i64, mode, givens: 30, seconds, seed, symmetric: false, hints: 0 }
 }
 
 /// An app that shows the complete game `g` with the menu closed and the results `results`.
@@ -953,7 +953,7 @@ fn the_page_number_is_gray25() {
     let mut d = Driver::new(31);
     d.button(Button::Menu);
     d.button(Button::Settings);
-    let (x, y) = pixel_center(layout::settings_row(layout::LICENSES_ROW));
+    let (x, y) = pixel_center(layout::settings_row(layout::LICENSES_ROW, d.app.update.has_row()));
     d.finger_tap(x, y);
     assert_eq!(d.app.screen, Screen::Licenses);
     let pm = draw_app(&d.app, &fonts);
@@ -965,6 +965,157 @@ fn the_page_number_is_gray25() {
         for x in area.x0..area.x1 {
             let p = rgb_at(&pm, x, y);
             assert!(p == WHITE || p == GRAY25, "NAV-19, NAV-20: the pixel ({x}, {y}) of the page number is {p:?}");
+        }
+    }
+}
+
+// ---- HNT-13, CMP-8: the hint count on the result card. HNT-10: the count on the lightbulb.
+
+/// The bounding box of a set of pixels (x1 and y1 not included).
+fn bounds(points: &[(i32, i32)]) -> Rect {
+    let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+    for &(x, y) in points {
+        x0 = x0.min(x);
+        y0 = y0.min(y);
+        x1 = x1.max(x + 1);
+        y1 = y1.max(y + 1);
+    }
+    Rect::new(x0, y0, x1, y1)
+}
+
+/// The documented position of "N hints used" (HNT-13) on the Paper Pro: the x of its anchor, the
+/// anchor and the baseline.
+fn documented_hints_text(o: Orientation, right_handed: bool) -> (f32, Anchor, f32) {
+    match (o, right_handed) {
+        (Orientation::Portrait, _) => (725.0, Anchor::End, 1879.0),
+        (Orientation::Landscape, false) => (76.0, Anchor::Start, 440.0),
+        (Orientation::Landscape, true) => (1818.0, Anchor::Start, 440.0),
+    }
+}
+
+#[test]
+fn the_card_shows_the_hint_count_only_with_hints() {
+    // HNT-13, CMP-7, CMP-8, NAV-19: with `hints ≥ 1` the card shows "N hints used" ("1 hint used"),
+    // Regular 30, gray25, at the documented position of each layout. It changes no other pixel of the
+    // screen: no other item moves, and the frame does not change. With `hints = 0` the card has no
+    // such text (the pixels of the text area are white).
+    let fonts = fonts();
+    let g = reference_complete();
+    for (o, rh) in LAYOUTS {
+        let _l = InLayout::set(o, rh);
+        for menu in [Menu::Closed, Menu::Open(None)] {
+            let mut zero = card_app(Game { hints: 0, ..g.clone() }, vec![row(g.mode, 500, 1)]);
+            zero.ui.menu = menu;
+            let p0 = draw_app(&zero, &fonts);
+            let (x, anchor, base) = documented_hints_text(o, rh);
+            for hints in [1u32, 2, 9, 81, 100, 12_345] {
+                let what = format!("{o:?}, right-handed {rh}, {menu:?}, {hints} hints");
+                let mut app = card_app(Game { hints, ..g.clone() }, vec![row(g.mode, 500, 1)]);
+                app.ui.menu = menu;
+                let pm = draw_app(&app, &fonts);
+                let text = if hints == 1 { "1 hint used".to_string() } else { format!("{hints} hints used") };
+                let want = texts_only(&fonts, &[(Weight::Regular, 30.0, x, base, anchor, &text, GRAY25)]);
+                let drawn = bounds(&differences(&want, &texts_only(&fonts, &[])));
+                // With the menu open, the lightbulb also shows the count (HNT-10, gray 70 on a complete
+                // game): thus only the pixels outside the toolbar count here.
+                let tb = Rect::new(layout::tb_x(), 0, layout::tb_x() + layout::tb_slot(), layout::screen_h() as i32);
+                let changed: Vec<(i32, i32)> = differences(&p0, &pm).into_iter().filter(|&p| !inside(tb, p)).collect();
+                assert!(!changed.is_empty(), "HNT-13: {what}: no text");
+                let area = Rect::new(drawn.x0 - 1, drawn.y0 - 1, drawn.x1 + 1, drawn.y1 + 1);
+                for &p in &changed {
+                    assert!(inside(area, p), "HNT-13, CMP-7: {what}: the pixel {p:?} changed, outside the text {area:?}");
+                }
+                assert!(all_white(&p0, area), "HNT-13: {what}: with 0 hints the area of the text is not white");
+                assert_eq!(first_difference(&pm, &want, area), None, "HNT-13, NAV-19: {what}: not \"{text}\", Regular 30, gray25");
+                // The text is inside the frame of the card.
+                let (cx0, cy0, cx1, cy1) = documented_card(o, rh);
+                assert!(area.x0 > cx0 + 2 && area.x1 < cx1 - 1 && area.y0 > cy0 + 2 && area.y1 < cy1 - 1, "HNT-13: {what}: the text is not inside the card");
+            }
+        }
+    }
+}
+
+#[test]
+fn the_hints_of_a_result_do_not_change_the_comparison() {
+    // CMP-8, ANA-4: a result with `hints > 0` is in `earlier_results` as each other result: the hint
+    // counts do not change "Average" or "Previous best".
+    let g = reference_complete();
+    let (mode, seed) = (g.mode, g.seed);
+    let rows = vec![row(mode, 100, 7), row(mode, 200, 8), row(mode, 30, seed), row((mode + 1) % MODES, 10, 9)];
+    let plain = card_app(g.clone(), rows.clone()).card_comparison();
+    assert_eq!(plain, Comparison::Earlier { average: 150, best: 100 });
+    for hints in [1u64, 5, 81, 82, 1000, u64::from(u32::MAX)] {
+        let with: Vec<ResultRow> = rows.iter().enumerate().map(|(i, r)| ResultRow { hints: hints * (i as u64 % 2), ..r.clone() }).collect();
+        assert_eq!(card_app(g.clone(), with.clone()).card_comparison(), plain, "CMP-8: {hints}");
+        let all: Vec<ResultRow> = rows.iter().map(|r| ResultRow { hints, ..r.clone() }).collect();
+        assert_eq!(card_app(g.clone(), all).card_comparison(), plain, "CMP-8: {hints} in each row");
+    }
+    // The hint count of the complete game does not change the comparison.
+    assert_eq!(card_app(Game { hints: 40, ..g.clone() }, rows).card_comparison(), plain, "CMP-8");
+}
+
+/// The slot of the lightbulb on the Paper Pro (HNT-1): top slot 1, y 112–223, at the toolbar.
+fn lightbulb_slot() -> Rect {
+    Rect::new(layout::tb_x(), 112, layout::tb_x() + layout::tb_slot(), 224)
+}
+
+#[test]
+fn the_lightbulb_shows_the_count_only_with_the_open_menu_and_hints() {
+    // HNT-10, HNT-1, NAV-8: the count shows exactly when `screen = Game`, `menu = Open` and `hints ≥ 1`.
+    // Its pixels are inside the slot of the lightbulb, 4 px or more from each edge, also "99+". Its left
+    // is 74 px and its top 64 px from the origin of the slot. It has the color of the icon: black, white
+    // on the black slot while the panel is open, and gray 70 on a complete game.
+    let fonts = fonts();
+    let gray70 = gray(70);
+    for (o, rh) in LAYOUTS {
+        let _l = InLayout::set(o, rh);
+        let slot = lightbulb_slot();
+        assert_eq!(slot.y0, layout::slot_top(Button::Hint), "HNT-1: top slot 1 starts at y 112");
+        let inner = Rect::new(slot.x0 + 4, slot.y0 + 4, slot.x1 - 4, slot.y1 - 4);
+        for complete in [false, true] {
+            let base = if complete { reference_complete() } else { almost_complete(5, 2).0 };
+            let panels: &[Option<Panel>] = if complete { &[None] } else { &[None, Some(Panel::Hint)] };
+            for &panel in panels {
+                let mut zero = card_app(Game { hints: 0, ..base.clone() }, vec![]);
+                zero.ui.menu = Menu::Open(panel);
+                let p0 = draw_app(&zero, &fonts);
+                for hints in [1u32, 7, 42, 99, 100, 5000, u32::MAX] {
+                    let what = format!("{o:?}, right-handed {rh}, complete {complete}, {panel:?}, {hints} hints");
+                    let mut app = card_app(Game { hints, ..base.clone() }, vec![]);
+                    app.ui.menu = Menu::Open(panel);
+                    assert_eq!(app.game.hints, hints, "PER-2: the app uses the game");
+                    // With the panel open, the box of the panel also shows the count (HNT-2), and the
+                    // card of a complete game shows it (HNT-13): then only the pixels of the toolbar
+                    // count here.
+                    let tb = Rect::new(layout::tb_x(), 0, layout::tb_x() + layout::tb_slot(), layout::screen_h() as i32);
+                    let diff: Vec<(i32, i32)> = differences(&p0, &draw_app(&app, &fonts)).into_iter().filter(|&p| (panel.is_none() && !complete) || inside(tb, p)).collect();
+                    assert!(!diff.is_empty(), "HNT-10: {what}: no count");
+                    let b = bounds(&diff);
+                    assert!(b.x0 >= inner.x0 && b.y0 >= inner.y0 && b.x1 <= inner.x1 && b.y1 <= inner.y1, "HNT-10: {what}: the count {b:?} is not 4 px inside the slot {slot:?}");
+                    // "99+" does not fit at x 74 with 4 px to the edge of the slot: the rule of the
+                    // 4 px comes first (R§9, HNT-10), and the text moves to the left.
+                    if hints <= 99 {
+                        assert!((slot.x0 + 73..=slot.x0 + 80).contains(&b.x0), "HNT-10: {what}: the left of the count is {} px from the slot", b.x0 - slot.x0);
+                    }
+                    assert!((slot.y0 + 63..=slot.y0 + 72).contains(&b.y0), "HNT-10: {what}: the top of the count is {} px from the slot", b.y0 - slot.y0);
+                    let pm = draw_app(&app, &fonts);
+                    let values: Vec<u8> = diff.iter().map(|&(x, y)| rgb_at(&pm, x, y)[0]).collect();
+                    let (dark, light) = (values.iter().min().unwrap(), values.iter().max().unwrap());
+                    match (complete, panel) {
+                        (true, _) => assert_eq!(*dark, gray70[0], "HNT-10: {what}: the count is not gray 70"),
+                        (false, None) => assert_eq!(*dark, 0, "HNT-10: {what}: the count is not black"),
+                        (false, Some(_)) => assert_eq!(*light, 255, "HNT-10: {what}: the count is not white"),
+                    }
+                }
+                // HNT-10: the menu closed shows no count.
+                let mut closed = card_app(Game { hints: 5, ..base.clone() }, vec![]);
+                closed.ui.menu = Menu::Closed;
+                let mut closed0 = card_app(Game { hints: 0, ..base.clone() }, vec![]);
+                closed0.ui.menu = Menu::Closed;
+                let tb = Rect::new(layout::tb_x(), 0, layout::tb_x() + layout::tb_slot(), layout::screen_h() as i32);
+                let diff = differences(&draw_app(&closed0, &fonts), &draw_app(&closed, &fonts));
+                assert!(diff.iter().all(|&p| !inside(tb, p)), "HNT-10: {o:?}: a count with the menu closed");
+            }
         }
     }
 }

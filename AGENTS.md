@@ -185,7 +185,11 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 
 - `game.rs`: the board, the pencil marks, the undo and redo history (also the item of a checkpoint
   restore, which sets the full board), the checkpoints (up to 4, newest first, saved in the game
-  file), clashes, completed groups and completion.
+  file), clashes, completed groups and completion. It also holds the hint count (`hints`, saved) and
+  the revealed incorrect number (`incorrect_shown`, saved): `request_hint` reveals one incorrect
+  number (no change of the count) or puts one number (one undo item, count + 1); `hint_state`
+  gives `HintState::{Clash, Incorrect, Available}`; `drop_invalid_incorrect` removes a revealed
+  cell that is not valid after each change of the board.
 - `generator.rs`: the puzzle generator with a seed and a symmetry (only one solution). The key of a
   puzzle is `PuzzleKey = (seed, mode, symmetric)`. A symmetric puzzle removes the givens in pairs
   (cell and `partner`, rotation by 180 degrees); `generate(seed, mode)` is not symmetric and uses
@@ -206,7 +210,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   (`TechniqueGroup`: box singles, line singles, naked singles, locked candidates, subsets, fish,
   wings, chains), uses the easiest group that makes progress, and grades a puzzle by the most
   difficult group and the quantity of stops (a sequence of removal steps between two singles;
-  `grade_v3`).
+  `grade_v3`). `next_number` gives the number of a hint: the first number of the version 3 solver
+  with all groups, else the empty cell with the fewest candidates (a function of the board only).
 - `recognizer.rs`: reads handwriting in a cell (it compares the pen direction and pen path features of the ink with the nearest examples). All examples are stored in both pen directions, and the features are calculated at each start. Up to 4
   threads scan ranges of the examples; the main thread plays the accepted examples of all ranges
   again in order, thus the result is the same bit for bit. At each pen lift, the app starts the
@@ -216,6 +221,9 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   (the reading of the ink at each pen lift, the puzzle of the next game, also while the result card shows). The result is a function
   of the key only, thus it is the same as a calculation at the time of need.
 - `app.rs`: screens, menu, panels, overlays, pen and touch input, the clock. No input or output.
+  `Panel::Hint` is the Hint panel (`Target::HintRow`, `request_hint`). `GameUi.revealed` (a
+  `CellSet`, not saved) holds the cells of the revealed numbers, which keep the highlight color
+  until the next action on the board.
 - `present.rs`: the output of the main loop: the drawing, the copy of the changes into the
   framebuffer and the ink updates. No input or output, thus the bench uses the same code. The
   frame of the presenter has a `render::FrameRecord`: a redraw of the game screen writes only the
@@ -235,7 +243,7 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `layout.rs`, `render.rs`, `font.rs`: positions, drawing (tiny-skia) and the font of the tablet.
   `layout::Device` holds the values of one tablet model: the physical screen, the cell size, the
   line widths of the board and of the cells (`lines`), the contents of a cell (`cell_contents`),
-  the qtfb framebuffer type, the page scale, the toolbar slot, the stroke widths and the outer sizes
+  the qtfb framebuffer type, the page scale, the toolbar slot (`slot_height`: 95 px on the Move in landscape), the Hint panel (`hint`), the stroke widths and the outer sizes
   of the icons (`icons`: the path points of each shape stay in `render::Icon::draw`), the result
   card (`Device::card`: a `ResultCard`, the normal card or the compact card with their sizes; `layout::card_layout` adds the orientation), and one struct for
   each other group of sizes (the slider and the meter, the panels and their switch, the pages, the
@@ -251,7 +259,7 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   of a cell (the number size and baseline, the pencil-mark size and positions, the x of a refused
   tap) come from the cell size (`Device::scale`, from the values of `Device::cell_contents` for
   the reference cell of 147 px), thus do not add fixed cell pixels in `render.rs`. The icons have
-  the same size on each model, and each panel starts at the slot of its button (`layout::slot_top`). The
+  the same size on each model, and each panel starts at the slot of its button (`layout::slot_top`; `layout::panel_top` starts a panel that does not fit below its button at slot 1). The Hint button is in top slot 1 (its icon is `render::Icon::Lightbulb`; `render::hint_count` draws the count). The
   device is a value of the process (`layout::device()`, set one time by `platform::run`), not of a
   thread. `layout.rs` gives the result card of a completed game (`result_card`, `level_button`) in place of
   the meter. `render.rs` draws it (`draw_result_card`, `OverlayLook::Card`). `render::SECONDARY`
@@ -269,7 +277,7 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
   must get the rotation and the hand of the main thread: they are thread-local values, and a new
   thread starts with the portrait layout of a left-handed player (`layout::rotation`,
   `layout::right_handed`).
-- `store.rs`, `settings.rs`: the SQLite results (schema 3, with the column `symmetric`), the settings
+- `store.rs`, `settings.rs`: the SQLite results (schema 4, with the columns `symmetric` and `hints`), the settings
   (also `last_symmetric`) and the saved game (JSON, also `symmetric`). The main
   loop gives the JSON files to `store::Saver`, which writes them (with fsync) on a background
   thread; the completion, the restart of the interface and the close wait for it (`flush`).
@@ -300,7 +308,8 @@ One Rust crate (`src/`). The app is an AppLoad external app with a qtfb framebuf
 - `script.rs`: the event scripts (`video/*.txt`) for the video tool and the bench. The line
   `puzzle seed S mode M [generator V]` can name a generator version; with no version it uses the
   current one. `video/demo.txt` and `video/demo-full.txt` name version 2, so the videos and the bench
-  hashes do not change.
+  hashes do not change. The button names include `hint` (the lightbulb in top slot 1) and `reveal`
+  (the row "Reveal one number" of the Hint panel).
 - `bin/video.rs`: runs the app with a script of timed events (`video/*.txt`) and records a video.
 - `bench.rs`, `bin/bench.rs`: the performance bench (refer to Performance).
 

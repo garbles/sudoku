@@ -7,13 +7,16 @@
 //! INP-22, INP-24). They also start the program again in each mode (LCH-9), with the restart dialog and
 //! the update row of an update that is not complete (UPD-3, UPD-10, UPD-13, UPD-14). The group sequences at the end examine COL-8 to COL-12 against a separate model
 //! (`inv_groups`). Random seeds examine the puzzles of the versions 2 and 3 (PUZ-2, PUZ-5, PUZ-8 to
-//! PUZ-11).
+//! PUZ-11). The hint sequences examine HNT-1 to HNT-8 with requests, numbers, erasures, Undo, Redo,
+//! checkpoints, turns, restarts and new games against a separate model (also UND-6, UND-9, CMP-3,
+//! PER-1, PER-2 and BRD-7).
 
 mod common;
 mod inv_groups;
 
 use common::*;
 use proptest::prelude::*;
+use std::collections::HashMap;
 use sudoku::app::{App, Input, Menu, Panel, Screen, Tool, HAND_TOUCH_MS, OVERLAY_MS};
 use sudoku::game::{cells, mark_bit, Cell, Change, Game, Group};
 use sudoku::invariants::check_app;
@@ -135,6 +138,8 @@ fn level_tap_with_panel(a: &Act, b: &BeforeAct, completed: bool) -> bool {
         Some(Panel::Settings) => layout::settings_panel(true),
         Some(Panel::NewGame) => layout::ng_panel(),
         Some(Panel::Checkpoints) => layout::ckp_panel(4),
+        // HNT-1: the Hint panel is never open on a complete game. The rule is here for the match.
+        Some(Panel::Hint) => layout::hint_panel(sudoku::game::HintState::Clash),
         None => return false,
     };
     completed && b.screen == Screen::Game && layout::level_button_at(x, y).is_some() && !area.contains(x, y)
@@ -755,6 +760,45 @@ fn panels_never_cover_the_toolbar_and_the_toolbar_never_covers_the_board() {
         assert!(layout::meter_y() + 20 < layout::screen_h() as i32, "{o:?}");
     }
     layout::set_orientation(layout::Orientation::Portrait);
+}
+
+#[test]
+fn the_hint_panel_touches_the_toolbar_and_covers_no_button() {
+    // NAV-10, HNT-11, NAV-21: in the four layouts the Hint panel starts at the top of slot 1 (y 112),
+    // touches the toolbar, does not cover a toolbar button or the close button, and is on the screen.
+    // It is 500 px wide in portrait and 392 px in landscape, and 198 px or 236 px high. In portrait it
+    // covers no cell of the board.
+    use sudoku::game::HintState;
+    for o in [layout::Orientation::Portrait, layout::Orientation::Landscape] {
+        for right_handed in [false, true] {
+            let _layout = InLayout::set(o == layout::Orientation::Landscape, right_handed);
+            let what = format!("{o:?}, right-handed {right_handed}");
+            let portrait = o == layout::Orientation::Portrait;
+            for (state, height) in [(HintState::Available, 198), (HintState::Incorrect, 236), (HintState::Clash, 236)] {
+                let p = layout::hint_panel(state);
+                assert_eq!((p.y0, p.y1 - p.y0), (112, height), "HNT-11: {what}: {state:?}");
+                assert_eq!(p.x1 - p.x0, if portrait { 500 } else { 392 }, "HNT-11: {what}");
+                if right_handed {
+                    assert_eq!(p.x0, layout::tb_slot(), "HNT-11: {what}: the panel touches the toolbar");
+                } else {
+                    assert_eq!(p.x1, layout::tb_x(), "HNT-11: {what}: the panel touches the toolbar");
+                }
+                assert!(p.x0 >= 0 && p.y1 <= layout::screen_h() as i32 && p.x1 <= layout::screen_w() as i32, "NAV-21: {what}");
+                let close = (layout::close_cx(), layout::close_cy());
+                assert!(!p.contains(close.0, close.1), "NAV-10: {what}: the close button");
+                for b in [Button::Menu, Button::Hint, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame] {
+                    let (x, y) = button_center(b);
+                    assert!(!p.contains(x, y), "NAV-10: {what}: {b:?}");
+                }
+                if portrait {
+                    assert!(p.y1 <= layout::board_y(), "HNT-11: {what}: the panel covers a cell");
+                }
+                let row = layout::hint_row();
+                assert_eq!((row.x0, row.x1, row.y0, row.y1 - row.y0), (p.x0, p.x1, 112, 112), "HNT-11: {what}: the row");
+            }
+            assert_eq!(layout::slot_top(Button::Hint), 112, "HNT-1: {what}: top slot 1");
+        }
+    }
 }
 
 #[test]
@@ -3429,4 +3473,725 @@ fn the_checkpoint_sequences_reach_each_rule() {
     assert!(all.completed_after_restore > 0, "CMP-1: no completion after a Restore");
     assert!(all.acts_on_complete > 0, "CMP-3, CKP-9: no act on a complete game");
     assert!(all.full_board_not_solved > 0, "CMP-1: no full board with a clash");
+}
+
+// ---- HNT-1 to HNT-9, UND-6, UND-9, CMP-3, PER-1, PER-2, BRD-7: random play with hint requests. The
+// rules are written from INVARIANTS.md §19 and are separate from `invariants::check_app`.
+
+/// The acts of the hint sequences. An index k selects a cell from a list of the current board.
+#[derive(Clone, Debug)]
+enum HintAct {
+    /// Opens the Hint panel if it is not open, then taps the row "Reveal one number" with the pen
+    /// (true) or a finger (false).
+    Request(bool),
+    /// A tap on the lightbulb with the pen (true) or a finger (false).
+    Lightbulb(bool),
+    /// A pen tap in the box of the open Hint panel.
+    TapBox,
+    /// Closes the panel and writes the solution into the k-th empty cell.
+    Correct(u8),
+    /// Closes the panel and writes into the k-th empty cell a digit that is not its solution and that
+    /// no peer has: an incorrect entry with no clash.
+    Incorrect(u8, u8),
+    /// Closes the panel and writes into the k-th empty cell a digit that a peer has: a clash.
+    Clash(u8, u8),
+    /// The eraser on the k-th entry, with the panel as it is. The first entry is the cell of
+    /// `incorrect_shown` when there is one.
+    Erase(u8),
+    /// Closes the panel, then the eraser on the cell of `incorrect_shown` (or on the first entry).
+    EraseIncorrect,
+    /// A pen tap on micro-cell d of the cell (r, c), with the panel as it is.
+    PenTap(u8, u8, u8),
+    /// A finger tap on the cell (r, c).
+    FingerBoard(u8, u8),
+    Undo,
+    Redo,
+    Save,
+    Restore(u8),
+    Delete(u8),
+    /// Opens the Settings panel and changes the switch "Highlight numbers".
+    HighlightSwitch,
+    /// A turn of the tablet.
+    Turn,
+    /// Opens Statistics and goes back to the game.
+    Statistics,
+    /// The app closes and opens again with the saved game and the saved settings.
+    Restart,
+    NewGame,
+}
+
+fn hint_act() -> impl Strategy<Value = HintAct> {
+    let cell = (0..9u8, 0..9u8);
+    prop_oneof![
+        8 => any::<bool>().prop_map(HintAct::Request),
+        2 => any::<bool>().prop_map(HintAct::Lightbulb),
+        1 => Just(HintAct::TapBox),
+        3 => (0..81u8).prop_map(HintAct::Correct),
+        4 => (0..81u8, 0..9u8).prop_map(|(k, d)| HintAct::Incorrect(k, d)),
+        1 => (0..81u8, 0..9u8).prop_map(|(k, d)| HintAct::Clash(k, d)),
+        2 => (0..4u8).prop_map(HintAct::Erase),
+        2 => Just(HintAct::EraseIncorrect),
+        2 => (cell.clone(), 1..=9u8).prop_map(|((r, c), d)| HintAct::PenTap(r, c, d)),
+        1 => cell.prop_map(|(r, c)| HintAct::FingerBoard(r, c)),
+        3 => Just(HintAct::Undo),
+        2 => Just(HintAct::Redo),
+        1 => Just(HintAct::Save),
+        1 => (0..4u8).prop_map(HintAct::Restore),
+        1 => (0..4u8).prop_map(HintAct::Delete),
+        1 => Just(HintAct::HighlightSwitch),
+        1 => Just(HintAct::Turn),
+        1 => Just(HintAct::Statistics),
+        1 => Just(HintAct::Restart),
+    ]
+}
+
+/// The same acts, and sometimes a new game.
+fn hint_act_with_new_game() -> impl Strategy<Value = HintAct> {
+    prop_oneof![40 => hint_act(), 1 => Just(HintAct::NewGame)]
+}
+
+/// INVARIANTS.md §0: an entry (a number of the player) with `value ≠ solution`.
+fn model_incorrect(g: &Game, (r, c): Cell) -> bool {
+    let (r, c) = (r as usize, c as usize);
+    !g.given[r][c] && g.value[r][c] != 0 && g.value[r][c] != g.solution[r][c]
+}
+
+/// HNT-3: the first incorrect entry in row order, with its digit.
+fn model_first_incorrect(g: &Game) -> Option<(Cell, u8)> {
+    (0..9u8).flat_map(|r| (0..9u8).map(move |c| (r, c))).find(|&c| model_incorrect(g, c)).map(|c| (c, g.value[c.0 as usize][c.1 as usize]))
+}
+
+/// INVARIANTS.md §0: `hint_state`, from the clash rule of the model.
+fn model_hint_state(g: &Game) -> sudoku::game::HintState {
+    use sudoku::game::HintState;
+    if cells().any(|c| inv_groups::clashing(&g.value, c)) {
+        HintState::Clash
+    } else if g.incorrect_shown.is_some() {
+        HintState::Incorrect
+    } else {
+        HintState::Available
+    }
+}
+
+/// HNT-8: the revealed incorrect number is valid on this game.
+fn model_incorrect_valid(g: &Game, shown: sudoku::game::IncorrectShown) -> bool {
+    let (r, c) = shown.cell;
+    r < 9 && c < 9 && !g.completed && !g.given[r as usize][c as usize] && g.value[r as usize][c as usize] == shown.digit && shown.digit != g.solution[r as usize][c as usize]
+}
+
+/// HNT-1, HNT-2, HNT-7, HNT-8, CMP-3, PER-1 for one state.
+fn hint_state_rule(app: &App) -> Result<(), String> {
+    check_app(app)?;
+    let g = &app.game;
+    let panel = app.ui.menu.panel();
+    for cell @ (r, c) in app.ui.revealed.iter() {
+        let v = g.value[r as usize][c as usize];
+        if g.given[r as usize][c as usize] || v == 0 || v != g.solution[r as usize][c as usize] || inv_groups::clashing(&g.value, cell) {
+            return Err(format!("HNT-7: the revealed cell {cell:?} has {v}, given {}", g.given[r as usize][c as usize]));
+        }
+    }
+    if let Some(shown) = g.incorrect_shown {
+        if !model_incorrect_valid(g, shown) {
+            return Err(format!("HNT-8: the revealed incorrect number {shown:?} is not valid"));
+        }
+    }
+    if g.hint_state() != model_hint_state(g) {
+        return Err(format!("HNT-2: the state of the row is {:?}, the model gives {:?}", g.hint_state(), model_hint_state(g)));
+    }
+    if g.completed && (panel == Some(Panel::Hint) || g.incorrect_shown.is_some() || !app.ui.revealed.is_empty()) {
+        return Err("CMP-3, HNT-1: a hint state on a complete game".to_string());
+    }
+    if panel == Some(Panel::Hint) && (app.ui.pending_ink.is_some() || app.live_stroke.is_some()) {
+        return Err("HNT-1: ink with the Hint panel".to_string());
+    }
+    // PER-1: the file gives the same game, with the count and the revealed incorrect number, and it
+    // has no revealed cells (the app does not save them).
+    let json = serde_json::to_value(g).map_err(|e| e.to_string())?;
+    if json["hints"] != serde_json::json!(g.hints) || json.get("revealed").is_some() {
+        return Err(format!("PER-1: the file has hints {} and revealed {:?}", json["hints"], json.get("revealed")));
+    }
+    let loaded: Game = serde_json::from_value(json).map_err(|e| format!("PER-1: {e}"))?;
+    if &loaded != g {
+        return Err("PER-1: the file does not give the same game".to_string());
+    }
+    Ok(())
+}
+
+/// What a hint act must do, from the state before it.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum HintKind {
+    /// A tap on the row "Reveal one number" of the open Hint panel.
+    Row,
+    /// No change of the board, of `hints`, of `incorrect_shown` and of `revealed` (HNT-7: a panel, a
+    /// switch, a finger, a screen, a turn, a save or a delete of a checkpoint).
+    Same,
+    /// A pen or eraser press on the board.
+    Press,
+    /// A number that the player writes with no panel.
+    Write,
+    /// An undo, a redo or a Restore.
+    History,
+    Restart,
+    NewGame,
+}
+
+/// The state before an act.
+struct HintBefore {
+    game: Game,
+    revealed: Vec<Cell>,
+    panel: Option<Panel>,
+    highlight_on: bool,
+}
+
+impl HintBefore {
+    fn of(d: &Driver) -> HintBefore {
+        HintBefore { game: d.app.game.clone(), revealed: d.app.ui.revealed.iter().collect(), panel: d.app.ui.menu.panel(), highlight_on: d.app.settings.highlight_on }
+    }
+}
+
+/// The items that the hint sequences count, to prove that they reach the state of each rule.
+#[derive(Default, Debug)]
+struct HintReached {
+    reveals: usize,
+    incorrect_reveals: usize,
+    /// A tap on the gray row in the state Clash or Incorrect.
+    gray_clash: usize,
+    gray_incorrect: usize,
+    completed_by_reveal: usize,
+    /// A reveal of a cell that an earlier reveal of the sequence filled (after an undo or an erasure).
+    reveal_again: usize,
+    /// An undo that removed a revealed number while `hints` stayed.
+    undo_of_reveal: usize,
+    /// `incorrect_shown` went to None by an act that is not a new game.
+    incorrect_removed: usize,
+    /// The state Clash while an incorrect number is revealed.
+    clash_over_incorrect: usize,
+    /// A press on the board with no panel removed the revealed cells.
+    cleared_by_press: usize,
+    cleared_by_history: usize,
+    cleared_by_write: usize,
+    /// A press on the board with a panel kept the revealed cells.
+    kept_by_press_with_panel: usize,
+    /// An act of the list "do not change" kept the revealed cells.
+    kept: usize,
+    /// Revealed cells with the switch "Highlight numbers" off.
+    kept_switch_off: usize,
+    /// Two or more revealed cells.
+    several_revealed: usize,
+    restart_with_revealed: usize,
+    restart_with_incorrect: usize,
+    /// A tap on the gray lightbulb of a complete game.
+    gray_lightbulb: usize,
+    new_games: usize,
+    /// A check of the colors of the cells (BRD-7) with a revealed cell or a revealed incorrect number.
+    colors_checked: usize,
+    /// The game seeds and the cells of all reveals of the sequence.
+    ever: Vec<(u64, Cell)>,
+}
+
+/// The rules of one act (HNT-1 to HNT-8, UND-6, UND-9, CMP-3, PER-2), from the state before it.
+fn hint_act_rule(d: &Driver, b: &HintBefore, kind: HintKind, reveals: &mut HashMap<[[u8; 9]; 9], Cell>, r: &mut HintReached) -> Result<(), String> {
+    use sudoku::game::HintState;
+    let (g, g0) = (&d.app.game, &b.game);
+    let revealed: Vec<Cell> = d.app.ui.revealed.iter().collect();
+    let panel = d.app.ui.menu.panel();
+    if g.seed != g0.seed {
+        // UND-6, DIF-5: a new game.
+        if kind != HintKind::NewGame {
+            return Err(format!("{kind:?} changed the game"));
+        }
+        if g.hints != 0 || g.incorrect_shown.is_some() || !revealed.is_empty() || !g.undo.is_empty() || !g.redo.is_empty() || !g.checkpoints.is_empty() {
+            return Err("UND-6, DIF-5: the new game has a hint state or a history".to_string());
+        }
+        r.new_games += 1;
+        return Ok(());
+    }
+    let board_same = g.value == g0.value && g.marks == g0.marks && g.undo.len() == g0.undo.len() && g.redo.len() == g0.redo.len();
+    if g0.incorrect_shown.is_some() && g.incorrect_shown.is_none() {
+        r.incorrect_removed += 1;
+    }
+    // HNT-8: only a request sets `incorrect_shown`. After a change of the board it stays exactly when
+    // the rule is still true.
+    if kind != HintKind::Row {
+        let want = g0.incorrect_shown.filter(|&s| model_incorrect_valid(g, s));
+        if g.incorrect_shown != want {
+            return Err(format!("HNT-8: incorrect_shown is {:?}, the rule gives {want:?}", g.incorrect_shown));
+        }
+        // HNT-6, UND-9: only a reveal changes the count.
+        if g.hints != g0.hints {
+            return Err(format!("HNT-6: {kind:?} changed hints from {} to {}", g0.hints, g.hints));
+        }
+    }
+    let same_revealed = revealed == b.revealed;
+    match kind {
+        HintKind::Row => {
+            let state = model_hint_state(g0);
+            if state != HintState::Available || g0.completed {
+                if state == HintState::Clash {
+                    r.gray_clash += 1;
+                } else {
+                    r.gray_incorrect += 1;
+                }
+                // HNT-2: the gray row changes nothing.
+                if !board_same || g.hints != g0.hints || g.incorrect_shown != g0.incorrect_shown || !same_revealed || panel != Some(Panel::Hint) {
+                    return Err(format!("HNT-2: a tap on the gray row in the state {state:?} changed the game"));
+                }
+            } else if let Some((cell, digit)) = model_first_incorrect(g0) {
+                // HNT-3
+                r.incorrect_reveals += 1;
+                let want = Some(sudoku::game::IncorrectShown { cell, digit });
+                if g.incorrect_shown != want || !board_same || g.hints != g0.hints || !same_revealed || panel != Some(Panel::Hint) || g.checkpoints != g0.checkpoints {
+                    return Err(format!("HNT-3: the request gave {:?}, the rule gives {want:?} and no other change", g.incorrect_shown));
+                }
+            } else {
+                // HNT-4, HNT-5, HNT-6
+                r.reveals += 1;
+                let changed: Vec<Cell> = cells().filter(|&(rr, cc)| g.value[rr as usize][cc as usize] != g0.value[rr as usize][cc as usize]).collect();
+                let [cell @ (rr, cc)] = changed[..] else {
+                    return Err(format!("HNT-4: the reveal changed the cells {changed:?}"));
+                };
+                if g0.value[rr as usize][cc as usize] != 0 || g.value[rr as usize][cc as usize] != g.solution[rr as usize][cc as usize] {
+                    return Err(format!("HNT-4: the reveal put {} into {cell:?}", g.value[rr as usize][cc as usize]));
+                }
+                if g.hints != g0.hints + 1 || g.undo.len() != g0.undo.len() + 1 || !g.redo.is_empty() || g.marks != g0.marks || g.checkpoints != g0.checkpoints || g.incorrect_shown.is_some() {
+                    return Err(format!("HNT-4, UND-1: hints {} to {}, undo {} to {}, redo {}", g0.hints, g.hints, g0.undo.len(), g.undo.len(), g.redo.len()));
+                }
+                // HNT-5: the cell is a function of `value` only: the same board always gives the same
+                // cell, also with other marks, stacks, counts and threads.
+                if let Some(&earlier) = reveals.get(&g0.value) {
+                    if earlier != cell {
+                        return Err(format!("HNT-5: the same board gave {earlier:?} and {cell:?}"));
+                    }
+                }
+                reveals.insert(g0.value, cell);
+                let other = Game { marks: [[0; 9]; 9], undo: Vec::new(), redo: Vec::new(), hints: 12_345, checkpoints: Vec::new(), elapsed_ms: 1, ..g0.clone() };
+                let on_thread = std::thread::scope(|s| s.spawn(|| other.reveal_cell()).join().unwrap());
+                if on_thread != Some(cell) {
+                    return Err(format!("HNT-5: the board with other values gave {on_thread:?}, the app {cell:?}"));
+                }
+                if r.ever.contains(&(g.seed, cell)) {
+                    r.reveal_again += 1;
+                }
+                r.ever.push((g.seed, cell));
+                if g.completed {
+                    r.completed_by_reveal += 1;
+                    if !revealed.is_empty() || panel.is_some() {
+                        return Err("HNT-4, CMP-3: the reveal completed the puzzle, and the panel or the highlight stays".to_string());
+                    }
+                } else {
+                    let mut want = b.revealed.clone();
+                    want.push(cell);
+                    want.sort_unstable();
+                    let mut got = revealed.clone();
+                    got.sort_unstable();
+                    if got != want || panel != Some(Panel::Hint) {
+                        return Err(format!("HNT-4, HNT-7: revealed {got:?}, the rule gives {want:?}; panel {panel:?}"));
+                    }
+                }
+            }
+        }
+        HintKind::Same => {
+            if !board_same || !same_revealed {
+                return Err(format!("HNT-7: an act that is not a board action changed the board ({}) or revealed ({:?} to {revealed:?})", !board_same, b.revealed));
+            }
+            if !revealed.is_empty() {
+                r.kept += 1;
+            }
+        }
+        HintKind::Press => {
+            if b.panel.is_some() {
+                // NAV-11, HNT-7: the press only closes the panel, or it is a press in the panel.
+                if !board_same || !same_revealed {
+                    return Err("NAV-11, HNT-7: a press with an open panel changed the board or revealed".to_string());
+                }
+                if !revealed.is_empty() {
+                    r.kept_by_press_with_panel += 1;
+                }
+            } else if !revealed.is_empty() {
+                return Err(format!("HNT-7: a press on the board with no panel kept revealed {revealed:?}"));
+            } else if !b.revealed.is_empty() {
+                r.cleared_by_press += 1;
+            }
+        }
+        HintKind::Write => {
+            if !revealed.is_empty() {
+                return Err(format!("HNT-7: a number of the player kept revealed {revealed:?}"));
+            }
+            if !b.revealed.is_empty() {
+                r.cleared_by_write += 1;
+            }
+        }
+        HintKind::History => {
+            let changed = g.value != g0.value || g.marks != g0.marks;
+            if changed && !revealed.is_empty() {
+                return Err(format!("HNT-7, UND-9: an undo, a redo or a Restore that changed the board kept revealed {revealed:?}"));
+            }
+            if !changed && !same_revealed {
+                return Err("HNT-7: an undo, a redo or a Restore with no change changed revealed".to_string());
+            }
+            if changed && !b.revealed.is_empty() {
+                r.cleared_by_history += 1;
+            }
+            if b.revealed.iter().any(|&(rr, cc)| g.value[rr as usize][cc as usize] == 0) {
+                r.undo_of_reveal += 1;
+            }
+        }
+        HintKind::Restart => {
+            // PER-1, PER-2
+            if g != g0 {
+                return Err("PER-2: the app did not open with the saved game".to_string());
+            }
+            if !revealed.is_empty() || d.app.ui.menu != Menu::Open(None) {
+                return Err("PER-2: the app opened with revealed cells or a panel".to_string());
+            }
+            if !b.revealed.is_empty() {
+                r.restart_with_revealed += 1;
+            }
+            if g.incorrect_shown.is_some() {
+                r.restart_with_incorrect += 1;
+            }
+        }
+        HintKind::NewGame => {
+            if !board_same || !same_revealed {
+                return Err("NewGame: no new game, and the board or revealed changed".to_string());
+            }
+        }
+    }
+    if g.incorrect_shown.is_some() && model_hint_state(g) == HintState::Clash {
+        r.clash_over_incorrect += 1;
+    }
+    if revealed.len() >= 2 {
+        r.several_revealed += 1;
+    }
+    if !revealed.is_empty() && !d.app.settings.highlight_on && !b.highlight_on {
+        r.kept_switch_off += 1;
+    }
+    hint_state_rule(&d.app)
+}
+
+/// Opens the menu if it is closed. The rule of the act: no change (HNT-7).
+fn hint_menu(d: &mut Driver, reveals: &mut HashMap<[[u8; 9]; 9], Cell>, r: &mut HintReached) -> Result<(), String> {
+    if !d.app.ui.menu.is_open() {
+        hint_same(d, reveals, r, |d| d.button(Button::Menu))?;
+    }
+    Ok(())
+}
+
+/// Closes the panel and keeps the menu open.
+fn hint_no_panel(d: &mut Driver, reveals: &mut HashMap<[[u8; 9]; 9], Cell>, r: &mut HintReached) -> Result<(), String> {
+    hint_menu(d, reveals, r)?;
+    if d.app.ui.menu.panel().is_some() {
+        hint_same(d, reveals, r, |d| d.button(Button::Menu))?;
+    }
+    Ok(())
+}
+
+/// Opens the panel of a button. On a complete game the gray bookmark and the gray lightbulb change
+/// nothing.
+fn hint_panel_of(d: &mut Driver, button: Button, panel: Panel, reveals: &mut HashMap<[[u8; 9]; 9], Cell>, r: &mut HintReached) -> Result<(), String> {
+    hint_menu(d, reveals, r)?;
+    if d.app.ui.menu.panel() != Some(panel) {
+        hint_same(d, reveals, r, |d| d.button(button))?;
+    }
+    Ok(())
+}
+
+/// An act that must change no item of the hint rules.
+fn hint_same(d: &mut Driver, reveals: &mut HashMap<[[u8; 9]; 9], Cell>, r: &mut HintReached, f: impl FnOnce(&mut Driver)) -> Result<(), String> {
+    hint_kind(d, HintKind::Same, reveals, r, f)
+}
+
+/// An act and the rules of its kind.
+fn hint_kind(d: &mut Driver, kind: HintKind, reveals: &mut HashMap<[[u8; 9]; 9], Cell>, r: &mut HintReached, f: impl FnOnce(&mut Driver)) -> Result<(), String> {
+    let b = HintBefore::of(d);
+    f(d);
+    hint_act_rule(d, &b, kind, reveals, r)
+}
+
+/// The k-th empty cell, from the values of the board.
+fn hint_empty(g: &Game, k: u8) -> Option<Cell> {
+    let empty: Vec<Cell> = cells().filter(|&(r, c)| g.value[r as usize][c as usize] == 0).collect();
+    (!empty.is_empty()).then(|| empty[k as usize % empty.len()])
+}
+
+/// The digits of the peers of a cell, from the values of the board (the model).
+fn hint_peer_digits(g: &Game, cell: Cell) -> Vec<u8> {
+    cells().filter(|&p| inv_groups::are_peers(cell, p)).map(|(r, c)| g.value[r as usize][c as usize]).filter(|&v| v != 0).collect()
+}
+
+/// One act of a hint sequence.
+fn hint_step(d: &mut Driver, a: &HintAct, reveals: &mut HashMap<[[u8; 9]; 9], Cell>, r: &mut HintReached, fonts: &sudoku::font::Fonts) -> Result<(), String> {
+    match *a {
+        HintAct::Request(pen) => {
+            if d.app.ui.menu.panel() != Some(Panel::Hint) {
+                hint_step(d, &HintAct::Lightbulb(pen), reveals, r, fonts)?;
+            }
+            if d.app.ui.menu.panel() == Some(Panel::Hint) {
+                let before = (d.app.game.incorrect_shown, d.app.game.hints);
+                let (x, y) = pixel_center(layout::hint_row());
+                hint_kind(d, HintKind::Row, reveals, r, |d| if pen { d.pen_tap(x, y) } else { d.finger_tap(x, y) })?;
+                // BRD-7: the colors of the cells after a request that changed the hint state. In
+                // landscape the panel covers a part of one column of cells.
+                let portrait = layout::screen_w() == 1620;
+                let covered = d.app.ui.menu.panel().is_some() && !portrait;
+                if before != (d.app.game.incorrect_shown, d.app.game.hints) && !covered {
+                    let pm = draw_screen(&d.app, fonts);
+                    if let Some(e) = inv_groups::board_color_error(&pm, &d.app) {
+                        return Err(e);
+                    }
+                    r.colors_checked += 1;
+                }
+            }
+            Ok(())
+        }
+        HintAct::Lightbulb(pen) => {
+            hint_menu(d, reveals, r)?;
+            let b = HintBefore::of(d);
+            let (x, y) = button_center(Button::Hint);
+            hint_same(d, reveals, r, |d| if pen { d.pen_tap(x, y) } else { d.finger_tap(x, y) })?;
+            // HNT-1, NAV-12: the lightbulb opens and closes the Hint panel. On a complete game it is
+            // gray and changes nothing.
+            let panel = d.app.ui.menu.panel();
+            let want = if b.game.completed {
+                r.gray_lightbulb += 1;
+                b.panel
+            } else if b.panel == Some(Panel::Hint) {
+                None
+            } else {
+                Some(Panel::Hint)
+            };
+            if panel != want {
+                return Err(format!("HNT-1: the lightbulb gave the panel {panel:?}, the rule gives {want:?}"));
+            }
+            Ok(())
+        }
+        HintAct::TapBox => {
+            if d.app.ui.menu.panel() == Some(Panel::Hint) {
+                let (x, y) = ((layout::hint_text_x() + 40) as f32, (layout::hint_box_top() + 30) as f32);
+                hint_same(d, reveals, r, |d| d.pen_tap(x, y))?;
+                if d.app.ui.menu.panel() != Some(Panel::Hint) {
+                    return Err("HNT-2: a tap in the box closed the panel".to_string());
+                }
+            }
+            Ok(())
+        }
+        HintAct::Correct(k) | HintAct::Incorrect(k, _) | HintAct::Clash(k, _) => {
+            let g = &d.app.game;
+            let Some(cell @ (cr, cc)) = hint_empty(g, k) else { return Ok(()) };
+            let sol = g.solution[cr as usize][cc as usize];
+            let peers = hint_peer_digits(g, cell);
+            let digits: Vec<u8> = match *a {
+                HintAct::Correct(_) => vec![sol],
+                HintAct::Incorrect(..) => (1..=9).filter(|&v| v != sol && !peers.contains(&v)).collect(),
+                _ => (1..=9).filter(|v| peers.contains(v)).collect(),
+            };
+            let pick = match *a {
+                HintAct::Incorrect(_, i) | HintAct::Clash(_, i) => i as usize,
+                _ => 0,
+            };
+            if digits.is_empty() || g.completed {
+                return Ok(());
+            }
+            let digit = digits[pick % digits.len()];
+            hint_no_panel(d, reveals, r)?;
+            hint_kind(d, HintKind::Write, reveals, r, |d| d.write(cell, digit))
+        }
+        HintAct::Erase(_) | HintAct::EraseIncorrect => {
+            let g = &d.app.game;
+            let mut entries: Vec<Cell> = g.incorrect_shown.map(|s| s.cell).into_iter().collect();
+            entries.extend(cells().filter(|&c| !g.is_given(c) && g.value_at(c) != 0 && Some(c) != g.incorrect_shown.map(|s| s.cell)));
+            let Some(&first) = entries.first() else { return Ok(()) };
+            let cell = match *a {
+                HintAct::Erase(k) => entries[k as usize % entries.len()],
+                _ => {
+                    hint_no_panel(d, reveals, r)?;
+                    first
+                }
+            };
+            hint_kind(d, HintKind::Press, reveals, r, |d| d.erase(cell))
+        }
+        HintAct::PenTap(cr, cc, digit) => hint_kind(d, HintKind::Press, reveals, r, |d| d.tap_micro((cr, cc), digit)),
+        HintAct::FingerBoard(cr, cc) => {
+            let (x, y) = micro_center((cr, cc), 5);
+            hint_same(d, reveals, r, |d| d.finger_tap(x, y))
+        }
+        HintAct::Undo | HintAct::Redo => {
+            hint_no_panel(d, reveals, r)?;
+            let button = if matches!(a, HintAct::Undo) { Button::Undo } else { Button::Redo };
+            hint_kind(d, HintKind::History, reveals, r, |d| d.button(button))
+        }
+        HintAct::Save | HintAct::Restore(_) | HintAct::Delete(_) => {
+            hint_panel_of(d, Button::Checkpoints, Panel::Checkpoints, reveals, r)?;
+            if d.app.ui.menu.panel() != Some(Panel::Checkpoints) {
+                return Ok(());
+            }
+            let n = d.app.game.checkpoints.len();
+            match *a {
+                HintAct::Save => {
+                    let (x, y) = exact_center(layout::ckp_save_row());
+                    hint_same(d, reveals, r, |d| d.finger_tap(x, y))
+                }
+                HintAct::Restore(i) if (i as usize) < n => {
+                    let (x, y) = exact_center(layout::ckp_button(i as usize));
+                    hint_kind(d, HintKind::History, reveals, r, |d| d.pen_tap(x, y))
+                }
+                HintAct::Delete(i) if (i as usize) < n => {
+                    let (x, y) = exact_center(layout::ckp_bin_area(i as usize));
+                    hint_same(d, reveals, r, |d| {
+                        d.finger_tap(x, y);
+                        d.wait(600);
+                    })
+                }
+                _ => Ok(()),
+            }
+        }
+        HintAct::HighlightSwitch => {
+            hint_panel_of(d, Button::Settings, Panel::Settings, reveals, r)?;
+            if d.app.ui.menu.panel() != Some(Panel::Settings) {
+                return Ok(());
+            }
+            let (x, y) = switch_point(Switch::HighlightNumbers);
+            // HLT-6, HNT-7: the switch does not change `revealed`.
+            hint_same(d, reveals, r, |d| d.finger_tap(x, y))
+        }
+        HintAct::Turn => hint_same(d, reveals, r, |d| {
+            let other = if layout::screen_w() == 1620 { layout::Orientation::Landscape } else { layout::Orientation::Portrait };
+            layout::set_orientation(other);
+            d.app.rotate(App::placeholder_ng_stops());
+        }),
+        HintAct::Statistics => {
+            hint_no_panel(d, reveals, r)?;
+            hint_same(d, reveals, r, |d| {
+                d.button(Button::Statistics);
+                let (x, y) = pixel_center(layout::back_button());
+                d.finger_tap(x, y);
+                d.wait(600);
+            })?;
+            if d.app.screen != Screen::Game {
+                return Err("NAV-3: no return to the game".to_string());
+            }
+            Ok(())
+        }
+        HintAct::Restart => hint_kind(d, HintKind::Restart, reveals, r, |d| {
+            let text = serde_json::to_string(&d.app.game).unwrap();
+            let saved: Game = serde_json::from_str(&text).unwrap();
+            let settings = d.app.settings.clone();
+            let seed = d.app.game.seed;
+            let app = App::new(Some(saved), Some(settings), ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME + 7200, seed }), App::placeholder_ng_stops());
+            let now = d.now;
+            *d = Driver::opened(app);
+            d.now = now;
+        }),
+        HintAct::NewGame => {
+            hint_panel_of(d, Button::NewGame, Panel::NewGame, reveals, r)?;
+            if d.app.ui.menu.panel() != Some(Panel::NewGame) {
+                return Ok(());
+            }
+            let (x, y) = pixel_center(layout::ng_start_row());
+            hint_kind(d, HintKind::NewGame, reveals, r, |d| d.finger_tap(x, y))
+        }
+    }
+}
+
+/// A game in progress of mode 2. A third of the starts have all cells correct except 2 to 6 open cells,
+/// and a third except 10 to 19, so that reveals complete the puzzle.
+fn hint_start(seed: u64) -> Game {
+    let mut g = sudoku::app::new_game(seed, 2);
+    let empty: Vec<Cell> = cells().filter(|&c| !g.is_filled(c)).collect();
+    let open = match seed % 3 {
+        0 => empty.len(),
+        1 => 2 + seed as usize / 3 % 5,
+        _ => 10 + seed as usize / 3 % 10,
+    };
+    for &(r, c) in &empty[open.min(empty.len())..] {
+        g.add_number((r, c), g.solution[r as usize][c as usize]);
+    }
+    g
+}
+
+/// One hint sequence in the layout of the seed.
+fn hint_sequence(seed: u64, acts: &[HintAct], fonts: &sudoku::font::Fonts) -> Result<HintReached, String> {
+    let _layout = InLayout::set(seed & 8 != 0, seed & 16 != 0);
+    let game = hint_start(seed);
+    let mut d = Driver::from(app_with_game(game.clone(), START_TIME, seed));
+    if d.app.game != game {
+        return Err("PER-5: the app did not use the start game".to_string());
+    }
+    let mut reveals = HashMap::new();
+    let mut r = HintReached::default();
+    hint_state_rule(&d.app)?;
+    for a in acts {
+        hint_step(&mut d, a, &mut reveals, &mut r, fonts).map_err(|e| format!("{e} after {a:?}"))?;
+        d.app.quit = false;
+    }
+    Ok(r)
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig { cases: 32, max_shrink_iters: 300, ..ProptestConfig::default() })]
+
+    /// HNT-1 to HNT-8, UND-6, UND-9, CMP-3, PER-1, PER-2, BRD-7 with random hint requests, numbers,
+    /// erasures, Undo, Redo, checkpoints, switches, turns, restarts and new games, in all layouts.
+    #[test]
+    fn the_hint_rules_hold_for_random_play(seed in any::<u64>(), acts in proptest::collection::vec(hint_act_with_new_game(), 1..50)) {
+        let fonts = sudoku::font::Fonts::repo().unwrap();
+        hint_sequence(seed, &acts, &fonts).map_err(TestCaseError::fail)?;
+    }
+}
+
+#[test]
+fn the_hint_sequences_reach_each_rule() {
+    // The sequences must reach each state that their checks examine: else they prove nothing.
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+    let fonts = sudoku::font::Fonts::repo().unwrap();
+    let mut runner = TestRunner::deterministic();
+    let mut all = HintReached::default();
+    for case in 0..30u64 {
+        let acts = proptest::collection::vec(hint_act_with_new_game(), 40..60).new_tree(&mut runner).unwrap().current();
+        let r = hint_sequence(case, &acts, &fonts).unwrap_or_else(|e| panic!("case {case}: {e}"));
+        all.reveals += r.reveals;
+        all.incorrect_reveals += r.incorrect_reveals;
+        all.gray_clash += r.gray_clash;
+        all.gray_incorrect += r.gray_incorrect;
+        all.completed_by_reveal += r.completed_by_reveal;
+        all.reveal_again += r.reveal_again;
+        all.undo_of_reveal += r.undo_of_reveal;
+        all.incorrect_removed += r.incorrect_removed;
+        all.clash_over_incorrect += r.clash_over_incorrect;
+        all.cleared_by_press += r.cleared_by_press;
+        all.cleared_by_history += r.cleared_by_history;
+        all.cleared_by_write += r.cleared_by_write;
+        all.kept_by_press_with_panel += r.kept_by_press_with_panel;
+        all.kept += r.kept;
+        all.kept_switch_off += r.kept_switch_off;
+        all.several_revealed += r.several_revealed;
+        all.restart_with_revealed += r.restart_with_revealed;
+        all.restart_with_incorrect += r.restart_with_incorrect;
+        all.gray_lightbulb += r.gray_lightbulb;
+        all.new_games += r.new_games;
+        all.colors_checked += r.colors_checked;
+    }
+    println!("{all:?}");
+    assert!(all.reveals > 0, "HNT-4: no reveal");
+    assert!(all.incorrect_reveals > 0, "HNT-3: no reveal of an incorrect number");
+    assert!(all.gray_clash > 0, "HNT-2: no tap on the gray row with a clash");
+    assert!(all.gray_incorrect > 0, "HNT-2: no tap on the gray row with a revealed incorrect number");
+    assert!(all.completed_by_reveal > 0, "HNT-4, CMP-3: no reveal that completed the puzzle");
+    assert!(all.reveal_again > 0, "HNT-6: no second reveal of a cell after an undo or an erasure");
+    assert!(all.undo_of_reveal > 0, "HNT-6, UND-9: no undo of a reveal");
+    assert!(all.incorrect_removed > 0, "HNT-8: no removal of the revealed incorrect number");
+    assert!(all.clash_over_incorrect > 0, "HNT-2: no clash while an incorrect number is revealed");
+    assert!(all.cleared_by_press > 0, "HNT-7: no press that removed the revealed cells");
+    assert!(all.cleared_by_history > 0, "HNT-7: no undo, redo or Restore that removed the revealed cells");
+    assert!(all.cleared_by_write > 0, "HNT-7: no number of the player that removed the revealed cells");
+    assert!(all.kept_by_press_with_panel > 0, "HNT-7, NAV-11: no press with a panel that kept the revealed cells");
+    assert!(all.kept > 0, "HNT-7: no act that kept the revealed cells");
+    assert!(all.kept_switch_off > 0, "HNT-7, HLT-6: no revealed cell with the switch off");
+    assert!(all.several_revealed > 0, "HNT-4, HNT-7: never two revealed cells");
+    assert!(all.restart_with_revealed > 0, "PER-2: no restart with revealed cells");
+    assert!(all.restart_with_incorrect > 0, "PER-1, PER-2: no restart with a revealed incorrect number");
+    assert!(all.gray_lightbulb > 0, "HNT-1: no tap on the gray lightbulb");
+    assert!(all.new_games > 0, "UND-6: no new game");
+    assert!(all.colors_checked > 0, "BRD-7: no check of the colors");
 }

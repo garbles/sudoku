@@ -5,6 +5,11 @@
 #   board-state.py invalid-mark  the same game immediately after a pen tap on a pencil mark that a peer refuses: "x" in the micro-cell
 #   board-state.py completed-group  a game with no clash and a complete box, column and row in the completed color
 #   board-state.py completed     the complete, locked board with the normal colors. The result card replaces the difficulty meter.
+#   board-state.py completed-hints  the same board. The result card also shows the hint count (ui-lib.sh CARD_HINTS_SAMPLE).
+#   board-state.py hint          the game in progress before the mistake (no clash): box 0 has the completed color
+#   board-state.py hint-revealed that game after two hints: the two revealed numbers have the highlight color
+#   board-state.py hint-incorrect  that game with one incorrect number that does not clash, after a hint request: the
+#                                number has the clash color
 #   board-state.py mini STATE X Y CELL  the small board of a checkpoint (MINI_STATES) with its first cell at X,Y
 #   board-state.py mini-count STATE     the quantity of filled cells of that checkpoint
 import os, subprocess, sys
@@ -60,6 +65,13 @@ GROUP_ENTERED = [(2,4),(6,4),(7,1),(7,2),(7,6),(7,7)]
 # The colors of a cell (the defaults of the panel, the same values as ui-lib.sh) and the digits of the player.
 STARTING_BG, CLASH_BG, HIGHLIGHT_BG, COMPLETED_BG = "#AEAEAE", "#FF8E8E", "#6FCFE6", "#48D630"
 PLAYER_DIGIT = "#1E1E1E"
+# The hint states (REQUIREMENTS.md, the Hint panel section). They start from the game in progress with no mistake.
+HINT_MODES = ("hint", "hint-revealed", "hint-incorrect")
+# "hint-revealed": the cells that two real requests reveal on the game of "hint", in order (the solution: 3, then 8).
+# The 3 makes column 0 complete: its other cells get the completed color, and the revealed cell keeps the highlight color.
+REVEALED = [(8,0), (0,5)]
+INCORRECT = {(5,5): 1}     # "hint-incorrect": the player wrote a 1 (the solution is 4). No peer has a 1.
+COMPLETED_MODES = ("completed", "completed-hints")
 HIGHLIGHT = 5             # the digit that the player taps in "highlight"
 UNRECOGNIZED = (4,1)      # the cell with the scribble in "unrecognized"
 INVALID_MARK = (1,6,6)    # the row, the column and the digit of the tap in "invalid-mark". (1,0) and (2,7) have a 6.
@@ -77,12 +89,16 @@ MINI_FONT_SIZE = 14       # the digits of the small board
 MINI_BASELINE = 14        # the baseline of a digit, from the top of its cell
 
 grid = [[int(c) if c != "." else 0 for c in row] for row in GIVENS]
-if MODE == "completed":
+if MODE in COMPLETED_MODES:
     grid = [[int(c) for c in row] for row in SOLUTION]
     MARKED = []
 else:
     if MODE == "completed-group":
         ENTERED, WRONG = ENTERED + GROUP_ENTERED, {}
+    if MODE in HINT_MODES:
+        WRONG = dict(INCORRECT) if MODE == "hint-incorrect" else {}
+    if MODE == "hint-revealed":
+        ENTERED = ENTERED + REVEALED
     for r, c in ENTERED: grid[r][c] = int(SOLUTION[r][c])
     for (r, c), d in WRONG.items(): grid[r][c] = d
     MARKED = [(r, c) for r, c in MARKED if not grid[r][c]]
@@ -103,10 +119,15 @@ GROUPS = ([[(r, c) for c in range(9)] for r in range(9)] + [[(r, c) for r in ran
           + [[(br+i, bc+j) for i in range(3) for j in range(3)] for br in (0, 3, 6) for bc in (0, 3, 6)])
 def find_complete(b, clashes):
     return [g for g in GROUPS if all(b[r][c] for r, c in g) and not any(p in clashes for p in g)]
-complete_groups = [] if MODE == "completed" else find_complete(grid, conflicts)
+complete_groups = [] if MODE in COMPLETED_MODES else find_complete(grid, conflicts)
 complete = {p for g in complete_groups for p in g}
 if MODE == "completed-group":
     assert not conflicts and len(complete_groups) == 3
+elif MODE in HINT_MODES:
+    # No clash, thus box 0 is complete (and column 0 after the reveal of (8, 0)). The incorrect number is different
+    # from the solution and does not clash.
+    assert not conflicts and len(complete_groups) == (2 if MODE == "hint-revealed" else 1)
+    assert all(d != int(SOLUTION[r][c]) for (r, c), d in INCORRECT.items())
 else:
     assert not complete_groups   # the sample game has a full box with a clash outside the box: no completed color
 
@@ -182,12 +203,16 @@ out = []
 filled =[(r, c) for r in range(9) for c in range(9) if grid[r][c]]
 covered = filled + ([UNRECOGNIZED] if MODE == "unrecognized" else [])
 # remove the micro-cells below numbers, then draw the board lines again, as render.sh does.
-# Backgrounds: the first rule that applies: the clash color, the highlight color, the completed color, the
-# starting-number color, white.
+# Backgrounds: the first rule that applies: the clash color (a clashing number and the revealed incorrect number), the
+# highlight color (a cell of the highlighted digit and a revealed cell), the completed color, the starting-number
+# color, white.
 highlighted = {(r, c) for r, c in filled if MODE == "highlight" and grid[r][c] == HIGHLIGHT}
+if MODE == "hint-revealed":
+    highlighted = set(REVEALED)
+incorrect = set(INCORRECT) if MODE == "hint-incorrect" else set()
 for r, c in covered:
     x, y = X0+cell_off(c), Y0+cell_off(r)
-    bg = (CLASH_BG if (r, c) in conflicts else HIGHLIGHT_BG if (r, c) in highlighted
+    bg = (CLASH_BG if (r, c) in conflicts or (r, c) in incorrect else HIGHLIGHT_BG if (r, c) in highlighted
           else COMPLETED_BG if (r, c) in complete
           else STARTING_BG if GIVENS[r][c] != "." else "white")
     out.append(f"stroke none fill {bg} rectangle {x},{y} {x+C-1},{y+C-1}")
@@ -226,11 +251,12 @@ if MODE == "invalid-mark":
     h = X_HALF
     out.append(f"stroke-antialias 0 fill none stroke gray15 stroke-width {X_WIDTH} stroke-linecap round "
                f"line {cx-h},{cy-h} {cx+h},{cy+h} line {cx-h},{cy+h} {cx+h},{cy-h} stroke-antialias 1")
-if MODE == "completed":
+if MODE in COMPLETED_MODES:
     # the result card replaces the difficulty meter below the board (ui-lib.sh result_card, mode 2 = LEVEL)
     dy = Y0 + BOARD + 50
     out.append(f"stroke none fill white rectangle {X0},{dy-30} {X0+BOARD},{dy+30}")
-    card = subprocess.run(["sh", "-c", '. "$0"; result_card portrait $LEVEL', os.path.join(HERE, "ui-lib.sh")],
+    hints = "CARD_HINTS=$CARD_HINTS_SAMPLE; " if MODE == "completed-hints" else ""
+    card = subprocess.run(["sh", "-c", f'. "$0"; {hints}result_card portrait $LEVEL', os.path.join(HERE, "ui-lib.sh")],
                           check=True, capture_output=True, text=True).stdout
     out.append(card)
 print("\n".join(out))

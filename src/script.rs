@@ -164,6 +164,7 @@ fn button_point(name: &str) -> Result<(f32, f32), String> {
     use layout::Button;
     let button = match name {
         "menu" => Button::Menu,
+        "hint" => Button::Hint,
         "colors" => Button::Colors,
         "settings" => Button::Settings,
         "undo" => Button::Undo,
@@ -172,6 +173,11 @@ fn button_point(name: &str) -> Result<(f32, f32), String> {
         "newgame" => Button::NewGame,
         // "Start new game" in the New game panel.
         "start" => return Ok(((layout::ng_tx() + 80) as f32, layout::ng_start_y() as f32)),
+        // "Reveal one number" in the Hint panel (§9.5): the center of the row.
+        "reveal" => {
+            let r = layout::hint_row();
+            return Ok((((r.x0 + r.x1) / 2) as f32, ((r.y0 + r.y1) / 2) as f32));
+        }
         _ => return Err(format!("unknown button {name:?}")),
     };
     Ok(layout::icon_center(button))

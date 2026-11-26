@@ -4,7 +4,7 @@
 //! reads the flags `game_dirty` and `settings_dirty` and saves the data, and it stops when `quit` is
 //! true. Refer to REQUIREMENTS.md §2, §3, §5, §8 to §13 and INVARIANTS.md.
 
-use crate::game::{Cell, Game, Outcome};
+use crate::game::{Cell, CellSet, Game, Hint, Outcome};
 use crate::generator::{generate_early, generate_with_symmetry, PuzzleKey, Version};
 use crate::launch::Launch;
 use crate::layout::{self, Button, CheckpointControl, LevelButton, Rect};
@@ -53,6 +53,8 @@ pub enum Screen {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Panel {
+    /// The Hint panel (§9.5). It is never open on a complete game (HNT-1).
+    Hint,
     Colors,
     Settings,
     NewGame,
@@ -87,6 +89,7 @@ impl Panel {
     /// operate a panel.
     fn of_button(b: Button) -> Option<Panel> {
         match b {
+            Button::Hint => Some(Panel::Hint),
             Button::Colors => Some(Panel::Colors),
             Button::Settings => Some(Panel::Settings),
             Button::NewGame => Some(Panel::NewGame),
@@ -129,6 +132,9 @@ pub struct GameUi {
     /// The x of a refused tap: the cell, the digit of the micro-cell and the time when it showed
     /// (MRK-10 to MRK-18). The app does not save it (MRK-17).
     pub refused: Option<(Cell, u8, u64)>,
+    /// The cells of the last reveals, which show the highlight color (§9.5, HNT-7). It is a separate
+    /// state from `highlight`. The app does not save it.
+    pub revealed: CellSet,
     pub pending_ink: Option<PendingInk>,
     pub slider: u8,
     /// The selection of the Symmetrical switch in the New game panel (DIF-8). When the panel is not
@@ -148,13 +154,15 @@ impl GameUi {
     }
 
     /// The state of the game screen when a different screen shows (NAV-5), and after a level button
-    /// of the result card (NAV-9): the menu is closed.
+    /// of the result card (NAV-9): the menu is closed. No revealed cell has the highlight: the
+    /// caller keeps `revealed` when the game does not change (`App::leave_game`, HNT-7).
     fn closed(settings: &Settings) -> GameUi {
         GameUi {
             menu: Menu::Closed,
             highlight: None,
             question: None,
             refused: None,
+            revealed: CellSet::default(),
             pending_ink: None,
             slider: settings.last_mode,
             symmetric_sel: settings.last_symmetric,
@@ -283,6 +291,8 @@ enum Target {
     DialogDelete,
     /// A switch row of the Settings panel.
     Switch(Switch),
+    /// The row "Reveal one number" of the Hint panel (§9.5), black or gray.
+    HintRow,
     /// The button "Update to v<version>" (§9.2).
     Update,
     DeleteAll,
@@ -397,9 +407,11 @@ impl App {
         let settings_dirty = dialog_shown != settings.restart_dialog_shown;
         settings.restart_dialog_shown = dialog_shown;
         // A game file of an earlier version can have more checkpoints than the maximum: keep the
-        // newest (the list is newest first).
+        // newest (the list is newest first). HNT-9: a revealed incorrect number that is not on the
+        // board goes away, and the other values of the file stay.
         let saved = saved.map(|mut g| {
             g.checkpoints.truncate(crate::game::MAX_CHECKPOINTS);
+            g.drop_invalid_incorrect();
             g
         });
         let game = match saved.filter(|g| crate::invariants::check_game(g).is_ok() && is_generated(g)) {
@@ -740,6 +752,7 @@ impl App {
             match tool {
                 // The pen continues the ink: the ink gets the new stroke.
                 Some(Tool::Pen) => {
+                    self.ui.revealed = CellSet::default();
                     let ink = self.ui.pending_ink.as_mut().expect("pending ink");
                     ink.last_lift_at = None;
                     self.start_live_stroke(x, y);
@@ -780,20 +793,26 @@ impl App {
         let button = layout::game_button(x, y, self.ui.menu.is_open());
 
         // A panel is open: a tap outside the panel only closes the panel (NAV-11). The panel buttons (the
-        // paint bucket, the gear, the bookmark and the +) also change the panel (§9, NAV-12).
+        // lightbulb, the paint bucket, the gear, the bookmark and the +) also change the panel (§9, NAV-12).
         if let Some(panel) = self.ui.menu.panel() {
             if let Some(b) = button.filter(|&b| Panel::of_button(b).is_some()) {
                 return Gesture::Control(Target::Game(b));
             }
             match panel {
+                // HNT-2: the row is the only control. A tap in the box changes nothing.
+                Panel::Hint if layout::hint_panel(self.game.hint_state()).contains(x, y) => {
+                    return if layout::hint_row().contains(x, y) { Gesture::Control(Target::HintRow) } else { Gesture::Ignored };
+                }
                 Panel::Settings if layout::settings_panel(self.update.has_row()).contains(x, y) => {
                     if self.update.button().is_some() && layout::update_button_area().contains(x, y) {
                         return Gesture::Control(Target::Update);
                     }
-                    if layout::settings_row(layout::LICENSES_ROW).contains(x, y) {
+                    if layout::settings_row(layout::LICENSES_ROW, self.update.has_row()).contains(x, y) {
                         return Gesture::Control(Target::Licenses);
                     }
-                    return layout::settings_at(x, y).map(|s| Gesture::Control(Target::Switch(s))).unwrap_or(Gesture::Ignored);
+                    return layout::settings_at(x, y, self.update.has_row())
+                        .map(|s| Gesture::Control(Target::Switch(s)))
+                        .unwrap_or(Gesture::Ignored);
                 }
                 Panel::Colors if layout::colors_panel().contains(x, y) => {
                     return layout::color_at(x, y)
@@ -853,6 +872,9 @@ impl App {
         if self.game.completed {
             return Gesture::Ignored;
         }
+        // HNT-7: a pen press or an eraser press that operates the board removes the highlight of
+        // the revealed numbers. (A press that only closed a panel returned above.)
+        self.ui.revealed = CellSet::default();
         match tool {
             Tool::Eraser => {
                 self.erase_at(x, y);
@@ -1040,6 +1062,9 @@ impl App {
         }
         match result {
             Some(d) => {
+                // HNT-7: a number that the app reads from ink removes the highlight of the
+                // revealed numbers.
+                self.ui.revealed = CellSet::default();
                 let o = self.game.add_number(ink.cell, d);
                 self.after_game_change(o);
             }
@@ -1058,7 +1083,12 @@ impl App {
             self.ui.question = None;
         }
         if o == Outcome::Completed {
-            // §8.3: the board locks and the app saves the result.
+            // §8.3: the board locks and the app saves the result. CMP-3: no revealed cell has the
+            // highlight, and the Hint panel closes (a reveal can complete the puzzle, HNT-4).
+            self.ui.revealed = CellSet::default();
+            if self.ui.menu.panel() == Some(Panel::Hint) {
+                self.close_panel();
+            }
             self.ui.highlight = None;
             self.ui.question = None;
             self.ui.refused = None;
@@ -1078,6 +1108,7 @@ impl App {
                 seed: self.game.seed,
                 generator: self.game.generator,
                 symmetric: self.game.symmetric,
+                hints: self.game.hints,
             };
             match self.db.insert(&r) {
                 Ok(_) => self.refresh_results(),
@@ -1184,9 +1215,10 @@ impl App {
             Target::StartNewGame => layout::ng_start_row().contains(x, y),
             Target::Symmetric => layout::ng_symmetric_row().contains(x, y),
             Target::Level(b) => layout::level_button_at(x, y) == Some(b),
-            Target::Switch(s) => layout::settings_at(x, y) == Some(s),
+            Target::Switch(s) => layout::settings_at(x, y, self.update.has_row()) == Some(s),
+            Target::HintRow => layout::hint_row().contains(x, y),
             Target::Update => layout::update_button_area().contains(x, y),
-            Target::Licenses => layout::settings_row(layout::LICENSES_ROW).contains(x, y),
+            Target::Licenses => layout::settings_row(layout::LICENSES_ROW, self.update.has_row()).contains(x, y),
             Target::RestartLater => layout::dialog_cancel().contains(x, y),
             Target::RestartNow => layout::dialog_delete().contains(x, y),
             // The controls of the manual, the statistics and the games list.
@@ -1233,6 +1265,7 @@ impl App {
                 }
             }
             Target::Checkpoint(control) => self.checkpoint_control(control, now),
+            Target::HintRow => self.request_hint(),
             Target::StartNewGame => self.start_new_game(),
             // DIF-8: only the selection changes. The background puzzle starts again for the new
             // selection at the end of the input (PUZ-7).
@@ -1264,7 +1297,8 @@ impl App {
             }
             Target::Switch(s) => {
                 // NAV-14: only the switch changes; the game and the undo history do not. HLT-6: when
-                // highlights go off, the highlight goes in this redraw.
+                // highlights go off, the highlight goes in this redraw. The highlight of the
+                // revealed numbers stays (HNT-7).
                 self.settings.toggle(s);
                 self.settings_dirty = true;
                 if !self.settings.highlight_on {
@@ -1321,6 +1355,12 @@ impl App {
             Button::Menu => {
                 self.ui.menu = if self.ui.menu.is_open() { Menu::Closed } else { Menu::Open(None) };
             }
+            // HNT-1: on a complete puzzle, the tap has no effect, as for the bookmark below.
+            Button::Hint => {
+                if !self.game.completed {
+                    self.toggle_panel(Panel::Hint);
+                }
+            }
             Button::Colors => self.toggle_panel(Panel::Colors),
             Button::Settings => self.toggle_panel(Panel::Settings),
             Button::NewGame => self.toggle_panel(Panel::NewGame),
@@ -1333,11 +1373,11 @@ impl App {
             }
             Button::Undo => {
                 let o = self.game.undo();
-                self.after_game_change(o);
+                self.after_history_change(o);
             }
             Button::Redo => {
                 let o = self.game.redo();
-                self.after_game_change(o);
+                self.after_history_change(o);
             }
             Button::Help => {
                 self.leave_game();
@@ -1357,6 +1397,33 @@ impl App {
         }
     }
 
+    /// The end of an undo, a redo or a Restore. One that changes the board removes the highlight of
+    /// the revealed numbers (HNT-7, UND-9).
+    fn after_history_change(&mut self, o: Outcome) {
+        if o.changed() {
+            self.ui.revealed = CellSet::default();
+        }
+        self.after_game_change(o);
+    }
+
+    /// A release on the row "Reveal one number" (§9.5). The release read the waiting ink before
+    /// this, thus a reveal never puts a number below ink (HNT-4). If that read completed the
+    /// puzzle or gave a clash, no hint is available and nothing more changes.
+    fn request_hint(&mut self) {
+        match self.game.request_hint() {
+            Hint::NotAvailable => {}
+            // HNT-3: only the revealed incorrect number changes. The app saves it (PER-1).
+            Hint::Incorrect(_) => self.game_dirty = true,
+            // HNT-4: the cell gets the highlight with the cells of the earlier reveals. A reveal
+            // that completes the puzzle removes all of them and closes the panel
+            // (`after_game_change`).
+            Hint::Revealed(cell, o) => {
+                self.ui.revealed.insert(cell);
+                self.after_game_change(o);
+            }
+        }
+    }
+
     /// A release of a control of the Checkpoints panel (§9.3).
     fn checkpoint_control(&mut self, control: CheckpointControl, now: u64) {
         match control {
@@ -1367,7 +1434,7 @@ impl App {
             }
             CheckpointControl::Restore(i) => {
                 let o = self.game.restore_checkpoint(i);
-                self.after_game_change(o);
+                self.after_history_change(o);
             }
             CheckpointControl::Delete(i) => {
                 if self.game.delete_checkpoint(i) {
@@ -1420,8 +1487,10 @@ impl App {
         }
     }
 
+    /// A different screen shows, or the game screen shows again: the menu closes, and the "?", the x,
+    /// the highlight of a digit and the ink go. The highlight of the revealed numbers stays (HNT-7).
     fn leave_game(&mut self) {
-        self.ui = GameUi::closed(&self.settings);
+        self.ui = GameUi { revealed: self.ui.revealed, ..GameUi::closed(&self.settings) };
         self.live_stroke = None;
         self.toolbar_ignored_until = None;
         self.cancel_gestures();
@@ -1566,6 +1635,7 @@ impl App {
         let mut h = std::collections::hash_map::DefaultHasher::new();
         let g = &self.game;
         (self.screen, g.value, g.marks, g.given, g.undo.len(), g.redo.len(), g.completed, &g.checkpoints).hash(&mut h);
+        (g.hints, g.incorrect_shown, self.ui.revealed).hash(&mut h);
         if g.completed {
             g.seconds().hash(&mut h);
         }
@@ -1675,6 +1745,49 @@ impl Comparison {
     }
 }
 
+/// The text of the hint count in the Hint panel and on the result card (HNT-2, HNT-13): "1 hint
+/// used", else "N hints used".
+pub fn hints_used_text(hints: u64) -> String {
+    if hints == 1 { "1 hint used".to_string() } else { format!("{hints} hints used") }
+}
+
+/// The largest count that the Hint button shows as a number (HNT-10).
+pub const MAX_BUTTON_COUNT: u32 = 99;
+
+/// The text of the count on the Hint button (HNT-10): None with no hint, the count to 99, and "99+"
+/// above it. The game keeps the true count.
+pub fn hint_count_text(hints: u32) -> Option<String> {
+    match hints {
+        0 => None,
+        1..=MAX_BUTTON_COUNT => Some(hints.to_string()),
+        _ => Some(format!("{MAX_BUTTON_COUNT}+")),
+    }
+}
+
+/// The text of the average of the hint counts of `n` results with the sum `sum` (HNT-12): "–" with
+/// no results; else the average rounded to 2 decimal places (a half rounds to the even value, as
+/// the average time), with no zeros at the end and no decimal point for a whole number.
+pub fn average_hints_text(sum: u128, n: u128) -> String {
+    if n == 0 {
+        return "–".to_string();
+    }
+    // The average in hundredths, with integers only: the result is exact for each count.
+    let (q, r) = (sum * 100 / n, sum * 100 % n);
+    let hundredths = if 2 * r > n || (2 * r == n && q % 2 == 1) { q + 1 } else { q };
+    let (whole, part) = (hundredths / 100, hundredths % 100);
+    match (part, part % 10) {
+        (0, _) => whole.to_string(),
+        (_, 0) => format!("{whole}.{}", part / 10),
+        _ => format!("{whole}.{part:02}"),
+    }
+}
+
+/// The text of the average of the hint counts of these results (ANA-4).
+pub fn average_hints<'a>(rows: impl Iterator<Item = &'a ResultRow>) -> String {
+    let (n, sum) = rows.fold((0u128, 0u128), |(n, s), r| (n + 1, s + u128::from(r.hints)));
+    average_hints_text(sum, n)
+}
+
 /// The average of the times, rounded to whole seconds. A half rounds to the even value, as in the
 /// reference images (scripts/analytics.py).
 pub fn average_seconds<'a>(rows: impl Iterator<Item = &'a ResultRow>) -> Option<u64> {
@@ -1745,5 +1858,164 @@ mod launch_tests {
         // `new` is the frontend mode.
         let usual = App::new(None, None, ResultsDb::in_memory(), Box::new(TestEnv), App::placeholder_ng_stops());
         assert_eq!(usual.update.launch, Launch::Frontend);
+    }
+}
+
+#[cfg(test)]
+mod hint_tests {
+    use super::*;
+    use crate::game::{cells, HintState, IncorrectShown};
+
+    struct TestEnv;
+
+    impl Env for TestEnv {
+        fn unix_time(&mut self) -> i64 {
+            1_700_000_000
+        }
+        fn new_seed(&mut self) -> u64 {
+            7
+        }
+    }
+
+    fn app_with(saved: Option<Game>) -> App {
+        App::new(saved, None, ResultsDb::in_memory(), Box::new(TestEnv), App::placeholder_ng_stops())
+    }
+
+    /// A finger tap at a point. Debug builds examine the invariants after each input.
+    fn tap(app: &mut App, (x, y): (f32, f32), now: u64) {
+        app.handle(Input::TouchDown { id: 1, x, y }, now);
+        app.handle(Input::TouchUp { id: 1, x, y }, now + 50);
+        crate::invariants::check_app(app).unwrap();
+    }
+
+    /// A pen press and lift on a cell.
+    fn pen(app: &mut App, cell: Cell, now: u64) {
+        let (x, y) = crate::script::micro_center(cell, 5);
+        app.handle(Input::PenDown { x, y, tool: Tool::Pen }, now);
+        app.handle(Input::PenUp { x, y }, now + 50);
+        crate::invariants::check_app(app).unwrap();
+    }
+
+    fn center(r: Rect) -> (f32, f32) {
+        (((r.x0 + r.x1) / 2) as f32, ((r.y0 + r.y1) / 2) as f32)
+    }
+
+    fn first_empty(g: &Game) -> Cell {
+        cells().find(|&c| !g.is_filled(c)).unwrap()
+    }
+
+    /// A digit that is not the solution of the cell and that no peer has: an incorrect number with
+    /// no clash.
+    fn incorrect_digit(g: &Game, cell: Cell) -> Option<u8> {
+        (1..=9).find(|&d| d != g.solution[cell.0 as usize][cell.1 as usize] && g.peer_digits(cell) & crate::game::mark_bit(d) == 0)
+    }
+
+    #[test]
+    fn a_reveal_puts_one_number_of_the_solution_and_the_highlight_stays_until_a_board_action() {
+        // HNT-1, HNT-4, HNT-5, HNT-6, HNT-7, UND-9
+        let mut app = app_with(None);
+        let (lightbulb, row) = (layout::icon_center(Button::Hint), center(layout::hint_row()));
+        tap(&mut app, lightbulb, 1000);
+        assert_eq!(app.ui.menu.panel(), Some(Panel::Hint));
+        let before = app.game.clone();
+        let expected = before.reveal_cell().unwrap();
+        assert_eq!(before.reveal_cell(), Some(expected), "HNT-5: the same board gives the same cell");
+        tap(&mut app, row, 2000);
+        let (r, c) = expected;
+        assert_eq!(app.game.value_at(expected), app.game.solution[r as usize][c as usize]);
+        assert_eq!((app.game.hints, app.game.undo.len(), app.game.redo.len()), (1, 1, 0));
+        assert_eq!(cells().filter(|&cell| app.game.value_at(cell) != before.value_at(cell)).count(), 1);
+        assert_eq!(app.ui.menu.panel(), Some(Panel::Hint), "the panel stays open");
+        tap(&mut app, row, 3000);
+        assert_eq!((app.game.hints, app.ui.revealed.iter().count()), (2, 2), "the two revealed cells have the highlight");
+        // A different screen and the return do not remove the highlight. (The first tap on the
+        // button only closes the panel, NAV-12.)
+        tap(&mut app, layout::icon_center(Button::Statistics), 4000);
+        tap(&mut app, layout::icon_center(Button::Statistics), 4200);
+        assert_eq!(app.screen, Screen::Statistics);
+        tap(&mut app, center(layout::back_button()), 5000);
+        assert_eq!(app.ui.revealed.iter().count(), 2);
+        // The first pen press on the board only closes a panel. The next press removes the highlight.
+        tap(&mut app, lightbulb, 6000);
+        let empty = first_empty(&app.game);
+        pen(&mut app, empty, 7000);
+        assert_eq!((app.ui.menu.panel(), app.ui.revealed.iter().count()), (None, 2));
+        pen(&mut app, empty, 8000);
+        assert!(app.ui.revealed.is_empty());
+        // The undo of a reveal does not decrease the count, and a reveal after it adds 1 again.
+        let undo = layout::icon_center(Button::Undo);
+        (0..app.game.undo.len()).for_each(|i| tap(&mut app, undo, 9000 + 100 * i as u64));
+        assert_eq!((app.game.value, app.game.hints), (before.value, 2));
+        tap(&mut app, lightbulb, 12_000);
+        tap(&mut app, row, 13_000);
+        assert_eq!((app.game.hints, app.game.value_at(expected) != 0), (3, true));
+        tap(&mut app, undo, 14_000);
+        tap(&mut app, undo, 15_000);
+        assert!(app.ui.revealed.is_empty(), "an undo that changes the board removes the highlight");
+    }
+
+    #[test]
+    fn a_request_on_a_board_with_an_incorrect_number_reveals_only_that_number() {
+        // HNT-2, HNT-3, HNT-8
+        let mut app = app_with(None);
+        let (cell, digit) = cells().filter(|&c| !app.game.is_filled(c)).find_map(|c| incorrect_digit(&app.game, c).map(|d| (c, d))).unwrap();
+        app.game.add_number(cell, digit);
+        assert_eq!(app.game.hint_state(), HintState::Available, "the app tells nothing before a request");
+        let (lightbulb, row) = (layout::icon_center(Button::Hint), center(layout::hint_row()));
+        tap(&mut app, lightbulb, 1000);
+        let before = app.game.clone();
+        app.game_dirty = false;
+        tap(&mut app, row, 2000);
+        assert_eq!(app.game.incorrect_shown, Some(IncorrectShown { cell, digit }));
+        assert!(app.game_dirty, "the app saves the revealed cell");
+        assert_eq!(app.game, Game { incorrect_shown: app.game.incorrect_shown, elapsed_ms: app.game.elapsed_ms, ..before.clone() });
+        assert_eq!(app.game.hint_state(), HintState::Incorrect);
+        // The gray row changes nothing.
+        tap(&mut app, row, 3000);
+        assert_eq!((app.game.hints, app.game.value), (0, before.value));
+        // The saved game opens with the revealed cell. A file with a different digit opens without it.
+        let saved = app.game.clone();
+        assert_eq!(app_with(Some(saved.clone())).game.incorrect_shown, saved.incorrect_shown);
+        let bad = Game { incorrect_shown: Some(IncorrectShown { cell, digit: 0 }), ..saved.clone() };
+        let opened = app_with(Some(bad));
+        assert_eq!((opened.game.incorrect_shown, &opened.game.value, opened.game.seed), (None, &saved.value, saved.seed), "HNT-9");
+        let off_board = Game { incorrect_shown: Some(IncorrectShown { cell: (9, 200), digit }), ..saved.clone() };
+        assert_eq!(app_with(Some(off_board)).game.incorrect_shown, None, "HNT-9");
+        // The eraser removes the number: a hint is available again.
+        app.game.erase(cell);
+        assert_eq!((app.game.incorrect_shown, app.game.hint_state()), (None, HintState::Available));
+        // The same digit in the cell again is not revealed without a new request.
+        app.game.add_number(cell, digit);
+        assert_eq!(app.game.incorrect_shown, None);
+    }
+
+    #[test]
+    fn reveals_complete_the_puzzle_and_the_result_has_the_hint_count() {
+        // HNT-4, CMP-3, CMP-5
+        let mut app = app_with(None);
+        let empty = cells().filter(|&c| !app.game.is_filled(c)).count() as u32;
+        tap(&mut app, layout::icon_center(Button::Hint), 1000);
+        let row = center(layout::hint_row());
+        for i in 0..empty {
+            assert!(!app.game.completed);
+            tap(&mut app, row, 2000 + 100 * u64::from(i));
+        }
+        assert!(app.game.completed && app.game.value == app.game.solution);
+        assert_eq!((app.game.hints, app.ui.menu.panel(), app.ui.revealed.is_empty()), (empty, None, true));
+        assert_eq!(app.results.iter().map(|r| r.hints).collect::<Vec<_>>(), vec![u64::from(empty)]);
+        // The gray lightbulb changes nothing.
+        tap(&mut app, layout::icon_center(Button::Hint), 60_000);
+        assert_eq!(app.ui.menu.panel(), None);
+    }
+
+    #[test]
+    fn the_texts_of_the_hint_counts() {
+        // HNT-2, HNT-10, HNT-12, HNT-13
+        assert_eq!((hints_used_text(0), hints_used_text(1), hints_used_text(2)), ("0 hints used".into(), "1 hint used".into(), "2 hints used".into()));
+        assert_eq!((hint_count_text(0), hint_count_text(1), hint_count_text(99), hint_count_text(100)), (None, Some("1".into()), Some("99".into()), Some("99+".into())));
+        for ((sum, n), text) in [((0, 0), "–"), ((0, 4), "0"), ((8, 4), "2"), ((2, 7), "0.29"), ((2, 3), "0.67"), ((5, 2), "2.5"), ((1, 8), "0.12"), ((3, 8), "0.38"), ((1, 1000), "0")] {
+            assert_eq!(average_hints_text(sum, n), text, "{sum} / {n}");
+            crate::invariants::check_average_hints(sum, n).unwrap();
+        }
     }
 }

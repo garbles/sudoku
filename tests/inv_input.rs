@@ -627,7 +627,7 @@ fn only_the_open_menu_opens_the_manual_and_statistics() {
         assert!(!d.app.ui.menu.is_open());
     }
     d.button(Button::Menu);
-    for panel in [Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame] {
+    for panel in [Button::Hint, Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame] {
         for b in [Button::Help, Button::Statistics] {
             d.button(panel);
             d.button(b);
@@ -1362,7 +1362,7 @@ fn no_other_input_changes_a_highlight() {
         keep(&d, "the pen opens the menu");
 
         // The panels and their options.
-        for panel in [Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame] {
+        for panel in [Button::Hint, Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame] {
             d.button(panel);
             assert!(d.app.ui.menu.panel().is_some(), "{what}: {panel:?}");
             keep(&d, "a panel opens");
@@ -2069,4 +2069,387 @@ fn the_pause_has_one_source_and_the_manifest_does_not_set_it() {
         }
     }
     assert!(sources > 10, "the test did not read the source");
+}
+
+// ---- HNT-1, HNT-2, HNT-7, NAV-11, NAV-12, NAV-16: the lightbulb, the Hint panel and the highlight of
+// the revealed numbers, in all layouts.
+
+/// Opens the menu and the Hint panel if they are not open.
+fn open_hint(d: &mut Driver) {
+    if !d.app.ui.menu.is_open() {
+        d.button(Button::Menu);
+    }
+    if d.app.ui.menu.panel() != Some(Panel::Hint) {
+        d.button(Button::Hint);
+    }
+    assert_eq!(d.app.ui.menu.panel(), Some(Panel::Hint), "HNT-1: the panel opens");
+}
+
+/// Opens the Hint panel and taps the row "Reveal one number". Returns the revealed cell.
+fn reveal(d: &mut Driver) -> Cell {
+    open_hint(d);
+    let before = d.app.game.value;
+    let (x, y) = pixel_center(layout::hint_row());
+    d.finger_tap(x, y);
+    cells().find(|&(r, c)| before[r as usize][c as usize] != d.app.game.value[r as usize][c as usize]).expect("HNT-4: a reveal")
+}
+
+/// A tap with the pen tip (0), the eraser end (1) or a finger (2).
+fn tool_tap(d: &mut Driver, tool: u8, (x, y): (f32, f32)) {
+    match tool {
+        0 => d.pen_tap(x, y),
+        1 => {
+            d.send(Input::PenDown { x, y, tool: Tool::Eraser });
+            d.send(Input::PenUp { x, y });
+        }
+        _ => d.finger_tap(x, y),
+    }
+}
+
+/// An empty cell whose micro-cell 5 is not below the Hint panel in the current layout.
+fn cell_outside_hint_panel(d: &Driver) -> Cell {
+    let panel = layout::hint_panel(d.app.game.hint_state());
+    let r = layout::hint_panel(sudoku::game::HintState::Clash);
+    empty_cells(d)
+        .into_iter()
+        .find(|&c| {
+            let (x, y) = micro_center(c, 5);
+            !panel.contains(x, y) && !r.contains(x, y)
+        })
+        .expect("an empty cell outside the panel")
+}
+
+/// A cell of the board that the open panel does not cover (the full cell).
+fn cell_outside_open_panel(d: &Driver) -> Cell {
+    let panel = match d.app.ui.menu.panel().expect("a panel") {
+        Panel::Hint => layout::hint_panel(d.app.game.hint_state()),
+        Panel::Colors => layout::colors_panel(),
+        Panel::Settings => layout::settings_panel(d.app.update.has_row()),
+        Panel::NewGame => layout::ng_panel(),
+        Panel::Checkpoints => layout::ckp_panel(d.app.game.checkpoints.len()),
+    };
+    cells()
+        .find(|&c| {
+            let (x, y) = layout::cell_origin(c);
+            let n = layout::cell_size();
+            [(x, y), (x + n, y), (x, y + n), (x + n, y + n)].iter().all(|&(px, py)| !panel.contains(px as f32, py as f32))
+        })
+        .expect("a cell outside the panel")
+}
+
+#[test]
+fn the_lightbulb_opens_and_closes_the_hint_panel_with_each_tool() {
+    // HNT-1, NAV-12, NAV-11: the pen, the eraser end and a finger operate the lightbulb in the same way.
+    // A different panel button changes the panel. The menu button, Undo and Redo only close the panel.
+    // A press on the board only closes it, and no ink starts while it is open.
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let what = format!("{o:?}, right-handed {right_handed}");
+        let mut d = Driver::new(620);
+        let e = empty_cells(&d);
+        d.write(e[0], solution_at(&d.app.game, e[0]));
+        d.button(Button::Menu);
+        let bulb = button_center(Button::Hint);
+        for tool in 0..3 {
+            tool_tap(&mut d, tool, bulb);
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Hint), "HNT-1: {what}: tool {tool} opens the panel");
+            check(&d);
+            tool_tap(&mut d, tool, bulb);
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "HNT-1: {what}: tool {tool} closes the panel");
+        }
+        for other in [Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame] {
+            d.button(Button::Hint);
+            d.button(other);
+            assert!(d.app.ui.menu.panel().is_some_and(|p| p != Panel::Hint), "NAV-12: {what}: {other:?} changes the panel");
+            d.button(Button::Hint);
+            assert_eq!(d.app.ui.menu.panel(), Some(Panel::Hint), "NAV-12: {what}: the lightbulb changes the panel from {other:?}");
+            d.button(Button::Hint);
+        }
+        for b in [Button::Menu, Button::Undo, Button::Redo] {
+            d.button(Button::Hint);
+            let before = state(&d);
+            d.button(b);
+            assert_eq!((d.app.ui.menu, state(&d)), (Menu::Open(None), before), "NAV-12: {what}: {b:?} only closes the Hint panel");
+        }
+        // NAV-11, HNT-1: a pen stroke and a pen tap on the board only close the panel. No ink starts.
+        let cell = cell_outside_hint_panel(&d);
+        for stroke in [false, true] {
+            d.button(Button::Hint);
+            let before = state(&d);
+            let (x, y) = micro_center(cell, 5);
+            if stroke {
+                d.send(Input::PenDown { x, y, tool: Tool::Pen });
+                for k in 1..5 {
+                    d.send(Input::PenMove { x: x + 10.0 * k as f32, y });
+                    assert!(d.app.live_stroke.is_none() && d.app.ui.pending_ink.is_none(), "HNT-1, NAV-11: {what}: no ink");
+                }
+                d.send(Input::PenUp { x: x + 40.0, y });
+            } else {
+                d.pen_tap(x, y);
+            }
+            assert_eq!((d.app.ui.menu, state(&d)), (Menu::Open(None), before), "NAV-11: {what}: the press only closes the panel");
+            assert!(d.app.ui.pending_ink.is_none() && d.app.ui.refused.is_none(), "NAV-11: {what}");
+        }
+        // HNT-2: a tap in the box and on the gray row changes nothing, and the panel stays open.
+        d.button(Button::Hint);
+        let (x, y) = ((layout::hint_text_x() + 40) as f32, (layout::hint_box_top() + 30) as f32);
+        let before = (state(&d), d.app.game.hints);
+        d.pen_tap(x, y);
+        d.finger_tap(x, y);
+        assert_eq!((d.app.ui.menu.panel(), (state(&d), d.app.game.hints)), (Some(Panel::Hint), before), "HNT-2: {what}: a tap in the box");
+        check(&d);
+    }
+}
+
+#[test]
+fn the_gray_lightbulb_of_a_complete_game_changes_nothing() {
+    // HNT-1, CMP-6, NAV-12: on a complete game the lightbulb is gray. A tap on it with each tool changes
+    // nothing, and an open panel stays open.
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let what = format!("{o:?}, right-handed {right_handed}");
+        let (g, last) = last_cell_game(621, false);
+        let mut d = Driver::from(App::new(Some(g), None, ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed: 621 }), App::placeholder_ng_stops()));
+        d.write(last, solution_at(&d.app.game, last));
+        assert!(d.app.game.completed, "{what}: the fixture is complete");
+        d.button(Button::Menu);
+        for panel in [None, Some(Button::Colors), Some(Button::Settings), Some(Button::NewGame)] {
+            if let Some(b) = panel {
+                d.button(b);
+            }
+            let menu = d.app.ui.menu;
+            for tool in 0..3 {
+                tool_tap(&mut d, tool, button_center(Button::Hint));
+                assert_eq!(d.app.ui.menu, menu, "HNT-1, CMP-6: {what}: {panel:?}, tool {tool}");
+            }
+            check(&d);
+            if d.app.ui.menu.panel().is_some() {
+                d.button(Button::Menu);
+            }
+        }
+    }
+}
+
+#[test]
+fn a_tap_on_the_lightbulb_reads_the_waiting_ink_first() {
+    // HNT-1, HNT-4, INP-7: `panel = Hint ⇒ pending_ink = None`. A tap on the lightbulb reads the
+    // waiting ink first. If the number completes the puzzle, the panel does not open.
+    for tool in [0u8, 2] {
+        let mut d = Driver::new(622);
+        d.button(Button::Menu);
+        let cell = empty_cells(&d)[0];
+        let v = solution_at(&d.app.game, cell);
+        d.write_strokes(&digit_ink(cell, v));
+        assert!(d.app.ui.pending_ink.is_some(), "the fixture has waiting ink");
+        tool_tap(&mut d, tool, button_center(Button::Hint));
+        assert_eq!(d.app.ui.menu.panel(), Some(Panel::Hint), "HNT-1: tool {tool}: the panel opens");
+        assert!(d.app.ui.pending_ink.is_none(), "HNT-1: tool {tool}: the Hint panel opened with waiting ink");
+        assert_eq!(d.app.game.value_at(cell), v, "HNT-1: tool {tool}: the app read the ink first");
+        check(&d);
+
+        let (g, last) = last_cell_game(623, false);
+        let mut d = Driver::from(App::new(Some(g), None, ResultsDb::in_memory(), Box::new(TestEnv { time: START_TIME, seed: 623 }), App::placeholder_ng_stops()));
+        d.button(Button::Menu);
+        d.write_strokes(&digit_ink(last, solution_at(&d.app.game, last)));
+        tool_tap(&mut d, tool, button_center(Button::Hint));
+        assert!(d.app.game.completed && d.app.ui.pending_ink.is_none(), "HNT-1: tool {tool}: the app read the ink first");
+        assert_eq!(d.app.ui.menu, Menu::Open(None), "HNT-1, CMP-3: tool {tool}: the read completed the puzzle, the panel does not open");
+        check(&d);
+    }
+}
+
+#[test]
+fn the_lightbulb_is_ignored_shortly_after_back() {
+    // NAV-16: for 0.5 s after "< Back", a press on the lightbulb (top slot 1) changes nothing. Then it
+    // opens the Hint panel.
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let mut d = Driver::new(624);
+        d.button(Button::Menu);
+        d.button(Button::Statistics);
+        let (x, y) = pixel_center(layout::back_button());
+        d.finger_tap(x, y);
+        assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)));
+        for tool in 0..3 {
+            tool_tap(&mut d, tool, button_center(Button::Hint));
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-16: {o:?}, right-handed {right_handed}: tool {tool}");
+        }
+        d.wait(sudoku::app::BACK_GUARD_MS);
+        d.button(Button::Hint);
+        assert_eq!(d.app.ui.menu.panel(), Some(Panel::Hint), "NAV-16: the lightbulb operates again");
+    }
+}
+
+#[test]
+fn only_the_listed_input_removes_the_highlight_of_the_revealed_numbers() {
+    // HNT-7, HLT-6, NAV-11, NAV-12, PER-2: a request adds a cell. The menu, the panels and their
+    // options, the switches, a finger, the screens and the return, a turn, a suspension, a save and a
+    // delete of a checkpoint, and a press that only closes a panel keep `revealed`. A pen or eraser press
+    // on the board with no panel, a number read from ink, an undo, a redo or a Restore that changes the
+    // board, a new game, completion and a start of the app set `revealed = ∅`.
+    for (o, right_handed) in LAYOUTS {
+        let _layout = InLayout::set(o, right_handed);
+        let what = format!("{o:?}, right-handed {right_handed}");
+        let mut d = Driver::new(625);
+        let given = given_cell(&d.app.game);
+        // A checkpoint before the reveals, for the Restore below.
+        d.button(Button::Menu);
+        d.button(Button::Checkpoints);
+        let (x, y) = exact_center(layout::ckp_save_row());
+        d.finger_tap(x, y);
+        let a = reveal(&mut d);
+        let b = reveal(&mut d);
+        assert_ne!(a, b, "HNT-4: two cells");
+        let mut want: Vec<Cell> = vec![a, b];
+        want.sort_unstable();
+        let keep = |d: &Driver, why: &str| {
+            let mut got: Vec<Cell> = d.app.ui.revealed.iter().collect();
+            got.sort_unstable();
+            assert_eq!(got, want, "HNT-7: {what}: {why} changed revealed");
+            check(d);
+        };
+        keep(&d, "the second request");
+
+        // A finger on the board, a swipe and the time. (In landscape the open panel covers a part of
+        // the board: first the menu button closes it, NAV-12.)
+        d.button(Button::Menu);
+        keep(&d, "the menu button that closes the panel");
+        for cell in [given, a, empty_cells(&d)[0]] {
+            let (x, y) = micro_center(cell, 5);
+            d.finger_tap(x, y);
+        }
+        keep(&d, "a finger on the board");
+        d.swipe(true);
+        d.wait(OVERLAY_MS + WRITING_IDLE_MS + 500);
+        keep(&d, "a swipe and the time");
+        // The menu and the panels, and a press on the board that only closes a panel (NAV-11).
+        d.button(Button::Menu);
+        d.button(Button::Menu);
+        keep(&d, "the menu");
+        for panel in [Button::Hint, Button::Colors, Button::Settings, Button::Checkpoints, Button::NewGame] {
+            d.button(panel);
+            keep(&d, "a panel");
+            let cell = cell_outside_open_panel(&d);
+            d.tap_micro(cell, 5);
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-11: {what}: {panel:?}");
+            keep(&d, "a pen press that only closes a panel");
+            d.button(panel);
+            d.erase(cell);
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-11: {what}: {panel:?}");
+            keep(&d, "an eraser press that only closes a panel");
+        }
+        // The options: a color, the slider, the switches (also "Highlight numbers" off, HLT-6).
+        d.button(Button::Colors);
+        let (x, y) = color_point(Section::Highlight, Color::Green);
+        d.finger_tap(x, y);
+        keep(&d, "a color");
+        d.button(Button::NewGame);
+        d.finger_tap(d.app.ng_stops[1], layout::ng_slider_y() as f32);
+        keep(&d, "the slider");
+        d.button(Button::Settings);
+        for s in Switch::ALL {
+            let (x, y) = switch_point(s);
+            d.finger_tap(x, y);
+            keep(&d, "a switch");
+        }
+        assert!(!d.app.settings.highlight_on, "the fixture has the switch off");
+        d.finger_tap(switch_point(Switch::HighlightNumbers).0, switch_point(Switch::HighlightNumbers).1);
+        // The Licenses screen and the return.
+        let (x, y) = pixel_center(layout::settings_row(layout::LICENSES_ROW, d.app.update.has_row()));
+        d.finger_tap(x, y);
+        assert_eq!(d.app.screen, Screen::Licenses, "{what}");
+        let (bx, by) = pixel_center(layout::back_button());
+        d.finger_tap(bx, by);
+        d.wait(sudoku::app::BACK_GUARD_MS);
+        keep(&d, "Licenses");
+        // Help and Statistics, and the return.
+        for screen in [Button::Help, Button::Statistics] {
+            if d.app.ui.menu.panel().is_some() {
+                d.button(Button::Menu);
+            }
+            if !d.app.ui.menu.is_open() {
+                d.button(Button::Menu);
+            }
+            d.button(screen);
+            assert_ne!(d.app.screen, Screen::Game, "{what}: {screen:?}");
+            d.finger_tap(bx, by);
+            d.wait(sudoku::app::BACK_GUARD_MS);
+            keep(&d, "a screen and the return");
+        }
+        // A turn and a suspension.
+        let other = if o == layout::Orientation::Portrait { layout::Orientation::Landscape } else { layout::Orientation::Portrait };
+        layout::set_orientation(other);
+        d.app.rotate(App::placeholder_ng_stops());
+        keep(&d, "a turn");
+        layout::set_orientation(o);
+        d.app.rotate(App::placeholder_ng_stops());
+        d.app.suspend();
+        d.now += 60_000;
+        d.app.tick(d.now);
+        keep(&d, "a suspension");
+        // A save and a delete of a checkpoint.
+        if !d.app.ui.menu.is_open() {
+            d.button(Button::Menu);
+        }
+        d.button(Button::Checkpoints);
+        let (x, y) = exact_center(layout::ckp_save_row());
+        d.finger_tap(x, y);
+        assert_eq!(d.app.game.checkpoints.len(), 2, "{what}: the save");
+        keep(&d, "a save of a checkpoint");
+        let (x, y) = exact_center(layout::ckp_bin_area(0));
+        d.finger_tap(x, y);
+        d.wait(600);
+        assert_eq!(d.app.game.checkpoints.len(), 1, "{what}: the delete");
+        keep(&d, "a delete of a checkpoint");
+        // Undo with an open panel only closes the panel (NAV-12).
+        d.button(Button::Hint);
+        d.button(Button::Undo);
+        keep(&d, "a tap on Undo that only closes the panel");
+
+        // Each item of the list removes all revealed cells together.
+        // A redo after a reveal is not possible: a reveal empties `redo` (UND-1), and an undo after it
+        // removes the revealed cells.
+        let removers: [(&str, fn(&mut Driver)); 7] = [
+            ("a pen press on the board", |d| {
+                d.button(Button::Menu);
+                let g = given_cell(&d.app.game);
+                d.tap_micro(g, 5);
+            }),
+            ("an eraser press on an empty cell", |d| {
+                d.button(Button::Menu);
+                let e = empty_cells(d)[0];
+                d.erase(e);
+            }),
+            ("a number read from ink", |d| {
+                d.button(Button::Menu);
+                let e = empty_cells(d)[0];
+                d.write(e, solution_at(&d.app.game, e));
+            }),
+            ("an undo", |d| {
+                d.button(Button::Menu);
+                d.button(Button::Undo);
+            }),
+            ("a Restore", |d| {
+                d.button(Button::Checkpoints);
+                let (x, y) = exact_center(layout::ckp_button(0));
+                d.finger_tap(x, y);
+            }),
+            ("a new game", |d| {
+                d.button(Button::NewGame);
+                let (x, y) = pixel_center(layout::ng_start_row());
+                d.finger_tap(x, y);
+            }),
+            ("a start of the app", |d| restart_in(d, Launch::Frontend)),
+        ];
+        for (name, remove) in removers {
+            if d.app.ui.revealed.is_empty() {
+                reveal(&mut d);
+            }
+            reveal(&mut d);
+            assert!(d.app.ui.revealed.iter().count() >= 1, "{what}: {name}: the fixture");
+            remove(&mut d);
+            assert!(d.app.ui.revealed.is_empty(), "HNT-7: {what}: {name} did not remove revealed");
+            check(&d);
+        }
+    }
 }

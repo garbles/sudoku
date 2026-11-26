@@ -10,9 +10,9 @@ use std::sync::OnceLock;
 
 use tiny_skia::{FillRule, LineCap, LineJoin, Paint, Path, PathBuilder, Pixmap, PixmapPaint, Rect as SkRect, Stroke, Transform};
 
-use crate::app::{average_seconds, App, Comparison, Menu, Panel, Screen, MANUAL_PAGES};
+use crate::app::{average_hints, average_seconds, hint_count_text, hints_used_text, App, Comparison, Menu, Panel, Screen, MANUAL_PAGES, MAX_BUTTON_COUNT};
 use crate::font::{Anchor, Fonts, Weight};
-use crate::game::{cells, format_clock, Board, CellSet, Game};
+use crate::game::{cells, format_clock, Board, CellSet, Game, HintState};
 use crate::generator::MODES;
 use crate::layout::{self, *};
 use crate::settings::{Color, LineGray, Section, Settings, Switch};
@@ -788,6 +788,7 @@ fn draw_game(c: &mut Canvas, app: &App) {
         highlight: app.ui.highlight,
         question: app.ui.question.map(|(cell, _)| cell),
         refused: app.ui.refused.map(|(cell, digit, _)| (cell, digit)),
+        revealed: app.ui.revealed,
     };
     draw_board(c, g, &app.settings, overlays);
 
@@ -799,8 +800,8 @@ fn draw_game(c: &mut Canvas, app: &App) {
 
     // The difficulty meter, or the result card in its place (CMP-4, DIF-6).
     if g.completed {
-        let look = OverlayLook::Card { mode: g.mode, seconds: g.seconds(), comparison: app.card_comparison() };
-        put_overlay(c, look, |c| draw_result_card(c, g.mode, g.seconds(), app.card_comparison()));
+        let result = CardResult { mode: g.mode, seconds: g.seconds(), comparison: app.card_comparison(), hints: g.hints };
+        put_overlay(c, OverlayLook::Card(result), |c| draw_result_card(c, result));
     } else {
         put_overlay(c, OverlayLook::Meter(g.mode), |c| labeled_slider(c, meter_xl(), meter_xr(), meter_y(), g.mode));
     }
@@ -812,7 +813,8 @@ fn draw_game(c: &mut Canvas, app: &App) {
         caution: app.update.caution(),
         undo: app.game.can_undo(),
         redo: app.game.can_redo(),
-        bookmark: !app.game.completed,
+        in_progress: !app.game.completed,
+        hints: app.game.hints.min(MAX_BUTTON_COUNT + 1),
     };
     put_overlay(c, menu, |c| {
         let (x, y) = icon_center(Button::Menu);
@@ -830,14 +832,36 @@ fn draw_game(c: &mut Canvas, app: &App) {
 /// in", the time, the meter of the mode, the comparison with the earlier results at this mode, and
 /// the level buttons Easier, Same and Harder. The three buttons have the same look (Same has no
 /// highlight, `ButtonLook`). The contents of a landscape column are the same for the two hands.
-fn draw_result_card(c: &mut Canvas, mode: u8, seconds: u64, comparison: Comparison) {
+/// With 1 or more hints, the card also shows "N hints used" (HNT-13); no other item moves.
+fn draw_result_card(c: &mut Canvas, result: CardResult) {
     let r = layout::result_card();
     card_frame(c, r, BLACK);
-    let time = format_clock(seconds);
     match layout::card_layout() {
-        CardLayout::Below(card) => draw_card_below(c, card, r, mode, &time, comparison),
-        CardLayout::Column(card) => draw_card_column(c, card, r, mode, &time, comparison),
-        CardLayout::CompactBelow(card) => draw_compact_card_below(c, card, r, mode, &time, comparison),
+        CardLayout::Below(card) => draw_card_below(c, card, r, result),
+        CardLayout::Column(card) => draw_card_column(c, card, r, result),
+        CardLayout::CompactBelow(card) => draw_compact_card_below(c, card, r, result),
+    }
+}
+
+/// The values of the completed game that the result card shows: all that its pixels depend on,
+/// with the layout.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+struct CardResult {
+    mode: u8,
+    seconds: u64,
+    comparison: Comparison,
+    /// The hint count of the game (HNT-13).
+    hints: u32,
+}
+
+impl CardResult {
+    fn time(&self) -> String {
+        format_clock(self.seconds)
+    }
+
+    /// "N hints used", or None for a game with no hint: then the card has no such text (CMP-8).
+    fn hints_text(&self) -> Option<String> {
+        (self.hints >= 1).then(|| hints_used_text(u64::from(self.hints)))
     }
 }
 
@@ -913,13 +937,17 @@ fn level_buttons_above(c: &mut Canvas, contents: LabelAboveMeter, mode: u8) {
 
 /// `CardLayout::Below`: the result at the left, a vertical divider, then "New game" and a column
 /// of level buttons, each with its label at the left and its meter at the right.
-fn draw_card_below(c: &mut Canvas, card: BelowCard, r: Rect, mode: u8, time: &str, comparison: Comparison) {
+fn draw_card_below(c: &mut Canvas, card: BelowCard, r: Rect, result: CardResult) {
+    let CardResult { mode, comparison, .. } = result;
     let (y0, y1) = (r.y0 as f32, r.y1 as f32);
     let divider = layout::card_divider() as f32;
     let text_x = r.x0 + card.text_x;
     let tx = text_x as f32;
     card_text(c, Weight::Regular, card.heading, tx, y0, Anchor::Start, "Completed in", SECONDARY);
-    card_text(c, Weight::Medium, card.time, tx, y0, Anchor::Start, time, BLACK);
+    if let Some(hints) = result.hints_text() {
+        card_text(c, Weight::Regular, card.heading, divider - card.hints_right as f32, y0, Anchor::End, &hints, SECONDARY);
+    }
+    card_text(c, Weight::Medium, card.time, tx, y0, Anchor::Start, &result.time(), BLACK);
     labeled_slider(c, text_x, text_x + layout::device().slider.width, r.y0 + card.slider_y, mode);
     card_text(c, Weight::Regular, card.comparison, tx, y0, Anchor::Start, &comparison_line(comparison), SECONDARY);
     c.rect(divider - 1.0, y0 + card.divider_top as f32, divider, y1 - card.divider_bottom as f32, gray(70));
@@ -942,12 +970,20 @@ fn draw_card_below(c: &mut Canvas, card: BelowCard, r: Rect, mode: u8, time: &st
 /// `CardLayout::Column` (the normal card and the compact card): the result at the top, a horizontal
 /// divider, then "New game" (if the card has a title) and a column of level buttons, each with its
 /// label above its meter.
-fn draw_card_column(c: &mut Canvas, card: ColumnCard, r: Rect, mode: u8, time: &str, comparison: Comparison) {
+fn draw_card_column(c: &mut Canvas, card: ColumnCard, r: Rect, result: CardResult) {
+    let CardResult { mode, comparison, .. } = result;
     let (x0, y0, x1) = (r.x0 as f32, r.y0 as f32, r.x1 as f32);
     let divider = layout::card_divider() as f32;
     let (tx, cx) = (x0 + card.text_x as f32, (x0 + x1) / 2.0);
     card_text(c, Weight::Regular, card.heading, tx, y0, Anchor::Start, "Completed in", SECONDARY);
-    card_text(c, Weight::Medium, card.time, tx, y0, Anchor::Start, time, BLACK);
+    if let Some(hints) = result.hints_text() {
+        let baseline = match card.hints {
+            ColumnHints::BelowTop(dy) => r.y0 + dy,
+            ColumnHints::BelowButtons(dy) => layout::level_button(LevelButton::ALL[LevelButton::ALL.len() - 1]).y1 + dy,
+        };
+        c.text(Weight::Regular, card.heading.size, tx, baseline as f32, Anchor::Start, &hints, SECONDARY);
+    }
+    card_text(c, Weight::Medium, card.time, tx, y0, Anchor::Start, &result.time(), BLACK);
     card_meter(c, card.meter, cx, y0, mode);
     comparison_column(c, card.comparison, tx, y0, comparison);
     c.rect(tx, divider - 1.0, x1 - card.divider_right as f32, divider, gray(70));
@@ -960,13 +996,17 @@ fn draw_card_column(c: &mut Canvas, card: ColumnCard, r: Rect, mode: u8, time: &
 /// `CardLayout::CompactBelow` (a small screen, owner decision 2026-11-10): the contents of
 /// `draw_card_below` with smaller spaces. The result at the top, a horizontal divider, then the
 /// three level buttons in one row, each with its label above its meter. No "New game" title.
-fn draw_compact_card_below(c: &mut Canvas, card: CompactBelowCard, r: Rect, mode: u8, time: &str, comparison: Comparison) {
+fn draw_compact_card_below(c: &mut Canvas, card: CompactBelowCard, r: Rect, result: CardResult) {
+    let CardResult { mode, comparison, .. } = result;
     let (x0, y0, x1) = (r.x0 as f32, r.y0 as f32, r.x1 as f32);
     let divider = layout::card_divider() as f32;
     let text_x = r.x0 + card.text_x;
     let tx = text_x as f32;
     card_text(c, Weight::Regular, card.heading, tx, y0, Anchor::Start, "Completed in", SECONDARY);
-    card_text(c, Weight::Medium, card.time, tx, y0, Anchor::Start, time, BLACK);
+    if let Some(hints) = result.hints_text() {
+        card_text(c, Weight::Regular, card.heading, x1 - card.hints_right as f32, y0, Anchor::End, &hints, SECONDARY);
+    }
+    card_text(c, Weight::Medium, card.time, tx, y0, Anchor::Start, &result.time(), BLACK);
     labeled_slider(c, text_x, text_x + layout::device().slider.width, r.y0 + card.slider_y, mode);
     card_text(c, Weight::Regular, card.comparison, tx, y0, Anchor::Start, &comparison_line(comparison), SECONDARY);
     c.rect(x0 + card.divider_left as f32, divider - 1.0, x1 - card.divider_right as f32, divider, gray(70));
@@ -992,11 +1032,13 @@ const FIRST_GAME: &str = "First game at this level";
 enum OverlayLook {
     /// The difficulty meter at this mode.
     Meter(u8),
-    /// The result card of a complete game of this mode and time (`draw_result_card`).
-    Card { mode: u8, seconds: u64, comparison: Comparison },
+    /// The result card of a complete game with these values (`draw_result_card`).
+    Card(CardResult),
     /// The menu button and, if `panel` is Some, the toolbar with the button of this panel active
-    /// (`draw_toolbar`, without the panel). `bookmark` is false when the bookmark is gray (CKP-9).
-    Menu { panel: Option<Option<Panel>>, caution: bool, undo: bool, redo: bool, bookmark: bool },
+    /// (`draw_toolbar`, without the panel). `in_progress` is false when the lightbulb and the
+    /// bookmark are gray (HNT-1, CKP-9). `hints` is the hint count, to the first value that shows
+    /// "99+" (HNT-10).
+    Menu { panel: Option<Option<Panel>>, caution: bool, undo: bool, redo: bool, in_progress: bool, hints: u32 },
 }
 
 /// The key of a cached overlay: the fonts (address), the layout (rotation and hand) and the look.
@@ -1110,13 +1152,14 @@ pub struct PenDrawn {
     pub refused: Option<u8>,
 }
 
-/// The temporary items on the board (§3.2): the digit of the highlight, the cell of the "?", and the
-/// cell and the digit of the x.
+/// The temporary items on the board (§3.2): the digit of the highlight, the cell of the "?", the
+/// cell and the digit of the x, and the cells of the revealed numbers (§9.5).
 #[derive(Clone, Copy)]
 struct BoardOverlays {
     highlight: Option<u8>,
     question: Option<crate::game::Cell>,
     refused: Option<(crate::game::Cell, u8)>,
+    revealed: CellSet,
 }
 
 /// The cached areas of the board (refer to `draw_board`). An area is drawn at its true position: the
@@ -1519,11 +1562,13 @@ impl BoardColors {
 fn cell_look(g: &Game, settings: &Settings, colors: &BoardColors, overlays: BoardOverlays, cell: crate::game::Cell) -> CellLook {
     let v = g.value_at(cell);
     if v != 0 {
-        // BRD-7: the first rule that applies.
+        // BRD-7: the first rule that applies. The revealed incorrect number has the clash color, and
+        // a revealed number has the highlight color, also with the switch "Highlight numbers" off.
         let completed = colors.completed.filter(|(set, _)| set.contains(cell)).map(|(_, rgb)| rgb);
-        let bg = if colors.clashing.contains(cell) {
+        let incorrect = g.incorrect_shown.is_some_and(|shown| shown.cell == cell);
+        let bg = if colors.clashing.contains(cell) || incorrect {
             settings.color_clash.rgb()
-        } else if overlays.highlight == Some(v) {
+        } else if overlays.highlight == Some(v) || overlays.revealed.contains(cell) {
             settings.color_highlight.rgb()
         } else if let Some(rgb) = completed {
             rgb
@@ -1574,6 +1619,22 @@ fn draw_toolbar(c: &mut Canvas, app: &App, panel: Option<Panel>) {
     // The close button (top left, or top right for a right-handed player).
     draw(c, Icon::Close, Button::Close, BLACK);
 
+    // The lightbulb: gray on a complete puzzle (HNT-1), and white on black while its panel is open
+    // (NAV-8). The count has the color of the icon (HNT-10).
+    let hint_active = panel == Some(Panel::Hint);
+    if hint_active {
+        active_slot(c, slot_top(Button::Hint));
+    }
+    let lightbulb = match (hint_active, app.game.completed) {
+        (true, _) => WHITE,
+        (false, true) => gray(70),
+        (false, false) => BLACK,
+    };
+    draw(c, Icon::Lightbulb, Button::Hint, lightbulb);
+    if let Some(count) = hint_count_text(app.game.hints) {
+        hint_count(c, &count, lightbulb);
+    }
+
     // A panel button is white on black while its panel is open (NAV-8).
     let colors_active = panel == Some(Panel::Colors);
     let settings_active = panel == Some(Panel::Settings);
@@ -1619,9 +1680,22 @@ fn draw_toolbar(c: &mut Canvas, app: &App, panel: Option<Panel>) {
     draw(c, Icon::Help, Button::Help, BLACK);
 }
 
+/// The count on the Hint button (HNT-10, toolbar.sh `hint_icon`): at the bottom right of the
+/// lightbulb, from the center of the icon. A wide text ("99+") starts more to the left, so that it
+/// stays `HintCountMetrics::margin` inside the slot.
+fn hint_count(c: &mut Canvas, text: &str, color: Rgb) {
+    let m = layout::device().hint.count;
+    let (cx, cy) = icon_center(Button::Hint);
+    let width = c.fonts.get(Weight::Medium).width(m.size, text).round();
+    let right = (tb_x() + tb_slot()) as f32 - m.margin;
+    let x = (cx + m.dx).min(right - width);
+    c.text(Weight::Medium, m.size, x, cy + m.baseline_dy, Anchor::Start, text, color);
+}
+
 /// The open panel of the menu.
 fn draw_panel(c: &mut Canvas, app: &App, panel: Panel) {
     match panel {
+        Panel::Hint => draw_hint_panel(c, &app.game),
         Panel::Colors => draw_colors_panel(c, &app.settings),
         Panel::Settings => draw_settings_panel(c, &app.settings, &app.update),
         Panel::NewGame => draw_new_game_panel(c, app.ui.slider, app.ui.symmetric_sel),
@@ -1629,8 +1703,45 @@ fn draw_panel(c: &mut Canvas, app: &App, panel: Panel) {
     }
 }
 
+/// The black slot of the button of the open panel, with its top at `y`.
 fn active_slot(c: &mut Canvas, y: i32) {
-    c.rect(tb_x() as f32, y as f32, (tb_x() + tb_slot()) as f32, (y + tb_slot() - 1) as f32, BLACK);
+    c.rect(tb_x() as f32, y as f32, (tb_x() + tb_slot()) as f32, (y + layout::slot_height() - 1) as f32, BLACK);
+}
+
+/// The Hint panel (§9.5, HNT-2, HNT-11, toolbar.sh `hint_panel`): the row "Reveal one number" with
+/// the lightbulb, a line, then the box with the state of the row.
+fn draw_hint_panel(c: &mut Canvas, g: &Game) {
+    let d = layout::device();
+    let (panel, m) = (d.panel, d.hint);
+    let state = g.hint_state();
+    let p = layout::hint_panel(state);
+    let (pl, pr) = (p.x0, p.x1 - 1);
+    panel_frame(c, pl, pr, p.y0, p.y1 - 1);
+    let box_top = layout::hint_box_top();
+    panel_divider(c, pl, pr, box_top);
+
+    // The row: black only when a hint is available.
+    let row = match state {
+        HintState::Available => BLACK,
+        HintState::Clash | HintState::Incorrect => gray(70),
+    };
+    let x = layout::hint_text_x();
+    let cy = p.y0 + panel.center;
+    Icon::Lightbulb.draw(c, (x + m.icon_x) as f32, cy as f32, row);
+    c.text(Weight::Medium, m.title_size, (x + m.text_x) as f32, (cy + panel.baseline) as f32, Anchor::Start, "Reveal one number", row);
+
+    // The box: the hint count, or the cause and what the player must do.
+    let (x, baseline) = (x as f32, (box_top + m.box_baseline) as f32);
+    let cause = match state {
+        HintState::Available => {
+            c.text(Weight::Regular, m.title_size, x, baseline, Anchor::Start, &hints_used_text(u64::from(g.hints)), SECONDARY);
+            return;
+        }
+        HintState::Incorrect => ("Incorrect number revealed", "Erase it to continue."),
+        HintState::Clash => ("Numbers clash", "Erase one to continue."),
+    };
+    c.text(Weight::Medium, m.title_size, x, baseline, Anchor::Start, cause.0, BLACK);
+    c.text(Weight::Regular, panel.text_size, x, baseline + m.box_line_pitch as f32, Anchor::Start, cause.1, SECONDARY);
 }
 
 /// A pop-up frame that touches the toolbar (toolbar.sh `panel`), with a border of
@@ -1664,7 +1775,7 @@ fn draw_settings_panel(c: &mut Canvas, settings: &Settings, update: &Update) {
     panel_frame(c, pl, pr, frame.y0, frame.y1 - 1);
     // Draws the divider above a row, and gives the center line and the baseline of the row.
     let divider_row = |c: &mut Canvas, i: usize| {
-        let r = layout::settings_row(i);
+        let r = layout::settings_row(i, update.has_row());
         if i > 0 {
             panel_divider(c, pl, pr, r.y0);
         }
@@ -1814,8 +1925,8 @@ enum BoxLook {
     /// An item of the Cell colors panel: its dot (a color, or the gray of the pattern), its name and
     /// its state.
     Swatch(Dot, String, Swatch),
-    /// A row of the list of completed games: the date, the mode and the time.
-    ListRow(String, u8, String),
+    /// A row of the list of completed games: the date, the mode, the time and the hint count.
+    ListRow(String, u8, String, u64),
     /// A row of the Checkpoints panel.
     CheckpointRow(Box<CheckpointRow>),
 }
@@ -2026,7 +2137,8 @@ fn checkpoint_row(c: &mut Canvas, look: &CheckpointRow, pl: i32, y0: i32, i: usi
 }
 
 /// The small board of a checkpoint with its first cell at (bx, by) (CKP-7, board-state.py `mini_board`).
-/// The colors have the same rules as the board, with no highlight.
+/// The colors have the same rules as the board, with no highlight, no color of a revealed number
+/// and no color of the revealed incorrect number.
 fn small_board(c: &mut Canvas, look: &CheckpointRow, bx: i32, by: i32) {
     let m = layout::device().checkpoints.board;
     let size = m.cell;
@@ -2168,7 +2280,9 @@ fn draw_summary(c: &mut Canvas, results: &[ResultRow], confirm_all: bool) {
     }
     c.text(Weight::Medium, s.heading.size, p.margin, s.heading.baseline, Anchor::Start, "By difficulty", BLACK);
     let t = s.table;
-    for (x, anchor, title) in [(p.margin, Anchor::Start, "Difficulty"), (count_x, Anchor::End, "Completed"), (right, Anchor::End, "Average time")] {
+    let hints_x = layout::summary_hints_x();
+    let titles = [(p.margin, Anchor::Start, "Difficulty"), (count_x, Anchor::End, "Completed"), (hints_x, Anchor::End, "Average hints"), (right, Anchor::End, "Average time")];
+    for (x, anchor, title) in titles {
         c.text(Weight::Regular, t.header.size, x, t.header.baseline, anchor, title, SECONDARY);
     }
     let mut y = t.top;
@@ -2187,6 +2301,7 @@ fn draw_summary(c: &mut Canvas, results: &[ResultRow], confirm_all: bool) {
         c.text(Weight::Regular, text.size, p.margin, cy + text.baseline, Anchor::Start, name, BLACK);
         meter(c, t.meter_x, cy, t.meter_step, mode, MeterStyle::ON_WHITE);
         c.text(Weight::Regular, text.size, count_x, cy + text.baseline, Anchor::End, &rows.len().to_string(), BLACK);
+        c.text(Weight::Regular, text.size, hints_x, cy + text.baseline, Anchor::End, &average_hints(rows.iter().copied()), BLACK);
         c.text(Weight::Regular, text.size, right, cy + text.baseline, Anchor::End, &avg_text(&rows), BLACK);
         y += row;
         hline(c, y, p.margin, right);
@@ -2300,6 +2415,7 @@ fn draw_list(c: &mut Canvas, app: &App) {
     }
     // One table across the full width, with the rows of `list_rows` (layout.rs).
     let (meter_dx, time_dx, bin_dx) = list_offsets();
+    let hints_dx = layout::list_hints_offset();
     let (x, w) = list_column();
     let rows = app.page_rows();
     debug_assert!(rows.len() <= list_rows());
@@ -2307,6 +2423,7 @@ fn draw_list(c: &mut Canvas, app: &App) {
     c.text(Weight::Regular, header.size, x, header.baseline, Anchor::Start, "Date", SECONDARY);
     c.text(Weight::Regular, header.size, x + meter_dx, header.baseline, Anchor::Start, "Difficulty", SECONDARY);
     c.text(Weight::Regular, header.size, x + time_dx, header.baseline, Anchor::End, "Time", SECONDARY);
+    c.text(Weight::Regular, header.size, x + hints_dx, header.baseline, Anchor::End, "Hints", SECONDARY);
     hline(c, g.top, x, x + w);
     for (i, r) in rows.iter().enumerate() {
         let y = list_row(i);
@@ -2316,10 +2433,11 @@ fn draw_list(c: &mut Canvas, app: &App) {
         let sc = |v: f32| v * page_scale() + 0.5;
         let m = g.row_box_margin;
         let row_box = (sc(x) as i32 - m, sc(y + p.line) as i32 + m, sc(x + w) as i32 + m, sc(y + row) as i32 - 1);
-        put_box(c, row_box, BoxLook::ListRow(date.clone(), r.mode, clock.clone()), |c| {
+        put_box(c, row_box, BoxLook::ListRow(date.clone(), r.mode, clock.clone(), r.hints), |c| {
             c.text(Weight::Regular, text.size, x, cy + text.baseline, Anchor::Start, &date, BLACK);
             meter(c, x + meter_dx, cy, g.meter_step, r.mode, MeterStyle::ON_WHITE);
             c.text(Weight::Regular, text.size, x + time_dx, cy + text.baseline, Anchor::End, &clock, BLACK);
+            c.text(Weight::Regular, text.size, x + hints_dx, cy + text.baseline, Anchor::End, &r.hints.to_string(), BLACK);
             Icon::Bin.draw(c, x + bin_dx, cy, BLACK);
         });
         hline(c, y + row, x, x + w);
@@ -2384,6 +2502,7 @@ pub enum Icon {
     MenuClosed,
     MenuOpen,
     Close,
+    Lightbulb,
     PaintBucket,
     Gear,
     Caution,
@@ -2416,10 +2535,11 @@ fn menu_icon(c: &mut Canvas, cx: f32, cy: f32, open: bool, mirror: bool, col: Rg
 }
 
 impl Icon {
-    pub const ALL: [Icon; 20] = [
+    pub const ALL: [Icon; 21] = [
         Icon::MenuClosed,
         Icon::MenuOpen,
         Icon::Close,
+        Icon::Lightbulb,
         Icon::PaintBucket,
         Icon::Gear,
         Icon::Caution,
@@ -2457,6 +2577,29 @@ impl Icon {
                 c.circle(cx, cy, m.close_radius, None, Some((col, m.stroke)));
                 c.line(cx - 5.5, cy - 5.5, cx + 5.5, cy + 5.5, m.stroke, col);
                 c.line(cx + 5.5, cy - 5.5, cx - 5.5, cy + 5.5, m.stroke, col);
+            }
+            // The lightbulb of the Hint button (§15, ui-lib.sh `lightbulb`). The bulb is one closed
+            // line: an arc (radius 12 px) around the point 6 px above the center, clockwise from
+            // 135 to 405 degrees through the top, as 19 points with 2 decimal places (the values of
+            // the design script), then the two ends of the neck. The base is a line below it.
+            Icon::Lightbulb => {
+                let mut pb = PathBuilder::new();
+                for k in 0..=18 {
+                    let a = (135.0 + 15.0 * k as f64).to_radians();
+                    let round = |v: f64| ((v * 100.0).round() / 100.0) as f32;
+                    let (x, y) = (round(12.0 * a.cos()), round(-6.0 + 12.0 * a.sin()));
+                    if k == 0 {
+                        pb.move_to(x, y);
+                    } else {
+                        pb.line_to(x, y);
+                    }
+                }
+                pb.line_to(6.0, 12.0);
+                pb.line_to(-6.0, 12.0);
+                pb.close();
+                pb.move_to(-5.0, 18.0);
+                pb.line_to(5.0, 18.0);
+                c.path_stroke(pb, Transform::from_translate(cx, cy), m.stroke, col);
             }
             Icon::PaintBucket => {
                 let tf = Transform::from_translate(cx, cy);

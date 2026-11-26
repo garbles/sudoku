@@ -7,21 +7,33 @@ fps 30
 puzzle seed 7 mode 0 generator 2 # Easy. The same puzzle each time.
 hand right                    # the menu is at the left edge
 
-wait 1.5                      # show the new board
+wait 1.0                      # show the new board
 
 # 1. Pencil marks in the bottom-middle box (true candidates only).
 mark r7c4 1 8
 mark r8c5 2 9
 mark r9c4 1 4 8
-wait 1.0
+wait 0.5
 
 # 2. Two obvious numbers in the top-right box (3 and 9 are missing).
 write r1c8 3 writer 1         # 9 is already in column 8, thus r1c8 is 3
 write r2c9 9 writer 2
-wait 1.0
+wait 0.6
 
-# 3. An incorrect number. r3c4 must be 5 (the last empty cell in row 3).
-write r3c4 9 writer 7         # a different 9 (round loop). It clashes with r3c6 and r4c4: the cells are red
+# 2b. One hint: the Hint panel reveals one number (the third number; it shows in the highlight color).
+tap menu                      # the lightbulb is in the toolbar
+wait 0.6
+tap hint                      # opens the Hint panel
+wait 0.7
+tap reveal
+wait 1.8                      # the number, the count 1 and "1 hint used" stay visible
+tap hint                      # closes the panel
+wait 0.5
+tap menu                      # closes the menu
+wait 0.6
+
+# 3. An incorrect number. r5c5 cannot be 9 (box 5 has a 9).
+write r5c5 9 writer 7         # a different 9 (round loop). It clashes with r5c8 and r4c4: the cells are red
 wait 2.0
 
 # 4. Change the clash color.
@@ -37,7 +49,7 @@ tap menu                      # closes the menu
 wait 1.0
 
 # 5. Erase the incorrect number.
-erase r3c4
+erase r5c5
 wait 1.0
 
 # 6. More pencil marks in the middle-left box.

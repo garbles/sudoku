@@ -3,11 +3,11 @@
 //!
 //! Rules about a sequence of states (for example CLK-2 or UND-3) are in the tests.
 
-use crate::app::{average_seconds, App, Comparison, Menu, Panel, Screen, HAND_TOUCH_MS, MANUAL_PAGES, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
-use crate::game::{cells, mark_bit, Board, Change, Game, Group, MAX_CHECKPOINTS};
+use crate::app::{average_hints_text, average_seconds, hint_count_text, App, Comparison, Menu, Panel, Screen, HAND_TOUCH_MS, MANUAL_PAGES, MAX_BUTTON_COUNT, RECOGNITION_PAUSE_MS, WRITING_IDLE_MS};
+use crate::game::{cells, mark_bit, Board, Change, Game, Group, HintState, MAX_CHECKPOINTS};
 use crate::generator::{count_solutions, is_valid_solution, partner, ModeRule, Version, MODES, MODE_RULES, VERSION};
 use crate::solver::TechniqueGroup;
-use crate::layout::{self, LevelButton, Rect};
+use crate::layout::{self, Button, LevelButton, Rect};
 use crate::settings::Color;
 use crate::update::{has_updates, is_update, UpToDateRow, UpdateButton, UpdateRequest, UpdateState};
 
@@ -67,6 +67,23 @@ const _: () = {
         assert!(pattern_dots_per_run(crate::render::gray(percents[i])[0]) == dots[i], "BRD-9");
         i += 1;
     }
+};
+
+// NAV-12, HNT-1: the order of the top buttons from slot 0, and of the bottom buttons from the bottom.
+const _: () = {
+    use Button::*;
+    assert!(matches!(Button::TOP, [Menu, Hint, Colors, Settings, Undo, Redo, Checkpoints]), "NAV-12");
+    assert!(matches!(Button::BOTTOM, [NewGame, Statistics, Help]), "NAV-12");
+};
+// HNT-10: the button shows a count to 99. HNT-11, HNT-13: the sizes of the Hint panel and the place
+// of the hint count of the result card are the same on the two devices.
+const _: () = {
+    assert!(MAX_BUTTON_COUNT == 99, "HNT-10");
+    let (pro, mv) = (crate::layout::Device::PAPER_PRO.hint, crate::layout::Device::MOVE.hint);
+    assert!(pro.portrait.width == 500 && pro.landscape.width == 392 && mv.portrait.width == 500 && mv.landscape.width == 392, "HNT-11");
+    assert!(pro.box_height == 84 && pro.box_height_two_lines == 122 && mv.box_height == 84 && mv.box_height_two_lines == 122, "HNT-11");
+    assert!(pro.count.size == 24.0 && mv.count.size == 24.0 && pro.count.margin == 4.0 && mv.count.margin == 4.0, "HNT-10");
+    assert!(pro.count.dx == mv.count.dx && pro.count.baseline_dy == mv.count.baseline_dy, "HNT-10");
 };
 
 // PUZ-13: the current version of the generator is 3. `Game::new` and the background puzzle use it.
@@ -196,6 +213,7 @@ pub fn check_game(g: &Game) -> Result<(), String> {
 
     check_completed_groups(g)?;
     check_checkpoints(g)?;
+    check_hint(g)?;
 
     // UND-1, UND-3: the board is the result of the changes in the undo history, applied in order to
     // the puzzle. The redo history applies to the current board in the opposite order.
@@ -209,6 +227,105 @@ pub fn check_game(g: &Game) -> Result<(), String> {
     for (i, change) in g.redo.iter().rev().enumerate() {
         check_change_applies(&replay, change).map_err(|e| format!("UND-3: redo item {i}: {e}"))?;
         replay.apply(change);
+    }
+    Ok(())
+}
+
+/// HNT-2, HNT-3, HNT-8: the revealed incorrect number and the state of the row of the Hint panel.
+/// The app removes a revealed incorrect number of a game file that breaks HNT-8 before this check
+/// (HNT-9, `Game::drop_invalid_incorrect`).
+fn check_hint(g: &Game) -> Result<(), String> {
+    let clash = cells().any(|c| g.is_clashing(c));
+    if let Some(shown) = g.incorrect_shown {
+        let (r, c) = shown.cell;
+        ensure!(r < 9 && c < 9, "HNT-8", "the revealed incorrect number is at {:?}", shown.cell);
+        ensure!(!g.completed, "CMP-3", "an incorrect number is revealed on a complete game");
+        ensure!(g.is_entry(shown.cell), "HNT-8", "the revealed incorrect number at {:?} is not a number of the player", shown.cell);
+        ensure!(g.value_at(shown.cell) == shown.digit, "HNT-8", "the cell {:?} has {}, the revealed digit is {}", shown.cell, g.value_at(shown.cell), shown.digit);
+        ensure!(shown.digit != g.solution[r as usize][c as usize], "HNT-8", "the revealed number at {:?} is the solution", shown.cell);
+        // HNT-3: a request reveals the first incorrect entry in row order, and no request is
+        // possible while one is revealed. A later change of the board can put an incorrect entry
+        // before it, thus this is not a rule of one state.
+    }
+    ensure!(g.incorrect_is_valid(), "HNT-8", "the revealed incorrect number {:?} is not valid", g.incorrect_shown);
+    let expected = match (clash, g.incorrect_shown) {
+        (true, _) => HintState::Clash,
+        (false, Some(_)) => HintState::Incorrect,
+        (false, None) => HintState::Available,
+    };
+    ensure!(g.hint_state() == expected, "HNT-2", "the state of the row is {:?}, the board gives {expected:?}", g.hint_state());
+    Ok(())
+}
+
+/// HNT-7: each revealed cell that has the highlight is a number of the player that is the solution
+/// and does not clash, on a game in progress.
+fn check_revealed(app: &App) -> Result<(), String> {
+    let g = &app.game;
+    ensure!(app.ui.revealed.is_empty() || !g.completed, "CMP-3", "a revealed number has the highlight on a complete game");
+    for cell @ (r, c) in app.ui.revealed.iter() {
+        ensure!(g.is_entry(cell), "HNT-7", "the revealed cell {cell:?} is not a number of the player");
+        ensure!(g.value_at(cell) == g.solution[r as usize][c as usize], "HNT-7", "the revealed cell {cell:?} does not have the solution");
+        ensure!(!g.is_clashing(cell), "HNT-7", "the revealed cell {cell:?} clashes");
+    }
+    Ok(())
+}
+
+/// HNT-10: the text of the count on the Hint button.
+fn check_hint_count(hints: u32) -> Result<(), String> {
+    let text = hint_count_text(hints);
+    let expected = match hints {
+        0 => None,
+        1..=99 => Some(hints.to_string()),
+        _ => Some("99+".to_string()),
+    };
+    ensure!(text == expected, "HNT-10", "the button shows {text:?} for {hints} hints");
+    Ok(())
+}
+
+/// HNT-12: the text of an average of hints for the sum `sum` of `n` results: "–" with no results,
+/// else a number with at most 2 decimal places and no zeros at the end, which is the average
+/// rounded to 2 decimal places (a tie rounds to the even value).
+pub fn check_average_hints(sum: u128, n: u128) -> Result<(), String> {
+    let text = average_hints_text(sum, n);
+    if n == 0 {
+        ensure!(text == "–", "HNT-12", "the average of no results is {text:?}");
+        return Ok(());
+    }
+    let (whole, part) = text.split_once('.').unwrap_or((&text, ""));
+    ensure!(part.len() <= 2 && !part.ends_with('0') && text.contains('.') != part.is_empty(), "HNT-12", "the average text is {text:?}");
+    let digits = |t: &str| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit());
+    ensure!(digits(whole) && (part.is_empty() || digits(part)), "HNT-12", "the average text is {text:?}");
+    // The text in hundredths, and the distance to the average in units of 1 / (200 n).
+    let hundredths: u128 = format!("{whole}{part:0<2}").parse().map_err(|_| format!("HNT-12: the average text is {text:?}"))?;
+    let distance = (2 * hundredths * n).abs_diff(200 * sum);
+    ensure!(distance <= n, "HNT-12", "the average of {sum} / {n} is {text:?}");
+    ensure!(distance < n || hundredths % 2 == 0, "HNT-12", "the tie of {sum} / {n} is {text:?}, which is not the even value");
+    Ok(())
+}
+
+/// NAV-21: the slots of the toolbar. The two groups do not touch, and all slots are on the screen.
+/// On the Move in landscape a slot is 95 px high, and the toolbar column stays 96 px wide.
+fn check_toolbar_layout() -> Result<(), String> {
+    let (slot, h) = (layout::slot_height(), layout::screen_h() as i32);
+    let landscape = layout::orientation() == layout::Orientation::Landscape;
+    let (expected, width) = match (on_move(), landscape) {
+        (false, _) => (112, 112),
+        (true, false) => (96, 96),
+        (true, true) => (95, 96),
+    };
+    ensure!(slot == expected && layout::tb_slot() == width, "NAV-21", "a toolbar slot is {} x {slot}", layout::tb_slot());
+    for (k, b) in Button::TOP.into_iter().enumerate() {
+        ensure!(layout::slot_top(b) == k as i32 * slot, "NAV-21", "the slot of {b:?} starts at y {}", layout::slot_top(b));
+    }
+    for (j, b) in Button::BOTTOM.into_iter().enumerate() {
+        ensure!(layout::slot_top(b) == h - (j as i32 + 1) * slot, "NAV-21", "the slot of {b:?} starts at y {}", layout::slot_top(b));
+    }
+    let (last_top, first_bottom) = (Button::TOP[Button::TOP.len() - 1], Button::BOTTOM[Button::BOTTOM.len() - 1]);
+    ensure!(layout::slot_top(last_top) + slot <= layout::slot_top(first_bottom), "NAV-21", "the two groups of the toolbar touch");
+    // NAV-12, HNT-1: each button is at the center of its slot for a tap.
+    for b in Button::TOP.into_iter().chain(Button::BOTTOM) {
+        let (x, y) = layout::icon_center(b);
+        ensure!(layout::game_button(x, y, true) == Some(b), "NAV-12", "the icon of {b:?} is not in its slot");
     }
     Ok(())
 }
@@ -345,39 +462,76 @@ fn on_move() -> bool {
     }
 }
 
-/// NAV-14, NAV-17: the positions of the open panel for the current layout.
+/// NAV-14, NAV-17, NAV-18, HNT-11: the positions of the open panel for the current layout.
 fn check_panel_layout(app: &App) -> Result<(), String> {
     match app.ui.menu.panel() {
         Some(Panel::Colors) => {
             let p = layout::colors_panel();
             let landscape = layout::orientation() == layout::Orientation::Landscape;
             // The Paper Pro, and the Move (owner decisions 2026-11-10: three columns of two rows in landscape).
+            // The panel starts at the top of slot 2 (owner decision 2026-11-24).
             let (x0, w, y0, y1) = match (on_move(), layout::right_handed(), landscape) {
-                (false, true, _) => (112, 800, 112, 1193),
-                (false, false, false) => (708, 800, 112, 1193),
-                (false, false, true) => (1248, 800, 112, 1193),
-                (true, true, false) => (96, 800, 96, 1177),
-                (true, false, false) => (58, 800, 96, 1177),
-                (true, true, true) => (96, 1200, 96, 817),
-                (true, false, true) => (400, 1200, 96, 817),
+                (false, true, _) => (112, 800, 224, 1305),
+                (false, false, false) => (708, 800, 224, 1305),
+                (false, false, true) => (1248, 800, 224, 1305),
+                (true, true, false) => (96, 800, 192, 1273),
+                (true, false, false) => (58, 800, 192, 1273),
+                (true, true, true) => (96, 1200, 190, 911),
+                (true, false, true) => (400, 1200, 190, 911),
             };
             ensure!((p.x0, p.x1, p.y0, p.y1) == (x0, x0 + w, y0, y1), "NAV-17", "the Cell colors panel is at {p:?}");
         }
         Some(Panel::Settings) => {
-            let p = layout::settings_panel(app.update.has_row());
+            let update_row = app.update.has_row();
+            let p = layout::settings_panel(update_row);
             ensure!(p.x1 - p.x0 == 400, "NAV-14", "the Settings panel is at {p:?}");
+            // The top of slot 3. On the Move in landscape, the panel with the update row does not
+            // fit below that slot: it starts at the top of slot 1 (NAV-21).
+            let landscape = layout::orientation() == layout::Orientation::Landscape;
+            let top = match (on_move(), landscape, update_row) {
+                (false, _, _) => 336,
+                (true, false, _) => 288,
+                (true, true, false) => 285,
+                (true, true, true) => 95,
+            };
+            ensure!(p.y0 == top, "NAV-14", "the Settings panel starts at y {}", p.y0);
+            ensure!(p.y1 <= layout::screen_h() as i32, "NAV-21", "the Settings panel {p:?} is not on the screen");
+        }
+        Some(Panel::Hint) => {
+            let landscape = layout::orientation() == layout::Orientation::Landscape;
+            let (x0, w, top) = match (on_move(), layout::right_handed(), landscape) {
+                (false, true, false) => (112, 500, 112),
+                (false, true, true) => (112, 392, 112),
+                (false, false, false) => (1008, 500, 112),
+                (false, false, true) => (1656, 392, 112),
+                (true, true, false) => (96, 500, 96),
+                (true, true, true) => (96, 392, 95),
+                (true, false, false) => (358, 500, 96),
+                (true, false, true) => (1208, 392, 95),
+            };
+            let state = app.game.hint_state();
+            let height = if state == HintState::Available { 198 } else { 236 };
+            let p = layout::hint_panel(state);
+            ensure!((p.x0, p.x1, p.y0, p.y1) == (x0, x0 + w, top, top + height), "HNT-11", "the Hint panel is at {p:?}");
+            ensure!(layout::hint_row() == Rect::new(x0, top, x0 + w, top + 112), "HNT-11", "the row of the Hint panel is at {:?}", layout::hint_row());
+            for corner in [(p.x0, p.y0), (p.x1 - 1, p.y0), (p.x0, p.y1 - 1), (p.x1 - 1, p.y1 - 1)] {
+                ensure!(layout::game_button(corner.0 as f32, corner.1 as f32, true).is_none(), "HNT-11", "the panel covers a button at {corner:?}");
+            }
+            // In portrait the panel is above the board.
+            ensure!(landscape || p.y1 <= layout::board_y(), "HNT-11", "the Hint panel {p:?} covers the board in portrait");
         }
         Some(Panel::Checkpoints) => {
             let landscape = layout::orientation() == layout::Orientation::Landscape;
-            // The Paper Pro, and the Move (owner decisions 2026-11-10: from slot 1 in landscape).
+            // The Paper Pro, and the Move (owner decisions 2026-11-10: from slot 1 in landscape). The
+            // bookmark is in slot 6 (owner decision 2026-11-24).
             let (x0, top) = match (on_move(), layout::right_handed(), landscape) {
-                (false, true, _) => (112, 560),
-                (false, false, false) => (908, 560),
-                (false, false, true) => (1448, 560),
-                (true, true, false) => (96, 480),
-                (true, false, false) => (258, 480),
-                (true, true, true) => (96, 96),
-                (true, false, true) => (1000, 96),
+                (false, true, _) => (112, 672),
+                (false, false, false) => (908, 672),
+                (false, false, true) => (1448, 672),
+                (true, true, false) => (96, 576),
+                (true, false, false) => (258, 576),
+                (true, true, true) => (96, 95),
+                (true, false, true) => (1000, 95),
             };
             let n = app.game.checkpoints.len();
             let bottom = if n == 0 { top + 304 } else { top + 112 + 180 * n as i32 };
@@ -542,7 +696,13 @@ pub fn check_app(app: &App) -> Result<(), String> {
     if g.completed {
         ensure!(ui.highlight.is_none() && ui.question.is_none() && ui.refused.is_none() && ui.pending_ink.is_none(), "CMP-3", "overlay on a complete game");
         ensure!(ui.menu.panel() != Some(Panel::Checkpoints), "CKP-9", "the Checkpoints panel is open on a complete game");
+        ensure!(ui.menu.panel() != Some(Panel::Hint), "HNT-1", "the Hint panel is open on a complete game");
     }
+    if ui.menu.panel() == Some(Panel::Hint) {
+        ensure!(ui.pending_ink.is_none() && app.live_stroke.is_none(), "HNT-1", "ink in the Hint panel");
+    }
+    check_revealed(app)?;
+    check_hint_count(g.hints)?;
     if ui.menu.panel() == Some(Panel::Checkpoints) {
         ensure!(ui.pending_ink.is_none() && app.live_stroke.is_none(), "NAV-18", "ink in the Checkpoints panel");
     } else {
@@ -565,6 +725,7 @@ pub fn check_app(app: &App) -> Result<(), String> {
     ensure!(app.settings.is_valid(), "COL-5", "settings {:?}", app.settings);
     check_completed_color(app)?;
     check_panel_layout(app)?;
+    check_toolbar_layout()?;
     if g.completed && app.screen == Screen::Game {
         check_card_layout()?;
     }
@@ -579,6 +740,11 @@ pub fn check_app(app: &App) -> Result<(), String> {
     }
     for w in app.results.windows(2) {
         ensure!(w[0].finished_at >= w[1].finished_at, "ANA-5", "results not newest first");
+    }
+    // ANA-4, HNT-12: the text of the average of the hints of each mode.
+    for mode in 0..MODES {
+        let (n, sum) = app.results.iter().filter(|r| r.mode == mode).fold((0u128, 0u128), |(n, s), r| (n + 1, s + u128::from(r.hints)));
+        check_average_hints(sum, n)?;
     }
     let l = &app.list;
     ensure!(l.filter.map(|m| m < MODES).unwrap_or(true), "ANA-6", "filter {:?}", l.filter);

@@ -938,6 +938,33 @@ pub fn grade_v3(givens: &[[u8; 9]; 9], permitted: TechniqueGroup, max_stops: Opt
     Some(run.grade)
 }
 
+/// The first number that the solver of the current version (version 3, with all its technique
+/// groups) can put on a board with these numbers (0 = empty), as the cell (row, column) and the
+/// digit (REQUIREMENTS.md §9.5, HNT-5). The removal steps before that number are not a result. If the
+/// solver can put no number, the cell is the empty cell with the fewest candidates (the digits that
+/// no peer has), the first one in row order, with the digit 0: the caller has the solution. None if
+/// the board has no empty cell. The result is a function of the numbers only.
+///
+/// The numbers must not clash, and they must agree with the one solution of the puzzle: then each
+/// number that the solver puts is the solution of its cell.
+pub fn next_number(value: &[[u8; 9]; 9]) -> Option<((u8, u8), u8)> {
+    let start = Board::new(value);
+    if start.is_solved() {
+        return None;
+    }
+    let cell = |i: usize| ((i / 9) as u8, (i % 9) as u8);
+    let mut board = start.clone();
+    while board.step_v3(TechniqueGroup::Chains).is_some() {
+        if board.empty < start.empty {
+            let i = (0..81).find(|&i| board.value[i] != start.value[i])?;
+            return Some((cell(i), board.value[i]));
+        }
+    }
+    // `min_by_key` gives the first cell of the cells with the minimum.
+    let i = (0..81).filter(|&i| start.value[i] == 0).min_by_key(|&i| start.cand[i].count_ones())?;
+    Some((cell(i), 0))
+}
+
 /// The grade of the steps of one run of the version 3 solver.
 struct Run {
     grade: Grade,

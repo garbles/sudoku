@@ -93,8 +93,9 @@ pub struct Device {
     /// The screen pixels of one layout unit of the manual and the analytics pages (`page_scale`):
     /// about `physical_w / 1404`. The images of the Paper Pro use the rounded value 1.153846.
     pub page_scale: f32,
-    /// The side of a toolbar slot (px). The icons have the same size on each model, at the center
-    /// of the slot.
+    /// The side of a toolbar slot (px): the width of the toolbar column, and the height of a slot
+    /// when all buttons fit in the height of the screen (`slot_height` gives the other case). The
+    /// icons have the same size on each model.
     pub tb_slot: i32,
     /// The stroke widths and the outer sizes of the icons (`IconMetrics`).
     pub icons: IconMetrics,
@@ -113,6 +114,8 @@ pub struct Device {
     pub switch: SwitchMetrics,
     /// The Checkpoints panel (`CheckpointMetrics`).
     pub checkpoints: CheckpointMetrics,
+    /// The Hint panel and the count on the Hint button (`HintMetrics`).
+    pub hint: HintMetrics,
     /// The Cell colors panel (`ColorsPanelMetrics`).
     pub colors_panel: ColorsPanelMetrics,
     /// The frame of the manual, the statistics and the Licenses pages (`PageMetrics`).
@@ -356,7 +359,7 @@ pub struct CheckpointMetrics {
     /// The distance from the top of a checkpoint row to the top of the next row (the divider
     /// between the two rows is at the bottom of the first row).
     pub row: i32,
-    /// The height of the panel with no checkpoint (it ends at y 864 on the Paper Pro).
+    /// The height of the panel with no checkpoint (it ends at y 976 on the Paper Pro).
     pub empty_height: i32,
     /// The text size of "Save checkpoint" and of "No checkpoints". The other texts of the panel
     /// have the size `PanelMetrics::text_size`.
@@ -445,6 +448,61 @@ pub struct CheckpointBin {
     pub y: i32,
     /// The tap area of the bin starts at this x and ends at the right edge of the panel.
     pub area_left: i32,
+}
+
+/// The Hint panel (REQUIREMENTS.md §9.5, HNT-11, toolbar.sh `hint_panel`) and the count on the Hint
+/// button (HNT-10), in pixels. From the top of the panel: the row "Reveal one number"
+/// (`PanelMetrics::row`, with the center line and the baseline of a panel row), a line of
+/// `PanelMetrics::line`, then the box with one or two lines of text. The frame is in these sizes.
+/// The second line of the box has the size `PanelMetrics::text_size`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HintMetrics {
+    /// The panel in portrait.
+    pub portrait: HintPanelSize,
+    /// The panel in landscape: the widest line of the box and its inset at each side, thus the
+    /// panel covers only a part of one cell column of the board.
+    pub landscape: HintPanelSize,
+    /// The center x of the lightbulb of the row, after the inset.
+    pub icon_x: i32,
+    /// The start of the text "Reveal one number", after the inset.
+    pub text_x: i32,
+    /// The text size of "Reveal one number" and of the first line of the box.
+    pub title_size: f32,
+    /// The height of the box with one line of text ("N hints used").
+    pub box_height: i32,
+    /// The height of the box with two lines of text.
+    pub box_height_two_lines: i32,
+    /// The baseline of the first line of the box, below the top of the box.
+    pub box_baseline: i32,
+    /// The distance from the first baseline of the box to the second baseline.
+    pub box_line_pitch: i32,
+    /// The count on the Hint button.
+    pub count: HintCountMetrics,
+}
+
+/// The width of the Hint panel and the inset of its contents in one orientation, in pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HintPanelSize {
+    /// The width of the panel.
+    pub width: i32,
+    /// The distance from the left of the panel to the start of the text of the box. The positions
+    /// of the row are after this inset.
+    pub inset: i32,
+}
+
+/// The count on the Hint button (HNT-10), in pixels. The position is from the center of the
+/// lightbulb, thus the count has the same distance to the icon on each model.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct HintCountMetrics {
+    /// The text size (Medium).
+    pub size: f32,
+    /// The start of the text, to the right of the center of the icon.
+    pub dx: f32,
+    /// The baseline of the text, below the center of the icon.
+    pub baseline_dy: f32,
+    /// The minimum distance from the end of the text to the edge of the slot: a wide text starts
+    /// more to the left.
+    pub margin: f32,
 }
 
 /// The Cell colors panel (REQUIREMENTS.md §10, NAV-17, COL-13, toolbar.sh `color_section`), in
@@ -586,6 +644,9 @@ pub struct BelowCard {
     pub text_x: i32,
     /// "Completed in": the baseline is from the top of the card.
     pub heading: CardText,
+    /// The end of "N hints used" (HNT-13), before the vertical divider. The text is on the line of
+    /// "Completed in", with its size.
+    pub hints_right: i32,
     /// The time: the baseline is from the top of the card.
     pub time: CardText,
     /// The center line of the difficulty slider, from the top of the card.
@@ -621,6 +682,9 @@ pub struct ColumnCard {
     pub text_x: i32,
     /// "Completed in": the baseline is from the top of the card.
     pub heading: CardText,
+    /// The line of "N hints used" (HNT-13). The text starts at `text_x` and has the size of
+    /// "Completed in".
+    pub hints: ColumnHints,
     /// The time: the baseline is from the top of the card. The size lets a time of one hour or more
     /// fit in the column.
     pub time: CardText,
@@ -635,6 +699,15 @@ pub struct ColumnCard {
     pub title: Option<CardText>,
     /// The contents of a level button.
     pub button: LabelAboveMeter,
+}
+
+/// The baseline of "N hints used" in a `ColumnCard` (HNT-13), in pixels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColumnHints {
+    /// Its own line between the meter and the comparison: the distance below the top of the card.
+    BelowTop(i32),
+    /// Below the level buttons: the distance below the bottom of the last button.
+    BelowButtons(i32),
 }
 
 /// The position of the column of `ColumnCard`, in pixels.
@@ -695,6 +768,9 @@ pub struct CompactBelowCard {
     pub text_x: i32,
     /// "Completed in": the baseline is from the top of the card.
     pub heading: CardText,
+    /// The end of "N hints used" (HNT-13), before the right of the card. The text is on the line
+    /// of "Completed in", with its size.
+    pub hints_right: i32,
     /// The time: the baseline is from the top of the card.
     pub time: CardText,
     /// The center line of the difficulty slider, from the top of the card.
@@ -941,8 +1017,8 @@ pub struct SummaryBoxMetrics {
 }
 
 /// The "By difficulty" table of the statistics page (ANA-4): one row for each mode, with the name
-/// at the left, the difficulty meter, the column "Completed" and the column "Average time" that
-/// ends at `page_right`. A line is above each row and below the last row.
+/// at the left, the difficulty meter, the column "Completed", the column "Average hints" and the
+/// column "Average time" that ends at `page_right`. A line is above each row and below the last row.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SummaryTableMetrics {
     /// The column titles above the first line: the baseline is from the top of the page.
@@ -959,6 +1035,8 @@ pub struct SummaryTableMetrics {
     pub meter_step: f32,
     /// The end of the texts of the column "Completed", to the left of `page_right`.
     pub completed_end_from_right: f32,
+    /// The end of the texts of the column "Average hints" (ANA-4), to the left of `page_right`.
+    pub hints_end_from_right: f32,
 }
 
 /// The row of the buttons "All completed games" and "Delete all games" below the table (§13.1).
@@ -993,8 +1071,8 @@ pub struct SummaryButtonMetrics {
 pub struct GamesListMetrics {
     /// The filter segments above the table.
     pub filter: FilterSegmentMetrics,
-    /// The column titles "Date", "Difficulty" and "Time" above the first line: the baseline is
-    /// from the top of the page.
+    /// The column titles "Date", "Difficulty", "Time" and "Hints" above the first line: the
+    /// baseline is from the top of the page.
     pub header: PageText,
     /// The top of the first line, from the top of the page.
     pub top: f32,
@@ -1011,6 +1089,9 @@ pub struct GamesListMetrics {
     pub meter_step: f32,
     /// The end of the time and of the column title "Time", to the left of the right of the list.
     pub time_end_from_right: f32,
+    /// The end of the hint count and of the column title "Hints" (ANA-5), to the left of the right
+    /// of the list.
+    pub hints_end_from_right: f32,
     /// The center of the bin, to the left of the right of the list.
     pub bin_from_right: f32,
     /// The half width of the tap area of the bin (`bin_button`), at each side of the center of the
@@ -1150,6 +1231,7 @@ impl Device {
                 buttons: ButtonColumn { top: 75, pitch: 80, height: 70, inset: 32 },
                 text_x: 40,
                 heading: CardText { size: 30.0, baseline: 66 },
+                hints_right: 40,
                 time: CardText { size: 96.0, baseline: 180 },
                 slider_y: 232,
                 comparison: CardText { size: 25.0, baseline: 293 },
@@ -1170,6 +1252,7 @@ impl Device {
                 buttons: ButtonColumn { top: 90, pitch: 140, height: 120, inset: 20 },
                 text_x: 28,
                 heading: CardText { size: 30.0, baseline: 70 },
+                hints: ColumnHints::BelowTop(315),
                 time: CardText { size: 72.0, baseline: 185 },
                 meter: CardMeter { y: 255, step: 40.0 },
                 comparison: ComparisonColumn {
@@ -1224,6 +1307,18 @@ impl Device {
             text: CheckpointText { x: 190, clock_baseline: 81, cells_baseline: 115 },
             button: CheckpointButton { left: 381, right: 521, top: 55, bottom: 125, label_x: 451, label_baseline: 99 },
             bin: CheckpointBin { x: 560, y: 90, area_left: 533 },
+        },
+        hint: HintMetrics {
+            portrait: HintPanelSize { width: 500, inset: 34 },
+            landscape: HintPanelSize { width: 392, inset: 20 },
+            icon_x: 20,
+            text_x: 62,
+            title_size: 28.0,
+            box_height: 84,
+            box_height_two_lines: 122,
+            box_baseline: 50,
+            box_line_pitch: 37,
+            count: HintCountMetrics { size: 24.0, dx: 18.5, baseline_dy: 25.5, margin: 4.0 },
         },
         colors_panel: ColorsPanelMetrics {
             section_width: 400,
@@ -1293,6 +1388,7 @@ impl Device {
                 meter_x: 230.0,
                 meter_step: 34.0,
                 completed_end_from_right: 432.0,
+                hints_end_from_right: 214.0,
             },
             buttons: SummaryButtonMetrics {
                 below_table: 70.0,
@@ -1318,6 +1414,7 @@ impl Device {
             meter_dx: 488.0,
             meter_step: 34.0,
             time_end_from_right: 222.0,
+            hints_end_from_right: 119.0,
             bin_from_right: 42.0,
             bin_tap_half_width: 45.0,
             row_box_margin: 2,
@@ -1400,6 +1497,7 @@ impl Device {
                 buttons: ButtonRow { top: 18, height: 80, inset: 32, gap: 16 },
                 text_x: 40,
                 heading: CardText { size: 30.0, baseline: 50 },
+                hints_right: 40,
                 time: CardText { size: 72.0, baseline: 130 },
                 slider_y: 175,
                 comparison: CardText { size: 25.0, baseline: 225 },
@@ -1417,6 +1515,7 @@ impl Device {
                 buttons: ButtonColumn { top: 20, pitch: 100, height: 88, inset: 20 },
                 text_x: 28,
                 heading: CardText { size: 30.0, baseline: 50 },
+                hints: ColumnHints::BelowButtons(38),
                 time: CardText { size: 64.0, baseline: 128 },
                 meter: CardMeter { y: 176, step: 36.0 },
                 comparison: ComparisonColumn {
@@ -1471,6 +1570,18 @@ impl Device {
             text: CheckpointText { x: 190, clock_baseline: 81, cells_baseline: 115 },
             button: CheckpointButton { left: 381, right: 521, top: 55, bottom: 125, label_x: 451, label_baseline: 99 },
             bin: CheckpointBin { x: 560, y: 90, area_left: 533 },
+        },
+        hint: HintMetrics {
+            portrait: HintPanelSize { width: 500, inset: 34 },
+            landscape: HintPanelSize { width: 392, inset: 20 },
+            icon_x: 20,
+            text_x: 62,
+            title_size: 28.0,
+            box_height: 84,
+            box_height_two_lines: 122,
+            box_baseline: 50,
+            box_line_pitch: 37,
+            count: HintCountMetrics { size: 24.0, dx: 18.5, baseline_dy: 25.5, margin: 4.0 },
         },
         colors_panel: ColorsPanelMetrics {
             section_width: 400,
@@ -1540,6 +1651,7 @@ impl Device {
                 meter_x: 230.0,
                 meter_step: 34.0,
                 completed_end_from_right: 432.0,
+                hints_end_from_right: 214.0,
             },
             buttons: SummaryButtonMetrics {
                 below_table: 70.0,
@@ -1565,6 +1677,7 @@ impl Device {
             meter_dx: 488.0,
             meter_step: 34.0,
             time_end_from_right: 222.0,
+            hints_end_from_right: 119.0,
             bin_from_right: 42.0,
             bin_tap_half_width: 45.0,
             row_box_margin: 2,
@@ -2006,9 +2119,23 @@ pub fn level_button_at(x: f32, y: f32) -> Option<LevelButton> {
 }
 
 /// The toolbar (the open menu) at the right edge: x 1508 and the bottom slot at y 2048 in portrait.
-/// For a right-handed player it is at the left edge (x 0).
+/// For a right-handed player it is at the left edge (x 0). This is the width of the toolbar column,
+/// the side of the area of the close button and the height of a row of the New game panel.
 pub fn tb_slot() -> i32 {
     device().tb_slot
+}
+
+/// The quantity of buttons of the toolbar: the two groups.
+const TOOLBAR_BUTTONS: i32 = (Button::TOP.len() + Button::BOTTOM.len()) as i32;
+
+/// The height of a toolbar slot: `tb_slot`, when all buttons fit in the height of the screen. If
+/// not (the Move in landscape: 10 slots of 96 px are more than 954 px), the largest height with which
+/// they fit (95 px), so that the two groups do not overlap (NAV-21). Then the toolbar column and
+/// the icons do not change: each icon keeps its distance from the top of its slot, and the slot
+/// loses only its last pixel rows (ui-lib.sh `LS_SLOT`).
+pub fn slot_height() -> i32 {
+    let (slot, h) = (tb_slot(), screen_h() as i32);
+    if TOOLBAR_BUTTONS * slot > h { h / TOOLBAR_BUTTONS } else { slot }
 }
 
 /// The center of an icon in its slot, from the top left of the slot: the middle of the pixel
@@ -2032,13 +2159,14 @@ pub fn tb_cx() -> f32 {
     tb_x() as f32 + slot_center()
 }
 
+/// The top of the bottom slot of the toolbar (the + of the new game).
 pub fn tb_bottom_y() -> i32 {
-    screen_h() as i32 - tb_slot()
+    screen_h() as i32 - slot_height()
 }
 
-/// The center y of top slot k.
+/// The center y of the icon of top slot k.
 pub fn tb_cy(k: i32) -> f32 {
-    slot_center() + (k * tb_slot()) as f32
+    slot_center() + (k * slot_height()) as f32
 }
 
 /// The close button (top left, or top right for a right-handed player). Hit area: one toolbar slot.
@@ -2054,6 +2182,8 @@ pub fn close_cy() -> f32 {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Button {
     Menu,
+    /// The lightbulb: it opens the Hint panel (§9.5).
+    Hint,
     Colors,
     Settings,
     Undo,
@@ -2069,7 +2199,8 @@ pub enum Button {
 impl Button {
     /// The buttons of the top group of the toolbar, in the order of their slots from the top (0 is
     /// the menu button).
-    pub const TOP: [Button; 6] = [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints];
+    pub const TOP: [Button; 7] =
+        [Button::Menu, Button::Hint, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints];
 
     /// The buttons of the bottom group of the toolbar, in the order of their slots from the bottom
     /// (0 is the + of the new game).
@@ -2082,19 +2213,29 @@ fn index_in(group: &[Button], b: Button) -> Option<i32> {
 }
 
 /// The top y of the toolbar slot of a button. A panel starts at the top of the slot of the button
-/// that opens it. The close button is not in the toolbar.
+/// that opens it (`panel_top` gives the exception). The close button is not in the toolbar.
 pub fn slot_top(b: Button) -> i32 {
     if let Some(k) = index_in(&Button::TOP, b) {
-        k * tb_slot()
+        k * slot_height()
     } else if let Some(j) = index_in(&Button::BOTTOM, b) {
-        tb_bottom_y() - j * tb_slot()
+        tb_bottom_y() - j * slot_height()
     } else {
         panic!("the button {b:?} is not in the toolbar")
     }
 }
 
+/// The top of the panel of a button of the top group, for a panel that is `height` px high at its
+/// maximum size: the top of the slot of the button. If the panel does not fit on the screen below
+/// that slot (the Move in landscape), it starts at the top of slot 1 (NAV-21, ui-lib.sh
+/// `panel_top`).
+fn panel_top(b: Button, height: i32) -> i32 {
+    let at_icon = slot_top(b);
+    if at_icon + height < screen_h() as i32 { at_icon } else { slot_top(Button::TOP[1]) }
+}
+
 /// The center of the icon of a button. In the top group, the icon is 55.5 px below the top of its
-/// slot (the same as the close button); in the bottom group, 56 px (on the Paper Pro).
+/// slot (the same as the close button); in the bottom group, 56 px (on the Paper Pro). The distance
+/// comes from `tb_slot`, not from `slot_height`: an icon has the same place in a slot of each height.
 pub fn icon_center(b: Button) -> (f32, f32) {
     if b == Button::Close {
         (close_cx(), close_cy())
@@ -2116,7 +2257,7 @@ pub fn game_button(x: f32, y: f32, menu_open: bool) -> Option<Button> {
     if x < screen_w() as i32 - slot {
         return None;
     }
-    let top = y / slot;
+    let top = y / slot_height();
     if top == 0 {
         return Some(Button::Menu);
     }
@@ -2155,11 +2296,11 @@ impl Rect {
 }
 
 /// The Cell colors panel (toolbar.sh, NAV-17): sections of `ColorsPanelMetrics` from the top of the
-/// slot of the paint bucket (y 112 on the Paper Pro). Two columns of three rows, or, when three rows
+/// slot of the paint bucket (y 224 on the Paper Pro). Two columns of three rows, or, when three rows
 /// do not fit on the screen (the Move in landscape), three columns of two rows. The sections go from
 /// the top of the left column to the bottom of that column, then from the top of the next column:
 /// the four color sections (`Section`), then the Micro-cell lines section (`LineGray`). The space
-/// after that section is empty. On the Paper Pro the panel ends at y 1192 in the two orientations.
+/// after that section is empty. On the Paper Pro the panel ends at y 1304 in the two orientations.
 pub fn colors_top() -> i32 {
     slot_top(Button::Colors)
 }
@@ -2243,10 +2384,19 @@ pub fn line_gray_at(x: f32, y: f32) -> Option<LineGray> {
 
 /// The Settings panel (REQUIREMENTS.md §9.1): one row of `PanelMetrics::row` for each switch
 /// (`Switch::row`), one row with the version and, in a stable or a preview build, one row for updates
-/// (§9.2), from the top of the gear (y 224). It has its own width (`SettingsMetrics::width`): the
-/// width of the Cell colors panel does not apply to it (NAV-14).
-fn settings_top() -> i32 {
-    slot_top(Button::Settings)
+/// (§9.2), from the top of the gear (y 336). It has its own width (`SettingsMetrics::width`): the
+/// width of the Cell colors panel does not apply to it (NAV-14). `update_row` tells if the panel has
+/// the update row (`Update::has_row`): the panel with that row can start at slot 1 (`panel_top`).
+fn settings_top(update_row: bool) -> i32 {
+    panel_top(Button::Settings, settings_height(update_row))
+}
+
+/// The height of the Settings panel: a border at the top and at the bottom, and a line between the
+/// rows.
+fn settings_height(update_row: bool) -> i32 {
+    let p = device().panel;
+    let rows = UPDATE_ROW as i32 + i32::from(update_row);
+    rows * (p.row + p.line) + p.line
 }
 
 /// The row of the version, below the switches.
@@ -2265,16 +2415,15 @@ pub fn settings_pr() -> i32 {
 }
 
 pub fn settings_panel(update_row: bool) -> Rect {
-    let p = device().panel;
-    let rows = UPDATE_ROW as i32 + i32::from(update_row);
-    // A border at the top and at the bottom, and a line between the rows.
-    Rect::new(settings_pl(), settings_top(), settings_pr() + 1, settings_top() + rows * (p.row + p.line) + p.line)
+    let top = settings_top(update_row);
+    Rect::new(settings_pl(), top, settings_pr() + 1, top + settings_height(update_row))
 }
 
-/// A row of the Settings panel: a switch (`Switch::row`), `VERSION_ROW` or `UPDATE_ROW`.
-pub fn settings_row(i: usize) -> Rect {
+/// A row of the Settings panel: a switch (`Switch::row`), `VERSION_ROW`, `LICENSES_ROW` or
+/// `UPDATE_ROW`, in the panel with or without the update row.
+pub fn settings_row(i: usize, update_row: bool) -> Rect {
     let p = device().panel;
-    let y = settings_top() + p.line + i as i32 * (p.row + p.line);
+    let y = settings_top(update_row) + p.line + i as i32 * (p.row + p.line);
     Rect::new(settings_pl(), y, settings_pr() + 1, y + p.row)
 }
 
@@ -2282,7 +2431,7 @@ pub fn settings_row(i: usize) -> Rect {
 /// of the border.
 pub fn update_button() -> Rect {
     let b = device().settings.update_button;
-    let r = settings_row(UPDATE_ROW);
+    let r = settings_row(UPDATE_ROW, true);
     Rect::new(settings_pl() + b.inset, r.y0 + b.top, settings_pr() - b.inset, r.y0 + b.bottom)
 }
 
@@ -2292,9 +2441,9 @@ pub fn update_button_area() -> Rect {
     Rect::new(b.x0, b.y0, b.x1 + 1, b.y1 + 1)
 }
 
-/// The switch at a point in the Settings panel.
-pub fn settings_at(x: f32, y: f32) -> Option<Switch> {
-    Switch::ALL.into_iter().find(|s| settings_row(s.row()).contains(x, y))
+/// The switch at a point in the Settings panel with or without the update row.
+pub fn settings_at(x: f32, y: f32, update_row: bool) -> Option<Switch> {
+    Switch::ALL.into_iter().find(|s| settings_row(s.row(), update_row).contains(x, y))
 }
 
 /// The section and the color at a point in the Cell colors panel.
@@ -2306,13 +2455,58 @@ pub fn color_at(x: f32, y: f32) -> Option<(Section, Color)> {
 }
 
 /// The Checkpoints panel (§9.3, NAV-18, `CheckpointMetrics`). It touches the toolbar and starts at
-/// the top of the slot of the bookmark (y 560 on the Paper Pro). If the panel at its maximum size
-/// does not fit below that slot (the Move in landscape), it starts at the top of slot 1.
+/// the top of the slot of the bookmark (y 672 on the Paper Pro). If the panel at its maximum size
+/// does not fit below that slot (the Move in landscape), it starts at the top of slot 1
+/// (`panel_top`), for each quantity of checkpoints.
 pub fn ckp_top() -> i32 {
     let d = device();
-    let at_icon = slot_top(Button::Checkpoints);
-    let height = d.panel.row + crate::game::MAX_CHECKPOINTS as i32 * d.checkpoints.row;
-    if at_icon + height < screen_h() as i32 { at_icon } else { slot_top(Button::Colors) }
+    panel_top(Button::Checkpoints, d.panel.row + crate::game::MAX_CHECKPOINTS as i32 * d.checkpoints.row)
+}
+
+/// The Hint panel (§9.5, HNT-11, `HintMetrics`). It touches the toolbar and starts at the top of
+/// the slot of the lightbulb (slot 1, y 112 on the Paper Pro).
+pub fn hint_top() -> i32 {
+    slot_top(Button::Hint)
+}
+
+/// The width and the inset of the Hint panel in the current orientation.
+fn hint_size() -> HintPanelSize {
+    let m = device().hint;
+    if landscape() { m.landscape } else { m.portrait }
+}
+
+/// The left x of the Hint panel: 1008 in portrait, 1656 in landscape, 112 for a right-handed player.
+pub fn hint_pl() -> i32 {
+    panel_x(hint_size().width).0
+}
+
+/// The start of the text of the box of the Hint panel. The positions of the row are from this x.
+pub fn hint_text_x() -> i32 {
+    hint_pl() + hint_size().inset
+}
+
+/// The Hint panel for a state of its row: 198 px high when a hint is available (a box with one
+/// line), and 236 px high in the other two states (a box with two lines).
+pub fn hint_panel(state: crate::game::HintState) -> Rect {
+    let d = device();
+    let (pl, pr) = panel_x(hint_size().width);
+    let box_height = match state {
+        crate::game::HintState::Available => d.hint.box_height,
+        crate::game::HintState::Clash | crate::game::HintState::Incorrect => d.hint.box_height_two_lines,
+    };
+    Rect::new(pl, hint_top(), pr + 1, hint_box_top() + box_height)
+}
+
+/// The row "Reveal one number" of the Hint panel: the full row is the tap area.
+pub fn hint_row() -> Rect {
+    let (pl, pr) = panel_x(hint_size().width);
+    Rect::new(pl, hint_top(), pr + 1, hint_top() + device().panel.row)
+}
+
+/// The top of the box of the Hint panel: below the row and the line.
+pub fn hint_box_top() -> i32 {
+    let p = device().panel;
+    hint_top() + p.row + p.line
 }
 
 /// The top of the first checkpoint row, below the row "Save checkpoint".
@@ -2338,7 +2532,7 @@ fn ckp_x() -> (i32, i32) {
     panel_x(device().checkpoints.width)
 }
 
-/// The Checkpoints panel with `n` checkpoints. It ends at y 864 with no checkpoint (NAV-18).
+/// The Checkpoints panel with `n` checkpoints. It ends at y 976 with no checkpoint (NAV-18).
 pub fn ckp_panel(n: usize) -> Rect {
     let (pl, pr) = ckp_x();
     let bottom = if n == 0 { ckp_top() + device().checkpoints.empty_height - 1 } else { ckp_row_top(n) };
@@ -2392,9 +2586,10 @@ pub fn checkpoint_control_at(x: f32, y: f32, n: usize) -> Option<CheckpointContr
     })
 }
 
-/// The New game panel (toolbar.sh, §11): three rows of one toolbar slot with a divider of
+/// The New game panel (toolbar.sh, §11): three rows of `tb_slot` with a divider of
 /// `PanelMetrics::line` between each two rows. From the top: the slider, Symmetrical, and Start new
-/// game (in the slot of the +). The slider fills the width between the insets of the rows
+/// game (at the bottom of the screen, `ng_last_row`; in the slot of the + when a slot has the height
+/// `tb_slot`). The rows do not follow `slot_height` (NAV-21: 96 px on the Move in all layouts). The slider fills the width between the insets of the rows
 /// (`PanelMetrics::inset`). Returns the first and the last pixel column of the panel.
 fn ng_panel_columns() -> (i32, i32) {
     let d = device();
@@ -2409,10 +2604,16 @@ pub fn ng_pr() -> i32 {
     ng_panel_columns().1
 }
 
-/// The top of the panel: two rows and one divider above the bottom slot (on the Paper Pro in
+/// The top of the last row of the panel (Start new game, with the divider above it in its first
+/// pixels): one row above the bottom of the screen.
+fn ng_last_row() -> i32 {
+    screen_h() as i32 - tb_slot()
+}
+
+/// The top of the panel: two rows and one divider above the last row (on the Paper Pro in
 /// portrait: 2048 - 226 = 1822).
 pub fn ng_top() -> i32 {
-    tb_bottom_y() - 2 * tb_slot() - device().panel.line
+    ng_last_row() - 2 * tb_slot() - device().panel.line
 }
 
 pub fn ng_panel() -> Rect {
@@ -2434,27 +2635,28 @@ pub fn ng_slider_y() -> i32 {
     ng_top() + tb_slot() / 2
 }
 
-/// The center of the Symmetrical row: half a toolbar slot above the bottom slot.
+/// The center of the Symmetrical row: half a row above the last row.
 pub fn ng_symmetric_y() -> i32 {
-    tb_bottom_y() - tb_slot() / 2
+    ng_last_row() - tb_slot() / 2
 }
 
+/// The center of the row Start new game.
 pub fn ng_start_y() -> i32 {
-    icon_center(Button::NewGame).1 as i32
+    ng_last_row() + tb_slot() / 2
 }
 
 pub fn ng_slider_row() -> Rect {
     Rect::new(ng_pl(), ng_top(), ng_pr() + 1, ng_top() + tb_slot())
 }
 
-/// The Symmetrical row (DIF-8): the slot directly above the bottom slot, below the divider of the
+/// The Symmetrical row (DIF-8): the row directly above the last row, below the divider of the
 /// slider row. A tap anywhere in it changes the switch.
 pub fn ng_symmetric_row() -> Rect {
-    Rect::new(ng_pl(), tb_bottom_y() - tb_slot(), ng_pr() + 1, tb_bottom_y())
+    Rect::new(ng_pl(), ng_last_row() - tb_slot(), ng_pr() + 1, ng_last_row())
 }
 
 pub fn ng_start_row() -> Rect {
-    Rect::new(ng_pl(), tb_bottom_y() + device().panel.line, ng_pr() + 1, screen_h() as i32)
+    Rect::new(ng_pl(), ng_last_row() + device().panel.line, ng_pr() + 1, screen_h() as i32)
 }
 
 /// The x positions of the stops of a labeled slider from `xl` to `xr` (ui-lib.sh `labeled_slider`).
@@ -2605,6 +2807,12 @@ pub fn summary_count_x() -> f32 {
     page_right() - device().summary.table.completed_end_from_right
 }
 
+/// The right edge of the "Average hints" column of the summary (ANA-4): 1118 units in portrait on
+/// the Paper Pro (x 1290).
+pub fn summary_hints_x() -> f32 {
+    page_right() - device().summary.table.hints_end_from_right
+}
+
 /// The width of each filter segment of the games list (All, then modes 0..6): the segments fill the
 /// width of the list (157.5 units in portrait on the Paper Pro).
 pub fn seg_w() -> f32 {
@@ -2651,6 +2859,12 @@ pub fn list_column() -> (f32, f32) {
 pub fn list_offsets() -> (f32, f32, f32) {
     let (g, w) = (device().games_list, list_column().1);
     (g.meter_dx, w - g.time_end_from_right, w - g.bin_from_right)
+}
+
+/// The end of the hint count in a row of the games list, from the left of the list (ANA-5): x 1400
+/// in portrait on the Paper Pro.
+pub fn list_hints_offset() -> f32 {
+    list_column().1 - device().games_list.hints_end_from_right
 }
 
 /// The top y of the row of game i of a page.
@@ -2807,10 +3021,13 @@ mod tests {
         assert_eq!(game_button(1560.0, 160.0, false), None);
         assert_eq!(game_button(50.0, 50.0, false), None);
         assert_eq!(game_button(50.0, 50.0, true), Some(Button::Close));
-        assert_eq!(game_button(1560.0, 160.0, true), Some(Button::Colors));
-        assert_eq!(game_button(1560.0, 280.0, true), Some(Button::Settings));
-        assert_eq!(game_button(1560.0, 390.0, true), Some(Button::Undo));
-        assert_eq!(game_button(1560.0, 500.0, true), Some(Button::Redo));
+        // NAV-12: the top buttons from slot 0.
+        assert_eq!(game_button(1560.0, 160.0, true), Some(Button::Hint));
+        assert_eq!(game_button(1560.0, 280.0, true), Some(Button::Colors));
+        assert_eq!(game_button(1560.0, 390.0, true), Some(Button::Settings));
+        assert_eq!(game_button(1560.0, 500.0, true), Some(Button::Undo));
+        assert_eq!(game_button(1560.0, 610.0, true), Some(Button::Redo));
+        assert_eq!(game_button(1560.0, 720.0, true), Some(Button::Checkpoints));
         assert_eq!(game_button(1560.0, 1880.0, true), Some(Button::Help));
         assert_eq!(game_button(1560.0, 1992.0, true), Some(Button::Statistics));
         assert_eq!(game_button(1560.0, 2104.0, true), Some(Button::NewGame));
@@ -2825,7 +3042,8 @@ mod tests {
         assert_eq!(game_button(1560.0, 50.0, false), None);
         assert_eq!(game_button(1560.0, 50.0, true), Some(Button::Close));
         assert_eq!(close_cx(), 1563.5);
-        assert_eq!(game_button(60.0, 160.0, true), Some(Button::Colors));
+        assert_eq!(game_button(60.0, 160.0, true), Some(Button::Hint));
+        assert_eq!(game_button(60.0, 280.0, true), Some(Button::Colors));
         assert_eq!(game_button(60.0, 2104.0, true), Some(Button::NewGame));
         assert_eq!(game_button(200.0, 160.0, true), None);
         assert_eq!((colors_pl(), colors_pr(), ng_pl(), ng_pr()), (112, 911, 112, 617));
@@ -2841,14 +3059,14 @@ mod tests {
             set_rotation(rotation);
             set_right_handed(right);
             let p = colors_panel();
-            assert_eq!((p.x0, p.x1 - 1, p.y0, p.y1 - 1), (x0, x1, 112, 1192), "{rotation} {right}");
+            assert_eq!((p.x0, p.x1 - 1, p.y0, p.y1 - 1), (x0, x1, 224, 1304), "{rotation} {right}");
             // The order of the columns does not change with the hand.
             assert_eq!(color_section_left(Section::Starting.panel_index()), x0);
             assert_eq!(color_section_left(Section::Completed.panel_index()), x0 + 400);
             assert_eq!(color_section_left(LINES_SECTION), x0 + 400);
-            assert_eq!(color_section_top(Section::Highlight.panel_index()), 832);
-            assert_eq!(color_section_top(Section::Completed.panel_index()), 112);
-            assert_eq!(color_section_top(LINES_SECTION), 472);
+            assert_eq!(color_section_top(Section::Highlight.panel_index()), 944);
+            assert_eq!(color_section_top(Section::Completed.panel_index()), 224);
+            assert_eq!(color_section_top(LINES_SECTION), 584);
             // The corners of the panel are on no button, and the meter is below the panel.
             for (x, y) in [(p.x0, p.y0), (p.x1 - 1, p.y0), (p.x0, p.y1 - 1), (p.x1 - 1, p.y1 - 1)] {
                 assert_eq!(game_button(x as f32, y as f32, true), None, "{rotation} {right} {x} {y}");
@@ -2877,17 +3095,17 @@ mod tests {
         for (rotation, right, x0, x1) in [(0, false, 908, 1507), (2, false, 1448, 2047), (0, true, 112, 711), (2, true, 112, 711)] {
             set_rotation(rotation);
             set_right_handed(right);
-            for (n, bottom) in [(0, 864), (1, 852), (3, 1212), (5, 1572)] {
+            for (n, bottom) in [(0, 976), (1, 964), (3, 1324), (4, 1504)] {
                 let p = ckp_panel(n);
-                assert_eq!((p.x0, p.x1 - 1, p.y0, p.y1 - 1), (x0, x1, 560, bottom), "{rotation} {right} {n}");
+                assert_eq!((p.x0, p.x1 - 1, p.y0, p.y1 - 1), (x0, x1, 672, bottom), "{rotation} {right} {n}");
                 // The panel covers no button and not the meter (CKP-9: it never shows with the result card).
                 for (x, y) in [(p.x0, p.y0), (p.x1 - 1, p.y0), (p.x0, p.y1 - 1), (p.x1 - 1, p.y1 - 1)] {
                     assert_eq!(game_button(x as f32, y as f32, true), None, "{rotation} {right} {x} {y}");
                 }
                 assert!(p.y1 + 13 < meter_y() || p.x1 <= meter_xl() || p.x0 >= meter_xr(), "{rotation} {right}");
             }
-            assert_eq!(game_button(tb_cx(), 560.0, true), Some(Button::Checkpoints));
-            assert_eq!(game_button(tb_cx(), 671.0, true), Some(Button::Checkpoints));
+            assert_eq!(game_button(tb_cx(), 672.0, true), Some(Button::Checkpoints));
+            assert_eq!(game_button(tb_cx(), 783.0, true), Some(Button::Checkpoints));
             let (row, button) = (ckp_row_top(1), ckp_button(1));
             assert_eq!((button.x0 - x0, button.x1 - 1 - x0, button.y0 - row, button.y1 - 1 - row), (381, 521, 55, 125));
             // CKP-7: the 11 px between the button and the bin operate nothing. x 908 + 533 = 1441.
@@ -2897,8 +3115,8 @@ mod tests {
             assert_eq!(on(x0 + 532, row + 90), None);
             assert_eq!(on(x0 + 533, row + 90), Some(CheckpointControl::Delete(1)));
             assert_eq!(on(x1, row), Some(CheckpointControl::Delete(1)));
-            assert_eq!(on(x0, 560), Some(CheckpointControl::Save));
-            assert_eq!(on(x0, 672), None);
+            assert_eq!(on(x0, 672), Some(CheckpointControl::Save));
+            assert_eq!(on(x0, 784), None);
             assert_eq!(checkpoint_control_at((x0 + 533) as f32, row as f32, 1), None, "there is no row 1");
         }
         set_right_handed(false);
@@ -2912,13 +3130,38 @@ mod tests {
         assert_eq!(LICENSES_ROW, 4);
         assert_eq!(UPDATE_ROW, 5);
         let (dev, stable) = (settings_panel(false), settings_panel(true));
-        assert_eq!((dev.x0, dev.x1 - 1, dev.y0, dev.y1 - 1), (1108, 1507, 224, 795));
-        assert_eq!(stable.y1 - 1, 909);
-        assert_eq!(settings_row(LICENSES_ROW).y0, 682);
-        assert_eq!(settings_row(2).y0, 454);
-        assert_eq!(settings_at(1200.0, 500.0), Some(Switch::ColorCompletedGroups));
-        assert_eq!(settings_at(1200.0, 600.0), None, "the version row is not a switch");
+        assert_eq!((dev.x0, dev.x1 - 1, dev.y0, dev.y1 - 1), (1108, 1507, 336, 907));
+        assert_eq!(stable.y1 - 1, 1021);
+        for update_row in [false, true] {
+            assert_eq!(settings_row(LICENSES_ROW, update_row).y0, 794);
+            assert_eq!(settings_row(2, update_row).y0, 566);
+            assert_eq!(settings_at(1200.0, 612.0, update_row), Some(Switch::ColorCompletedGroups));
+            assert_eq!(settings_at(1200.0, 712.0, update_row), None, "the version row is not a switch");
+        }
         let b = update_button();
-        assert_eq!((b.x0, b.x1, b.y0, b.y1), (1141, 1474, 818, 886));
+        assert_eq!((b.x0, b.x1, b.y0, b.y1), (1141, 1474, 930, 998));
+    }
+
+    #[test]
+    fn the_hint_panel_agrees_with_hnt_11_in_all_layouts() {
+        use crate::game::HintState;
+        for (rotation, right, x0, x1, text) in [(0, false, 1008, 1507, 1042), (2, false, 1656, 2047, 1676), (0, true, 112, 611, 146), (2, true, 112, 503, 132)] {
+            set_rotation(rotation);
+            set_right_handed(right);
+            for (state, bottom) in [(HintState::Available, 309), (HintState::Incorrect, 347), (HintState::Clash, 347)] {
+                let p = hint_panel(state);
+                assert_eq!((p.x0, p.x1 - 1, p.y0, p.y1 - 1), (x0, x1, 112, bottom), "{rotation} {right} {state:?}");
+                for (x, y) in [(p.x0, p.y0), (p.x1 - 1, p.y0), (p.x0, p.y1 - 1), (p.x1 - 1, p.y1 - 1)] {
+                    assert_eq!(game_button(x as f32, y as f32, true), None, "{rotation} {right} {x} {y}");
+                }
+            }
+            let row = hint_row();
+            assert_eq!((row.x0, row.x1 - 1, row.y0, row.y1 - 1), (x0, x1, 112, 223));
+            assert_eq!((hint_text_x(), hint_box_top()), (text, 226));
+            assert_eq!(game_button(tb_cx(), 112.0, true), Some(Button::Hint));
+            assert_eq!(game_button(tb_cx(), 223.0, true), Some(Button::Hint));
+        }
+        set_right_handed(false);
+        set_rotation(0);
     }
 }

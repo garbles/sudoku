@@ -28,7 +28,7 @@ if part screens; then
 mkdir -p "$OUT"
 magick -size ${PHYS_W}x${PHYS_H} xc:white -units PixelsPerInch -density $DPI "$OUT/template.png"
 sh render.sh "$OUT"                          # screen.png, box.png, cell.png
-for mode in progress highlight unrecognized invalid-mark completed-group completed; do
+for mode in progress highlight unrecognized invalid-mark completed-group completed completed-hints; do
   name=screen-$mode.png; [ $mode = progress ] && name=screen-in-progress.png
   M=$(mktemp); python3 -I board-state.py $mode > $M
   magick "$OUT/screen.png" -draw @$M -units PixelsPerInch -density $DPI "$OUT/$name"; rm -f $M

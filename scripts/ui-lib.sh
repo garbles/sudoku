@@ -13,7 +13,11 @@ tb_cy() { echo "$1" | awk -v w=$TB_W -v c=$TB_C '{ printf "%.1f", c + $1*w }'; }
 TB_BOTTOM_DY=$((TB_W/2))                   # the center of an icon of a bottom slot, below the top of the slot (56)
 PANEL_ROW=112                              # the rows of the Settings panel and the row "Save checkpoint", on each model
 TB_BOTTOM_Y=$((PHYS_H-TB_W))               # the top of the bottom toolbar slot (y 2048)
-# slot_y K : the top of toolbar slot K: 0-5 from the top (menu, cell colors, settings, undo, redo, checkpoints), or
+# The top slots of the toolbar, from the top: the menu button (0), Hint (the lightbulb), Cell colors, Settings (the
+# gear), Undo, Redo and Checkpoints (the bookmark). A panel starts at the top of the slot of its button.
+SLOT_HINT=1; SLOT_COLORS=2; SLOT_SETTINGS=3; SLOT_UNDO=4; SLOT_REDO=5; SLOT_CKP=6
+TOP_SLOTS=7; ALL_SLOTS=10                  # the top group, and all buttons (the bottom group has 3)
+# slot_y K : the top of toolbar slot K: 0-6 from the top (the SLOT_ values above), or
 # help, statistics and new (the bottom group: the + is in the bottom slot).
 slot_y() {
   case $1 in help) echo $((TB_BOTTOM_Y-2*TB_W)) ;; statistics) echo $((TB_BOTTOM_Y-TB_W)) ;; new) echo $TB_BOTTOM_Y ;; *) echo $(($1*TB_W)) ;; esac
@@ -93,52 +97,105 @@ COLOR_CYAN='#6FCFE6'; COLOR_MAGENTA='#E650E0'; COLOR_ORANGE='#FF9A1F'
 # The default colors of the four color sections.
 STARTING_BG=$COLOR_GRAY; CLASH_BG=$COLOR_RED; HIGHLIGHT_BG=$COLOR_CYAN; COMPLETED_BG=$COLOR_GREEN
 
-# The Settings panel: 400 px wide (x 1108-1507), from the top of the slot of the gear (slot 2). The rows start at y 226, one each 114 px (112 px and a line of
+# The Settings panel: 400 px wide (x 1108-1507), from the top of the slot of the gear (slot 3, y 336). The rows start at y 338, one each 114 px (112 px and a line of
 # 2 px): the three switches, the version, "Third-party licenses", and the update row of a stable build.
-SET_W=400; SET_PL=$((TB_X-SET_W)); SET_PR=$((TB_X-1)); SET_TOP=$((2*TB_W)); SET_ROW0=$((SET_TOP+2)); SET_STEP=$((PANEL_ROW+2))
+SET_W=400; SET_PL=$((TB_X-SET_W)); SET_PR=$((TB_X-1)); SET_TOP=$((SLOT_SETTINGS*TB_W)); SET_ROW0=$((SET_TOP+2)); SET_STEP=$((PANEL_ROW+2))
 SET_VERSION_Y=$((SET_ROW0+3*SET_STEP)); SET_LICENSES_Y=$((SET_ROW0+4*SET_STEP)); SET_UPDATE_Y=$((SET_ROW0+5*SET_STEP))
-SET_BOTTOM_DEV=$((SET_UPDATE_Y-1)); SET_BOTTOM_STABLE=$((SET_UPDATE_Y+SET_STEP-1))   # y 795 and 909
+SET_BOTTOM_DEV=$((SET_UPDATE_Y-1)); SET_BOTTOM_STABLE=$((SET_UPDATE_Y+SET_STEP-1))   # y 907 and 1021
 
 # Landscape (2160x1620). The items have the same size as in portrait. Each position is a full-pixel move of the
 # portrait position: the board and the meter move by (LS_DX, LS_DY) (270, -270), the toolbar to LS_TB_X (2048), and
 # the bottom toolbar slots also by LS_BOTTOM_DY (-540).
 LS_W=$PHYS_H; LS_H=$PHYS_W
 LS_DX=$(((LS_W-BOARD)/2-X0)); LS_DY=$(((LS_H-BOARD)/2-Y0)); LS_TB_X=$((LS_W-TB_W)); LS_BOTTOM_DY=$((LS_H-PHYS_H))
+# The height of a toolbar slot in landscape. It is TB_W when the ALL_SLOTS buttons fit in the height of the screen.
+# If not (the Move: 10 x 96 px is more than 954 px), it is the largest height with which they fit (95 px). Then the
+# toolbar column and the icons do not change: the column stays TB_W px wide, slot K starts at K * LS_SLOT, and each
+# icon keeps its distance from the top of its slot (TB_C in a top slot, TB_BOTTOM_DY in a bottom slot). The slot
+# loses only its last pixel rows.
+LS_SLOT=$TB_W; [ $((ALL_SLOTS*TB_W)) -gt $LS_H ] && LS_SLOT=$((LS_H/ALL_SLOTS))
+# ls_slot_y K : the top of toolbar slot K in landscape (refer to slot_y)
+ls_slot_y() {
+  case $1 in help) echo $((LS_H-3*LS_SLOT)) ;; statistics) echo $((LS_H-2*LS_SLOT)) ;; new) echo $((LS_H-LS_SLOT)) ;; *) echo $(($1*LS_SLOT)) ;; esac
+}
+# panel_top K PITCH HEIGHT SCREEN_H : the top of the panel of the button in top slot K, with slots of PITCH px. The
+# panel starts at the top of the slot of its button. If the panel (HEIGHT px) does not fit on the screen below that
+# slot, it starts at the top of slot 1 (the Move in landscape: the Settings panel with the update row and the
+# Checkpoints panel; REQUIREMENTS.md §9).
+panel_top() { if [ $(($1*$2+$3)) -lt $4 ]; then echo $(($1*$2)); else echo $2; fi; }
 
-# The Cell colors panel: two columns of 400 px and three rows of 360 px (y 112 to 1192). It touches the toolbar.
+# The Cell colors panel: two columns of 400 px and three rows of 360 px (y 224 to 1304). It touches the toolbar.
 # Left column, from the top: starting, clashing, highlighted. Right column: completed, micro-cell lines, empty space.
 # The panel has three rows when they fit on the screen, else two rows and three columns (the Move in landscape,
 # src/layout.rs color_rows). CM_* is portrait; CM_*_LANDSCAPE is landscape.
-CM_COL=400; CM_ROW=360; CM_TOP=$TB_W   # from slot 1
-cm_rows() { if [ $((CM_TOP+3*CM_ROW)) -lt $1 ]; then echo 3; else echo 2; fi; }   # cm_rows SCREEN_H
-CM_ROWS=$(cm_rows $PHYS_H); CM_W=$((6/CM_ROWS*CM_COL)); CM_BOTTOM=$((CM_TOP+CM_ROWS*CM_ROW))
+CM_COL=400; CM_ROW=360
+CM_TOP=$((SLOT_COLORS*TB_W)); CM_TOP_LANDSCAPE=$((SLOT_COLORS*LS_SLOT))   # from the slot of the paint bucket (slot 2)
+cm_rows() { if [ $(($1+3*CM_ROW)) -lt $2 ]; then echo 3; else echo 2; fi; }   # cm_rows TOP SCREEN_H
+CM_ROWS=$(cm_rows $CM_TOP $PHYS_H); CM_W=$((6/CM_ROWS*CM_COL)); CM_BOTTOM=$((CM_TOP+CM_ROWS*CM_ROW))
 CM_PL=$((TB_X-CM_W))         # 708: left-handed in portrait (x 708-1507)
-CM_ROWS_LANDSCAPE=$(cm_rows $LS_H); CM_W_LANDSCAPE=$((6/CM_ROWS_LANDSCAPE*CM_COL))
-CM_BOTTOM_LANDSCAPE=$((CM_TOP+CM_ROWS_LANDSCAPE*CM_ROW))
+CM_ROWS_LANDSCAPE=$(cm_rows $CM_TOP_LANDSCAPE $LS_H); CM_W_LANDSCAPE=$((6/CM_ROWS_LANDSCAPE*CM_COL))
+CM_BOTTOM_LANDSCAPE=$((CM_TOP_LANDSCAPE+CM_ROWS_LANDSCAPE*CM_ROW))
 CM_PL_LANDSCAPE=$((LS_TB_X-CM_W_LANDSCAPE))   # 1248: left-handed in landscape (x 1248-2047)
 CM_PL_RIGHT=$TB_W            # right-handed in the two orientations (x 112-911)
 
-# The Checkpoints panel: 600 px wide, at y 560 in all layouts. It touches the toolbar. It has the row "Save checkpoint"
-# (y 560-671), then rows of 180 px, the newest first. The last y of the panel is CKP_EMPTY_BOTTOM with no checkpoint,
+# The Checkpoints panel: 600 px wide, at y 672 on the Paper Pro. It touches the toolbar. It has the row "Save checkpoint"
+# (y 672-783), then rows of 180 px, the newest first. The last y of the panel is CKP_EMPTY_BOTTOM with no checkpoint,
 # else CKP_ROW0 + 180 n (the bottom line is y-1 and y, as in the other panels).
-# The panel starts at the slot of the bookmark (slot 5). If the panel with the maximum of 4 rows does not fit below
-# it, it starts at slot 1 (the Move in landscape, src/layout.rs ckp_top). CKP_TOP_LANDSCAPE is the top in landscape.
+# The panel starts at the slot of the bookmark (slot 6). If the panel with the maximum of 4 rows does not fit below
+# it, it starts at slot 1 (the Move in landscape, panel_top). CKP_TOP_LANDSCAPE is the top in landscape.
 CKP_W=600; CKP_STEP=180; CKP_MAX=4
-ckp_top() { if [ $((5*TB_W+PANEL_ROW+CKP_MAX*CKP_STEP)) -lt $1 ]; then echo $((5*TB_W)); else echo $TB_W; fi; }   # ckp_top SCREEN_H
-CKP_TOP=$(ckp_top $PHYS_H); CKP_TOP_LANDSCAPE=$(ckp_top $LS_H)
+CKP_TOP=$(panel_top $SLOT_CKP $TB_W $((PANEL_ROW+CKP_MAX*CKP_STEP)) $PHYS_H)
+CKP_TOP_LANDSCAPE=$(panel_top $SLOT_CKP $LS_SLOT $((PANEL_ROW+CKP_MAX*CKP_STEP)) $LS_H)
 CKP_ROW0=$((CKP_TOP+PANEL_ROW)); CKP_EMPTY_BOTTOM=$((CKP_TOP+304))
 CKP_PL=$((TB_X-CKP_W))       # 908: left-handed in portrait (x 908-1507)
 CKP_PL_LANDSCAPE=$((LS_TB_X-CKP_W))   # 1448: left-handed in landscape (x 1448-2047)
 CKP_PL_RIGHT=$TB_W           # right-handed in the two orientations (x 112-711)
 # The positions in the panel are from its left edge (CKP_PL) and its top (CKP_TOP), as in src/layout.rs.
 CKP_CX=$((CKP_PL+299))       # 1207: the center of the text of the panel with no checkpoint
-CKP_EMPTY_BASE1=$((CKP_TOP+200)); CKP_EMPTY_BASE2=$((CKP_TOP+240))   # y 760 and 800: the two lines of that text
+CKP_EMPTY_BASE1=$((CKP_TOP+200)); CKP_EMPTY_BASE2=$((CKP_TOP+240))   # y 872 and 912: the two lines of that text
 CKP_SAVE_ICON_X=$((CKP_PL+58)); CKP_SAVE_ICON_Y=$((CKP_TOP+56)); CKP_SAVE_TEXT_X=$((CKP_PL+100)); CKP_SAVE_BASE=$((CKP_TOP+65))
 # In a row with its top at y0: the small board at (CKP_BOARD_X, y0+CKP_BOARD_DY), the text, the button and the bin.
 CKP_BOARD_X=$((CKP_PL+18)); CKP_BOARD_DY=14; CKP_CELL=17
 CKP_TEXT_X=$((CKP_PL+190)); CKP_CLOCK_DY=81; CKP_CELLS_DY=115
 CKP_BTN_X0=$((CKP_PL+381)); CKP_BTN_X1=$((CKP_PL+521)); CKP_BTN_CX=$((CKP_PL+451)); CKP_BTN_Y0=55; CKP_BTN_Y1=125; CKP_BTN_BASE=99
 CKP_BIN_X=$((CKP_PL+560)); CKP_BIN_DY=90
+
+# The Hint button and the Hint panel (REQUIREMENTS.md, the Hint panel section).
+# lightbulb CX CY COLOR : the MVG of the lightbulb icon with its center at CX,CY. All lines are 3 px, with round ends
+# and round joins, and no fill. The bulb is one closed line: an arc of radius 12 px around (0, -6) from 135 degrees
+# to 405 degrees (clockwise on the screen, through the top at (0, -18)), as 19 points, one each 15 degrees, then the
+# points (6, 12) and (-6, 12). The base is a line from (-5, 18) to (5, 18). With the lines, the icon is 27 x 39 px.
+lightbulb() {
+  awk -v x=$1 -v y=$2 -v col=$3 'BEGIN{
+    r = atan2(0, -1) / 180
+    printf "push graphic-context translate %s,%s fill none stroke %s stroke-width 3 stroke-linecap round stroke-linejoin round polygon", x, y, col
+    for (k = 0; k <= 18; k++) { a = (135 + 15*k) * r; printf " %.2f,%.2f", 12*cos(a), -6 + 12*sin(a) }
+    print " 6,12 -6,12 line -5,18 5,18 pop graphic-context" }'
+}
+# The count on the Hint button (Medium, HINT_COUNT_SIZE px), from the center of the lightbulb, thus the distance to
+# the lightbulb is the same on each model: the text starts HINT_COUNT_DX px to the right of the center, and its
+# baseline is HINT_COUNT_BASE_DY px below the center. A digit is 17 px high, thus the top of the digits is 8.5 px
+# below the center (x 1582, y 176 on the Paper Pro in portrait). The text stays HINT_COUNT_MARGIN px or more inside
+# the slot: a wide text ("99+") starts more to the left.
+HINT_COUNT_SIZE=24; HINT_COUNT_DX=18.5; HINT_COUNT_BASE_DY=25.5; HINT_COUNT_MARGIN=4; HINT_COUNT_MAX=99
+# hint_count_text N : the text of the count on the button (N is 1 or more)
+hint_count_text() { if [ $1 -gt $HINT_COUNT_MAX ]; then echo "$HINT_COUNT_MAX+"; else echo $1; fi; }
+# hints_text N : the text of the hint count in the Hint panel and on the result card
+hints_text() { if [ $1 = 1 ]; then echo "1 hint used"; else echo "$1 hints used"; fi; }
+# The Hint panel starts at the top of slot 1 and touches the toolbar. Portrait: HINT_W px wide (x 1008-1507), text
+# inset HINT_INSET px. Landscape: HINT_W_LANDSCAPE px wide (x 1656-2047; the widest line, "Incorrect number revealed",
+# 350 px, and 20 px at each side, and 2 px), text inset HINT_INSET_LANDSCAPE px. From the top of the panel: the row
+# (PANEL_ROW px: the lightbulb with its center HINT_ICON_DX px after the inset and HINT_ICON_DY px below the top, the
+# text HINT_TEXT_DX px after the inset on the baseline HINT_ROW_BASE), a black line of 2 px, then the box. The box is
+# HINT_BOX px high with one line of text and HINT_BOX_2 px with two lines. Its first baseline is HINT_BOX_BASE px
+# below its top, and the second baseline is HINT_BOX_LINE px lower. The frame of 2 px is in these sizes, thus the
+# panel is 198 px or 236 px high.
+HINT_W=500; HINT_INSET=34; HINT_W_LANDSCAPE=392; HINT_INSET_LANDSCAPE=20
+HINT_TOP=$((SLOT_HINT*TB_W)); HINT_TOP_LANDSCAPE=$((SLOT_HINT*LS_SLOT))
+HINT_PL=$((TB_X-HINT_W)); HINT_PL_LANDSCAPE=$((LS_TB_X-HINT_W_LANDSCAPE)); HINT_PL_RIGHT=$TB_W
+HINT_ICON_DX=20; HINT_ICON_DY=56; HINT_TEXT_DX=62; HINT_ROW_BASE=65
+HINT_BOX=84; HINT_BOX_2=122; HINT_BOX_BASE=50; HINT_BOX_LINE=37
+HINT_H=$((PANEL_ROW+2+HINT_BOX)); HINT_H_2=$((PANEL_ROW+2+HINT_BOX_2))   # 198 and 236
 
 # the text width of a UI label, in px
 tw() { magick -font "$UI_FONT" -pointsize $UI_SIZE label:"$1" -format %w info:; }
@@ -184,7 +241,7 @@ if [ "$COMPACT_CARD" = 1 ]; then
   CARD_HALF=$((PHYS_W/2-TB_W-24)); CARD_X0=$((PHYS_W/2-CARD_HALF)); CARD_X1=$((PHYS_W/2+CARD_HALF)); CARD_Y1=$((CARD_Y0+370))
 fi
 # The landscape column of the compact card is 300 px wide, one toolbar slot and 24 px from the screen edge (below).
-CARD_MID=$((CARD_X0+640))              # the vertical line between the result and the level buttons (x 788)
+CARD_MID=$((CARD_X0+640))              # the vertical line between the result and the level buttons (x 765)
 # Landscape: a column with the height of the board (y 148-1471), 322 px wide, at the side opposite the toolbar.
 CARD_LS_W=322; CARD_LS_X_LEFT=48; CARD_LS_X_RIGHT=$((LS_W-48-CARD_LS_W))   # left-handed x 48-370, right-handed x 1790-2112
 if [ "$COMPACT_CARD" = 1 ]; then CARD_LS_W=300; CARD_LS_X_LEFT=$((TB_W+24)); CARD_LS_X_RIGHT=$((LS_W-TB_W-24-CARD_LS_W)); fi
@@ -193,6 +250,19 @@ CARD_LS_SPLIT=560                      # the horizontal line is 560 px above the
 # The sample values of the reference state: the time, and the comparison with the results of analytics.py at
 # mode 2 (LEVEL), without the result of the current game (seed 1, the second result).
 CARD_TIME="23:41"; CARD_AVERAGE="18:55"; CARD_BEST="14:51"
+# The hint count of the completed game. CARD_HINTS (default 0) is the count that result_card shows: with 1 or more
+# hints the card has the text "N hints used" (Regular 30, TEXT_GRAY, the style of "Completed in"); with 0 hints the
+# card does not change. No other item of the card moves. CARD_HINTS_SAMPLE is the count of screen-completed-hints.png.
+# The positions: the normal card in portrait: on the line of "Completed in", its right end CARD_HINTS_GAP px before
+# the vertical line (x 725, baseline y 1879). The normal column in landscape: its own line between the meter and
+# "Average at this level" (baseline 315 px below the top of the column, y 440). The compact card in portrait (the
+# Move): on the line of "Completed in", its right end CARD_HINTS_GAP px before the right edge of the card (x 794,
+# baseline y 1321). The compact column in landscape: 38 px below the last level button (x 148, baseline y 829).
+CARD_HINTS=${CARD_HINTS:-0}; CARD_HINTS_SAMPLE=2; CARD_HINTS_GAP=40
+# card_hints ANCHOR X Y : the MVG of the hint count of the card, or nothing with 0 hints
+card_hints() {
+  if [ "$CARD_HINTS" -gt 0 ]; then card_text "$DIGIT_FONT" 30 $TEXT_GRAY $1 $2 $3 "$(hints_text $CARD_HINTS)"; fi
+}
 
 # card_text FONT SIZE COLOR ANCHOR X Y TEXT
 card_text() { printf "stroke none fill %s font '%s' font-size %s text-anchor %s text %s,%s '%s'\n" "$3" "$1" $2 $4 $5 $6 "$7"; }
@@ -219,6 +289,7 @@ compact_card() {
     echo "stroke none fill white rectangle $((rx0-1)),$((ry0-1)) $rx1,$ry1"
     card_frame $rx0 $ry0 $rx1 $ry1 black
     card_text "$DIGIT_FONT" 30 $TEXT_GRAY start $rtx $((ry0+50)) "Completed in"
+    card_hints end $((rx1-CARD_HINTS_GAP)) $((ry0+50))
     card_text "$UI_FONT" 72 black start $rtx $((ry0+130)) "$CARD_TIME"
     labeled_slider $rtx $((rtx+DIFF_W)) $((ry0+175)) $rl; echo
     card_text "$DIGIT_FONT" 25 $TEXT_GRAY start $rtx $((ry0+225)) "Average $CARD_AVERAGE  ·  Previous best $CARD_BEST"
@@ -250,7 +321,9 @@ compact_card() {
       card_text "$UI_FONT" 30 $fg middle $rcx $((by0+38)) "$(level_label $i)"
       [ -n "$bm" ] && { meter $((rcx-3*30)) $((by0+66)) 30 $bm; echo; }
     done
+    card_hints start $rtx $((by1+38))
   fi
+  return 0
 }
 
 # result_card portrait|left|right LEVEL : MVG for the result card. "left" and "right" are the landscape column of a
@@ -265,6 +338,7 @@ result_card() {
     echo "stroke none fill white rectangle $((rx0-1)),$((ry0-1)) $rx1,$ry1"
     card_frame $rx0 $ry0 $rx1 $ry1 black
     card_text "$DIGIT_FONT" 30 $TEXT_GRAY start $rtx $((ry0+66)) "Completed in"
+    card_hints end $((CARD_MID-CARD_HINTS_GAP)) $((ry0+66))
     card_text "$UI_FONT" 96 black start $rtx $((ry0+180)) "$CARD_TIME"
     labeled_slider $rtx $((rtx+DIFF_W)) $((ry0+232)) $rl; echo
     card_text "$DIGIT_FONT" 25 $TEXT_GRAY start $rtx $((ry0+293)) "Average $CARD_AVERAGE  ·  Previous best $CARD_BEST"
@@ -284,6 +358,7 @@ result_card() {
     card_text "$DIGIT_FONT" 30 $TEXT_GRAY start $rtx $((ry0+70)) "Completed in"
     card_text "$UI_FONT" 72 black start $rtx $((ry0+185)) "$CARD_TIME"
     meter $((rcx-3*40)) $((ry0+255)) 40 $rl; echo
+    card_hints start $rtx $((ry0+315))
     card_text "$DIGIT_FONT" 25 $TEXT_GRAY start $rtx $((ry0+370)) "Average at this level"
     card_text "$UI_FONT" 40 black start $rtx $((ry0+418)) "$CARD_AVERAGE"
     card_text "$DIGIT_FONT" 25 $TEXT_GRAY start $rtx $((ry0+480)) "Previous best"

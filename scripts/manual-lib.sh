@@ -55,7 +55,8 @@ GIVEN_BG='#AEAEAE'; ENTRY_FG='#1E1E1E'; CLASH_BG='#FF8E8E'; COMPLETED_BG='#48D63
 UNIT_BG='#DCE9F7'   # only for the rules on page 1. It is not a color of the board.
 
 # The top of the Cell colors panel in color-menu.png with the toolbar: the Starting numbers and Completed groups
-# sections (the panel is at x 708-1507, y 112-1192). The crop is 912x362+708+111 on the Paper Pro.
+# sections (the panel starts at the slot of its button: x 708-1507, y 224-1304). The crop is 912x362+708+223 on the
+# Paper Pro.
 COLOR_PANEL_CROP=$((CM_W+TB_W))x$((CM_ROW+2))+$CM_PL+$((CM_TOP-1))
 
 # The last row of the board and the result card in screen-completed.png, for page 9: the board width (with the

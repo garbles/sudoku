@@ -2107,13 +2107,20 @@ mod tests {
                 let (x, y) = crate::layout::cell_origin(cell);
                 panel.contains(x as f32 + 10.0, y as f32 + 10.0)
             };
+            // The panel does not touch the cell or the lines around it. (The panel starts in the
+            // middle of a cell row, thus it can cover only a part of a cell.)
+            let apart = |cell: crate::game::Cell| {
+                let (x, y) = crate::layout::cell_origin(cell);
+                let (side, margin) = (crate::layout::cell_size(), 8);
+                !panel.overlaps(&crate::layout::Rect::new(x - margin, y - margin, x + side + margin, y + side + margin))
+            };
             for covered in [false, true] {
                 let name = format!("{layout}, the panel covers the cell: {covered}");
                 let mut r = Rig::new(true);
                 r.app.ui.menu = crate::app::Menu::Open(None);
                 r.app.redraw = true;
                 r.wait(600);
-                let Some((cell, d)) = r.empty_cells().into_iter().filter(|&c| under(c) == covered).find_map(|c| (1..=9u8).find(|&d| r.app.game.peer_digits(c) & crate::game::mark_bit(d) == 0).map(|d| (c, d))) else {
+                let Some((cell, d)) = r.empty_cells().into_iter().filter(|&c| if covered { under(c) } else { apart(c) }).find_map(|c| (1..=9u8).find(|&d| r.app.game.peer_digits(c) & crate::game::mark_bit(d) == 0).map(|d| (c, d))) else {
                     continue;
                 };
                 let q = micro_point(cell, d);

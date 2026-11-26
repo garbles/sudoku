@@ -1,6 +1,8 @@
 # Makes the analytics screens in the folder argv[1]:
-#   analytics.png        summary: completed puzzles and average time, for all puzzles and for each difficulty
-#   analytics-games.png  table of completed games (with a difficulty filter). Each game has a delete button.
+#   analytics.png        summary: completed puzzles and average time, for all puzzles and for each difficulty (with
+#                        the average of the hints)
+#   analytics-games.png  table of completed games (with a difficulty filter). Each game has its hint count and a
+#                        delete button.
 #   analytics-delete.png the same list after a tap on a bin: a confirmation dialog
 #   analytics-delete-all.png the summary after a tap on "Delete all games": a confirmation dialog
 #   licenses.png         the first page of the Licenses list (REQUIREMENTS.md §9.4)
@@ -14,7 +16,7 @@
 # All screens use one list of sample games (the same data as the SQLite results table). Thus the
 # summary and the table agree. The layout uses the units of the manual (1404x1872 on the Paper Pro), with the scale
 # PAGE_SCALE of the device (devices/DEVICE.conf, refer to device-lib.sh) to the screen.
-import datetime, json, os, random, subprocess, sys
+import datetime, decimal, json, os, random, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = sys.argv[1]
@@ -46,7 +48,7 @@ PRO_PAGE_W, PRO_PAGE_H = page_size(device_values("pro"))
 STOPS = 7
 TEXT_GRAY = "gray25"   # the secondary text (ui-lib.sh TEXT_GRAY, #404040)
 
-# --- sample results: (finished_at, mode 0-4, seconds). The modes 5 and 6 have no sample results.
+# --- sample results: (finished_at, mode 0-4, seconds, hints). The modes 5 and 6 have no sample results.
 rng = random.Random(7)
 BASE_MINUTES = [9, 14, 20, 31, 47]
 games = []
@@ -57,6 +59,20 @@ for _ in range(23):
     mode = rng.choices(range(5), weights=[3, 4, 6, 4, 2])[0]
     games.append((t, mode, int(BASE_MINUTES[mode] * 60 * rng.uniform(0.7, 1.4))))
 games.sort(key=lambda g: g[0], reverse=True)
+# The hint count of each game, the newest game first. The averages show each type of text: 0 (mode 0), 0.29 (mode 1,
+# 2 hints in 7 games), 0.67 (mode 2), 2 (mode 3) and 2.5 (mode 4).
+HINTS = [0, 2, 0, 0, 0, 3, 0, 0, 1, 0, 0, 1, 0, 0, 1, 2, 1, 3, 0, 0, 4, 0, 1]
+assert len(HINTS) == len(games)
+games = [g + (h,) for g, h in zip(games, HINTS)]
+
+def average_hints(values):
+    """The text of the average of the hint counts: rounded to 2 decimal places (ties to even), with no zeros at the
+    end ("0", "0.29", "2.5"), or "–" with no results."""
+    if not values:
+        return "–"
+    q = (decimal.Decimal(sum(values)) / len(values)).quantize(decimal.Decimal("0.01"), rounding=decimal.ROUND_HALF_EVEN)
+    s = f"{q:f}".rstrip("0").rstrip(".")
+    return s or "0"
 
 def clock(seconds):
     h, rem = divmod(int(round(seconds)), 3600)
@@ -86,6 +102,7 @@ class Page:
         self.right = self.w - 72                      # 1332 in portrait
         self.box_w = (self.w - 172) / 2               # 616 in portrait
         self.count_x = self.right - 432               # 900 in portrait
+        self.hints_x = self.right - 214               # the right end of "Average hints": 1118 in portrait (x 1290)
         self.seg_w = (self.w - 144) / (STOPS + 1)     # 157.5 in portrait
         # The height more than the page of the Paper Pro (src/layout.rs extra_page_h): 624 on the Move in portrait.
         self.extra = max(0, round(self.h - (PRO_PAGE_W if landscape else PRO_PAGE_H)))
@@ -96,6 +113,7 @@ class Page:
         self.license_lines = (27 if landscape else 40) + self.extra // LICENSE_LINE
         self.col_w = self.w - 144
         self.offsets = (488, self.col_w - 222, self.col_w - 42)   # meter, end of time, bin (1038, 1218 in portrait)
+        self.list_hints = self.col_w - 119            # the right end of "Hints", from the left of the list (x 1400)
         self.dialog = (self.w / 2 - 450, self.h / 2 - 176, self.w / 2 + 450, self.h / 2 + 174)
     def suffix(self, name):
         return name.replace(".png", "-landscape.png") if self.landscape else name
@@ -154,6 +172,7 @@ def screens(P):
     text(out, 72, 550, 50, "black", "start", "By difficulty", HEAD)
     text(out, 72, 615, 30, TEXT_GRAY, "start", "Difficulty")
     text(out, n(P.count_x), 615, 30, TEXT_GRAY, "end", "Completed")
+    text(out, n(P.hints_x), 615, 30, TEXT_GRAY, "end", "Average hints")
     text(out, n(P.right), 615, 30, TEXT_GRAY, "end", "Average time")
     y = 640; hline(out, y, 72, P.right)
     for mode in range(STOPS):
@@ -162,6 +181,7 @@ def screens(P):
         text(out, 72, cy+12, 34, "black", "start", {0: "Easy", STOPS-1: "Hard"}.get(mode, ""))
         meter(out, 230, cy, mode)
         text(out, n(P.count_x), cy+12, 34, "black", "end", str(len(times)))
+        text(out, n(P.hints_x), cy+12, 34, "black", "end", average_hints([g[3] for g in games if g[1] == mode]))
         text(out, n(P.right), cy+12, 34, "black", "end", clock(sum(times)/len(times)) if times else "–")
         y += P.summary_row; hline(out, y, 72, P.right)
 
@@ -201,19 +221,21 @@ def screens(P):
     text(out, cx0, 395, 30, TEXT_GRAY, "start", "Date")
     text(out, n(cx0+md), 395, 30, TEXT_GRAY, "start", "Difficulty")
     text(out, n(cx0+td), 395, 30, TEXT_GRAY, "end", "Time")
+    text(out, n(cx0+P.list_hints), 395, 30, TEXT_GRAY, "end", "Hints")
     hline(out, 420, cx0, cx0 + P.col_w)
-    for i, (when, mode, secs) in enumerate(rows):
+    for i, (when, mode, secs, hints) in enumerate(rows):
         y = 420 + i*ROW
         cy = y + ROW//2
         text(out, cx0, cy+12, 34, "black", "start", when.strftime("%-d %b %Y, %H:%M"))
         meter(out, n(cx0+md), cy, mode)
         text(out, n(cx0+td), cy+12, 34, "black", "end", clock(secs))
+        text(out, n(cx0+P.list_hints), cy+12, 34, "black", "end", str(hints))
         bin_icon(out, n(cx0+bd), cy)
         hline(out, y+ROW, cx0, cx0 + P.col_w)
     render(out, P, "analytics-games.png")
 
     # --- delete confirmation for the second game in the list
-    when, mode, secs = games[1]
+    when, mode, secs, _ = games[1]
     dialog(out, P, "Delete this game?", f"{when.strftime('%-d %b %Y, %H:%M')}, completed in {clock(secs)}.")
     render(out, P, "analytics-delete.png")
 

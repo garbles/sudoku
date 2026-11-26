@@ -65,29 +65,54 @@ decisions 2026-11-10). The owner has no Move: the design images of the Move
   cell have the sizes of the Paper Pro multiplied by 78 / 147 and rounded to full pixels: numbers of
   55 px with the baseline at 59 px, pencil marks of 16 px at 13, 39 and 65 px, the x of a refused tap
   from −5 to +5 px. The difficulty meter is 50 px below the board, as on the Paper Pro.
-- **Toolbar.** Slots of 96 px in the two orientations. The icons have the size and the line width of the
-  Paper Pro, at the center of the slot. The open toolbar has no background. It does not cover the board.
+- **Toolbar.** Slots of 96 px in portrait. In landscape (954 px high) each slot is 95 px high (the
+  toolbar column stays 96 px wide; top slot K starts at y 95 × K, and the bottom slots start at
+  y 669, 764 and 859), so that the
+  two groups of the toolbar (7 top buttons and 3 bottom buttons) do not overlap (owner decision
+  2026-11-24; before the Hint button: 96 px in the two orientations). The other layouts do not change.
+  The icons have the size and the line width of the Paper Pro, at the center of the slot. The count of
+  the Hint button has the same distance to the lightbulb as on the Paper Pro ([§9.5](#95-hint-panel)). The open
+  toolbar has no background. It does not cover the board.
 - **Panels.** The panels have the widths of the Paper Pro, and they touch the toolbar. Each panel starts
-  at the top of the slot of its button. A panel can cover the board and the difficulty meter. The rows of
+  at the top of the slot of its button. A panel that does not fit on the screen below its button starts
+  at the top of slot 1 (owner decision 2026-11-24). A panel can cover the board and the difficulty meter. The rows of
   the Settings panel and the row "Save checkpoint" are 112 px high, as on the Paper Pro. The rows of the
-  New game panel are 96 px high: they line up with the toolbar slots.
+  New game panel are 96 px high in all layouts. In portrait they line up with the toolbar slots. In
+  landscape the toolbar slots are 95 px, thus the rows do not line up with the slots there; the panel
+  still touches the toolbar, and its bottom is the bottom of the screen, as before (the owner did not
+  decide this yet, refer to `DECISIONS.md`, 2026-11-24).
   - In landscape (954 px high), the Cell colors panel has three columns of two rows (1200×720 px, from
-    slot 1): Starting and Clashing numbers, Highlighted numbers and Completed groups, Micro-cell lines.
-    In portrait it has the two columns of three rows of the Paper Pro.
-  - In landscape, the Checkpoints panel starts at the top of slot 1 (y 96), because the panel with
-    4 rows does not fit below slot 5. In portrait it starts at slot 5 (y 480).
+    the slot of its button, slot 2, y 190): Starting and Clashing numbers, Highlighted numbers and
+    Completed groups, Micro-cell lines. In portrait it has the two columns of three rows of the Paper Pro,
+    from slot 2 (y 192).
+  - In landscape, the Checkpoints panel starts at the top of slot 1 (y 95), because the panel with
+    4 rows does not fit below slot 6. In portrait it starts at slot 6 (y 576).
+  - In landscape, the Settings panel with the update row ([§9.2](#92-updates)) does not fit below
+    slot 3, thus it starts at the top of slot 1 (y 95). In portrait it starts at slot 3 (y 288; owner
+    decision 2026-11-24).
+  - The Hint panel ([§9.5](#95-hint-panel)) starts at the top of slot 1 (portrait y 96, landscape y 95). In
+    landscape it is at x 1208–1599 for a left-handed player, and it covers approximately 7 px of the width of the cells of rows 1 to 3 of one edge column of the board:
+    the board starts at y 103, the cells of row 3 start at y 272, and the panel ends at y 292 (198 px)
+    or y 330 (236 px)
+    (owner decision 2026-11-24).
 - **Result card** (compact card, [§8.3](#83-complete)). Portrait: 714×370 px (x 120–834, 49 px
   below the board, 24 px from the toolbar). From the top: "Completed in" (Regular 30), the time (Medium
   72), the slider of the mode, the comparison line (Regular 25), a `gray70` line 250 px below the top,
   then the three level buttons in one row (206×80 px, 18 px below the line, 32 px from the sides, 16 px
-  between them). Each button has its label (Medium 28) above a small meter (step 22 px). Landscape: a
+  between them). Each button has its label (Medium 28) above a small meter (step 22 px). When the game
+  has 1 or more hints, "N hints used" (Regular 30, `gray25`; [§8.3](#83-complete)) is on the line of
+  "Completed in" (baseline y 1321), right-aligned, with its right edge at x 794 (owner decision
+  2026-11-24). Landscape: a
   column of 300×748 px (the height of the board), 120 px from the screen edge at the side opposite the
   toolbar (x 120–420 for a left-handed player, x 1276–1576 for a right-handed player), with the contents
   of the landscape card of the Paper Pro in less space: "Completed in" (Regular 30) 50 px below the top,
   the time (Medium 64) at 128 px, the meter (step 36 px) at 176 px, the comparison labels (Regular 25)
   at 232 and 312 px with their values (Medium 36) 40 px below them, a `gray70` line 380 px below the
   top, then three buttons of 88 px with a pitch of 100 px, the first 20 px below the line (label
-  Medium 30, meter step 30 px). There is no "New game" heading, as in portrait.
+  Medium 30, meter step 30 px). There is no "New game" heading, as in portrait. When the game has 1 or
+  more hints, "N hints used" (Regular 30, `gray25`) is below the level buttons, with its baseline at
+  y 829, and it starts at x 148 for a left-handed player or x 1304 for a right-handed player (owner
+  decision 2026-11-24).
 - **Pages.** The manual, the statistics and the Licenses screens use a scale of 0.679487 (954 / 1404):
   a page is 1404 units wide, as on the Paper Pro, and taller (2496 units in portrait). The contents keep
   their positions in units, and the page number stays at the bottom edge. In portrait, the extra
@@ -99,7 +124,7 @@ decisions 2026-11-10). The owner has no Move: the design images of the Move
 
 ## 2. Screens
 
-The app has six screens. The game screen also has a menu with four panels. Refer to
+The app has six screens. The game screen also has a menu with five panels. Refer to
 [§9](#9-the-menu).
 
 ```mermaid
@@ -182,6 +207,9 @@ The game screen has three independent parts:
   ([§6.1](#61-automatic-pencil-mark-hiding)).
 
 Overlays occur only when the puzzle is in progress. A completed puzzle does not show overlays.
+The highlight of the numbers that a hint reveals and the clash color of a revealed incorrect number
+([§9.5](#95-hint-panel)) are separate states. They are not in the diagram below, and the rules of this section
+for "a highlight" do not apply to them (owner approval 2026-11-24).
 A highlight can show while the menu or a panel is open. Only the items in [§6.2](#62-highlights) remove
 a highlight. A highlight stays through a pencil mark, an x, a "?", a number from ink and a stroke on a
 filled cell (owner approval 2026-11-17). A finger or a hand on the screen does not remove it (owner approval 2026-11-07). A "?" or an x can
@@ -261,7 +289,7 @@ unless this table or the section of the item gives a different size for landscap
 |---|---|
 | Board | At the center: x 395–1764, y 125–1494. The difficulty meter is 50 px below the board. |
 | Result card | A column with the height of the board (y 125–1494), 322 px wide, at the side opposite the toolbar: x 48–370 for a left-handed player (toolbar at the right), x 1790–2112 for a right-handed player (toolbar at the left). Only the column moves: its contents are the same for the two hands (not a mirror image). [§8.3](#83-complete) gives the contents (owner approval 2026-11-07). |
-| Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. The Cell colors panel is at x 1248–2047, y 112–1192 (right-handed: x 112–911; [§10](#10-cell-colors-panel)). The Checkpoints panel is at x 1448–2047, with its top at y 560 (right-handed: x 112–711; [§9.3](#93-checkpoints-panel)). |
+| Menu | The toolbar is at the right edge (x 2048–2160). Bottom slot 0 starts at y 1508; the top slots start at y 0. The panels touch the toolbar, as in portrait. The Hint panel is at x 1656–2047, with its top at y 112 (right-handed: x 112–503; [§9.5](#95-hint-panel)). The Cell colors panel is at x 1248–2047, y 224–1304 (right-handed: x 112–911; [§10](#10-cell-colors-panel)). The Checkpoints panel is at x 1448–2047, with its top at y 672 (right-handed: x 112–711; [§9.3](#93-checkpoints-panel)). Before the Hint button, the Cell colors panel started at y 112 and the Checkpoints panel at y 560 (owner approval 2026-11-24). |
 | Close button | Top left, as in portrait. For a right-handed player, the toolbar is at the left edge (x 0–112) and the close button is at the top right (§3.1). |
 | Manual | Each page has a landscape version with two columns (`manual-*-landscape.png`, made by `scripts/manual-*-landscape.sh`). The content is the same as in portrait. |
 | Statistics | The same scale as in portrait, across the full width. The games list is one table across the full width. Each page shows 6 games, because the height is too small for 12. When the tablet turns, the list shows the page with the first game of the page before the turn. The delete dialog is at the center (`analytics-landscape.png`, `analytics-games-landscape.png`, `analytics-delete-landscape.png`, `analytics-delete-all-landscape.png`, made by `scripts/analytics.py`). |
@@ -270,7 +298,8 @@ When the tablet turns, the game does not change. Ink that waits for the recognit
 in progress are removed, because their positions are not correct after the turn. The "?" and the x
 stay on the same cell (and the x on the same digit) for the rest of their time. A pen tap in progress
 at the turn makes no x, because the pen gesture stops (this follows from the owner approval
-2026-11-04). A highlight stays (owner approval 2026-11-07).
+2026-11-04). A highlight stays (owner approval 2026-11-07). The highlight of the revealed numbers, the
+revealed incorrect number and an open Hint panel also stay ([§9.5](#95-hint-panel); owner approval 2026-11-24).
 
 ## 4. Cells
 
@@ -375,9 +404,10 @@ stateDiagram-v2
 
 The background of a filled cell is the first rule that applies (owner approval 2026-11-04 and 2026-11-05):
 
-1. **Clash.** The number clashes ([§6.3](#63-clashes)): clash color (default: Red).
-2. **Highlight.** The number is the highlighted digit ([§6.2](#62-highlights)): highlight color
-   (default: Cyan).
+1. **Clash.** The number clashes ([§6.3](#63-clashes)), or it is the revealed incorrect number
+   ([§9.5](#95-hint-panel); owner approval 2026-11-24): clash color (default: Red).
+2. **Highlight.** The number is the highlighted digit ([§6.2](#62-highlights)), or a hint revealed it
+   and its highlight stays ([§9.5](#95-hint-panel); owner approval 2026-11-24): highlight color (default: Cyan).
 3. **Completed group.** The cell is in a complete group, and the completed color shows
    ([§6.4](#64-completed-groups)): completed color (default: Green).
 4. **Starting number:** starting-number color (default: Gray).
@@ -385,7 +415,9 @@ The background of a filled cell is the first rule that applies (owner approval 2
 
 Empty cells are white. A cell that shows the "?" has no completed color.
 
-The player selects the four colors in the Cell colors panel ([§10](#10-cell-colors-panel)).
+The player selects the four colors in the Cell colors panel ([§10](#10-cell-colors-panel)). If the
+clash color or the highlight color is White, the revealed incorrect number or a revealed number has no
+visible mark. The owner accepted this (owner decision 2026-11-24).
 
 ## 5. Pen and touch input
 
@@ -616,6 +648,11 @@ Tap a number with the pen (a starting number or your number). The app then gives
 complete group that has that digit shows the highlight color, not the completed color
 ([§4.2](#42-cell-background-color); owner approval 2026-11-04 and 2026-11-05).
 
+This section is about the highlight of a digit. The highlight of the numbers that a hint reveals
+([§9.5](#95-hint-panel)) is a separate state with the same color. The lists below do not apply to it: it has
+its own list of the inputs that remove it, and the switch "Highlight numbers" does not change it
+(owner approval 2026-11-24).
+
 **Only these remove a highlight** (owner approval 2026-11-07 and 2026-11-17):
 
 - A pen tap on the same number (it toggles), or a tap on a different number (it moves), at the pen lift.
@@ -676,6 +713,10 @@ numbers and your numbers.
   ([§6.4](#64-completed-groups)) come only from the current numbers. Thus a number can be incorrect
   and not in the clash color, and a group with an incorrect number can have the completed color
   (owner approval 2026-11-04 and 2026-11-05).
+- **One exception** (owner approval 2026-11-24): the app compares your numbers with the solution only
+  at a hint request ([§9.5](#95-hint-panel)). Only the one revealed incorrect number shows the result: it gets
+  the clash color. Before a request, the app tells nothing about an incorrect number that does not
+  clash. The completed color still comes only from the current numbers.
 
 Images: [`screen-in-progress.png`](images/pro/screen-in-progress.png) (two 9s in column 1, from 0),
 [`manual-mistakes.png`](images/pro/manual-mistakes.png).
@@ -702,7 +743,8 @@ A **group** is a row, a column or a 3×3 box. A group is **complete** when all n
 and none of its cells clashes. All nine cells of a complete group get the **completed color** (default:
 Green). [§4.2](#42-cell-background-color) gives the order of the colors.
 
-- **"No errors" means "no clash".** The app does not compare numbers with the solution. Thus a group
+- **"No errors" means "no clash".** For this color, the app does not compare numbers with the solution
+  (the only comparison is at a hint request, [§9.5](#95-hint-panel)). Thus a group
   with an incorrect number and no clash is complete. The color does not tell the player that a number
   is correct or incorrect.
 - **A clash outside the group.** A cell of the group that clashes with a cell outside the group also
@@ -747,7 +789,8 @@ stateDiagram-v2
   - Add a number. (A number does not change the pencil marks of other cells: it only hides them.
     Exception: a number in the undo history of a game that an earlier version saved can have a
     `removed` list; undo and redo of it put back and remove those marks
-    ([§6.1](#61-automatic-pencil-mark-hiding)).)
+    ([§6.1](#61-automatic-pencil-mark-hiding)).) A number that a hint reveals ([§9.5](#95-hint-panel)) is
+    such a number of the player: one change (owner approval 2026-11-24).
   - Erase a number.
   - Restore a checkpoint ([§9.3](#93-checkpoints-panel)). This is one change, also when it changes many
     cells. Undo returns the board as it was before the Restore, and redo applies the Restore again,
@@ -756,12 +799,19 @@ stateDiagram-v2
 - These actions are not changes to the board and are not a part of undo: highlights, the "?",
   the x and the refused tap that makes it (§6.1), a group that gets or loses the completed color
   (§6.4), color changes, switch changes, the panels and screens that you open, and the save and the
-  delete of a checkpoint (§9.3; owner approval 2026-11-06). Thus these do not remove the redo history. A
+  delete of a checkpoint (§9.3; owner approval 2026-11-06), the hint count, the highlight of the revealed
+  numbers and a hint request that reveals an incorrect number (§9.5; owner approval 2026-11-24). Thus
+  these do not remove the redo history. A
   tap on **Current** has no effect, and it also does not remove the redo history.
 - Undo, redo and a Restore do not remove a highlight ([§6.2](#62-highlights); owner approval 2026-11-07).
+- Undo, redo and a Restore never change the hint count: the undo of a revealed number does not
+  subtract from it. An undo, a redo or a Restore that changes the board removes the highlight of the
+  revealed numbers. If it removes the revealed incorrect number from its cell, that number is no longer
+  revealed ([§9.5](#95-hint-panel); owner approval 2026-11-24).
 - A new change after an undo removes the redo history. A refused tap is not a change, thus it does
   not remove the redo history (owner approval 2026-11-04).
 - A new game removes the undo history, the redo history and all checkpoints (owner approval 2026-11-06).
+  It also sets the hint count to 0 ([§9.5](#95-hint-panel); owner approval 2026-11-24).
 - The buttons are **black** when an undo or redo is available. They are **gray** when it is not
   available. Gray buttons have no effect. On a completed puzzle, both buttons are gray and have no
   effect.
@@ -822,14 +872,21 @@ A puzzle is **complete** when all cells have a number and there is no clash. The
 - The board shows no completed color. The groups lose the color at this moment, and the board shows
   the normal colors: the starting color for starting numbers and white for your numbers
   ([§6.4](#64-completed-groups); owner approval 2026-11-04 and 2026-11-05).
-- The app saves the result in the database ([§14](#14-data-that-the-app-keeps)).
+- The app saves the result in the database ([§14](#14-data-that-the-app-keeps)), with the hint count
+  of the game (owner approval 2026-11-24).
 - **+** and **Start new game** continue to operate. The menu, Help, Statistics, Cell colors and the
   Settings panel continue to operate. The level buttons of the result card also start a new game.
 - The Checkpoints panel is not available. The bookmark is `gray70`, a tap on it has no effect, and the
   panel cannot be open. The checkpoints stay in the saved game until a new game
   ([§9.3](#93-checkpoints-panel); owner decision 2026-11-06).
+- The Hint panel is not available. The lightbulb is `gray70`, a tap on it has no effect, and the panel
+  cannot be open. A reveal that completes the puzzle closes the panel. No revealed number has the
+  highlight color, and no incorrect number is revealed ([§9.5](#95-hint-panel); owner approval 2026-11-24).
 
 Images: [`screen-completed.png`](images/pro/screen-completed.png),
+[`screen-completed-hints.png`](images/pro/screen-completed-hints.png) (the card with the hint count),
+[`screen-completed-hints-landscape.png`](images/pro/screen-completed-hints-landscape.png) (left-handed),
+[`screen-completed-hints-landscape-right-handed.png`](images/pro/screen-completed-hints-landscape-right-handed.png),
 [`screen-completed-menu.png`](images/pro/screen-completed-menu.png),
 [`screen-completed-landscape.png`](images/pro/screen-completed-landscape.png) (left-handed),
 [`screen-completed-landscape-right-handed.png`](images/pro/screen-completed-landscape-right-handed.png),
@@ -851,6 +908,7 @@ unless a different source is given.
 |---|---|---|
 | Frame | x 125–1494 (the board width), y 1813–2133 (y0 = 1813, y1 = 2133) | 2 px black, white inside |
 | "Completed in" | x 165 (x0 + 40), baseline y 1879 (y0 + 66) | reMarkable Sans Regular 30 px, `gray25` |
+| Hint count | On the line of "Completed in" (baseline y 1879), right-aligned, right edge x 725 (40 px before the divider at x 765) | Only when the game has 1 or more hints: "N hints used" ("1 hint used"), Regular 30 px, `gray25` (owner approval 2026-11-24) |
 | Time | x 165, baseline y 1993 (y0 + 180) | Medium 96 px, black |
 | Difficulty slider | x 165–605 (440 px), center line y 2045 (y0 + 232) | The mode of the puzzle, with the labels "Easy" and "Hard". The same drawing as the meter below the board. |
 | Comparison line | x 165, baseline y 2106 (y0 + 293) | Regular 25 px, `gray25`: "Average m:ss  ·  Previous best m:ss" (two spaces at each side of the middle dot), or "First game at this level" |
@@ -867,10 +925,16 @@ x0 + 28.
 | "Completed in" | Baseline y0 + 70 | Regular 30 px, `gray25` |
 | Time | Baseline y0 + 185 | **Medium 72 px**, black, at all times (owner decision 2026-11-07: a time of one hour or more must fit in the column) |
 | Difficulty meter | At the center of the column, y0 + 255 | The mode of the puzzle, no labels, stop step 40 px |
+| Hint count | Its own line between the meter and "Average at this level": baseline y 440 (y0 + 315), start x 76 (left-handed) or x 1818 (right-handed) (x0 + 28) | Only when the game has 1 or more hints: "N hints used" ("1 hint used"), Regular 30 px, `gray25` (owner approval 2026-11-24) |
 | Comparison | Labels at baseline y0 + 370 and y0 + 480; values at baseline y0 + 418 and y0 + 528 | Label Regular 25 px `gray25`, value Medium 40 px black: "Average at this level" / m:ss, then "Previous best" / m:ss (110 px lower). With no earlier result: only "First game at this level" (Regular 25 px, `gray25`, baseline y0 + 370). |
 | Divider | 2 px, `gray70`, from x0 + 28 to x1 − 28, at y1 − 560 (y 934) | |
 | "New game" | Baseline at the divider + 60 | Medium 28 px, black |
 | Level buttons | x0 + 20 to x1 − 20. **Easier**, **Same**, **Harder** from the top, each 120 px high, pitch 140 px, the first at the divider + 90 | 2 px black frame, white inside. Label: Medium 32 px, black, centered, baseline at the button top + 50. Below it: a small meter (no labels, stop step 36 px), centered, at the button top + 88. |
+
+**The hint count** (owner approval 2026-11-24). When the completed game has 1 or more hints
+([§9.5](#95-hint-panel)), the card shows "N hints used" ("1 hint used" for one hint) in the style of "Completed
+in". With 0 hints, the card is the same as before. No other item of the card moves. The tables above
+give the positions on the Paper Pro, and [§1.1](#11-paper-pro-move) gives them for the Move.
 
 **The values of the comparison.**
 
@@ -879,6 +943,8 @@ x0 + 28.
   seed).
 - **Average** is the average of these results, with the same rounding as Statistics
   ([§13.1](#131-summary)). **Previous best** is the shortest time of these results.
+- A result with hints counts in **Average** and in **Previous best** as each other result (owner
+  decision 2026-11-24).
 - If there are no such results, the card shows "First game at this level".
 - The values follow the database. After a delete in Statistics, the card shows the new values when
   the game shows again.
@@ -956,14 +1022,19 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
 | Slot | Button | Icon | Action |
 |---|---|---|---|
 | top 0 | Menu | Circle with a dot (bottom left: closed, top left: open) | Opens and closes the menu. |
-| top 1 | Cell colors | Paint bucket | Opens the Cell colors panel ([§10](#10-cell-colors-panel)). |
-| top 2 | Settings | Gear | Opens the Settings panel ([§9.1](#91-settings-panel)). |
-| top 3 | Undo | Arrow that turns to the left | [§7](#7-undo-and-redo) |
-| top 4 | Redo | Arrow that turns to the right | [§7](#7-undo-and-redo) |
-| top 5 | Checkpoints | Bookmark | Opens the Checkpoints panel ([§9.3](#93-checkpoints-panel)). Not available on a complete puzzle (owner approval 2026-11-06). |
+| top 1 | Hint | Lightbulb | Opens the Hint panel ([§9.5](#95-hint-panel)). Not available on a complete puzzle (owner approval 2026-11-24). |
+| top 2 | Cell colors | Paint bucket | Opens the Cell colors panel ([§10](#10-cell-colors-panel)). |
+| top 3 | Settings | Gear | Opens the Settings panel ([§9.1](#91-settings-panel)). |
+| top 4 | Undo | Arrow that turns to the left | [§7](#7-undo-and-redo) |
+| top 5 | Redo | Arrow that turns to the right | [§7](#7-undo-and-redo) |
+| top 6 | Checkpoints | Bookmark | Opens the Checkpoints panel ([§9.3](#93-checkpoints-panel)). Not available on a complete puzzle (owner approval 2026-11-06). |
 | bottom 2 | Help | ? in a circle | Opens the manual ([§12](#12-manual-help)). |
 | bottom 1 | Statistics | Line graph on axes | Opens the statistics ([§13](#13-statistics)). |
 | bottom 0 | New game | + | Opens the New game panel ([§11](#11-new-game-panel-and-difficulty)). |
+
+The Hint button is directly below the menu button. Before it, Cell colors, Settings, Undo, Redo and
+Checkpoints were in the top slots 1 to 5: each of them moved down one slot (112 px), and each panel
+starts at the new slot of its button. The bottom group did not change (owner approval 2026-11-24).
 
 - The menu is **open by default**. When the game screen shows, the menu is open and no panel is
   open: when the app opens (a new game or a saved game), after **< Back** from the manual, from
@@ -987,8 +1058,9 @@ Each button has a slot of 112 px. The icons are 40 px line icons with 3 px strok
   ([§6.1](#61-automatic-pencil-mark-hiding); owner approval 2026-11-04).
 - When a panel is open, a tap outside the panel only closes the panel. The tap has no other effect,
   also when it is on the board. Thus it makes no x. Exception: on a complete puzzle, a tap on the gray
-  bookmark changes nothing, and the open panel stays open ([§9.3](#93-checkpoints-panel); approved
-  prototype 2026-11-06).
+  bookmark or on the gray lightbulb changes nothing, and the open panel stays open
+  ([§9.3](#93-checkpoints-panel), approved prototype 2026-11-06; [§9.5](#95-hint-panel), owner approval
+  2026-11-24).
 - A finger can stay on a control while the pen does a refused tap. When that finger lifts, the release
   of a control that does an action removes the x. Thus an open panel
   never shows an x, an undo that removes the peer number never leaves an x, and a mark never shows
@@ -1023,6 +1095,7 @@ stateDiagram-v2
     state "Settings panel" as SettingsP
     state "New game panel" as NewGame
     state "Checkpoints panel" as Checkpoints
+    state "Hint panel" as Hint
     [*] --> Open: start the app
     Closed --> Open: tap the menu button
     Open --> Closed: tap the menu button
@@ -1049,6 +1122,18 @@ stateDiagram-v2
     Colors --> Checkpoints: tap the bookmark (game in progress)
     SettingsP --> Checkpoints: tap the bookmark (game in progress)
     NewGame --> Checkpoints: tap the bookmark (game in progress)
+    Open --> Hint: tap the lightbulb (game in progress)
+    Hint --> Open: tap the lightbulb again or tap outside the panel
+    Hint --> Hint: Reveal one number (the puzzle is not complete)
+    Hint --> Open: Reveal one number completes the puzzle
+    Hint --> Colors: tap the paint bucket
+    Hint --> SettingsP: tap the gear
+    Hint --> NewGame: tap +
+    Hint --> Checkpoints: tap the bookmark
+    Colors --> Hint: tap the lightbulb (game in progress)
+    SettingsP --> Hint: tap the lightbulb (game in progress)
+    NewGame --> Hint: tap the lightbulb (game in progress)
+    Checkpoints --> Hint: tap the lightbulb
     Open --> Manual: Help
     Open --> Statistics: Statistics
     Open --> [*]: close button (close the app)
@@ -1062,13 +1147,14 @@ stateDiagram-v2
 ```
 
 Images: [`screen-toolbar.png`](images/pro/screen-toolbar.png) (menu open, new game, undo and redo gray),
-[`screen-completed-menu.png`](images/pro/screen-completed-menu.png) (menu open, complete puzzle, undo,
-redo and the bookmark gray), [`manual-menu.png`](images/pro/manual-menu.png).
+[`screen-completed-menu.png`](images/pro/screen-completed-menu.png) (menu open, complete puzzle, the
+lightbulb, undo, redo and the bookmark gray), [`manual-menu.png`](images/pro/manual-menu.png).
 
 ### 9.1 Settings panel
 
-The gear (top slot 2) opens the Settings panel. The panel is next to the gear, its top aligns with
-the button, it is 400 px wide (x 1108–1507 for a left-handed player in portrait) and it has a 2 px
+The gear (top slot 3, y 336–447; before the Hint button: top slot 2, owner approval 2026-11-24) opens
+the Settings panel. The panel is next to the gear, its top aligns with
+the button (y 336), it is 400 px wide (x 1108–1507 for a left-handed player in portrait) and it has a 2 px
 border. The Settings panel does not have the width of the Cell colors panel (owner approval 2026-11-04 and 2026-11-05).
 It has five rows of 112 px with a 2 px line between them. The first three rows each have a name
 (reMarkable Sans Medium, 25 px) and a switch at the right. The name in the third row has two lines of
@@ -1079,7 +1165,7 @@ A stable build (`v<version>`) and a preview build (`pre-<sha>`) have a sixth row
 
 | Row | Default | When the switch is off |
 |---|---|---|
-| **Highlight numbers** | On | A tap on a number does not make a highlight. A highlight that shows goes in the redraw of the change ([§6.2](#62-highlights); owner approval 2026-11-07). |
+| **Highlight numbers** | On | A tap on a number does not make a highlight. A highlight that shows goes in the redraw of the change ([§6.2](#62-highlights); owner approval 2026-11-07). The highlight of the numbers that a hint reveals does not change: it shows also when the switch is off ([§9.5](#95-hint-panel); owner approval 2026-11-24). |
 | **Hide pencil marks automatically** | On | All pencil marks of the empty cells show, also the digits that are numbers in the peers ([§6.1](#61-automatic-pencil-mark-hiding)). A tap on each micro-cell adds or removes its mark, and no x shows. |
 | **Color completed groups** | On | No cell gets the completed color ([§6.4](#64-completed-groups)). A starting number keeps its starting color. The Completed groups section of the Cell colors panel stays operative, and its color stays not available for the other sections (owner approval 2026-11-04 and 2026-11-05). |
 
@@ -1294,18 +1380,19 @@ different source. Images: [`checkpoints-menu.png`](images/pro/checkpoints-menu.p
 [`checkpoints-menu-right-handed.png`](images/pro/checkpoints-menu-right-handed.png),
 [`screen-completed-menu.png`](images/pro/screen-completed-menu.png) (the gray bookmark).
 
-**The button.** The bookmark is in top slot 5 (y 560–671), below redo. It goes on the icon sheet.
+**The button.** The bookmark is in top slot 6 (y 672–783), below redo (before the Hint button: top
+slot 5, y 560–671; owner approval 2026-11-24). All y values of this section moved down by 112 px with it. It goes on the icon sheet.
 [§15](#15-visual-specification) gives its shape.
 
 - In a game in progress, the icon is black. A tap opens the panel. A second tap closes it.
 - While the panel is open, the slot is black and the icon is white, as the other panel buttons.
 - On a complete puzzle, the icon is `gray70`, a tap has no effect and the panel cannot be open (owner
   decision 2026-11-06). The tap changes nothing also when a different panel is open: that panel stays
-  open. This is the only exception to the rule that a tap on a toolbar button that is not a panel button
+  open. This and the gray lightbulb ([§9.5](#95-hint-panel)) are the only exceptions to the rule that a tap on a toolbar button that is not a panel button
   closes the open panel ([§9](#9-the-menu); approved prototype 2026-11-06). If a tap on the button reads waiting ink and that ink completes the puzzle, the
   panel does not open.
 
-**The panel.** The panel touches the toolbar and is 600 px wide. Its top is at y 560 in all layouts. It
+**The panel.** The panel touches the toolbar and is 600 px wide. Its top is at y 672 in all layouts of the Paper Pro. It
 is white and has a 2 px black border, as the Settings panel.
 
 | Layout | x range |
@@ -1317,16 +1404,16 @@ is white and has a 2 px black border, as the Settings panel.
 The values below are for a left-handed player in portrait. In the other layouts, the contents have the
 same order and move with the panel.
 
-- **Save row**, y 560–671. A plus icon with its center at (966, 616). The text "Save checkpoint",
-  reMarkable Sans Medium 28 px, x 1008, baseline y 625. A line of 2 px at y 670–671. The tap area is the
+- **Save row**, y 672–783. A plus icon with its center at (966, 728). The text "Save checkpoint",
+  reMarkable Sans Medium 28 px, x 1008, baseline y 737. A line of 2 px at y 782–783. The tap area is the
   full row. The icon and the text are black when a save is available. Else they are `gray70` and the row
   has no effect.
-- **No checkpoint.** The panel ends at y 864. Two lines of text have their center at x 1207: "No
-  checkpoints" (Regular 28 px, `gray25`, baseline y 760) and "Save the board before a difficult guess."
-  (Regular 25 px, `gray25`, baseline y 800; owner request 2026-11-07).
+- **No checkpoint.** The panel ends at y 976. Two lines of text have their center at x 1207: "No
+  checkpoints" (Regular 28 px, `gray25`, baseline y 872) and "Save the board before a difficult guess."
+  (Regular 25 px, `gray25`, baseline y 912; owner request 2026-11-07).
 - **Checkpoint rows.** The newest is first. There are at most 4 rows (owner decision 2026-11-10: on all
   tablets, so that the panel also fits on a smaller screen), and each row is 180 px high. Row i
-  has its top at y0 = 672 + 180 i. The panel ends at y 672 + 180 n (y 1392 with 4 rows). Each row below
+  has its top at y0 = 784 + 180 i. The panel ends at y 784 + 180 n (y 1504 with 4 rows). Each row below
   the first has a line of 2 px at y0-2 to y0-1. A row has no title and no name.
 
 Each checkpoint row has these items:
@@ -1344,7 +1431,9 @@ The small board:
   baseline at cell + 14. The color of the digit is the same as on the board.
 - The background is the first rule that applies: clash color, completed color (with the same switch and
   color rules as the board, [§6.4](#64-completed-groups)), starting color, white. The small board shows
-  no highlight.
+  no highlight. It never shows the color of a revealed number or of the revealed incorrect number
+  ([§9.5](#95-hint-panel); owner approval 2026-11-24): an incorrect number that does not clash has no clash color
+  there.
 - Each visible pencil mark of an empty cell has a dot of 2×2 px, `gray25` (owner request 2026-11-07), at (cell x + 3 + 5 × ((d-1) mod 3),
   cell y + 3 + 5 × ((d-1) div 3)). The rule for a visible mark is the same as on the board, with the
   setting "Hide pencil marks automatically" ([§6.1](#61-automatic-pencil-mark-hiding)).
@@ -1356,7 +1445,7 @@ The small board:
 - A tap outside the panel closes the panel ([§9](#9-the-menu)).
 - A tap on undo or redo with this panel open only closes the panel. A second tap does the undo or the
   redo (owner decision 2026-11-06: keep two taps).
-- The bookmark, the paint bucket, the gear and the + change the panel, as for the other panels.
+- The bookmark, the lightbulb, the paint bucket, the gear and the + change the panel, as for the other panels.
 - The eraser and a finger operate the panel in the same way as the pen, as the other panels.
 - A release of a control in this panel reads waiting ink with the same rules as the other controls.
 
@@ -1369,7 +1458,9 @@ or the clock. The app saves the game file.
 new item of the undo history ([§7](#7-undo-and-redo)). It removes the redo history. Undo returns the board
 as it was, and redo applies it again, also after the delete of the checkpoint. The clock, the list and the
 panel do not change, thus the panel stays open. A tap on **Current** has no effect and does not remove the
-redo history.
+redo history. A Restore does not change the hint count. A Restore that changes the board removes the
+highlight of the revealed numbers, and it can remove the revealed incorrect number ([§9.5](#95-hint-panel); owner
+approval 2026-11-24). A save and a delete of a checkpoint change none of these.
 
 The comparison uses all marks, also the marks that do not show ([§6.1](#61-automatic-pencil-mark-hiding)).
 Thus a difference only in hidden marks shows **Restore**, and that Restore adds an undo item with no
@@ -1379,7 +1470,7 @@ visible change (review finding 2026-11-06).
 undo and redo history and the clock do not change. The app saves the game file.
 
 **Guard after a delete** (owner decision 2026-11-06). For 0.5 s after a delete, with this panel open, a
-press in the area of the panel at its maximum size changes nothing, except that it removes the "?" and the x (QST-4, MRK-15) (portrait: x 908–1507, y 560–1392; in
+press in the area of the panel at its maximum size changes nothing, except that it removes the "?" and the x (QST-4, MRK-15) (portrait: x 908–1507, y 672–1504; in
 the other layouts, the x range of the table above and the same y range). Thus the second tap of a fast
 double tap does not delete the row that moved up, and it does not close the panel. A press out of that
 area and on the toolbar operates as usual.
@@ -1458,6 +1549,201 @@ Images: [`licenses.png`](images/pro/licenses.png) (the first page of the list) a
 [`licenses-text.png`](images/pro/licenses-text.png) (the first page of the UJI Pen Characters text), and
 their landscape versions.
 
+### 9.5 Hint panel
+
+A **hint** reveals one number of the solution, or it shows one incorrect number of the player. The
+owner approved this section on the tablet (dev build `dev/hint-panel`, 2026-11-24), with the exception
+of the items that give a different source. Images: [`hint-menu.png`](images/pro/hint-menu.png) (a
+hint is available), [`hint-menu-revealed.png`](images/pro/hint-menu-revealed.png) (two revealed
+numbers, the count on the button), [`hint-menu-incorrect.png`](images/pro/hint-menu-incorrect.png)
+(a revealed incorrect number), [`hint-menu-clash.png`](images/pro/hint-menu-clash.png) (numbers clash),
+[`hint-menu-landscape.png`](images/pro/hint-menu-landscape.png),
+[`hint-menu-right-handed.png`](images/pro/hint-menu-right-handed.png),
+[`screen-completed-hints.png`](images/pro/screen-completed-hints.png) (the result card with the hint
+count; in landscape [`screen-completed-hints-landscape.png`](images/pro/screen-completed-hints-landscape.png) and
+[`screen-completed-hints-landscape-right-handed.png`](images/pro/screen-completed-hints-landscape-right-handed.png)),
+[`screen-completed-menu.png`](images/pro/screen-completed-menu.png) (the gray lightbulb).
+
+**The button.** The lightbulb is in top slot 1 (y 112–223), directly below the menu button. It goes on
+the icon sheet. [§15](#15-visual-specification) gives the icon.
+
+- In a game in progress, the icon is black. A tap opens the panel. A second tap closes it.
+- While the panel is open, the slot is black and the icon is white, as the other panel buttons.
+- On a complete puzzle, the icon is `gray70`, a tap on it changes nothing and the panel cannot be
+  open. The tap changes nothing also when a different panel is open: that panel stays open. This is
+  the same rule as the gray bookmark ([§9.3](#93-checkpoints-panel)).
+- After an incorrect number is revealed and the panel closes, the button stays normal (black, not
+  gray).
+- **The count on the button.** When the menu is open and the game has 1 or more hints, the hint count
+  shows at the bottom right of the lightbulb, in the slot: reMarkable Sans Medium 24 px. Its left is
+  18.5 px right of the center of the icon (the center of the slot) and the top of its digits is 8.5 px
+  below that center. On the Paper Pro this is 74 px and 64 px from the slot origin (x 1582, y 176 in
+  portrait for a left-handed player). The digits are 17 px high, thus the baseline is 81 px below the
+  top of the slot (y 193). The position comes from the icon, thus the count has the same distance to the lightbulb on
+  the Move, which has a smaller slot ([§1.1](#11-paper-pro-move)). The count has the color of the
+  icon: black, white on the black slot while the panel is open, and `gray70` on a complete puzzle.
+  With 0 hints, no number shows. Above 99, the button shows "99+", and the text stays 4 px or more
+  inside the slot. The game keeps the true count.
+
+**The panel.** The panel touches the toolbar. Its top is at the top of slot 1 (y 112). It is white and
+has a 2 px black border, as the Checkpoints panel. A black line of 2 px is below the first row, at the
+panel top + 112 to + 113 (y 224–225): the row is y 112–223, and the box starts at y 226. Thus the panel
+height is 112 + 2 + the box height. (In the Checkpoints panel, the line is the last 2 px of the Save row.)
+
+| Layout | x range | Width | Text inset |
+|---|---|---|---|
+| Left-handed, portrait | 1008–1507 | 500 px | 34 px |
+| Right-handed, portrait | 112–611 | 500 px | 34 px |
+| Left-handed, landscape | 1656–2047 | 392 px | 20 px |
+| Right-handed, landscape | 112–503 | 392 px | 20 px |
+
+- In portrait the panel is above the board (the board starts at y 395) and covers no cell.
+- In landscape the width is the widest line, "Incorrect number revealed" (350 px), plus the inset of
+  20 px at each side, plus 2 px. The panel covers a part of the cells of rows 1 and 2 of one edge
+  column of the board: approximately 101 px of the 147 px of a cell on the Paper Pro. On the
+  Move it covers approximately 7 px of the cells of rows 1 to 3 ([§1.1](#11-paper-pro-move)). The owner accepted this (owner decision 2026-11-24).
+- All text is on one line in the two orientations.
+- **Row** (the first row, 112 px high). The lightbulb icon has its center 20 px after the inset. The
+  text **"Reveal one number"** (Medium 28 px, the size of "Save checkpoint") starts 62 px after the
+  inset, on the baseline of a panel row (the baseline of "Save checkpoint",
+  [§9.3](#93-checkpoints-panel)). The tap area is the full row. For a left-handed player in portrait:
+  the icon center is (1062, 168), and the text starts at x 1104 with its baseline at y 177. In
+  landscape: the icon center is at x 1696, the text starts at x 1738 and the box text at x 1676.
+- **Box** (below the line). It is not a control. Its first baseline is 50 px below the top of the box
+  (y 276; the second line y 313), and its text starts at the inset. The box shows the state of the row:
+
+| State | Row | Box | Box height | Panel height |
+|---|---|---|---|---|
+| **Available** | Black. A tap makes a request. | "N hints used" ("0 hints used", "1 hint used"), Regular 28 px, `gray25` | 84 px | 198 px |
+| **Incorrect** | `gray70` (icon and text). A tap changes nothing. | "Incorrect number revealed" (Medium 28 px, black). Then "Erase it to continue." (Regular 25 px, `gray25`), with its baseline 37 px lower. | 122 px | 236 px |
+| **Clash** | `gray70` (icon and text). A tap changes nothing. | "Numbers clash" (Medium 28 px, black). Then "Erase one to continue." (Regular 25 px, `gray25`), with its baseline 37 px lower. | 122 px | 236 px |
+
+**The state of the row.** The state is the first rule that applies:
+
+1. **Clash**: a cell of the board clashes ([§6.3](#63-clashes)).
+2. **Incorrect**: an incorrect number is revealed (below).
+3. **Available**: all other boards.
+
+Before a request, the row is black also when the board has an incorrect number with no clash: the app
+tells nothing about an incorrect number until the player asks. If the player adds a clash while an
+incorrect number is revealed, the box shows "Numbers clash", and the revealed cell keeps the clash
+color. When the clash goes, the box shows "Incorrect number revealed" again.
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    state "Available (row black)" as Available
+    state "Incorrect (row gray)" as Incorrect
+    state "Clash (row gray)" as Clash
+    [*] --> Available: new game
+    Available --> Available: request, all numbers correct (one number revealed, count + 1)
+    Available --> Incorrect: request, a number of the player is incorrect (that number revealed)
+    Incorrect --> Available: the revealed incorrect number goes from its cell
+    Available --> Clash: a change of the board gives a clash
+    Incorrect --> Clash: a change of the board gives a clash
+    Clash --> Available: the clash goes, no incorrect number is revealed
+    Clash --> Incorrect: the clash goes, an incorrect number is revealed
+    Available --> [*]: the puzzle is complete
+```
+
+**Taps.**
+
+- A tap on the lightbulb opens and closes the panel. A tap outside the panel only closes it, also on
+  the board ([§9](#9-the-menu)). The bookmark, the paint bucket, the gear and the + change the panel,
+  and a tap on a toolbar button that is not a panel button closes the panel, as for the other panels.
+- The pen, the eraser end and a finger operate the panel in the same way.
+- A release of a control in this panel reads waiting ink with the same rules as the other controls.
+  While the panel is open, no ink waits and no stroke is in progress, as for each panel (review
+  finding 2026-11-24).
+- The panel **stays open** after a request. Exception: a reveal that completes the puzzle closes it.
+- The panel is not available on a complete puzzle, thus it never shows with the result card
+  ([§8.3](#83-complete)).
+
+**A request** is a tap on the black row. The request first reads waiting ink, as each control does:
+a reveal never puts a number below waiting ink. If that read completes the puzzle, no reveal occurs.
+If that read gives a clash, the row is not available and the request changes nothing more. Then:
+
+1. **One or more numbers of the player are different from the solution** (and no cell clashes). The
+   app puts no number. It reveals **one** incorrect number: the first in row order (row 1 from left
+   to right, then row 2, and so on). That cell gets the clash color
+   ([§4.2](#42-cell-background-color)). The request does not change the hint count, the board, the
+   pencil marks or the undo and redo history. The app saves the revealed cell with the game
+   ([§14.3](#143-game-in-progress-kept-when-the-app-closes)).
+2. **All numbers of the player are correct.** The app reveals one number. The human-style solver (the
+   current version, with all its technique groups, [§14.5](#145-puzzle-generation)) gives the first
+   number that it can put from the current board. If it can put none, the app uses the empty cell with
+   the fewest candidates. The revealed number is always the solution of its cell. The result is a
+   function of the numbers on the board only: two requests on the same board give the same cell and
+   the same digit.
+   - The revealed number is a number of the player. It is one item of the undo history
+     ([§7](#7-undo-and-redo)), the redo history becomes empty, the automatic pencil mark hiding
+     operates ([§6.1](#61-automatic-pencil-mark-hiding)), and it can complete the puzzle
+     ([§8.3](#83-complete)).
+   - The hint count increases by exactly 1.
+   - The cell gets the highlight color (below).
+
+**The revealed incorrect number.**
+
+- Only one incorrect number shows at a time. This is the only time that the app compares the numbers
+  of the player with the solution ([§6.3](#63-clashes)).
+- The cell keeps the clash color until that number is no longer in the cell. The eraser, an Undo, a
+  Redo, a checkpoint Restore or a new game can remove it. Then a hint is available again, and the
+  next request can reveal the next incorrect number.
+- While it is revealed, the row is gray and the player cannot ask for a different hint.
+- If the player writes the same incorrect digit in that cell again, it is not revealed again without a
+  new request.
+- The revealed incorrect number is valid only when all of these are true: its cell holds a number of
+  the player, that number is the saved digit, that digit is not the solution of the cell, and the game
+  is not complete. After each change of the board, and when a game file opens, the app removes a
+  revealed incorrect number that breaks this rule (review finding 2026-11-24).
+- The clash color of this cell stays through the menu, the panels, Help, Statistics, the Licenses
+  screens, a turn of the tablet and a restart of the app (the app saves it).
+
+**The hint count.**
+
+- It is a value of the game: 0 at a new game, and + 1 at each reveal of a number.
+- Undo, Redo, a checkpoint Restore, the eraser and a request that reveals an incorrect number never
+  change it. The undo of a revealed number does not subtract from it, and a reveal after that undo
+  adds 1 again.
+- The app saves it with the game ([§14.3](#143-game-in-progress-kept-when-the-app-closes)). A game
+  file of an earlier version has 0.
+- It has no upper limit. The app must read each count that it can write to the database
+  ([§14.1](#141-results-database-sqlite)).
+- At completion, the result gets the hint count of the game. The result card ([§8.3](#83-complete))
+  and Statistics ([§13](#13-statistics)) show it.
+
+**The highlight of the revealed numbers.**
+
+- Each revealed cell gets the highlight color (the color of the Highlighted numbers section,
+  [§10](#10-cell-colors-panel)), with no time limit.
+- More reveals with no action on the board between them keep all revealed cells in the highlight
+  color.
+- It is a separate state from the highlight of a digit ([§6.2](#62-highlights)). The two use the same
+  color. It shows also when the switch "Highlight numbers" is off: the switch does not change it.
+- Each highlighted revealed cell holds a number of the player that is the solution of its cell and
+  that does not clash (review finding 2026-11-24).
+- **Only these remove it**, for all revealed cells together:
+  - A pen press or an eraser press on the board that operates the board.
+  - A number that the app reads from ink.
+  - An Undo, a Redo or a Restore that changes the board.
+  - A new game and completion.
+  - A restart of the app (the app does not save it).
+- **These do not remove it:** a request, the menu, a panel, a switch, a finger, Help, Statistics, the
+  Licenses screens, the update dialog, a turn of the tablet, and a save or a delete of a checkpoint.
+- A pen press on the board while a panel is open only closes the panel ([§9](#9-the-menu)). Thus the
+  first press after a reveal closes the Hint panel and the highlight stays. The next press on the
+  board removes it.
+- [§4.2](#42-cell-background-color) gives the order of the cell colors: the clash color (a clashing
+  number and the revealed incorrect number) comes before the highlight color (a cell of the
+  highlighted digit and a revealed cell).
+- If the clash color or the highlight color is White, the revealed incorrect number or the revealed
+  number has no visible mark. The owner accepted this (owner decision 2026-11-24).
+- The small boards of the Checkpoints panel never show the color of a revealed cell or of the
+  revealed incorrect number ([§9.3](#93-checkpoints-panel)).
+
+**A complete game.** On a complete game the Hint panel is not open, no revealed cell has the
+highlight, and no incorrect number is revealed (review finding 2026-11-24).
+
 ## 10. Cell colors panel
 
 Images: [`images/pro/color-menu.png`](images/pro/color-menu.png),
@@ -1468,7 +1754,8 @@ The positions, the sizes, the sections and the colors of this section have the o
 
 - The panel opens next to the paint bucket. The top of the panel aligns with the button. The panel
   touches the toolbar and has a 2 px border.
-- The panel is **800 px wide** (two columns of 400 px) and has three rows of 360 px: **y 112 to 1192**.
+- The panel is **800 px wide** (two columns of 400 px) and has three rows of 360 px: **y 224 to 1304**
+  (the top of top slot 2; before the Hint button: y 112 to 1192, owner approval 2026-11-24).
   It fits in landscape. The x range is:
 
   | Layout | x range |
@@ -1481,9 +1768,9 @@ The positions, the sizes, the sections and the colors of this section have the o
 
   | Row | Left column | Right column |
   |---|---|---|
-  | y 112 | **Starting numbers** | **Completed groups** |
-  | y 472 | **Clashing numbers** | **Micro-cell lines** |
-  | y 832 | **Highlighted numbers** | Empty space |
+  | y 224 | **Starting numbers** | **Completed groups** |
+  | y 584 | **Clashing numbers** | **Micro-cell lines** |
+  | y 944 | **Highlighted numbers** | Empty space |
 
 - A vertical line of 2 px is between the columns, the full height of the panel, at 400 px from the left
   of the panel. Each section below the first of a column has a horizontal line of 2 px at its top,
@@ -1658,8 +1945,8 @@ stateDiagram-v2
 | 3 | [`manual-pen.png`](images/pro/manual-pen.png) | How to write and erase a number. |
 | 4 | [`manual-pen-rules.png`](images/pro/manual-pen-rules.png) | Taps, finger touches, one number for each cell, writing with no effect, the "?". |
 | 5 | [`manual-helpers.png`](images/pro/manual-helpers.png) | Automatic pencil mark hiding, highlights and completed groups. A full group with no clash gets the completed color. The color is not a check against the solution. A clash with a cell outside the group stops the color (owner approval 2026-11-04 and 2026-11-05). You can turn each helper off in the Settings panel. One sentence, in portrait and in landscape, tells about the x of a refused tap ([§6.1](#61-automatic-pencil-mark-hiding); owner decision 2026-11-04). The text is exactly: "If you tap the micro-cell of a hidden digit, the tap has no effect and a small x shows there for a moment." |
-| 6 | [`manual-mistakes.png`](images/pro/manual-mistakes.png) | Clashes and how to correct them. |
-| 7 | [`manual-menu.png`](images/pro/manual-menu.png) | All the menu buttons, how to select colors, and the Settings panel: the helpers, the version and the third-party licenses ([§9.4](#94-third-party-licenses)). |
+| 6 | [`manual-mistakes.png`](images/pro/manual-mistakes.png) | Clashes and how to correct them. The section "The app does not find all mistakes" also tells about the hint (owner approval 2026-11-24): "If you ask for a hint and one of your numbers is incorrect, the app shows that number in the clash color. Erase it, then ask again." |
+| 7 | [`manual-menu.png`](images/pro/manual-menu.png) | All the menu buttons, how to select colors, and the Settings panel: the helpers, the version and the third-party licenses ([§9.4](#94-third-party-licenses)). The list of menu buttons shows the lightbulb at its position below the menu button (owner approval 2026-11-24): "Hint: reveals one number. The number has the highlight color until your next action on the board. The button shows the quantity of hints that you used. No hint is available while numbers clash." |
 | 8 | [`manual-new-game.png`](images/pro/manual-new-game.png) | How to start a new game, and the meter of the current difficulty. One short sentence, in portrait and in landscape, tells about the Symmetrical switch, for example: "Symmetrical makes a puzzle whose starting numbers are the same after a half turn of the board." If the page shows the New game panel, the picture shows the panel with three rows (owner decision 2026-11-07). |
 | 9 | [`manual-finished.png`](images/pro/manual-finished.png) | Completion, the lock, the clock and the saved results. A completed game shows no completed color. The crop of the board shows the result card. The text tells that the level buttons of the card (Easier, Same, Harder) start a new game; it does not tell "To start a new game, tap + in the menu" (review finding 2026-11-07). |
 
@@ -1688,6 +1975,9 @@ stateDiagram-v2
     note right of P1: < Back is on each page. It shows the game again.
 ```
 
+The portrait page and the landscape page of pages 6 and 7 change together, for the two models
+([§9.5](#95-hint-panel); owner decision 2026-11-24).
+
 ## 13. Statistics
 
 ### 13.1 Summary
@@ -1699,8 +1989,19 @@ Image: [`images/pro/analytics.png`](images/pro/analytics.png).
 - Two boxes show **Puzzles completed** (the quantity of saved results) and **Average time** (the
   average of their times).
 - The **By difficulty** table has one row for each mode, from Easy to Hard. Each row shows the
-  difficulty meter, the quantity of completed puzzles and the average time. If a mode has no results,
-  its average is "–". The rows are 97 units high in portrait and 76 units high in landscape, so that
+  difficulty meter, the quantity of completed puzzles, the average of the hints and the average time.
+  If a mode has no results, its average time and its average of the hints are "–".
+- The column **Average hints** is between "Completed" and "Average time" (owner approval 2026-11-24).
+  It is right-aligned, with its right edge at x 1290 in portrait: 214 page units before the right edge
+  of the page content (the right end of the table, x 1537 on the Paper Pro in portrait, not the screen
+  edge), thus the landscape page and the Move follow. The header has the style of the other
+  headers. The value is the average of the hint counts ([§9.5](#95-hint-panel)) of the results of that mode.
+  If the average is a whole number, it has no decimals ("0", "2"). Else it has at most 2 decimal places
+  with no zeros at the end ("0.29", "2.5"). The app rounds to 2 decimals with ties to even, as for the
+  average time: 1 hint in 8 games shows "0.12".
+- A result with hints counts in the averages of the time as each other result (owner decision
+  2026-11-24).
+- The rows of the table are 97 units high in portrait and 76 units high in landscape, so that
   the seven rows and the buttons below them fit on the landscape page (186 units in portrait on the
   Move, [§1.1](#11-paper-pro-move)).
 - **All completed games ›** opens the list.
@@ -1717,7 +2018,8 @@ Image: [`images/pro/analytics.png`](images/pro/analytics.png).
   "–". **Cancel** closes the dialog and makes no change. While the dialog shows, the summary accepts no
   other input. Image: [`analytics-delete-all.png`](images/pro/analytics-delete-all.png).
 - If there are no results, "Delete all games" is gray and has no effect.
-- If there are no results, the two boxes show 0 and "–", and all rows show 0 and "–".
+- If there are no results, the two boxes show 0 and "–", and all rows show 0, "–" (Average hints) and
+  "–" (Average time).
 
 ### 13.2 Completed games list
 
@@ -1728,8 +2030,12 @@ Image: [`images/pro/analytics-games.png`](images/pro/analytics-games.png).
   meters in the segments are smaller (18 units between the stops, not 34), so that they fit in the
   segments. The selected segment is black. The list opens with All selected.
 - The columns are **Date** (date and time of completion, for example "22 Oct 2026, 20:22"),
-  **Difficulty** (meter), **Time** (`m:ss` or `h:mm:ss`) and a **bin** button. The newest game is
-  first.
+  **Difficulty** (meter), **Time** (`m:ss` or `h:mm:ss`), **Hints** and a **bin** button. The newest
+  game is first.
+- The column **Hints** is between "Time" and the bin (owner approval 2026-11-24). It is right-aligned,
+  with its right edge at x 1400 in portrait: 119 page units before the right end of the list (x 1537 on the Paper Pro in portrait), thus the
+  landscape page and the Move follow. The value is the hint count of the game ([§9.5](#95-hint-panel)), a whole
+  number with no upper limit. The filter does not use it.
 - Each page shows **12 games** (6 games in landscape, [§3.3](#33-landscape); 18 games in portrait on the
   Move, [§1.1](#11-paper-pro-move)). The ‹ › arrows and finger swipes change the page. A change of filter
   shows page 1.
@@ -1792,11 +2098,16 @@ The database has one row for each completed puzzle:
 | `seed` | Random seed of the puzzle generator. With the seed (and the mode, the version and the symmetry), the generator can make the same puzzle again. |
 | `generator` | The version of the generator that made the puzzle ([§14.5](#145-puzzle-generation)). The seed gives the same puzzle only with the same version. |
 | `symmetric` | True if the puzzle is symmetric ([§14.5](#145-puzzle-generation)). With `seed`, `mode`, `generator` and `symmetric`, the generator makes the same puzzle again. The rows of a database of an earlier version get false (owner decision 2026-11-07). |
+| `hints` | The hint count of the game at its completion ([§9.5](#95-hint-panel)): a whole number, not null, default 0. This column is database schema 4. The rows of a database of an earlier version get 0. The count has no upper limit: the app must read each count that it can write, thus it never hides or refuses a result because of a large count (owner approval 2026-11-24). |
 
 Symmetric and non-symmetric games share the averages and the best times (Statistics
 [§13.1](#131-summary) and the comparison of the result card, [§8.3](#83-complete)): only the mode sets
 the group. The completed games list ([§13.2](#132-completed-games-list)) does not show the symmetry
 and does not filter by it (owner decision 2026-11-07).
+
+Games with hints and games with no hints also share the averages and the best times (owner decision
+2026-11-24). Statistics shows the hint count of each game and the average of the hints for each mode
+([§13](#13-statistics)).
 
 The results of all generator versions (1, 2 and 3) of a mode also share one group: Statistics and the
 comparison of the result card group the results by the mode only. Thus one group can contain results
@@ -1853,6 +2164,14 @@ The app keeps:
   that an earlier version saved has no checkpoints.
 - The time on the clock.
 - The completion state.
+- The hint count ([§9.5](#95-hint-panel); owner approval 2026-11-24). A game file of an earlier version does not
+  have it: the count is 0.
+- The revealed incorrect number: its cell and its digit, or none ([§9.5](#95-hint-panel); owner approval
+  2026-11-24). A game file of an earlier version has none. When a game file opens, the app removes a
+  revealed incorrect number that is not valid (its cell does not hold a number of the player with the
+  saved digit, or that digit is the solution, or the game is complete). The game opens with no
+  revealed number, and its other values stay: this is not incorrect saved data (review finding
+  2026-11-24).
 
 When the app closes, no progress is lost. A power loss can lose a maximum of 5 seconds of the clock,
 because the app saves the clock each 5 seconds (owner decision 2026-11-02). All other data is saved
@@ -1870,8 +2189,12 @@ An earlier version of the app does not know generator version 3
 ([§14.5](#145-puzzle-generation)). It must not use a game file of version 3 (PER-5), thus an update
 to an older version loses that game (review finding 2026-11-17; refer to `DECISIONS.md`).
 
+An earlier version does not know the hint count. An update to an older version loses the count of
+the game in progress (review finding 2026-11-24).
+
 The app does **not** keep temporary UI states. The app always opens again at the game screen, with
-the menu open, the panels closed, no highlight, no "?" and no x. The app does not save the x (owner
+the menu open, the panels closed, no highlight, no highlight of the revealed numbers ([§9.5](#95-hint-panel);
+owner approval 2026-11-24), no "?" and no x. The app does not save the x (owner
 approval 2026-11-04). The app does not save the completed color of a group: it comes from the numbers
 ([§6.4](#64-completed-groups); owner approval 2026-11-04 and 2026-11-05). If the app closes during the recognition pause, the app removes the ink and does
 not read it.
@@ -2386,20 +2709,23 @@ at most 90 columns. The new lines have 57, 56 and 32 columns (box) and 61 and 53
 | "?" | reMarkable Sans Regular 104 px, `gray25` (owner request 2026-11-07) |
 | x of a refused tap (§6.1) | Two straight lines with round ends, line width 3 px, `gray15` (the same as the pencil marks). Each line goes from -10 px to +10 px on the two axes around the center: 20×20 px between the line centers, visible extent of approximately 23×23 px. The center is the anchor point of the pencil mark of that digit: 24, 74 or 122 px from the cell origin on each axis, at the keypad position of the digit (1 at the top left, 9 at the bottom right). The x stays in its micro-cell and does not touch the cell lines. Time: the same value as the "?" (1000 ms) (owner approval 2026-11-04). No anti-aliasing: each changed pixel is `gray15` (owner approval 2026-11-07). |
 | Anti-aliasing | No drawing of the app has anti-aliasing (owner approval 2026-11-08): the ink of the pen, the pencil marks, the x, the board lines, the micro-cell lines, the icons (also on the icon sheet `icons.png`), the numbers, the "?", the menu frame, the panels, the dialogs, the texts, the result card and the small boards of the Checkpoints panel with their mark dots. Each pixel of a drawing is fully the color of the drawing, or the pixel that was under it. Only the manual pages have anti-aliasing: they are prepared images, and the app copies their pixels. Exception (owner decision 2026-11-10): the pale screen is the only drawing that blends. It is a white blend (alpha 0.6, `Canvas::veil`) over the full screen, drawn before the delete dialogs and the restart dialog: a black pixel becomes gray 153. It is not a pattern. The dialog on it is a crisp drawing. The design images in `images/pro/` keep the anti-aliasing of ImageMagick for all items except the ink, the pencil marks, the x, the board lines and the micro-cell lines: they give the positions and the shapes, and the comparison accepts the edge pixels (§17). The micro-cell lines and the swatches of the Micro-cell lines section are the only drawings that show a gray as a pattern; no other gray becomes a black and white pattern (§14.4; owner approval 2026-11-07 and 2026-11-08) |
-| Highlight | The same color rules as before (§4.2). It can also show while the menu or a panel is open, on the part of the board that the panel does not cover (§6.2; owner approval 2026-11-07) |
+| Highlight | The same color rules as before (§4.2). It can also show while the menu or a panel is open, on the part of the board that the panel does not cover (§6.2; owner approval 2026-11-07). A number that a hint reveals has the same highlight color, with no time limit, until an action on the board (§9.5; owner approval 2026-11-24) |
 | Times of writing | Recognition pause 1000 ms from the pen lift. Redraw wait 1000 ms after the last stroke. A touch that starts less than 150 ms after a pen lift has no effect (§5.1, §14.4; owner approval 2026-11-07) |
 | Palette | Gray `#AEAEAE`, White `#FFFFFF`, Yellow `#FFD740`, Blue `#408CFF`, Red `#FF8E8E`, Green `#48D630`, Cyan `#6FCFE6`, Magenta `#E650E0`, Orange `#FF9A1F` (owner approval 2026-11-04 and 2026-11-05). The board, the panel dots, the manual and the images all use this palette. |
 | Default colors | Starting Gray `#AEAEAE`, clash Red `#FF8E8E`, highlight Cyan `#6FCFE6`, completed groups Green `#48D630` |
-| Background of a filled cell | First rule that applies: clash, highlight, completed, starting number, white (§4.2) |
+| Background of a filled cell | First rule that applies: clash (also the revealed incorrect number), highlight (also a revealed number), completed, starting number, white (§4.2, §9.5; owner approval 2026-11-24) |
 | UI text | reMarkable Sans Medium 25 px (menus, meter labels). The version value and the text of an update state are reMarkable Sans Regular 25 px (§9.1, §9.2). |
-| Secondary text | `gray25` (`#404040`) for all secondary text and marks: the result card text, the "?", the box labels and the column headings of Statistics and of the completed games list, the help line and the row text of the Checkpoints panel and the mark dots of the small boards, the Licenses screens (intro text, versions, the version and license line), the page number "n / total" (Regular 28) of the completed games list, the Licenses screens and the manual pages (owner decision 2026-11-10), the text rows of the update states, the two text lines of each dialog, the pages of the manual and the labels of the icon sheet `images/pro/icons.png`. No text uses `gray40` (`#666666`): it was hard to read on the tablet (owner request 2026-11-07). The micro-cell line setting 40 of the Cell colors panel stays (§10), and the other grays do not change. Since 2026-11-08 no pixel of the app is `gray40`: the micro-cell lines show the selected gray as a pattern of `gray15` and white (§4.1). The only exception is the anti-aliasing of the manual pages: an edge of a darker text or line there can have single pixels of this value. |
-| Result card | 2 px black frame, white. Portrait: x 125–1494, y 1813–2133. Landscape: a column of 322 px, y 125–1494, x 48–370 (left-handed) or x 1790–2112 (right-handed). "Completed in" Regular 30 `gray25`; time Medium 96 (portrait) or Medium 72 (landscape), black; comparison Regular 25 `gray25`; divider 2 px `gray70`; "New game" Medium 28; level buttons with a 2 px black frame (not available: `gray80` frame, `gray70` label, no meter). §8.3 gives all positions (owner approval 2026-11-07). |
-| Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px |
-| Bookmark icon | Closed line of 3 px through (-12,-18), (12,-18), (12,18), (0,8), (-12,18) from the center of top slot 5 (y 560–671). Black; white on black while its panel is open; `gray70` on a complete puzzle (owner approval 2026-11-06) |
+| Secondary text | `gray25` (`#404040`) for all secondary text and marks: the result card text (also "N hints used"), the box text of the Hint panel ("N hints used", "Erase it to continue.", "Erase one to continue."; §9.5), the "?", the box labels and the column headings of Statistics and of the completed games list, the help line and the row text of the Checkpoints panel and the mark dots of the small boards, the Licenses screens (intro text, versions, the version and license line), the page number "n / total" (Regular 28) of the completed games list, the Licenses screens and the manual pages (owner decision 2026-11-10), the text rows of the update states, the two text lines of each dialog, the pages of the manual and the labels of the icon sheet `images/pro/icons.png`. No text uses `gray40` (`#666666`): it was hard to read on the tablet (owner request 2026-11-07). The micro-cell line setting 40 of the Cell colors panel stays (§10), and the other grays do not change. Since 2026-11-08 no pixel of the app is `gray40`: the micro-cell lines show the selected gray as a pattern of `gray15` and white (§4.1). The only exception is the anti-aliasing of the manual pages: an edge of a darker text or line there can have single pixels of this value. |
+| Result card | 2 px black frame, white. Portrait: x 125–1494, y 1813–2133. Landscape: a column of 322 px, y 125–1494, x 48–370 (left-handed) or x 1790–2112 (right-handed). "Completed in" Regular 30 `gray25`; time Medium 96 (portrait) or Medium 72 (landscape), black; comparison Regular 25 `gray25`; divider 2 px `gray70`; "New game" Medium 28; level buttons with a 2 px black frame (not available: `gray80` frame, `gray70` label, no meter). With 1 or more hints: "N hints used" Regular 30 `gray25`; portrait: baseline y 1879, right edge x 725; landscape: baseline y 440, start x 76 (left-handed) or x 1818 (right-handed) (owner approval 2026-11-24). §8.3 gives all positions (owner approval 2026-11-07). |
+| Toolbar | x 1508–1620, slots of 112 px, icons of approximately 40 px, round strokes of 3 px. Top slots: Menu 0, Hint 1, Cell colors 2, Settings 3, Undo 4, Redo 5, Checkpoints 6. Bottom slots: New game 0, Statistics 1, Help 2 (§9; owner approval 2026-11-24) |
+| Hint icon | A lightbulb: a 40 px line icon with 3 px strokes (round ends and joins, no fill), a bulb outline with a short base line below it, at the center of top slot 1 (y 112–223). From the center, y down: the bulb is a closed line through the points (12 cos a, −6 + 12 sin a) for a = 135° + 15° × k, k = 0 to 18 (through the top (0, −18)), then (6, 12) and (−6, 12); the base is a line from (−5, 18) to (5, 18). Size with the strokes: 27×39 px (the values of the design image scripts, `scripts/ui-lib.sh`). Black; white on black while its panel is open; `gray70` on a complete puzzle. The icon sheet `icons.png` shows it (§9.5; owner approval 2026-11-24) |
+| Hint count on the button | Medium 24 px, the color of the icon. Its left is 18.5 px right of the center of the icon and the top of its digits is 8.5 px below it: 74 px and 64 px from the slot origin (x 1582, y 176 in portrait, left-handed); baseline 81 px below the slot top (y 193). Only with the menu open and 1 or more hints; above 99: "99+"; the text stays 4 px or more inside the slot (§9.5; owner approval 2026-11-24) |
+| Bookmark icon | Closed line of 3 px through (-12,-18), (12,-18), (12,18), (0,8), (-12,18) from the center of top slot 6 (y 672–783). Black; white on black while its panel is open; `gray70` on a complete puzzle (owner approval 2026-11-06) |
 | Panels | 2 px black border, rows of 112 px, 2 px dividers, inner margin of 33 px |
-| Settings panel | 400 px wide (x 1108–1507 for a left-handed player in portrait). Three switch rows, the version row, the Third-party licenses row and, in a stable or preview build, the update row (§9.1, §9.2, §9.4) |
-| Cell colors panel | 800 px wide (two columns of 400 px), three rows of 360 px, y 112–1192. x 708–1507 (left-handed, portrait), x 1248–2047 (left-handed, landscape), x 112–911 (right-handed). Vertical line of 2 px at 400 px from the left of the panel. Section title 33 px, grid 32 px from the left of the column; grid cells 112×90 px (owner approval 2026-11-04 and 2026-11-05). Swatches of the Micro-cell lines section: a 19 px circle with a 2 px ring; the gray items show their pattern (§4.1) on a white disc with a radius of 17.5 px inside the ring, the pattern `matrix[dy mod 4][dx mod 4]` from the pixel (cx − 19, cy − 19); None is a white dot (§10; owner approval 2026-11-08) |
-| Checkpoints panel | 600 px wide, top at y 560. x 908–1507 (left-handed, portrait), x 1448–2047 (left-handed, landscape), x 112–711 (right-handed). White, 2 px black border. Save row of 112 px; no checkpoint: the panel ends at y 864; else rows of 180 px, the panel ends at y 672 + 180 n, at most y 1392 (§9.3; owner approval 2026-11-06) |
+| Settings panel | 400 px wide (x 1108–1507 for a left-handed player in portrait), top at y 336 (top slot 3; before the Hint button: y 224). Three switch rows, the version row, the Third-party licenses row and, in a stable or preview build, the update row (§9.1, §9.2, §9.4) |
+| Hint panel | Top at y 112 (top slot 1). Portrait: 500 px wide, x 1008–1507 (left-handed), text inset 34 px. Landscape: 392 px wide, x 1656–2047 (left-handed) or x 112–503 (right-handed), text inset 20 px. White, 2 px black border, 2 px black line below the first row (top + 112 to + 113, y 224–225; the box starts at y 226). Row of 112 px: the lightbulb (center 20 px after the inset) and "Reveal one number" Medium 28, 62 px after the inset; black, or `gray70` when no hint is available. Box: first baseline 50 px below its top. Hint available: "N hints used" Regular 28 `gray25`, box 84 px, panel 198 px. Else "Incorrect number revealed" or "Numbers clash" Medium 28 black, then "Erase it to continue." or "Erase one to continue." Regular 25 `gray25` 37 px lower, box 122 px, panel 236 px (§9.5; owner approval 2026-11-24) |
+| Cell colors panel | 800 px wide (two columns of 400 px), three rows of 360 px, y 224–1304. x 708–1507 (left-handed, portrait), x 1248–2047 (left-handed, landscape), x 112–911 (right-handed). Vertical line of 2 px at 400 px from the left of the panel. Section title 33 px, grid 32 px from the left of the column; grid cells 112×90 px (owner approval 2026-11-04 and 2026-11-05). Swatches of the Micro-cell lines section: a 19 px circle with a 2 px ring; the gray items show their pattern (§4.1) on a white disc with a radius of 17.5 px inside the ring, the pattern `matrix[dy mod 4][dx mod 4]` from the pixel (cx − 19, cy − 19); None is a white dot (§10; owner approval 2026-11-08) |
+| Checkpoints panel | 600 px wide, top at y 672. x 908–1507 (left-handed, portrait), x 1448–2047 (left-handed, landscape), x 112–711 (right-handed). White, 2 px black border. Save row of 112 px; no checkpoint: the panel ends at y 976; else rows of 180 px, the panel ends at y 784 + 180 n, at most y 1504 (§9.3; owner approval 2026-11-06; the y values moved down by 112 px with the Hint button, owner approval 2026-11-24) |
 | Checkpoint row | Small board of 155 px with cells of 17 px, digits Regular 14, mark dots of 2×2 px `gray25`; text Regular 25 `gray25`; button 141×71 px, text Medium 25; bin icon of the games list (§9.3; owner approval 2026-11-06) |
 | Close button | Circle of 38 px, 3 px stroke, center (55.5, 55.5) |
 | Difficulty meter | "Easy" to "Hard" across 440 px; 7 stops; the current stop is a knob with a radius of 13 px |
@@ -2466,6 +2792,10 @@ pages keep their gray lines (they are illustrations), except that the "helpers" 
 scripts and the manual text do not change. The small boards of the Checkpoints panel draw no
 micro-cell lines.
 
+The Hint button changed each image that shows the open toolbar (the lightbulb in top slot 1, and the
+other top buttons and their panels one slot lower), the statistics images (the columns "Average hints"
+and "Hints"), the manual pages 6 and 7 and the icon sheet (owner approval 2026-11-24).
+
 | Image | Section |
 |---|---|
 | [`template.png`](images/pro/template.png) | [§1](#1-device-and-display) |
@@ -2480,7 +2810,15 @@ micro-cell lines.
 | [`screen-completed.png`](images/pro/screen-completed.png) | [§8.3](#83-complete) |
 | [`screen-completed-menu.png`](images/pro/screen-completed-menu.png) | [§8.3](#83-complete), [§9](#9-the-menu), [§9.3](#93-checkpoints-panel) |
 | [`screen-completed-landscape.png`](images/pro/screen-completed-landscape.png) (left-handed), [`screen-completed-landscape-right-handed.png`](images/pro/screen-completed-landscape-right-handed.png) | [§3.3](#33-landscape), [§8.3](#83-complete) |
+| [`screen-completed-hints.png`](images/pro/screen-completed-hints.png) (the result card with the hint count) | [§8.3](#83-complete), [§9.5](#95-hint-panel) |
+| [`screen-completed-hints-landscape.png`](images/pro/screen-completed-hints-landscape.png) (left-handed), [`screen-completed-hints-landscape-right-handed.png`](images/pro/screen-completed-hints-landscape-right-handed.png) (the result card with the hint count, in landscape) | [§3.3](#33-landscape), [§8.3](#83-complete), [§9.5](#95-hint-panel) |
 | [`screen-toolbar.png`](images/pro/screen-toolbar.png) | [§9](#9-the-menu) |
+| [`hint-menu.png`](images/pro/hint-menu.png) (the Hint panel open, a hint is available) | [§9.5](#95-hint-panel) |
+| [`hint-menu-revealed.png`](images/pro/hint-menu-revealed.png) (two revealed numbers in the highlight color, the count on the button) | [§4.2](#42-cell-background-color), [§9.5](#95-hint-panel) |
+| [`hint-menu-incorrect.png`](images/pro/hint-menu-incorrect.png) (a revealed incorrect number in the clash color) | [§4.2](#42-cell-background-color), [§6.3](#63-clashes), [§9.5](#95-hint-panel) |
+| [`hint-menu-clash.png`](images/pro/hint-menu-clash.png) (numbers clash, no hint is available) | [§9.5](#95-hint-panel) |
+| [`hint-menu-landscape.png`](images/pro/hint-menu-landscape.png) | [§3.3](#33-landscape), [§9.5](#95-hint-panel) |
+| [`hint-menu-right-handed.png`](images/pro/hint-menu-right-handed.png) | [§3.1](#31-layout), [§9.5](#95-hint-panel) |
 | [`color-menu.png`](images/pro/color-menu.png) | [§10](#10-cell-colors-panel) |
 | [`color-menu-landscape.png`](images/pro/color-menu-landscape.png) | [§10](#10-cell-colors-panel) |
 | [`color-menu-right-handed.png`](images/pro/color-menu-right-handed.png) | [§3.1](#31-layout), [§10](#10-cell-colors-panel) |

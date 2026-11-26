@@ -173,7 +173,8 @@ fn a_tap_on_a_digit_of_a_peer_has_no_effect() {
 
 #[test]
 fn an_incorrect_number_without_a_clash_looks_like_a_correct_number() {
-    // CLS-4, BRD-5: the app never compares the board with the solution for the player.
+    // CLS-4, BRD-5: with no hint request, the app does not compare the board with the solution for
+    // the player (HNT-2: the row of the Hint panel is black, refer to tests/behavior.rs).
     let fonts = fonts();
     let mut g = reference::sample_game();
     // Find an empty cell and a wrong digit that no peer has.
@@ -661,7 +662,7 @@ fn averages_of_the_summary() {
     // of all modes add up to the total.
     use sudoku::app::average_seconds;
     use sudoku::store::ResultRow;
-    let row = |id, mode, seconds| ResultRow { id, finished_at: id, mode, givens: 30, seconds, seed: 0, symmetric: id % 2 == 0 };
+    let row = |id, mode, seconds| ResultRow { id, finished_at: id, mode, givens: 30, seconds, seed: 0, symmetric: id % 2 == 0, hints: 0 };
     let rows = [row(1, 0, 100), row(2, 0, 200), row(3, 3, 61)];
     assert_eq!(average_seconds([].iter()), None);
     assert_eq!(average_seconds(rows.iter()), Some(120));
@@ -759,7 +760,7 @@ fn the_version_row_has_no_effect() {
     let mut d = Driver::new(43);
     open_settings(&mut d);
     let before = d.app.settings.clone();
-    let r = layout::settings_row(layout::VERSION_ROW);
+    let r = layout::settings_row(layout::VERSION_ROW, d.app.update.has_row());
     let (x, y) = ((r.x0 + r.x1) as f32 / 2.0, (r.y0 + r.y1) as f32 / 2.0);
     d.finger_tap(x, y);
     d.pen_tap(x, y);
@@ -1084,7 +1085,7 @@ fn the_update_button_starts_only_the_installation() {
     open_settings(&mut d);
     let board = |d: &Driver| (d.app.game.value, d.app.game.marks, d.app.game.undo.len(), d.app.game.redo.len(), d.app.settings.clone());
     let before = board(&d);
-    let row = layout::settings_row(layout::UPDATE_ROW);
+    let row = layout::settings_row(layout::UPDATE_ROW, true);
     d.finger_tap((row.x0 + 10) as f32, (row.y0 + 56) as f32);
     assert!(matches!(d.app.update.state, UpdateState::Available(_)), "a tap next to the button");
     let b = layout::update_button_area();
@@ -1389,7 +1390,7 @@ fn the_caution_icon_follows_the_update_state() {
     use sudoku::launch::{Launch, Restart};
     use sudoku::update::{Update, UpdateState};
     let fonts = fonts();
-    let (x, y) = ((layout::tb_cx() + 16.0 - 5.0) as i32, (layout::tb_cy(2) - 16.0) as i32);
+    let (x, y) = ((layout::tb_cx() + 16.0 - 5.0) as i32, (layout::tb_cy(3) - 16.0) as i32);
     let available = reference::update_state(true);
     let mut installed = available.clone();
     installed.state = UpdateState::Installed;

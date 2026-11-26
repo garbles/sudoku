@@ -1420,6 +1420,7 @@ fn a_tap_with_an_open_panel_only_closes_the_panel() {
             d.button(b);
             assert_eq!(d.app.ui.menu.panel(), Some(panel));
             let area = match panel {
+                Panel::Hint => layout::hint_panel(d.app.game.hint_state()),
                 Panel::Colors => layout::colors_panel(),
                 Panel::Settings => layout::settings_panel(d.app.update.has_row()),
                 Panel::NewGame => layout::ng_panel(),
@@ -1730,6 +1731,7 @@ fn the_release_of_a_control_removes_the_x() {
             assert_x_rule(&d, &case);
             let done = match b {
                 Button::Menu => d.app.ui.menu == Menu::Closed,
+                Button::Hint => d.app.ui.menu.panel() == Some(Panel::Hint),
                 Button::Colors => d.app.ui.menu.panel() == Some(Panel::Colors),
                 Button::Settings => d.app.ui.menu.panel() == Some(Panel::Settings),
                 Button::NewGame => d.app.ui.menu.panel() == Some(Panel::NewGame),
@@ -2721,6 +2723,7 @@ fn assert_normal_colors(app: &App, fonts: &sudoku::font::Fonts, starting: [u8; 3
         let want = if app.game.is_given(c) { starting } else { WHITE };
         let (x, y) = micro_center(c, 1);
         let panel = app.ui.menu.panel().is_some_and(|p| match p {
+            Panel::Hint => layout::hint_panel(app.game.hint_state()).contains(x, y + 111.0),
             Panel::Colors => layout::colors_panel().contains(x, y + 111.0),
             Panel::Settings => layout::settings_panel(app.update.has_row()).contains(x, y + 111.0),
             Panel::NewGame => layout::ng_panel().contains(x, y + 111.0),
@@ -2944,25 +2947,25 @@ fn a_tap_on_the_empty_space_or_a_title_of_the_colors_panel_has_no_effect() {
         let before = panel_state(&d);
         let mut points = vec![
             // The empty space below the Micro-cell lines section.
-            (x0 + 600, 1012),
-            (x0 + 402, 834),
-            (x1 - 2, 1190),
+            (x0 + 600, 1124),
+            (x0 + 402, 946),
+            (x1 - 2, 1302),
             // The line between the columns.
-            (x0 + 400, 300),
-            (x0 + 400, 1000),
+            (x0 + 400, 412),
+            (x0 + 400, 1112),
             // The corners of the panel.
-            (x0, 112),
-            (x1, 112),
-            (x0, 1192),
-            (x1, 1192),
+            (x0, 224),
+            (x1, 224),
+            (x0, 1304),
+            (x1, 1304),
             // The left and the right margin of a grid.
-            (x0 + 10, 300),
-            (x0 + 385, 300),
-            (x0 + 410, 300),
-            (x1 - 10, 300),
+            (x0 + 10, 412),
+            (x0 + 385, 412),
+            (x0 + 410, 412),
+            (x1 - 10, 412),
         ];
         // The five titles.
-        for (left, top) in [(x0, 112), (x0, 472), (x0, 832), (x0 + 400, 112), (x0 + 400, 472)] {
+        for (left, top) in [(x0, 224), (x0, 584), (x0, 944), (x0 + 400, 224), (x0 + 400, 584)] {
             points.push((left + 53, top + 36));
         }
         for (x, y) in points {
@@ -2972,9 +2975,9 @@ fn a_tap_on_the_empty_space_or_a_title_of_the_colors_panel_has_no_effect() {
             assert_eq!(d.app.ui.menu.panel(), Some(Panel::Colors), "{layout_case}: pen at ({x}, {y})");
             assert_eq!(panel_state(&d), before, "{layout_case}: ({x}, {y})");
         }
-        // One pixel out of the panel: the tap only closes it (NAV-11, NAV-12). At y 700, the toolbar has
-        // no button (top slot 5, y 560-671, has the bookmark).
-        for (x, y) in [(x0 - 1, 700), (x1 + 1, 700), (x0 + 100, 111), (x0 + 100, 1193)] {
+        // One pixel out of the panel: the tap only closes it (NAV-11, NAV-12). At y 812, the toolbar has
+        // no button (top slot 6, y 672-783, has the bookmark).
+        for (x, y) in [(x0 - 1, 812), (x1 + 1, 812), (x0 + 100, 223), (x0 + 100, 1305)] {
             d.finger_tap(x as f32, y as f32);
             assert_eq!(d.app.ui.menu, Menu::Open(None), "{layout_case}: ({x}, {y})");
             assert_eq!(panel_state(&d), before, "{layout_case}: ({x}, {y})");
@@ -3003,8 +3006,8 @@ fn the_colors_panel_does_not_cover_the_other_items() {
             let toolbar = (layout::tb_x(), layout::tb_x() + 112);
             for y in 0..layout::screen_h() as i32 {
                 for x in 0..layout::screen_w() as i32 {
-                    let in_panel = (x0..=x1).contains(&x) && (112..=1192).contains(&y);
-                    let in_button = (toolbar.0..toolbar.1).contains(&x) && (112..224).contains(&y);
+                    let in_panel = (x0..=x1).contains(&x) && (224..=1304).contains(&y);
+                    let in_button = (toolbar.0..toolbar.1).contains(&x) && (224..336).contains(&y);
                     if !in_panel && !in_button {
                         assert_eq!(rgb_at(&with, x, y), rgb_at(&without, x, y), "{layout_case}, completed {completed}: ({x}, {y})");
                     }
@@ -3013,14 +3016,14 @@ fn the_colors_panel_does_not_cover_the_other_items() {
             // The panel has all of its area: the border at the first and at the last pixel.
             assert_eq!(rgb_at(&with, x0, 600), [0, 0, 0], "{layout_case}");
             assert_eq!(rgb_at(&with, x1, 600), [0, 0, 0], "{layout_case}");
-            assert_eq!(rgb_at(&with, x0 + 100, 112), [0, 0, 0], "{layout_case}");
-            assert_eq!(rgb_at(&with, x0 + 100, 1192), [0, 0, 0], "{layout_case}");
+            assert_eq!(rgb_at(&with, x0 + 100, 224), [0, 0, 0], "{layout_case}");
+            assert_eq!(rgb_at(&with, x0 + 100, 1304), [0, 0, 0], "{layout_case}");
         }
         // The buttons and the close button are out of the panel.
         let (x0, x1) = documented_colors_x();
-        for b in [Button::Menu, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+        for b in [Button::Menu, Button::Hint, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
             let (x, y) = button_center(b);
-            assert!(x < x0 as f32 || x > x1 as f32 || y < 112.0 || y > 1192.0, "{layout_case}: {b:?}");
+            assert!(x < x0 as f32 || x > x1 as f32 || y < 224.0 || y > 1304.0, "{layout_case}: {b:?}");
         }
     });
 }
@@ -3041,7 +3044,7 @@ fn each_item_of_the_colors_panel_is_at_its_place() {
             d.finger_tap(x, y);
             assert_eq!(d.app.settings.color(s), Color::White, "{layout_case}: {s:?}");
         }
-        let places = [(Section::Starting, x0, 112), (Section::Clash, x0, 472), (Section::Highlight, x0, 832), (Section::Completed, x0 + 400, 112)];
+        let places = [(Section::Starting, x0, 224), (Section::Clash, x0, 584), (Section::Highlight, x0, 944), (Section::Completed, x0 + 400, 224)];
         for (section, left, top) in places {
             for (i, color) in Color::ALL.into_iter().enumerate() {
                 let r = layout::color_cell(section, color);
@@ -3059,7 +3062,7 @@ fn each_item_of_the_colors_panel_is_at_its_place() {
             let r = layout::line_gray_cell(gray);
             let x = x0 + 400 + 32 + (i as i32 % 3) * 112;
             assert_eq!((r.x0, r.x1 - r.x0, r.y1 - r.y0), (x, 112, 90), "{layout_case}: {gray:?}");
-            assert!(r.y0 >= 472 && r.y1 <= 832, "{layout_case}: {gray:?}");
+            assert!(r.y0 >= 584 && r.y1 <= 944, "{layout_case}: {gray:?}");
             d.finger_tap((x + 56) as f32, (r.y0 + 40) as f32);
             assert_eq!(d.app.settings.micro_line, gray, "{layout_case}: COL-7");
         }
@@ -3192,7 +3195,7 @@ fn tap_by(d: &mut Driver, by: By, (x, y): (f32, f32)) {
 }
 
 fn row_y(i: usize) -> i32 {
-    672 + 180 * i as i32
+    784 + 180 * i as i32
 }
 
 fn at(x: i32, y: i32) -> (f32, f32) {
@@ -3201,7 +3204,7 @@ fn at(x: i32, y: i32) -> (f32, f32) {
 
 /// The center of the row "Save checkpoint".
 fn save_point() -> (f32, f32) {
-    at(documented_checkpoints_x().0 + 300, 616)
+    at(documented_checkpoints_x().0 + 300, 728)
 }
 
 /// The center of the button of row `i` ("Restore" or "Current").
@@ -3298,7 +3301,7 @@ fn bookmark_grays(app: &App) -> (u8, u8) {
 fn save_row_grays(app: &App) -> (u8, u8) {
     let pm = draw_screen(app, &fonts());
     let x0 = documented_checkpoints_x().0;
-    gray_range(&pm, (x0 + 40, 595), (x0 + 340, 635))
+    gray_range(&pm, (x0 + 40, 707), (x0 + 340, 747))
 }
 
 /// The color of a point in the button of row `i` that has no border and no text.
@@ -3339,7 +3342,7 @@ fn a_save_adds_the_newest_checkpoint_and_changes_nothing_else() {
 
             // The same board: no second checkpoint, also at the corners of the row.
             let (x0, x1) = documented_checkpoints_x();
-            for p in [save_point(), at(x0, 560), at(x1, 671)] {
+            for p in [save_point(), at(x0, 672), at(x1, 783)] {
                 d.app.game_dirty = false;
                 let same = d.app.game.checkpoints.clone();
                 tap_by(&mut d, by, p);
@@ -3365,16 +3368,16 @@ fn a_save_adds_the_newest_checkpoint_and_changes_nothing_else() {
 
 #[test]
 fn the_full_row_is_the_tap_area_of_save_in_all_layouts() {
-    // CKP-1, NAV-18: the corners of the row operate. y 672 is below the row.
+    // CKP-1, NAV-18: the corners of the row operate. y 784 is below the row.
     for_each_layout(|case| {
         let (x0, x1) = documented_checkpoints_x();
-        for p in [at(x0, 560), at(x1, 560), at(x0, 671), at(x1, 671)] {
+        for p in [at(x0, 672), at(x1, 672), at(x0, 783), at(x1, 783)] {
             let mut d = with_checkpoints(301, 0);
             d.finger_tap(p.0, p.1);
             assert_eq!(d.app.game.checkpoints.len(), 1, "CKP-1: {p:?} ({case})");
         }
         let mut d = with_checkpoints(301, 0);
-        d.finger_tap((x0 + 300) as f32, 672.0);
+        d.finger_tap((x0 + 300) as f32, 784.0);
         assert!(d.app.game.checkpoints.is_empty(), "CKP-1 ({case})");
         assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "NAV-18: no control ({case})");
     });
@@ -3728,18 +3731,18 @@ fn a_press_that_the_delete_guard_ignores_removes_the_question_mark() {
 
 #[test]
 fn the_guard_uses_the_area_of_the_panel_at_its_maximum_size() {
-    // CKP-8: the panel has 3 rows and ends at y 1212. A press below it, in the area of the panel with
-    // 4 rows (to y 1392), does not close it. The four corners of the area are included. One pixel out of the area,
+    // CKP-8: the panel has 3 rows and ends at y 1324. A press below it, in the area of the panel with
+    // 4 rows (to y 1504), does not close it. The four corners of the area are included. One pixel out of the area,
     // the tap closes the panel (NAV-11).
     for_each_layout(|case| {
         let (x0, x1) = documented_checkpoints_x();
-        for p in [at(x0, 560), at(x1, 560), at(x0, 1392), at(x1, 1392), at(x0 + 100, 1300)] {
+        for p in [at(x0, 672), at(x1, 672), at(x0, 1504), at(x1, 1504), at(x0 + 100, 1412)] {
             let (mut d, _) = just_deleted(312);
             let before = guard_state(&d);
             d.finger_tap(p.0, p.1);
             assert_eq!(guard_state(&d), before, "CKP-8: {p:?} ({case})");
         }
-        for p in [at(x0 - 1, 1000), at(x1 + 1, 1000), at(x0 + 100, 559), at(x0 + 100, 1393)] {
+        for p in [at(x0 - 1, 1112), at(x1 + 1, 1112), at(x0 + 100, 671), at(x0 + 100, 1505)] {
             let (mut d, _) = just_deleted(312);
             let (game, _) = guard_state(&d);
             d.finger_tap(p.0, p.1);
@@ -3774,10 +3777,10 @@ fn the_guard_ends_after_half_a_second() {
 
         // The time starts again at each delete. A tap below the panel closes it only after the time.
         let (x0, _) = documented_checkpoints_x();
-        d.finger_tap((x0 + 100) as f32, 1300.0);
+        d.finger_tap((x0 + 100) as f32, 1412.0);
         assert_eq!(panel_of(&d), Some(Panel::Checkpoints), "CKP-8: the time of the second delete ({case})");
         d.wait(BACK_GUARD_MS);
-        d.finger_tap((x0 + 100) as f32, 1300.0);
+        d.finger_tap((x0 + 100) as f32, 1412.0);
         assert_eq!(d.app.ui.menu, Menu::Open(None), "CKP-8, NAV-11: after the time ({case})");
     });
 }
@@ -4029,17 +4032,17 @@ fn the_bookmark_shows_the_state_of_its_panel() {
 }
 
 #[test]
-fn the_bookmark_is_in_top_slot_5_and_obeys_the_guard_after_back() {
-    // NAV-16, NAV-18: y 560-671 in the four layouts, with the two ends. For BACK_GUARD_MS after "< Back",
+fn the_bookmark_is_in_top_slot_6_and_obeys_the_guard_after_back() {
+    // NAV-16, NAV-18: y 672-783 in the four layouts, with the two ends. For BACK_GUARD_MS after "< Back",
     // a press on these pixels changes nothing, with the pen and with a finger. Then it opens the panel.
     for_each_layout(|case| {
         let x = layout::tb_cx();
-        assert_eq!(layout::game_button(x, 559.0, true), Some(Button::Redo), "{case}");
-        assert_eq!(layout::game_button(x, 560.0, true), Some(Button::Checkpoints), "NAV-18 ({case})");
-        assert_eq!(layout::game_button(x, 671.0, true), Some(Button::Checkpoints), "NAV-18 ({case})");
-        assert_eq!(layout::game_button(x, 672.0, true), None, "NAV-18 ({case})");
-        assert_eq!(layout::game_button(x, 615.0, false), None, "the closed menu has no bookmark ({case})");
-        for y in [560.0, 615.0, 671.0] {
+        assert_eq!(layout::game_button(x, 671.0, true), Some(Button::Redo), "{case}");
+        assert_eq!(layout::game_button(x, 672.0, true), Some(Button::Checkpoints), "NAV-18 ({case})");
+        assert_eq!(layout::game_button(x, 783.0, true), Some(Button::Checkpoints), "NAV-18 ({case})");
+        assert_eq!(layout::game_button(x, 784.0, true), None, "NAV-18 ({case})");
+        assert_eq!(layout::game_button(x, 727.0, false), None, "the closed menu has no bookmark ({case})");
+        for y in [672.0, 727.0, 783.0] {
             for by in [By::Finger, By::Pen] {
                 let case = format!("{case}, y {y}, {by:?}");
                 let mut d = Driver::new(323);
@@ -4059,19 +4062,19 @@ fn the_bookmark_is_in_top_slot_5_and_obeys_the_guard_after_back() {
 
 #[test]
 fn the_panel_has_the_documented_position_in_the_four_layouts() {
-    // NAV-18: the x range, y 560, and the bottom y 864 or 672 + 180 n. The corners are in the panel: a tap on
+    // NAV-18: the x range, y 672, and the bottom y 976 or 784 + 180 n. The corners are in the panel: a tap on
     // a corner has no effect, and the border is black. One pixel out of the panel, a tap only closes it.
     for_each_layout(|case| {
         let (x0, x1) = documented_checkpoints_x();
         assert_eq!(x1 - x0 + 1, 600, "NAV-18 ({case})");
-        for (n, bottom) in [(0, 864), (1, 852), (2, 1032), (3, 1212), (4, 1392)] {
+        for (n, bottom) in [(0, 976), (1, 964), (2, 1144), (3, 1324), (4, 1504)] {
             let case = format!("{case}, {n} rows");
             let r = layout::ckp_panel(n);
-            assert_eq!((r.x0, r.y0, r.x1 - 1, r.y1 - 1), (x0, 560, x1, bottom), "NAV-18 ({case})");
+            assert_eq!((r.x0, r.y0, r.x1 - 1, r.y1 - 1), (x0, 672, x1, bottom), "NAV-18 ({case})");
 
             let d = with_checkpoints(324, n);
             let pm = draw_screen(&d.app, &fonts());
-            for (x, y) in [(x0, 560), (x1, 560), (x0, bottom), (x1, bottom)] {
+            for (x, y) in [(x0, 672), (x1, 672), (x0, bottom), (x1, bottom)] {
                 assert_eq!(rgb_at(&pm, x, y), [0, 0, 0], "NAV-18: the border at ({x}, {y}) ({case})");
             }
 
@@ -4079,7 +4082,7 @@ fn the_panel_has_the_documented_position_in_the_four_layouts() {
             // a save is not available.
             let mut corners = vec![at(x0, bottom), at(x1, bottom)];
             if n > 0 {
-                corners.extend([at(x0, 560), at(x1, 560)]);
+                corners.extend([at(x0, 672), at(x1, 672)]);
             }
             let mut d = with_checkpoints(324, n);
             let game = board(&d.app.game);
@@ -4091,7 +4094,7 @@ fn the_panel_has_the_documented_position_in_the_four_layouts() {
                 }
             }
 
-            for (x, y) in [(x0 - 1, 700), (x1 + 1, 700), (x0 + 100, 559), (x0 + 100, bottom + 1)] {
+            for (x, y) in [(x0 - 1, 812), (x1 + 1, 812), (x0 + 100, 671), (x0 + 100, bottom + 1)] {
                 let mut d = with_checkpoints(324, n);
                 let game = board(&d.app.game);
                 d.finger_tap(x as f32, y as f32);
@@ -4110,9 +4113,9 @@ fn each_control_of_the_panel_is_at_its_documented_place() {
     for_each_layout(|case| {
         let (x0, x1) = documented_checkpoints_x();
         let px = |x: i32, y: i32| control(x as f32, y as f32, 5);
-        assert_eq!(px(x0, 560), Some(C::Save), "{case}");
-        assert_eq!(px(x1, 671), Some(C::Save), "{case}");
-        assert_eq!(px(x0 + 300, 672), None, "{case}");
+        assert_eq!(px(x0, 672), Some(C::Save), "{case}");
+        assert_eq!(px(x1, 783), Some(C::Save), "{case}");
+        assert_eq!(px(x0 + 300, 784), None, "{case}");
         for i in 0..5 {
             let y0 = row_y(i);
             let case = format!("{case}, row {i}");
@@ -4600,7 +4603,7 @@ fn turning_off_the_highlight_switch_removes_the_highlight_in_that_redraw() {
                 tap(&mut d, switch_point(s));
                 assert_eq!(d.app.ui.highlight, Some(v), "NAV-14: {s:?} ({case})");
             }
-            tap(&mut d, exact_center(layout::settings_row(3)));
+            tap(&mut d, exact_center(layout::settings_row(3, false)));
             assert_eq!(d.app.ui.highlight, Some(v), "NAV-14: the version row ({case})");
             let (x, y) = switch_point(Switch::HighlightNumbers);
             d.app.redraw = false;
@@ -5283,7 +5286,7 @@ fn a_hand_touch_operates_nothing_on_a_panel_a_dialog_or_a_page() {
         let (x, y) = switch_point(Switch::ColorCompletedGroups);
         let on = d.app.settings.completed_color_on;
         // A pen tap outside closes the panel: thus the pen tap is on the row of the version.
-        let (vx, vy) = exact_center(layout::settings_row(3));
+        let (vx, vy) = exact_center(layout::settings_row(3, false));
         d.pen_tap(vx, vy);
         assert_eq!(d.app.ui.menu.panel(), Some(Panel::Settings), "{case}");
         d.touch_down_after_lift(149, x, y);
@@ -6177,7 +6180,7 @@ fn the_comparison_uses_the_earlier_results_at_the_same_mode() {
     use sudoku::app::Comparison;
     use sudoku::store::NewResult;
     let mut db = ResultsDb::in_memory();
-    let row = |t: i64, mode: u8, seconds: u64, seed: u64| NewResult { finished_at: 1_700_000_000 + t, mode, givens: 30, seconds, seed, generator: 2, symmetric: seed % 2 == 0 };
+    let row = |t: i64, mode: u8, seconds: u64, seed: u64| NewResult { finished_at: 1_700_000_000 + t, mode, givens: 30, seconds, seed, generator: 2, symmetric: seed % 2 == 0, hints: 0 };
     for r in [row(0, 2, 100, 1), row(1, 2, 300, 2), row(2, 2, 500, 3), row(3, 3, 50, 4), row(4, 1, 20, 5)] {
         db.insert(&r).unwrap();
     }
@@ -6211,7 +6214,7 @@ fn the_first_game_at_a_mode_has_no_comparison() {
     use sudoku::app::Comparison;
     use sudoku::store::NewResult;
     let mut db = ResultsDb::in_memory();
-    db.insert(&NewResult { finished_at: 1_700_000_000, mode: 3, givens: 30, seconds: 77, seed: 9, generator: 2, symmetric: true }).unwrap();
+    db.insert(&NewResult { finished_at: 1_700_000_000, mode: 3, givens: 30, seconds: 77, seed: 9, generator: 2, symmetric: true, hints: 0 }).unwrap();
     let mut d = completed_with(631, 2, db);
     assert!(d.app.results.iter().any(|r| r.mode == 2 && r.seed == d.app.game.seed), "CMP-5");
     assert_eq!(d.app.card_comparison(), Comparison::First, "CMP-8");
@@ -6571,7 +6574,7 @@ fn the_results_keep_the_symmetry_and_an_earlier_database_gets_false() {
         assert!(rows.contains(&want), "ANA-1, PER-9: {want:?} in {rows:?}");
     }
     let new = db
-        .insert(&sudoku::store::NewResult { finished_at: 400, mode: 2, givens: 30, seconds: 600, seed: 44, generator: 2, symmetric: true })
+        .insert(&sudoku::store::NewResult { finished_at: 400, mode: 2, givens: 30, seconds: 600, seed: 44, generator: 2, symmetric: true, hints: 0 })
         .unwrap();
     assert!(new.symmetric && new.id > 12, "CMP-5");
     drop(db);
@@ -6960,4 +6963,1239 @@ fn an_installation_shows_restart_sudoku_to_update_and_never_the_dialog() {
             }
         }
     }
+}
+
+// ---- The Hint panel (REQUIREMENTS.md §9.5, INVARIANTS.md §19). The positions come from the
+// documents: the lightbulb is in top slot 1 (y 112-223), and the panel starts at y 112 (HNT-1,
+// HNT-11). `documented_hint_x` gives the x range of the panel.
+
+use sudoku::game::{Game, HintState, IncorrectShown};
+
+/// The top of the Hint panel and of its row "Reveal one number" (HNT-11).
+const HINT_TOP: i32 = 112;
+
+/// The center of the row "Reveal one number".
+fn hint_row_point() -> (f32, f32) {
+    let (x0, x1) = documented_hint_x();
+    at((x0 + x1) / 2, HINT_TOP + 56)
+}
+
+/// A point in the box below the row of the Hint panel: no control.
+fn hint_box_point() -> (f32, f32) {
+    let (x0, _) = documented_hint_x();
+    at(x0 + 30, HINT_TOP + 112 + 2 + 40)
+}
+
+/// The bottom y of the Hint panel, with the end included: 198 px high when a hint is available,
+/// else 236 px (HNT-11).
+fn hint_bottom(state: HintState) -> i32 {
+    HINT_TOP + if state == HintState::Available { 198 } else { 236 } - 1
+}
+
+/// Opens the Hint panel with a tap on the lightbulb.
+fn open_hint(d: &mut Driver) {
+    if !d.app.ui.menu.is_open() {
+        d.button(Button::Menu);
+    }
+    if panel_of(d) != Some(Panel::Hint) {
+        d.button(Button::Hint);
+    }
+    assert_eq!(panel_of(d), Some(Panel::Hint), "HNT-1: the lightbulb opens the Hint panel");
+}
+
+/// A tap on the row "Reveal one number" of the Hint panel. It opens the panel first.
+fn ask(d: &mut Driver, by: By) {
+    open_hint(d);
+    tap_by(d, by, hint_row_point());
+}
+
+/// An empty cell that is not in `not`, and a digit that is not its solution and that no peer has:
+/// the number is an incorrect entry with no clash.
+fn incorrect_pair(g: &Game, not: &[Cell]) -> (Cell, u8) {
+    cells()
+        .filter(|&c| !g.is_filled(c) && !not.contains(&c))
+        .find_map(|c| (1..=9u8).find(|&v| v != g.solution[c.0 as usize][c.1 as usize] && !peer_has(g, c, v)).map(|v| (c, v)))
+        .expect("an empty cell with an incorrect digit that clashes with nothing")
+}
+
+/// The cells whose value is different in the two games.
+fn changed_cells(a: &Game, b: &Game) -> Vec<Cell> {
+    cells().filter(|&c| a.value_at(c) != b.value_at(c)).collect()
+}
+
+/// The candidates of an empty cell: the digits that no peer has (HNT-5).
+fn model_candidates(value: &[[u8; 9]; 9], cell: Cell) -> usize {
+    let has = |d: u8| peers(cell).any(|(r, c)| value[r as usize][c as usize] == d);
+    (1..=9u8).filter(|&d| !has(d)).count()
+}
+
+/// HNT-5, a separate model: the cell of the first number that the solver of the current version,
+/// with all its technique groups, puts on a board with these numbers. Else None: then the reveal
+/// uses an empty cell with the fewest candidates.
+fn model_solver_cell(value: &[[u8; 9]; 9]) -> Option<Cell> {
+    use sudoku::solver::{Board, TechniqueGroup};
+    let mut b = Board::new(value);
+    let empty = |b: &Board| (0..81).filter(|&i| b.value(i) == 0).count();
+    let start = empty(&b);
+    while b.step_v3(TechniqueGroup::Chains).is_some() {
+        if empty(&b) < start {
+            let i = (0..81).find(|&i| value[i / 9][i % 9] == 0 && b.value(i) != 0).unwrap();
+            return Some(((i / 9) as u8, (i % 9) as u8));
+        }
+    }
+    None
+}
+
+/// The darkest and the lightest gray of the row "Reveal one number" (the icon and the text), in
+/// the frame of the panel.
+fn hint_row_grays(app: &App) -> (u8, u8) {
+    let pm = draw_screen(app, &fonts());
+    let (x0, x1) = documented_hint_x();
+    gray_range(&pm, (x0 + 10, HINT_TOP + 10), (x1 - 10, HINT_TOP + 100))
+}
+
+/// The gray values of the lightbulb in its slot. The count on the button is at its bottom right,
+/// 18 px or more to the right of the center (HNT-10): it is out of this area.
+fn lightbulb_grays(app: &App) -> (u8, u8) {
+    let pm = draw_screen(app, &fonts());
+    let (x, y) = button_center(Button::Hint);
+    let (x, y) = (x as i32, y as i32);
+    gray_range(&pm, (x - 16, y - 21), (x + 16, y + 21))
+}
+
+/// The game without the clock: the values that a hint request must not change.
+fn without_clock(g: &Game) -> Game {
+    board(g)
+}
+
+#[test]
+fn the_lightbulb_is_in_top_slot_1_and_opens_and_closes_the_hint_panel() {
+    // HNT-1, NAV-8, NAV-11, NAV-12: the button order, the two ends of the slot, the pen, the eraser
+    // and a finger, the change to a different panel, and a tap outside that only closes the panel.
+    for_each_layout(|case| {
+        let x = layout::tb_cx();
+        assert_eq!(layout::game_button(x, 111.0, true), Some(Button::Menu), "NAV-12 ({case})");
+        assert_eq!(layout::game_button(x, 112.0, true), Some(Button::Hint), "HNT-1 ({case})");
+        assert_eq!(layout::game_button(x, 223.0, true), Some(Button::Hint), "HNT-1 ({case})");
+        assert_eq!(layout::game_button(x, 224.0, true), Some(Button::Colors), "NAV-12, NAV-17 ({case})");
+        assert_eq!(layout::game_button(x, 168.0, false), None, "the closed menu has no lightbulb ({case})");
+        for (y, b) in [(335.0, Button::Colors), (336.0, Button::Settings), (447.0, Button::Settings), (448.0, Button::Undo), (560.0, Button::Redo)] {
+            assert_eq!(layout::game_button(x, y, true), Some(b), "NAV-12: y {y} ({case})");
+        }
+        for by in ALL_TOOLS {
+            let case = format!("{case}, {by:?}");
+            let mut d = Driver::new(700);
+            d.button(Button::Menu);
+            let game = board(&d.app.game);
+            tap_by(&mut d, by, button_center(Button::Hint));
+            assert_eq!(panel_of(&d), Some(Panel::Hint), "HNT-1 ({case})");
+            let pm = draw_screen(&d.app, &fonts());
+            let (bx, by_) = button_center(Button::Hint);
+            assert_eq!(rgb_at(&pm, bx as i32 - 50, by_ as i32 - 50), [0, 0, 0], "NAV-8: the slot is black ({case})");
+            tap_by(&mut d, by, button_center(Button::Hint));
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "HNT-1: a second tap closes the panel ({case})");
+            // A different panel button changes the panel.
+            tap_by(&mut d, by, button_center(Button::Hint));
+            tap_by(&mut d, by, button_center(Button::Colors));
+            assert_eq!(panel_of(&d), Some(Panel::Colors), "NAV-12 ({case})");
+            tap_by(&mut d, by, button_center(Button::Hint));
+            assert_eq!(panel_of(&d), Some(Panel::Hint), "NAV-12 ({case})");
+            // Undo only closes the panel.
+            tap_by(&mut d, by, button_center(Button::Undo));
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-12 ({case})");
+            assert_eq!(board(&d.app.game), game, "the taps do not change the game ({case})");
+        }
+        // A tap out of the panel only closes it: on the board, one pixel below it, and one pixel at
+        // the side away from the toolbar (NAV-11).
+        let (x0, x1) = documented_hint_x();
+        let side = if layout::right_handed() { x1 + 1 } else { x0 - 1 };
+        let board_point = micro_center((4, 4), 5);
+        for p in [at(side, HINT_TOP + 50), at((x0 + x1) / 2, hint_bottom(HintState::Available) + 1), board_point] {
+            for by in ALL_TOOLS {
+                let mut d = Driver::new(700);
+                open_hint(&mut d);
+                let game = board(&d.app.game);
+                tap_by(&mut d, by, p);
+                assert_eq!(d.app.ui.menu, Menu::Open(None), "NAV-11: {p:?}, {by:?} ({case})");
+                assert_eq!(board(&d.app.game), game, "NAV-11: {p:?}, {by:?} ({case})");
+            }
+        }
+    });
+}
+
+#[test]
+fn the_hint_panel_has_the_documented_position_in_the_four_layouts() {
+    // HNT-11, NAV-21: the x range, y 112, 198 px or 236 px high. The corners are in the panel: a tap on
+    // a corner of the box has no effect, and the frame is black. In portrait the panel covers no
+    // cell; in landscape it covers only a part of the cells of rows 1 and 2 of one edge column. It
+    // covers no toolbar button and not the close button.
+    let fonts = fonts();
+    for_each_layout(|case| {
+        let (x0, x1) = documented_hint_x();
+        let width = if layout::screen_w() == 2160 { 392 } else { 500 };
+        assert_eq!(x1 - x0 + 1, width, "HNT-11 ({case})");
+        for state in [HintState::Available, HintState::Incorrect, HintState::Clash] {
+            let r = layout::hint_panel(state);
+            assert_eq!((r.x0, r.y0, r.x1 - 1, r.y1 - 1), (x0, HINT_TOP, x1, hint_bottom(state)), "HNT-11: {state:?} ({case})");
+        }
+        let mut d = Driver::new(701);
+        open_hint(&mut d);
+        let bottom = hint_bottom(HintState::Available);
+        let pm = draw_screen(&d.app, &fonts);
+        for (x, y) in [(x0, HINT_TOP), (x1, HINT_TOP), (x0, bottom), (x1, bottom), (x0 + 100, HINT_TOP + 112)] {
+            assert_eq!(rgb_at(&pm, x, y), [0, 0, 0], "HNT-11: the frame and the divider at ({x}, {y}) ({case})");
+        }
+        let game = board(&d.app.game);
+        for p in [at(x0, bottom), at(x1, bottom), hint_box_point(), at(x1 - 5, bottom - 5)] {
+            for by in ALL_TOOLS {
+                tap_by(&mut d, by, p);
+                assert_eq!(panel_of(&d), Some(Panel::Hint), "HNT-2: no control at {p:?}, {by:?} ({case})");
+                assert_eq!(board(&d.app.game), game, "HNT-2: {p:?}, {by:?} ({case})");
+            }
+        }
+        // The cells under the panel (the panel at its maximum size).
+        let covered: Vec<Cell> = cells()
+            .filter(|&c| {
+                let (cx, cy) = layout::cell_origin(c);
+                let n = layout::cell_size();
+                cx <= x1 && cx + n - 1 >= x0 && cy <= hint_bottom(HintState::Clash) && cy + n - 1 >= HINT_TOP
+            })
+            .collect();
+        if layout::screen_w() == 2160 {
+            let edge = if layout::right_handed() { 0 } else { 8 };
+            assert_eq!(covered, [(0, edge), (1, edge)], "HNT-11: only rows 1 and 2 of one edge column ({case})");
+            let (cx, _) = layout::cell_origin((0, edge));
+            let n = layout::cell_size();
+            let part = if layout::right_handed() { x1 + 1 - cx } else { cx + n - x0 };
+            assert!(part > 0 && part < n, "HNT-11: only a part of the cell ({case}): {part} px");
+        } else {
+            assert!(covered.is_empty(), "HNT-11: no cell in portrait ({case}): {covered:?}");
+        }
+        for b in [Button::Menu, Button::Hint, Button::Colors, Button::Settings, Button::Undo, Button::Redo, Button::Checkpoints, Button::Help, Button::Statistics, Button::NewGame, Button::Close] {
+            let (x, y) = button_center(b);
+            assert!(!layout::hint_panel(HintState::Clash).contains(x, y), "HNT-11: {b:?} ({case})");
+        }
+    });
+}
+
+#[test]
+fn the_row_is_black_only_when_a_hint_is_available() {
+    // HNT-2, CLS-4, BRD-5, HNT-1: before a request the row is black, also with an incorrect entry. A
+    // clash makes the row gray 70, and a tap on the gray row changes nothing. The lightbulb is never
+    // gray because of the state of the row.
+    for_each_layout(|case| {
+        let mut d = Driver::new(702);
+        open_hint(&mut d);
+        assert_eq!(d.app.game.hint_state(), HintState::Available, "{case}");
+        assert_eq!(hint_row_grays(&d.app).0, 0, "HNT-2: black ({case})");
+        // An incorrect entry with no clash: the app tells nothing before a request.
+        let (cell, v) = incorrect_pair(&d.app.game, &[]);
+        d.app.game.add_number(cell, v);
+        assert_eq!(d.app.game.hint_state(), HintState::Available, "CLS-4 ({case})");
+        assert_eq!(hint_row_grays(&d.app).0, 0, "CLS-4: the row is black ({case})");
+        let pm = draw_screen(&d.app, &fonts());
+        let (cx, cy) = layout::cell_origin(cell);
+        assert_eq!(rgb_at(&pm, cx + 8, cy + 140), WHITE, "BRD-5: no color before a request ({case})");
+        d.app.game.erase(cell);
+        // A clash: the row and its icon are gray 70.
+        let clash = cells()
+            .filter(|&c| !d.app.game.is_filled(c))
+            .find_map(|c| (1..=9u8).find(|&v| peer_has(&d.app.game, c, v)).map(|v| (c, v)))
+            .unwrap();
+        d.app.game.add_number(clash.0, clash.1);
+        assert_eq!(d.app.game.hint_state(), HintState::Clash, "{case}");
+        assert_eq!(hint_row_grays(&d.app).0, GRAY70, "HNT-2: gray 70 ({case})");
+        d.button(Button::Hint);
+        assert_eq!(lightbulb_grays(&d.app).0, 0, "HNT-1: the lightbulb stays black ({case})");
+        for by in ALL_TOOLS {
+            open_hint(&mut d);
+            let (game, revealed) = (without_clock(&d.app.game), d.app.ui.revealed);
+            tap_by(&mut d, by, hint_row_point());
+            assert_eq!((without_clock(&d.app.game), d.app.ui.revealed), (game, revealed), "HNT-2: {by:?} ({case})");
+            assert_eq!(panel_of(&d), Some(Panel::Hint), "HNT-2: {by:?} ({case})");
+        }
+        // The eraser removes the clash: the row is black again.
+        d.button(Button::Hint);
+        d.erase(clash.0);
+        open_hint(&mut d);
+        assert_eq!((d.app.game.hint_state(), hint_row_grays(&d.app).0), (HintState::Available, 0), "HNT-2 ({case})");
+    });
+}
+
+#[test]
+fn a_reveal_puts_the_solution_into_one_empty_cell_as_one_undo_item() {
+    // HNT-4, HNT-5, HNT-6, UND-1, BRD-4, MRK-4, CLS-1: with the pen, the eraser and a finger. The
+    // redo history becomes empty, the automatic hiding of the marks operates, and the panel stays
+    // open. The cells of the earlier reveals stay in `revealed`.
+    for by in ALL_TOOLS {
+        let mut d = Driver::new(703);
+        d.button(Button::Menu);
+        let first = model_solver_cell(&d.app.game.value).expect("the solver puts a number on a new puzzle");
+        let v = d.app.game.solution[first.0 as usize][first.1 as usize];
+        // A mark v in an empty peer of the cell (MRK-4), and an item in the redo history: a mark in
+        // a different cell and its undo.
+        let peer = peers(first).find(|&p| !d.app.game.is_filled(p) && !peer_has(&d.app.game, p, v)).expect("an empty peer");
+        d.tap_micro(peer, v);
+        assert_ne!(d.app.game.visible_marks(peer, true) & mark_bit(v), 0);
+        let (other, w) = cells()
+            .filter(|&c| !d.app.game.is_filled(c) && c != first && c != peer)
+            .find_map(|c| (1..=9u8).find(|&w| !peer_has(&d.app.game, c, w) && d.app.game.marks_at(c) & mark_bit(w) == 0).map(|w| (c, w)))
+            .unwrap();
+        d.tap_micro(other, w);
+        d.button(Button::Undo);
+        assert_eq!(d.app.game.redo.len(), 1);
+        let before = d.app.game.clone();
+        ask(&mut d, by);
+        let g = &d.app.game;
+        assert_eq!(changed_cells(&before, g), [first], "HNT-4, HNT-5: one cell ({by:?})");
+        assert_eq!(before.value_at(first), 0, "HNT-4: an empty cell ({by:?})");
+        assert_eq!(g.value_at(first), v, "HNT-4: the solution ({by:?})");
+        assert!(g.is_entry(first) && !g.is_clashing(first), "HNT-4: an entry, CLS-1 ({by:?})");
+        assert_eq!((g.undo.len(), g.redo.len()), (before.undo.len() + 1, 0), "UND-1 ({by:?})");
+        assert_eq!(g.hints, before.hints + 1, "HNT-6 ({by:?})");
+        assert_eq!(g.visible_marks(peer, true) & mark_bit(v), 0, "MRK-4 ({by:?})");
+        assert_eq!(g.marks_at(peer), before.marks_at(peer), "MRK-4: the marks stay ({by:?})");
+        assert_eq!((g.given, g.solution, &g.checkpoints, g.incorrect_shown), (before.given, before.solution, &before.checkpoints, None), "HNT-4 ({by:?})");
+        assert_eq!(d.app.ui.revealed.iter().collect::<Vec<_>>(), [first], "HNT-4, HNT-7 ({by:?})");
+        assert_eq!(panel_of(&d), Some(Panel::Hint), "HNT-4: the panel stays open ({by:?})");
+        // A second request: the first cell stays in `revealed`.
+        let before = d.app.game.clone();
+        tap_by(&mut d, by, hint_row_point());
+        let second = changed_cells(&before, &d.app.game);
+        assert_eq!(second.len(), 1, "HNT-4 ({by:?})");
+        assert_eq!(d.app.game.hints, 2, "HNT-6 ({by:?})");
+        let mut want = vec![first, second[0]];
+        want.sort_unstable();
+        assert_eq!(d.app.ui.revealed.iter().collect::<Vec<_>>(), want, "HNT-7: the earlier cells stay ({by:?})");
+        // The undo of a reveal is one item: one undo removes only that number.
+        d.button(Button::Hint);
+        d.button(Button::Undo);
+        assert_eq!(changed_cells(&before, &d.app.game), Vec::<Cell>::new(), "UND-1: one undo item ({by:?})");
+        assert_eq!(d.app.game.hints, 2, "HNT-6: the undo does not change the count ({by:?})");
+    }
+}
+
+#[test]
+fn the_reveal_is_a_function_of_the_numbers_only() {
+    // HNT-5: two boards with the same numbers and different marks, stacks, counts, revealed cells,
+    // clocks and settings give the same cell and the same digit. The cell is the cell of the first
+    // number of the solver, else an empty cell with the fewest candidates.
+    let mut a = Driver::new(704);
+    let mut b = Driver::new(704);
+    ask(&mut b, By::Finger);
+    let first = changed_cells(&a.app.game, &b.app.game)[0];
+    a.app.game.add_number(first, b.app.game.value_at(first));
+    // Other marks, settings and clock in `a`.
+    let (cell, v) = incorrect_pair(&a.app.game, &[]);
+    a.app.game.toggle_mark(cell, v);
+    a.app.settings.highlight_on = false;
+    a.app.settings.auto_hide_on = false;
+    a.wait(5000);
+    assert_eq!(a.app.game.value, b.app.game.value);
+    assert_ne!((a.app.game.hints, a.app.game.undo.len()), (b.app.game.hints, b.app.game.undo.len()));
+    let (before_a, before_b) = (a.app.game.clone(), b.app.game.clone());
+    ask(&mut a, By::Pen);
+    tap_by(&mut b, By::Pen, hint_row_point());
+    let (ca, cb) = (changed_cells(&before_a, &a.app.game), changed_cells(&before_b, &b.app.game));
+    assert_eq!(ca, cb, "HNT-5: the same cell");
+    assert_eq!(a.app.game.value, b.app.game.value, "HNT-5: the same digit");
+    assert_eq!(Some(ca[0]), model_solver_cell(&before_a.value), "HNT-5: the first number of the solver");
+
+    // A board on which the solver can put no number: the cell is an empty cell with the fewest
+    // candidates, and the digit is its solution. The same board gives the same cell again.
+    let given = [(0, 0), (1, 4), (4, 4), (8, 8), (2, 7)];
+    let g = board_with(&given);
+    assert_eq!(model_solver_cell(&g.value), None, "the solver puts no number on this board");
+    let min = cells().filter(|&c| !g.is_filled(c)).map(|c| model_candidates(&g.value, c)).min().unwrap();
+    let mut results = Vec::new();
+    for marks in [false, true] {
+        let mut g = g.clone();
+        if marks {
+            g.toggle_mark((3, 3), 1);
+            g.hints = 40;
+        }
+        let before = g.clone();
+        assert!(matches!(g.request_hint(), sudoku::game::Hint::Revealed(..)), "HNT-4");
+        let cell = changed_cells(&before, &g)[0];
+        assert_eq!(model_candidates(&before.value, cell), min, "HNT-5: the fewest candidates");
+        assert_eq!(g.value_at(cell), g.solution[cell.0 as usize][cell.1 as usize], "HNT-5: the solution");
+        results.push(cell);
+    }
+    assert_eq!(results[0], results[1], "HNT-5: the same board gives the same cell");
+}
+
+#[test]
+fn only_a_reveal_changes_the_hint_count() {
+    // HNT-6, UND-6, DIF-5, UND-9: undo, redo, a Restore, the eraser, a number of the player and a
+    // request that reveals an incorrect number do not change the count. A reveal after the undo of
+    // a reveal adds 1 again. A new game sets 0.
+    let mut d = Driver::new(705);
+    d.button(Button::Menu);
+    // A checkpoint of the start board.
+    open_checkpoints(&mut d);
+    tap_by(&mut d, By::Finger, save_point());
+    ask(&mut d, By::Finger);
+    ask(&mut d, By::Finger);
+    assert_eq!(d.app.game.hints, 2, "HNT-6");
+    let start = d.app.game.checkpoints[0].board.value;
+    let revealed: Vec<Cell> = cells().filter(|&(r, c)| start[r as usize][c as usize] != d.app.game.value_at((r, c))).collect();
+    assert_eq!(revealed.len(), 2);
+    d.button(Button::Undo);
+    d.button(Button::Undo);
+    assert_eq!(d.app.game.hints, 2, "HNT-6: undo");
+    d.button(Button::Redo);
+    assert_eq!(d.app.game.hints, 2, "HNT-6: redo");
+    d.button(Button::Menu);
+    d.erase(revealed[0]);
+    assert_eq!((d.app.game.value_at(revealed[0]), d.app.game.hints), (0, 2), "HNT-6: the eraser");
+    let (cell, v) = incorrect_pair(&d.app.game, &[]);
+    d.write(cell, v);
+    assert_eq!((d.app.game.value_at(cell), d.app.game.hints), (v, 2), "HNT-6: a number of the player");
+    ask(&mut d, By::Finger);
+    assert_eq!(d.app.game.incorrect_shown.map(|i| i.cell), d.app.game.first_incorrect().map(|i| i.cell), "HNT-3");
+    assert_eq!(d.app.game.hints, 2, "HNT-6: a request that reveals an incorrect number");
+    open_checkpoints(&mut d);
+    tap_by(&mut d, By::Finger, restore_point(0));
+    assert_eq!(d.app.game.value, d.app.game.checkpoints[0].board.value, "the Restore");
+    assert_eq!(d.app.game.hints, 2, "HNT-6: a Restore");
+    // A reveal after the undo of a reveal adds 1 again.
+    ask(&mut d, By::Finger);
+    d.button(Button::Undo);
+    d.button(Button::Undo);
+    ask(&mut d, By::Finger);
+    assert_eq!(d.app.game.hints, 4, "HNT-6: the undo of a reveal and a new reveal");
+    // A new game: 0.
+    d.button(Button::NewGame);
+    start_new_game(&mut d);
+    assert_eq!((d.app.game.hints, d.app.game.incorrect_shown, d.app.ui.revealed.is_empty()), (0, None, true), "UND-6, DIF-5");
+}
+
+#[test]
+fn a_request_reveals_the_first_incorrect_number_in_row_order_and_changes_nothing_else() {
+    // HNT-3, HNT-8, BRD-5, BRD-7, CLS-4, PER-1: two incorrect entries with no clash. The request
+    // reveals the first one in row order; the board, the marks, the stacks, the count, `revealed` and
+    // the panel do not change. Only that cell has the clash color, also with the panel closed. After
+    // its removal, the next request reveals the next one.
+    let fonts = fonts();
+    for_each_layout(|case| {
+        for by in ALL_TOOLS {
+            let case = format!("{case}, {by:?}");
+            let mut d = Driver::new(706);
+            ask(&mut d, By::Finger);
+            let revealed = d.app.ui.revealed;
+            // The second incorrect entry first: the request must use the row order, not the time.
+            let late = incorrect_pair(&d.app.game, &cells().take(40).collect::<Vec<_>>());
+            d.app.game.add_number(late.0, late.1);
+            let early = incorrect_pair(&d.app.game, &[]);
+            assert!(early.0 < late.0, "{case}");
+            d.app.game.add_number(early.0, early.1);
+            d.app.game_dirty = false;
+            let before = without_clock(&d.app.game);
+            tap_by(&mut d, by, hint_row_point());
+            assert_eq!(d.app.game.incorrect_shown, Some(IncorrectShown { cell: early.0, digit: early.1 }), "HNT-3 ({case})");
+            assert_eq!(without_clock(&d.app.game), Game { incorrect_shown: d.app.game.incorrect_shown, ..before }, "HNT-3 ({case})");
+            assert_eq!((d.app.ui.revealed, panel_of(&d)), (revealed, Some(Panel::Hint)), "HNT-3 ({case})");
+            assert!(d.app.game_dirty, "HNT-3, PER-1: the app saves the game file ({case})");
+            assert_eq!(d.app.game.hint_state(), HintState::Incorrect, "HNT-3 ({case})");
+            assert_eq!(hint_row_grays(&d.app).0, GRAY70, "HNT-2 ({case})");
+            assert_eq!(layout::hint_panel(d.app.game.hint_state()).y1 - 1, hint_bottom(HintState::Incorrect), "HNT-11 ({case})");
+            // A tap on the gray row changes nothing: only one incorrect number at a time.
+            tap_by(&mut d, by, hint_row_point());
+            assert_eq!(d.app.game.incorrect_shown.map(|i| i.cell), Some(early.0), "HNT-8 ({case})");
+            // The colors, with the panel closed: only the revealed cell has the clash color.
+            d.button(Button::Hint);
+            let pm = draw_screen(&d.app, &fonts);
+            assert_eq!(cell_background(&pm, early.0), d.app.settings.color_clash.rgb(), "BRD-7, HNT-8 ({case})");
+            assert_eq!(cell_background(&pm, late.0), WHITE, "BRD-5, CLS-4: the other incorrect entry ({case})");
+            assert_board(&d.app, &fonts, &case);
+            // The lightbulb stays black (not gray) after the panel closes.
+            assert_eq!(lightbulb_grays(&d.app).0, 0, "HNT-1 ({case})");
+            // The eraser removes the number: the next request reveals the next incorrect entry.
+            d.button(Button::Menu);
+            d.erase(early.0);
+            assert_eq!((d.app.game.incorrect_shown, d.app.game.hint_state()), (None, HintState::Available), "HNT-8 ({case})");
+            ask(&mut d, by);
+            assert_eq!(d.app.game.incorrect_shown, Some(IncorrectShown { cell: late.0, digit: late.1 }), "HNT-3 ({case})");
+            assert_eq!(d.app.game.hints, 1, "HNT-6 ({case})");
+        }
+    });
+}
+
+#[test]
+fn each_change_that_removes_the_incorrect_number_ends_the_incorrect_state() {
+    // HNT-8, BRD-7: the eraser, an undo, a redo, a Restore and a new game remove the revealed
+    // incorrect number, and a hint is available again. The same digit written into the cell again is
+    // not revealed without a new request. A different change of the board keeps it.
+    let fonts = fonts();
+    // The setup: an incorrect number that the player wrote, revealed by a request.
+    let setup = |d: &mut Driver| -> (Cell, u8) {
+        let (cell, v) = incorrect_pair(&d.app.game, &[]);
+        d.write(cell, v);
+        assert_eq!(d.app.game.value_at(cell), v);
+        ask(d, By::Finger);
+        assert_eq!(d.app.game.incorrect_shown, Some(IncorrectShown { cell, digit: v }), "HNT-3");
+        d.button(Button::Hint);
+        (cell, v)
+    };
+    let available = |d: &Driver, what: &str| {
+        assert_eq!((d.app.game.incorrect_shown, d.app.game.hint_state()), (None, HintState::Available), "HNT-8: {what}");
+        assert_board(&d.app, &fonts, what);
+    };
+    // The eraser. Then the same digit again.
+    let mut d = Driver::new(707);
+    d.button(Button::Menu);
+    let (cell, v) = setup(&mut d);
+    d.erase(cell);
+    available(&d, "the eraser");
+    d.write(cell, v);
+    assert_eq!(d.app.game.value_at(cell), v);
+    assert_eq!(d.app.game.incorrect_shown, None, "HNT-8: the same digit again");
+    assert_eq!(cell_background(&draw_screen(&d.app, &fonts), cell), WHITE, "BRD-5: the same digit again");
+    // Undo of the number (the undo of a different change keeps it: first a mark, then two undos).
+    let mut d = Driver::new(708);
+    d.button(Button::Menu);
+    let (cell, _) = setup(&mut d);
+    let (mark_cell, w) = cells()
+        .filter(|&c| !d.app.game.is_filled(c))
+        .find_map(|c| (1..=9u8).find(|&w| !peer_has(&d.app.game, c, w)).map(|w| (c, w)))
+        .unwrap();
+    d.tap_micro(mark_cell, w);
+    assert_eq!(d.app.game.incorrect_shown.map(|i| i.cell), Some(cell), "HNT-8: a mark keeps it");
+    d.button(Button::Undo);
+    assert_eq!(d.app.game.incorrect_shown.map(|i| i.cell), Some(cell), "HNT-8: an undo of a mark keeps it");
+    d.button(Button::Undo);
+    available(&d, "an undo");
+    // Redo of an erasure: the number comes back with undo, and the redo erases it again.
+    let mut d = Driver::new(709);
+    d.button(Button::Menu);
+    let (cell, v) = incorrect_pair(&d.app.game, &[]);
+    d.write(cell, v);
+    d.erase(cell);
+    d.button(Button::Undo);
+    assert_eq!(d.app.game.value_at(cell), v);
+    ask(&mut d, By::Pen);
+    assert_eq!(d.app.game.incorrect_shown.map(|i| i.cell), Some(cell));
+    d.button(Button::Hint);
+    d.button(Button::Redo);
+    assert_eq!(d.app.game.value_at(cell), 0);
+    available(&d, "a redo");
+    // A Restore of a checkpoint without the number.
+    let mut d = Driver::new(710);
+    d.button(Button::Menu);
+    open_checkpoints(&mut d);
+    tap_by(&mut d, By::Finger, save_point());
+    close_checkpoints(&mut d);
+    setup(&mut d);
+    open_checkpoints(&mut d);
+    tap_by(&mut d, By::Finger, restore_point(0));
+    available(&d, "a Restore");
+    // A new game.
+    let mut d = Driver::new(711);
+    d.button(Button::Menu);
+    setup(&mut d);
+    d.button(Button::NewGame);
+    start_new_game(&mut d);
+    assert_eq!(d.app.game.incorrect_shown, None, "HNT-8, UND-6: a new game");
+}
+
+#[test]
+fn a_clash_stops_the_hint_and_the_incorrect_number_keeps_its_color() {
+    // HNT-2, HNT-8, BRD-7: with a revealed incorrect number, a new clash makes the state Clash, and the
+    // revealed cell keeps the clash color. When the clash goes, the state is Incorrect again.
+    let fonts = fonts();
+    let mut d = Driver::new(712);
+    d.button(Button::Menu);
+    let (cell, v) = incorrect_pair(&d.app.game, &[]);
+    d.app.game.add_number(cell, v);
+    ask(&mut d, By::Finger);
+    assert_eq!(d.app.game.hint_state(), HintState::Incorrect);
+    d.button(Button::Hint);
+    let clash = cells()
+        .filter(|&c| !d.app.game.is_filled(c) && c != cell && !peers(cell).any(|p| p == c))
+        .find_map(|c| (1..=9u8).find(|&w| peer_has(&d.app.game, c, w)).map(|w| (c, w)))
+        .unwrap();
+    d.write(clash.0, clash.1);
+    assert_eq!(d.app.game.value_at(clash.0), clash.1);
+    assert_eq!(d.app.game.hint_state(), HintState::Clash, "HNT-2: Clash comes before Incorrect");
+    assert_eq!(d.app.game.incorrect_shown.map(|i| i.cell), Some(cell), "HNT-8");
+    let pm = draw_screen(&d.app, &fonts);
+    assert_eq!(cell_background(&pm, cell), d.app.settings.color_clash.rgb(), "HNT-8: the clash color with a different clash");
+    assert_board(&d.app, &fonts, "a clash and the revealed cell");
+    open_hint(&mut d);
+    assert_eq!(hint_row_grays(&d.app).0, GRAY70, "HNT-2");
+    let before = without_clock(&d.app.game);
+    tap_by(&mut d, By::Pen, hint_row_point());
+    assert_eq!(without_clock(&d.app.game), before, "HNT-2: no request while numbers clash");
+    d.button(Button::Hint);
+    d.erase(clash.0);
+    assert_eq!(d.app.game.hint_state(), HintState::Incorrect, "HNT-2: the box shows the incorrect number again");
+}
+
+#[test]
+fn a_game_file_with_a_bad_incorrect_number_opens_without_it() {
+    // HNT-9, HNT-8, PER-1, PER-5: each case of HNT-9 opens with `incorrect_shown = None`, and all other
+    // values of the file stay. A good value opens again.
+    let d = Driver::new(713);
+    let mut g = d.app.game.clone();
+    let (cell, v) = incorrect_pair(&g, &[]);
+    g.add_number(cell, v);
+    let (right_cell, right) = cells().filter(|&c| !g.is_filled(c)).map(|c| (c, g.solution[c.0 as usize][c.1 as usize])).next().unwrap();
+    g.add_number(right_cell, right);
+    g.hints = 7;
+    g.incorrect_shown = Some(IncorrectShown { cell, digit: v });
+    let opened = app_with_game(g.clone(), START_TIME, 1);
+    assert_eq!(opened.game, g, "PER-1: a good value opens again");
+    let empty = empty_cell(&g);
+    let given = given_cell(&g);
+    let other = (1..=9u8).find(|&w| w != v && w != g.solution[cell.0 as usize][cell.1 as usize]).unwrap();
+    for (what, bad) in [
+        ("an empty cell", IncorrectShown { cell: empty, digit: v }),
+        ("a starting number", IncorrectShown { cell: given, digit: g.value_at(given) }),
+        ("a different digit", IncorrectShown { cell, digit: other }),
+        ("the digit of the solution", IncorrectShown { cell: right_cell, digit: right }),
+        ("no digit", IncorrectShown { cell, digit: 0 }),
+        ("a cell out of the board", IncorrectShown { cell: (9, 0), digit: v }),
+    ] {
+        let file = Game { incorrect_shown: Some(bad), ..g.clone() };
+        let opened = app_with_game(file, START_TIME, 1);
+        assert_eq!(opened.game.incorrect_shown, None, "HNT-9: {what}");
+        assert_eq!(opened.game, Game { incorrect_shown: None, ..g.clone() }, "HNT-9: the other values stay ({what})");
+    }
+    // A complete game.
+    let mut done = d.app.game.clone();
+    for c in cells().collect::<Vec<_>>() {
+        if !done.is_filled(c) {
+            done.add_number(c, done.solution[c.0 as usize][c.1 as usize]);
+        }
+    }
+    assert!(done.completed);
+    let file = Game { incorrect_shown: Some(IncorrectShown { cell, digit: v }), hints: 3, ..done.clone() };
+    let opened = app_with_game(file, START_TIME, 1);
+    assert_eq!((opened.game.incorrect_shown, opened.game.hints, opened.game.seed), (None, 3, done.seed), "HNT-9: a complete game");
+}
+
+#[test]
+fn the_hint_count_and_the_incorrect_number_are_saved_and_the_revealed_cells_are_not() {
+    // PER-1, PER-2, PER-9, HNT-6, HNT-7: the game file keeps `hints` (also a large count) and
+    // `incorrect_shown`. A start of the app sets `revealed = ∅`. A file of an earlier version has
+    // no hint values: 0 and None.
+    let dir = std::env::temp_dir().join(format!("sudoku-hints-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("game.json");
+    let mut d = Driver::new(714);
+    let start = |path: &std::path::Path| App::new(sudoku::store::load_json(path), None, ResultsDb::in_memory(), Box::new(TestEnv { time: 0, seed: 5 }), App::placeholder_ng_stops());
+    ask(&mut d, By::Finger);
+    ask(&mut d, By::Finger);
+    assert_eq!((d.app.game.hints, d.app.ui.revealed.iter().count()), (2, 2));
+    sudoku::store::save_json(&path, &d.app.game).unwrap();
+    let app = start(&path);
+    assert_eq!(app.game, d.app.game, "PER-1");
+    assert!(app.ui.revealed.is_empty(), "HNT-7, PER-2: the app does not save `revealed`");
+    d.button(Button::Hint);
+    d.button(Button::Menu);
+    let (cell, v) = incorrect_pair(&d.app.game, &[]);
+    d.write(cell, v);
+    ask(&mut d, By::Finger);
+    assert!(d.app.game.incorrect_shown.is_some());
+    sudoku::store::save_json(&path, &d.app.game).unwrap();
+    assert_eq!(start(&path).game, d.app.game, "PER-1: the revealed incorrect number");
+    // A count with no upper limit.
+    let mut big = d.app.game.clone();
+    big.hints = 1_000_000;
+    sudoku::store::save_json(&path, &big).unwrap();
+    let app = start(&path);
+    assert_eq!(app.game.hints, 1_000_000, "HNT-6: no upper limit");
+    // A file of an earlier version: no `hints` and no `incorrect_shown`.
+    let mut json: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    let object = json.as_object_mut().unwrap();
+    assert!(object.remove("hints").is_some() && object.remove("incorrect_shown").is_some(), "the file has the two values");
+    std::fs::write(&path, serde_json::to_string(&json).unwrap()).unwrap();
+    let app = start(&path);
+    assert_eq!(app.game.seed, big.seed, "PER-9: the same game");
+    assert_eq!((app.game.hints, app.game.incorrect_shown), (0, None), "PER-9");
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+/// A driver with two reveals, the Hint panel closed and the menu open.
+fn two_reveals(seed: u64) -> Driver {
+    let mut d = Driver::new(seed);
+    ask(&mut d, By::Finger);
+    ask(&mut d, By::Finger);
+    d.button(Button::Hint);
+    assert_eq!((d.app.ui.revealed.iter().count(), d.app.ui.menu), (2, Menu::Open(None)));
+    d
+}
+
+/// Each revealed cell has the highlight color, and each cell agrees with the model of BRD-7.
+fn assert_revealed_colors(d: &Driver, fonts: &sudoku::font::Fonts, case: &str) {
+    let pm = draw_screen(&d.app, fonts);
+    let panel = d.app.ui.menu.panel().is_some();
+    for c in d.app.ui.revealed.iter() {
+        if !panel {
+            assert_eq!(cell_background(&pm, c), d.app.settings.color_highlight.rgb(), "BRD-7, HNT-7 ({case}): {c:?}");
+        }
+    }
+    assert_board(&d.app, fonts, case);
+}
+
+#[test]
+fn the_highlight_of_the_revealed_cells_stays_until_an_action_on_the_board() {
+    // HNT-7, BRD-7, HLT-6, NAV-11: the inputs that keep `revealed`, and the first pen press on the
+    // board that only closes the Hint panel. The highlight shows also when the switch "Highlight
+    // numbers" is off and with no highlighted digit.
+    let fonts = fonts();
+    let mut d = two_reveals(720);
+    let revealed = d.app.ui.revealed;
+    let keep = |d: &Driver, what: &str| {
+        assert_eq!(d.app.ui.revealed, revealed, "HNT-7: {what} keeps `revealed`");
+        assert_revealed_colors(d, &fonts, what);
+    };
+    keep(&d, "the start");
+    d.button(Button::Menu);
+    keep(&d, "the menu button");
+    d.button(Button::Menu);
+    open_hint(&mut d);
+    keep(&d, "the Hint panel");
+    // A finger on the board.
+    d.button(Button::Hint);
+    let (fx, fy) = micro_center(empty_cell(&d.app.game), 5);
+    d.finger_tap(fx, fy);
+    keep(&d, "a finger on the board");
+    // The Cell colors panel and a new highlight color.
+    if !d.app.ui.menu.is_open() {
+        d.button(Button::Menu);
+    }
+    d.button(Button::Colors);
+    let (x, y) = color_point(Section::Highlight, Color::Cyan);
+    d.finger_tap(x, y);
+    assert_eq!(d.app.settings.color_highlight, Color::Cyan);
+    d.button(Button::Colors);
+    keep(&d, "a color");
+    // The switch "Highlight numbers": off and on.
+    d.button(Button::Settings);
+    let (x, y) = switch_point(Switch::HighlightNumbers);
+    d.finger_tap(x, y);
+    assert!(!d.app.settings.highlight_on);
+    d.button(Button::Settings);
+    keep(&d, "the switch off (HLT-6)");
+    d.button(Button::Settings);
+    d.finger_tap(x, y);
+    d.button(Button::Settings);
+    keep(&d, "the switch on");
+    // Help, Statistics and Licenses, and the return.
+    for page in [Button::Help, Button::Statistics] {
+        d.button(page);
+        tap_back(&mut d, false);
+        d.wait(BACK_GUARD_MS);
+        keep(&d, &format!("{page:?}"));
+    }
+    d.button(Button::Settings);
+    let (x, y) = pixel_center(layout::settings_row(layout::LICENSES_ROW, d.app.update.has_row()));
+    d.finger_tap(x, y);
+    assert_eq!(d.app.screen, Screen::Licenses);
+    tap_back(&mut d, false);
+    d.wait(BACK_GUARD_MS);
+    assert_eq!(d.app.screen, Screen::Game);
+    keep(&d, "Licenses");
+    // A turn of the tablet and the return.
+    for o in [layout::Orientation::Landscape, layout::Orientation::Portrait] {
+        layout::set_orientation(o);
+        let stops = d.app.ng_stops;
+        d.app.rotate(stops);
+        keep(&d, &format!("a turn to {o:?}"));
+    }
+    // A save and a delete of a checkpoint, and "Current" (no change of the board).
+    open_checkpoints(&mut d);
+    tap_by(&mut d, By::Finger, save_point());
+    assert_eq!(d.app.game.checkpoints.len(), 1);
+    keep(&d, "a save of a checkpoint");
+    tap_by(&mut d, By::Finger, restore_point(0));
+    keep(&d, "\"Current\"");
+    tap_by(&mut d, By::Finger, bin_point(0));
+    assert!(d.app.game.checkpoints.is_empty());
+    keep(&d, "a delete of a checkpoint");
+    // A press on the board that only closes a panel, with the pen and with the eraser. The next press
+    // on the board removes the highlight.
+    for by in [By::Pen, By::Eraser] {
+        let mut d = two_reveals(721);
+        open_hint(&mut d);
+        let cell = empty_cell(&d.app.game);
+        let game = board(&d.app.game);
+        tap_by(&mut d, by, micro_center(cell, 5));
+        assert_eq!((d.app.ui.menu, board(&d.app.game)), (Menu::Open(None), game), "NAV-11 ({by:?})");
+        assert_eq!(d.app.ui.revealed.iter().count(), 2, "HNT-7: the first press only closes the panel ({by:?})");
+        tap_by(&mut d, by, micro_center(cell, 5));
+        assert!(d.app.ui.revealed.is_empty(), "HNT-7: the next press ({by:?})");
+        assert_board(&d.app, &fonts, "after the press");
+    }
+}
+
+#[test]
+fn each_action_on_the_board_removes_the_highlight_of_all_revealed_cells() {
+    // HNT-7, BRD-7, UND-9: a pen press and an eraser press on the board, a number from ink, an undo, a
+    // redo and a Restore that change the board, and a new game. Each removes all revealed cells
+    // together.
+    let fonts = fonts();
+    let gone = |d: &Driver, what: &str| {
+        assert!(d.app.ui.revealed.is_empty(), "HNT-7: {what}");
+        assert_board(&d.app, &fonts, what);
+    };
+    // A pen press on a cell with a number (it only highlights the digit) and on an empty cell.
+    let mut d = two_reveals(722);
+    let given = given_cell(&d.app.game);
+    d.tap_micro(given, 5);
+    gone(&d, "a pen press on a number");
+    let mut d = two_reveals(722);
+    d.tap_micro(empty_cell(&d.app.game), 5);
+    gone(&d, "a pen press on an empty cell");
+    // An eraser press on an empty cell (no change of the board).
+    let mut d = two_reveals(722);
+    let game = board(&d.app.game);
+    d.erase(empty_cell(&d.app.game));
+    assert_eq!(board(&d.app.game), game);
+    gone(&d, "an eraser press");
+    // A number from ink.
+    let mut d = two_reveals(722);
+    let (cell, v) = incorrect_pair(&d.app.game, &[]);
+    d.write(cell, v);
+    assert_eq!(d.app.game.value_at(cell), v);
+    gone(&d, "a number from ink");
+    // An undo and a redo.
+    let mut d = two_reveals(722);
+    d.button(Button::Undo);
+    gone(&d, "an undo");
+    let mut d = two_reveals(722);
+    d.button(Button::Undo);
+    d.button(Button::Undo);
+    ask(&mut d, By::Finger);
+    d.button(Button::Hint);
+    assert_eq!(d.app.ui.revealed.iter().count(), 1);
+    d.button(Button::Undo);
+    d.button(Button::Redo);
+    d.button(Button::Redo);
+    assert!(d.app.game.redo.is_empty());
+    gone(&d, "a redo");
+    // A Restore that changes the board.
+    let mut d = Driver::new(722);
+    d.button(Button::Menu);
+    open_checkpoints(&mut d);
+    tap_by(&mut d, By::Finger, save_point());
+    ask(&mut d, By::Finger);
+    open_checkpoints(&mut d);
+    tap_by(&mut d, By::Finger, restore_point(0));
+    gone(&d, "a Restore");
+    // A new game.
+    let mut d = two_reveals(722);
+    d.button(Button::NewGame);
+    start_new_game(&mut d);
+    gone(&d, "a new game");
+}
+
+#[test]
+fn the_revealed_highlight_and_the_digit_highlight_are_separate() {
+    // HNT-7, HLT-6, BRD-7: a reveal does not change the highlight of a digit, and the switch that
+    // removes the highlight of a digit does not change `revealed`. A revealed cell has the highlight
+    // color with no highlighted digit.
+    let fonts = fonts();
+    let mut d = Driver::new(723);
+    let given = given_cell(&d.app.game);
+    d.tap_micro(given, 5);
+    let digit = d.app.game.value_at(given);
+    assert_eq!(d.app.ui.highlight, Some(digit));
+    ask(&mut d, By::Finger);
+    ask(&mut d, By::Finger);
+    assert_eq!(d.app.ui.highlight, Some(digit), "HNT-7: a reveal keeps the highlight of the digit");
+    let revealed = d.app.ui.revealed;
+    d.button(Button::Settings);
+    let (x, y) = switch_point(Switch::HighlightNumbers);
+    d.finger_tap(x, y);
+    assert_eq!((d.app.ui.highlight, d.app.ui.revealed), (None, revealed), "HLT-6, HNT-7");
+    d.button(Button::Settings);
+    assert_revealed_colors(&d, &fonts, "no highlighted digit, the switch off");
+}
+
+#[test]
+fn a_tap_on_the_lightbulb_reads_the_waiting_ink_first() {
+    // HNT-1, HNT-4, INP-5: with the panel open, no ink waits. The number of the ink is on the board
+    // before the request, thus a reveal never puts a number below ink. A read that completes the
+    // puzzle does not open the panel.
+    for_each_layout(|case| {
+        for by in ALL_TOOLS {
+            let case = format!("{case}, {by:?}");
+            let mut d = Driver::new(724);
+            d.button(Button::Menu);
+            // The ink of the solution in the cell that a reveal would fill.
+            let cell = model_solver_cell(&d.app.game.value).unwrap();
+            let v = d.app.game.solution[cell.0 as usize][cell.1 as usize];
+            d.write_strokes(&digit_ink(cell, v));
+            assert!(d.app.ui.pending_ink.is_some(), "the ink waits ({case})");
+            tap_by(&mut d, by, button_center(Button::Hint));
+            assert_eq!(d.app.game.value_at(cell), v, "the tap reads the ink ({case})");
+            assert_eq!((panel_of(&d), d.app.ui.pending_ink.is_none()), (Some(Panel::Hint), true), "HNT-1 ({case})");
+            let before = d.app.game.clone();
+            tap_by(&mut d, by, hint_row_point());
+            let changed = changed_cells(&before, &d.app.game);
+            assert_eq!(changed.len(), 1, "HNT-4 ({case})");
+            assert_ne!(changed[0], cell, "HNT-4: a different cell ({case})");
+            assert_eq!(d.app.game.hints, 1, "HNT-6: the number of the ink is not a hint ({case})");
+        }
+        // The read completes the puzzle: the panel does not open.
+        let mut d = Driver::new(725);
+        d.button(Button::Menu);
+        let last = empty_cell(&d.app.game);
+        fill_except(&mut d, last);
+        d.write_strokes(&digit_ink(last, d.app.game.solution[last.0 as usize][last.1 as usize]));
+        d.button(Button::Hint);
+        assert!(d.app.game.completed, "{case}");
+        assert_eq!(d.app.ui.menu, Menu::Open(None), "HNT-1, CMP-3 ({case})");
+    });
+}
+
+#[test]
+fn a_reveal_that_completes_the_puzzle_closes_the_panel_and_the_result_has_the_count() {
+    // HNT-4, HNT-1, CMP-3, CMP-5, CMP-6, NAV-12, DIF-5: the last reveal completes the puzzle. The
+    // panel closes, no cell is revealed, the result row has the count, the lightbulb is gray 70 and a
+    // tap on it changes nothing, also with a different panel open. A level button starts a game
+    // with 0 hints.
+    for_each_layout(|case| {
+        let mut d = Driver::new(726);
+        ask(&mut d, By::Finger);
+        let empty: Vec<Cell> = cells().filter(|&c| !d.app.game.is_filled(c)).collect();
+        // Fill all empty cells but one with numbers of the player.
+        for &c in &empty[1..] {
+            d.app.game.add_number(c, d.app.game.solution[c.0 as usize][c.1 as usize]);
+        }
+        assert!(!d.app.game.completed);
+        tap_by(&mut d, By::Pen, hint_row_point());
+        let g = &d.app.game;
+        assert!(g.completed && g.value == g.solution, "CMP-1 ({case})");
+        assert_eq!(g.hints, 2, "HNT-6 ({case})");
+        assert_eq!((d.app.ui.menu, d.app.ui.revealed.is_empty(), g.incorrect_shown), (Menu::Open(None), true, None), "HNT-4, CMP-3 ({case})");
+        assert_eq!(d.app.results.iter().find(|r| r.seed == g.seed).map(|r| r.hints), Some(2), "CMP-5 ({case})");
+        assert_eq!(lightbulb_grays(&d.app).0, GRAY70, "HNT-1: gray 70 ({case})");
+        for by in ALL_TOOLS {
+            tap_by(&mut d, by, button_center(Button::Hint));
+            assert_eq!(d.app.ui.menu, Menu::Open(None), "HNT-1 ({case}, {by:?})");
+            d.button(Button::Colors);
+            tap_by(&mut d, by, button_center(Button::Hint));
+            assert_eq!(panel_of(&d), Some(Panel::Colors), "HNT-1: the open panel stays open ({case}, {by:?})");
+            d.button(Button::Colors);
+        }
+        // Same: a new game with no hint.
+        d.button(Button::Menu);
+        let (x, y) = documented_level_center(layout::LevelButton::Same);
+        d.finger_tap(x, y);
+        assert!(!d.app.game.completed, "CMP-10 ({case})");
+        assert_eq!((d.app.game.hints, d.app.game.incorrect_shown), (0, None), "DIF-5 ({case})");
+    });
+}
+
+/// The smallest area (x0, y0, x1, y1, with the ends included) that holds all pixels that are
+/// different in the two images, or None if the images are the same.
+fn diff_box(a: &tiny_skia::Pixmap, b: &tiny_skia::Pixmap) -> Option<(i32, i32, i32, i32)> {
+    diff_box_in(a, b, (0, 0, a.width() as i32 - 1, a.height() as i32 - 1))
+}
+
+/// `diff_box` for the pixels of one area (x0, y0, x1, y1, with the ends included).
+fn diff_box_in(a: &tiny_skia::Pixmap, b: &tiny_skia::Pixmap, (ax0, ay0, ax1, ay1): (i32, i32, i32, i32)) -> Option<(i32, i32, i32, i32)> {
+    let mut area: Option<(i32, i32, i32, i32)> = None;
+    for y in ay0..=ay1 {
+        for x in ax0..=ax1 {
+            if rgb_at(a, x, y) != rgb_at(b, x, y) {
+                area = Some(match area {
+                    None => (x, y, x, y),
+                    Some((x0, y0, x1, y1)) => (x0.min(x), y0.min(y), x1.max(x), y1.max(y)),
+                });
+            }
+        }
+    }
+    area
+}
+
+/// The colors of the pixels of `b` in the area that are different from `a`.
+fn diff_colors(a: &tiny_skia::Pixmap, b: &tiny_skia::Pixmap, (x0, y0, x1, y1): (i32, i32, i32, i32)) -> Vec<[u8; 3]> {
+    let mut colors = Vec::new();
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let c = rgb_at(b, x, y);
+            if rgb_at(a, x, y) != c && !colors.contains(&c) {
+                colors.push(c);
+            }
+        }
+    }
+    colors
+}
+
+/// The left x of the toolbar slots in the current layout (R§9): at the right edge of the screen for
+/// a left-handed player, else at x 0.
+fn documented_slot_x() -> i32 {
+    if layout::right_handed() { 0 } else { layout::screen_w() as i32 - 112 }
+}
+
+#[test]
+fn the_lightbulb_shows_the_hint_count_at_its_bottom_right() {
+    // HNT-10: the count shows exactly when the menu is open and `hints` ≥ 1. Its left is 74 px and its
+    // top is 64 px from the slot origin (x 1582, y 176 for a left-handed player in portrait). Above 99
+    // the text is "99+", 4 px or more inside the slot. The color is the color of the icon: black,
+    // white on the black slot while the Hint panel is open, gray 70 on a complete game.
+    use sudoku::app::hint_count_text;
+    assert_eq!(hint_count_text(0), None, "HNT-10");
+    assert_eq!(hint_count_text(1).as_deref(), Some("1"), "HNT-10");
+    assert_eq!(hint_count_text(99).as_deref(), Some("99"), "HNT-10");
+    assert_eq!(hint_count_text(100).as_deref(), Some("99+"), "HNT-10");
+    assert_eq!(hint_count_text(u32::MAX).as_deref(), Some("99+"), "HNT-10");
+    let fonts = fonts();
+    for_each_layout(|case| {
+        let (sx, sy) = (documented_slot_x(), HINT_TOP);
+        let mut app = reference::app(&fonts);
+        app.game.hints = 0;
+        app.ui.menu = Menu::Closed;
+        let closed = draw_screen(&app, &fonts);
+        app.game.hints = 3;
+        assert_eq!(diff_box(&closed, &draw_screen(&app, &fonts)), None, "HNT-10: no count with the menu closed ({case})");
+        for (menu, color) in [(Menu::Open(None), [0, 0, 0]), (Menu::Open(Some(Panel::Hint)), [255, 255, 255])] {
+            let case = format!("{case}, {menu:?}");
+            app.ui.menu = menu;
+            app.game.hints = 0;
+            let none = draw_screen(&app, &fonts);
+            for hints in [1, 3, 99, 100, 150, 1_000_000] {
+                app.game.hints = hints;
+                let with = draw_screen(&app, &fonts);
+                // The pixels out of the slot do not change, except the text of the box of the Hint
+                // panel (HNT-2).
+                let mut outside = diff_box_in(&none, &with, (0, 0, layout::screen_w() as i32 - 1, sy - 1));
+                if menu == Menu::Open(None) {
+                    outside = outside.or(diff_box_in(&none, &with, (0, sy + 112, layout::screen_w() as i32 - 1, layout::screen_h() as i32 - 1)));
+                    outside = outside.or(diff_box_in(&none, &with, (if sx == 0 { 112 } else { 0 }, sy, if sx == 0 { layout::screen_w() as i32 - 1 } else { sx - 1 }, sy + 111)));
+                }
+                assert_eq!(outside, None, "HNT-10: only the slot changes, {hints} ({case})");
+                let area = diff_box_in(&none, &with, (sx, sy, sx + 111, sy + 111)).unwrap_or_else(|| panic!("HNT-10: a count for {hints} ({case})"));
+                let (x0, y0, x1, y1) = area;
+                assert!(x0 >= sx + 4 && x1 <= sx + 111 - 4 && y0 >= sy + 4 && y1 <= sy + 111 - 4, "HNT-10: 4 px inside the slot, {hints}: {area:?} ({case})");
+                assert!((sy + 64..=sy + 66).contains(&y0), "HNT-10: the top, {hints}: {area:?} ({case})");
+                if hints <= 99 {
+                    assert!((sx + 74..=sx + 77).contains(&x0), "HNT-10: the left, {hints}: {area:?} ({case})");
+                }
+                assert_eq!(diff_colors(&none, &with, area), [color], "HNT-10: the color of the icon, {hints} ({case})");
+            }
+        }
+        // A complete game: gray 70.
+        let mut app = reference::app(&fonts);
+        app.game = reference::completed_game();
+        app.ui.menu = Menu::Open(None);
+        app.game.hints = 0;
+        let none = draw_screen(&app, &fonts);
+        app.game.hints = 12;
+        let with = draw_screen(&app, &fonts);
+        let area = diff_box_in(&none, &with, (sx, sy, sx + 111, sy + 111)).expect("HNT-10: a count on a complete game");
+        assert_eq!(diff_colors(&none, &with, area), [[GRAY70; 3]], "HNT-10: gray 70 ({case})");
+    });
+}
+
+#[test]
+fn the_result_card_shows_the_hint_count_at_its_documented_place() {
+    // HNT-13, CMP-8, CMP-7: "N hints used" (Regular 30 px, gray25) only when the game has 1 or more
+    // hints. Portrait: right-aligned at x 725 on the baseline y 1879. Landscape: from x 76 (left-handed)
+    // or x 1818 (right-handed) on the baseline y 440. Only the pixels of the text change.
+    use sudoku::app::hints_used_text;
+    assert_eq!(hints_used_text(0), "0 hints used", "HNT-2");
+    assert_eq!(hints_used_text(1), "1 hint used", "HNT-2, HNT-13");
+    assert_eq!(hints_used_text(2), "2 hints used", "HNT-2, HNT-13");
+    assert_eq!(hints_used_text(150), "150 hints used", "HNT-13: the true count");
+    let fonts = fonts();
+    for_each_layout(|case| {
+        let mut d = completed_at(730, 2);
+        d.app.ui.menu = Menu::Closed;
+        d.app.game.hints = 0;
+        let none = draw_screen(&d.app, &fonts);
+        let mut widths = Vec::new();
+        for hints in [1u32, 3, 150] {
+            d.app.game.hints = hints;
+            let with = draw_screen(&d.app, &fonts);
+            let area = diff_box(&none, &with).unwrap_or_else(|| panic!("HNT-13: the text for {hints} ({case})"));
+            let (x0, y0, x1, y1) = area;
+            assert_eq!(diff_colors(&none, &with, area), [[64, 64, 64]], "HNT-13: gray25 ({case})");
+            assert!(y1 - y0 < 30, "HNT-13: one line, {area:?} ({case})");
+            if layout::screen_w() == 2160 {
+                let start = if layout::right_handed() { 1818 } else { 76 };
+                assert!((start..=start + 3).contains(&x0), "HNT-13: the start, {area:?} ({case})");
+                assert!((438..=440).contains(&y1), "HNT-13: the baseline y 440, {area:?} ({case})");
+            } else {
+                assert!((725 - 6..=725).contains(&x1), "HNT-13: the right edge, {area:?} ({case})");
+                assert!((1877..=1879).contains(&y1), "HNT-13: the baseline y 1879, {area:?} ({case})");
+            }
+            widths.push(x1 - x0);
+        }
+        assert!(widths[0] < widths[1] && widths[1] < widths[2], "HNT-13: the text is the count ({case}): {widths:?}");
+    });
+}
+
+#[test]
+fn the_text_of_an_average_of_hints() {
+    // HNT-12, ANA-4: "–" with no results; a whole number with no decimals; else 2 decimal places at
+    // most, ties to even, with no zeros at the end.
+    use sudoku::app::average_hints_text as text;
+    for (sum, n, want) in [
+        (0, 0, "–"),
+        (5, 0, "–"),
+        (0, 3, "0"),
+        (6, 3, "2"),
+        (2, 7, "0.29"),
+        (5, 2, "2.5"),
+        (1, 8, "0.12"),
+        (3, 8, "0.38"),
+        (5, 4, "1.25"),
+        (1, 3, "0.33"),
+        (2, 3, "0.67"),
+        (1, 10, "0.1"),
+        (199, 200, "1"),
+        (1, 200, "0"),
+        (3, 200, "0.02"),
+        (1001, 10, "100.1"),
+        (u128::from(u64::MAX), 1, "18446744073709551615"),
+    ] {
+        assert_eq!(text(sum, n), want, "HNT-12: {sum} / {n}");
+    }
+    for sum in 0..200u128 {
+        for n in 1..40u128 {
+            let t = text(sum, n);
+            let decimals = t.split('.').nth(1).map_or(0, str::len);
+            assert!(decimals <= 2 && !(decimals > 0 && t.ends_with('0')), "HNT-12: {sum} / {n} = {t}");
+            let exact = sum as f64 / n as f64;
+            assert!((t.parse::<f64>().unwrap() - exact).abs() <= 0.005 + 1e-9, "HNT-12: {sum} / {n} = {t}");
+        }
+    }
+}
+
+#[test]
+fn the_statistics_show_the_average_hints_and_the_hints_of_each_game() {
+    // ANA-4, ANA-5, HNT-12: the column "Average hints" of the summary uses only the results of its mode
+    // (right edge x 1290 in portrait), and the column "Hints" of the list shows the count of each game
+    // (right edge x 1400 in portrait). The filter does not use `hints`.
+    use sudoku::app::average_hints;
+    let fonts = fonts();
+    let mut d = Driver::from(app_with_results(30));
+    // app_with_results: result i has mode i % 5 and i % 3 hints.
+    for mode in 0..5u8 {
+        let rows: Vec<_> = d.app.results.iter().filter(|r| r.mode == mode).collect();
+        let sum: u64 = rows.iter().map(|r| r.hints).sum();
+        assert_eq!(average_hints(rows.iter().copied()), sudoku::app::average_hints_text(u128::from(sum), rows.len() as u128), "ANA-4: mode {mode}");
+    }
+    assert_eq!(average_hints(d.app.results.iter().filter(|r| r.mode == 6)), "–", "ANA-4: no results");
+    d.button(Button::Menu);
+    d.button(Button::Statistics);
+    for r in d.app.results.iter_mut() {
+        r.hints = 1;
+    }
+    let one = draw_screen(&d.app, &fonts);
+    for r in d.app.results.iter_mut() {
+        r.hints = 8;
+    }
+    let eight = draw_screen(&d.app, &fonts);
+    let (_, _, x1, _) = diff_box(&one, &eight).expect("ANA-4: the averages change");
+    assert!((1290 - 6..=1290).contains(&x1), "ANA-4: the right edge of \"Average hints\": {x1}");
+    // The list.
+    let all = layout::all_games_button();
+    d.finger_tap((all.x0 + 100) as f32, (all.y0 + 20) as f32);
+    assert_eq!(d.app.screen, Screen::GamesList);
+    let eight = draw_screen(&d.app, &fonts);
+    for r in d.app.results.iter_mut() {
+        r.hints = 1;
+    }
+    let one = draw_screen(&d.app, &fonts);
+    for i in 0..layout::list_rows() {
+        let row = layout::bin_button(i);
+        let mut a = tiny_skia::Pixmap::new(one.width(), one.height()).unwrap();
+        let mut b = a.clone();
+        // Only the pixels of this row.
+        for y in row.y0..row.y1 {
+            for x in 0..one.width() as i32 {
+                let (p, q) = (rgb_at(&one, x, y), rgb_at(&eight, x, y));
+                a.fill_rect(tiny_skia::Rect::from_xywh(x as f32, y as f32, 1.0, 1.0).unwrap(), &paint(p), tiny_skia::Transform::identity(), None);
+                b.fill_rect(tiny_skia::Rect::from_xywh(x as f32, y as f32, 1.0, 1.0).unwrap(), &paint(q), tiny_skia::Transform::identity(), None);
+            }
+        }
+        let (_, _, x1, _) = diff_box(&a, &b).unwrap_or_else(|| panic!("ANA-5: the count of row {i}"));
+        assert!((1400 - 6..=1400).contains(&x1), "ANA-5: the right edge of \"Hints\", row {i}: {x1}");
+    }
+    // The filter does not use the count.
+    let seg = layout::filter_segment(Some(2));
+    d.finger_tap((seg.x0 + 10) as f32, (seg.y0 + 10) as f32);
+    let with_one: Vec<i64> = d.app.page_rows().iter().map(|r| r.id).collect();
+    for (k, r) in d.app.results.iter_mut().enumerate() {
+        r.hints = k as u64 * 1000;
+    }
+    assert_eq!(d.app.page_rows().iter().map(|r| r.id).collect::<Vec<_>>(), with_one, "ANA-5");
+}
+
+fn paint(rgb: [u8; 3]) -> tiny_skia::Paint<'static> {
+    let mut p = tiny_skia::Paint::default();
+    p.set_color_rgba8(rgb[0], rgb[1], rgb[2], 255);
+    p
+}
+
+#[test]
+fn a_results_file_of_version_3_gets_zero_hints_and_each_count_is_read() {
+    // ANA-1, PER-9, CMP-5, HNT-6: the rows of a version 3 database get `hints = 0`. Each count that
+    // the app writes is read again, also above 81 and above 99.
+    let dir = std::env::temp_dir().join(format!("sudoku-hints-db-{}", std::process::id()));
+    std::fs::remove_dir_all(&dir).ok();
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join(sudoku::store::RESULTS_FILE);
+    {
+        let conn = rusqlite::Connection::open(&path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE results (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                finished_at INTEGER NOT NULL,
+                mode        INTEGER NOT NULL CHECK (mode BETWEEN 0 AND 6),
+                givens      INTEGER NOT NULL CHECK (givens BETWEEN 0 AND 81),
+                seconds     INTEGER NOT NULL CHECK (seconds >= 0),
+                seed        INTEGER NOT NULL,
+                generator   INTEGER NOT NULL CHECK (generator >= 1),
+                symmetric   INTEGER NOT NULL DEFAULT 0 CHECK (symmetric IN (0, 1))
+            );
+            INSERT INTO results VALUES (3, 100, 2, 30, 200, 41, 3, 1), (8, 200, 5, 24, 900, 42, 2, 0);
+            PRAGMA user_version = 3;",
+        )
+        .unwrap();
+    }
+    let mut db = ResultsDb::open(&path).unwrap();
+    let rows: Vec<(i64, u64, bool, u64)> = db.all().unwrap().iter().map(|r| (r.id, r.seed, r.symmetric, r.hints)).collect();
+    assert_eq!(rows.len(), 2, "ANA-1: the app uses all rows");
+    assert!(rows.contains(&(3, 41, true, 0)) && rows.contains(&(8, 42, false, 0)), "ANA-1, PER-9: {rows:?}");
+    for (seed, hints) in [(50, 82), (51, 100), (52, u32::MAX)] {
+        db.insert(&sudoku::store::NewResult { finished_at: 300, mode: 6, givens: 22, seconds: 999, seed, generator: 3, symmetric: false, hints }).unwrap();
+    }
+    drop(db);
+    let all = ResultsDb::open(&path).unwrap().all().unwrap();
+    assert_eq!(all.len(), 5, "HNT-6, ANA-1: no row is hidden");
+    for (seed, hints) in [(50, 82u64), (51, 100), (52, u64::from(u32::MAX))] {
+        assert_eq!(all.iter().find(|r| r.seed == seed).map(|r| r.hints), Some(hints), "HNT-6, ANA-1: {seed}");
+    }
+    std::fs::remove_dir_all(&dir).ok();
+}
+
+#[test]
+fn the_lightbulb_obeys_the_guard_after_back() {
+    // NAV-16, HNT-1: for BACK_GUARD_MS after "< Back", a press on the lightbulb (top slot 1, y 112-223)
+    // changes nothing, with the pen and with a finger, in the four layouts. Then it opens the panel.
+    for_each_layout(|case| {
+        let x = layout::tb_cx();
+        for y in [112.0, 168.0, 223.0] {
+            for by in [By::Finger, By::Pen] {
+                let case = format!("{case}, y {y}, {by:?}");
+                let mut d = Driver::new(731);
+                back_from(&mut d, Button::Statistics, false);
+                let game = board(&d.app.game);
+                d.wait(BACK_GUARD_MS - 50);
+                tap_by(&mut d, by, (x, y));
+                assert_eq!((d.app.screen, d.app.ui.menu), (Screen::Game, Menu::Open(None)), "NAV-16 ({case})");
+                assert_eq!(board(&d.app.game), game, "NAV-16 ({case})");
+                d.wait(50);
+                tap_by(&mut d, by, (x, y));
+                assert_eq!(panel_of(&d), Some(Panel::Hint), "NAV-16: it operates after the time ({case})");
+            }
+        }
+    });
 }
